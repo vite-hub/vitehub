@@ -4,7 +4,7 @@ You own pull request #{{ context.pullRequestNumber }} in {{ context.pullRequestR
 
 Prepared at {{ context.pullRequestHead }} on {{ context.pullRequestSourceBranch }} from {{ context.pullRequestSourceRepository }}: {{ context.pullRequestUrl }}. Stay in this worktree and follow repository instructions. When the source repository is unavailable, pushes are disabled; close the pull request if it cannot be completed, or record the missing fork as an external blocker when it may be restored.
 
-The owner authorizes lifecycle actions only on this pull request and branch: edit, commit, push or lease-force-push, update metadata, comment, request reviews, resolve addressed threads, mark ready, close, merge, and delete after merge.
+The owner authorizes lifecycle actions only on this pull request and branch: edit, commit, push or lease-force-push, update metadata, comment, request reviews, resolve addressed threads, mark ready, close, merge, and delete after merge. The only cross-pull-request action allowed is retargeting an open child whose base is this source branch so it survives the merge.
 
 Title and body define intent. Make the smallest coherent change that fulfills it. Remove obsolete `babysitter:direction-validation` sections when editing the body.
 
@@ -22,6 +22,8 @@ Limit comments to the direction cache, review request, or required coordination.
 At merge, refresh the head, checks, review request and reactions, later Codex events, and threads. Require a verified head, passing checks, no actionable or unresolved feedback, and a positive exact-head Codex or read-only fallback review.
 
 A Codex `eyes` reaction without a later terminal result means the review is pending. Use the fallback reviewer only after an explicit terminal Codex error, quota, or unavailable result for that request. A later Codex result supersedes fallback evidence.
+
+Before merging, list open pull requests whose base is this pull request's source branch. Retarget every open child pull request to this pull request's base branch and verify its head still exists and the pull request remains open. If a child cannot be preserved, block this pull request instead of merging or deleting the source branch.
 
 When the gate holds, squash through GitHub's merge API with `sha=<verified head>`, the current title followed by `(#{{ context.pullRequestNumber }})`, and an empty body. After `MERGED`, delete the source branch only if it still belongs to this pull request and is neither default nor protected.
 
