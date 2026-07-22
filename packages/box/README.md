@@ -163,7 +163,7 @@ Commands must remain owned by their Box session. Daemonizing or escaping the ses
 
 ## Security boundary
 
-A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the exact resolved boundary is `box.plan.executionAuthority` and is copied unchanged onto every opened session. Use `trustedHost()` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
+A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `box.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. Use `trustedHost()` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
 
 Resolved environment values, file contents, state, and physical Home paths are excluded from `box.plan`. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 

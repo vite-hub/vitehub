@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cloudflareBox, resolveCloudflareBox, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveBox } from "../src/index.ts";
-import { vercelBox, type VercelSandboxInstance } from "../src/vercel.ts";
+import { resolveVercelBox, vercelBox, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -18,6 +18,21 @@ describe("remote Box providers", () => {
     const session = await box.open({ id: "selected-cloudflare" });
     expect(session.id).toBe("selected-cloudflare");
     await session.close();
+  });
+
+  it("normalizes authority from direct remote resolvers", async () => {
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const cloudflare = await resolveCloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }, []);
+    const vercel = await resolveVercelBox({ create: async () => vercelInstance() }, []);
+
+    for (const box of [cloudflare, vercel]) {
+      expect(Object.isFrozen(box.plan)).toBe(true);
+      expect(Object.isFrozen(box.plan.executionAuthority)).toBe(true);
+      expect(Object.isFrozen(box.plan.executionAuthority.filesystem)).toBe(true);
+      const session = await box.open();
+      expect(session.executionAuthority).toBe(box.plan.executionAuthority);
+      await session.close();
+    }
   });
 
   it("retries transient Cloudflare transport failures", async () => {

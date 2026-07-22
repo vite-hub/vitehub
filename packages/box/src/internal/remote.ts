@@ -7,7 +7,7 @@ import type {
   BoxSession,
   ResolvedBoxRequirementInput,
 } from "../index.ts";
-import type { ExecutionAuthority } from "@vite-hub/runtime";
+import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 import { materializeGitCheckout } from "./git-checkout.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
@@ -41,7 +41,11 @@ export async function resolveRemoteBoxRuntime(
     },
     requirements: resolvedRequirements,
   };
-  const plan = await runtime.prepare(input);
+  const prepared = await runtime.prepare(input);
+  const plan = Object.freeze({
+    ...prepared,
+    executionAuthority: normalizeExecutionAuthority(prepared.executionAuthority),
+  });
 
   return Object.freeze({
     async open(options?: BoxOpenOptions) {
