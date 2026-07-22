@@ -1456,9 +1456,11 @@ function settingsFromAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined): AgentSettings<TRuntimeConfig, CALL_OPTIONS> | undefined {
-  return (definition as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
+  const internalDefinition = definition as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
     __vitehubAgentSettings?: AgentSettings<TRuntimeConfig, CALL_OPTIONS>
-  } | undefined)?.__vitehubAgentSettings
+    __vitehubWorkspaceAgentOptions?: WorkspaceAgentOptions<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
+  } | undefined
+  return internalDefinition?.__vitehubAgentSettings ?? internalDefinition?.__vitehubWorkspaceAgentOptions
 }
 
 function declaredExecutionAuthority(provider: object): ExecutionAuthority {

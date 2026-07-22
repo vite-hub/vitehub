@@ -166,6 +166,25 @@ describe("agent message protocol", () => {
     expect(harnessAgentSettings.at(-1)?.sandbox).toBe(provider)
   })
 
+  it("preserves sandbox settings on source-root workspace Agent clones", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+    const provider = { executionAuthority: noExecutionAuthority, providerId: "source-root" }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValue({ text: "cloned" })
+    const agent = workspaceAgentWithSourceRoot(defineAgent({
+      driver: { harness: { harnessId: "fixture" }, sandbox: provider },
+      workspace: {},
+    }), "/workspace")
+
+    await expect(runAgentInline(agent, {
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, {}, { output: "raw" })).resolves.toEqual({ text: "cloned" })
+    expect(harnessAgentSettings.at(-1)?.sandbox).toBe(provider)
+  })
+
   it("rejects harness adapters that change the authorized execution authority", async () => {
     const { defineAgent, runAgentInline } = await import("../src/index.ts")
     const provider = { executionAuthority: unknownExecutionAuthority, providerId: "unsafe" }
