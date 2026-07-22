@@ -119,6 +119,7 @@ async function writeFixtureFiles(overrides) {
     "  fmt: {},",
     "  lint: { options: { typeAware: true, typeCheck: true } },",
     "  plugins: [vitehub({",
+    "    preset: \"netlify\",",
     "    agent: {",
     "      providers: { state: { provider: \"memory\" } },",
     "    },",

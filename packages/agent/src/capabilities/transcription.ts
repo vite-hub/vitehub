@@ -1,7 +1,6 @@
-import { ViteHubError } from "@vite-hub/runtime"
+import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 import type { MaybePromise } from "../types.ts"
-import type { ViteHubErrorShape } from "@vite-hub/runtime"
 
 const transcriptionErrorMessages = {
   TRANSCRIPTION_AUTHENTICATION_FAILED: "[vitehub] Transcription authentication failed.",
@@ -14,15 +13,6 @@ const transcriptionErrorMessages = {
 
 export type TranscriptionErrorCode = keyof typeof transcriptionErrorMessages
 export type TranscriptionMetadata = Readonly<Record<string, unknown>>
-
-const transcriptionErrorRetryability: Record<TranscriptionErrorCode, boolean | undefined> = {
-  TRANSCRIPTION_AUTHENTICATION_FAILED: false,
-  TRANSCRIPTION_INVALID_PAYLOAD: false,
-  TRANSCRIPTION_INVALID_REQUEST: false,
-  TRANSCRIPTION_NETWORK_FAILED: true,
-  TRANSCRIPTION_PROVIDER_FAILED: undefined,
-  TRANSCRIPTION_RATE_LIMITED: true,
-}
 
 export interface TranscriptionSource {
   mediaType?: string
@@ -82,7 +72,7 @@ export interface TranscriptionSubmission extends TranscriptionDriverSubmission {
 }
 
 export interface TranscriptionFailedCompletion {
-  error: TranscriptionError
+  error: ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails>
   id: string
   metadata?: TranscriptionMetadata
   provider: string
@@ -107,28 +97,25 @@ export type TranscriptionErrorDetails = {
   status?: number
 }
 
-export type TranscriptionErrorJSON = ViteHubErrorShape<TranscriptionErrorCode, TranscriptionErrorDetails>
-
-export interface TranscriptionErrorOptions extends ErrorOptions {
+interface TranscriptionErrorOptions extends ErrorOptions {
   provider?: string
   status?: number
 }
 
-export class TranscriptionError extends ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails> {
-  constructor(code: TranscriptionErrorCode, options?: TranscriptionErrorOptions) {
-    if (typeof code !== "string" || !Object.hasOwn(transcriptionErrorMessages, code)) {
-      throw new TypeError("[vitehub] TranscriptionError requires a known transcription error code.")
-    }
-    const details = safeErrorDetails(options)
-    const retryable = transcriptionErrorRetryability[code]
-    const cause = readErrorOption(options, "cause")
-    super(code, transcriptionErrorMessages[code], {
-      ...(cause === undefined ? {} : { cause }),
-      ...(details ? { details } : {}),
-      ...(retryable === undefined ? {} : { retryable }),
-    })
-    this.name = "TranscriptionError"
+export function transcriptionError(code: TranscriptionErrorCode, options?: TranscriptionErrorOptions): ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails> {
+  if (typeof code !== "string" || !Object.hasOwn(transcriptionErrorMessages, code)) {
+    throw new TypeError("[vitehub] Transcription errors require a known code.")
   }
+  const details = safeErrorDetails(options)
+  const cause = readErrorOption(options, "cause")
+  return new ViteHubError(code, transcriptionErrorMessages[code], {
+    ...(cause === undefined ? {} : { cause }),
+    ...(details ? { details } : {}),
+  })
+}
+
+export function isTranscriptionError(value: unknown): boolean {
+  return getViteHubErrorShape(value)?.code.startsWith("TRANSCRIPTION_") === true
 }
 
 function assertDriver(driver: unknown): asserts driver is TranscriptionDriver {
@@ -148,47 +135,47 @@ function assertMetadata(
 ): asserts metadata is TranscriptionMetadata | undefined {
   if (metadata === undefined) return
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    throw new TranscriptionError(code, { cause: new TypeError(`[vitehub] ${field} must be an object.`) })
+    throw transcriptionError(code, { cause: new TypeError(`[vitehub] ${field} must be an object.`) })
   }
 }
 
 function normalizeSource(source: TranscriptionSource | undefined): TranscriptionSource {
   if (!source || typeof source !== "object") {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source must be an object.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source must be an object.") })
   }
   if (typeof source.url !== "string" || !source.url.trim()) {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.url must be a non-empty URL.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.url must be a non-empty URL.") })
   }
   let url: URL
   try {
     url = new URL(source.url)
   }
   catch (cause) {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause })
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.url must use HTTP or HTTPS.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.url must use HTTP or HTTPS.") })
   }
   if (source.mediaType !== undefined && (typeof source.mediaType !== "string" || !source.mediaType.trim())) {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.mediaType must be a non-empty string.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.mediaType must be a non-empty string.") })
   }
   if (source.name !== undefined && (typeof source.name !== "string" || !source.name.trim())) {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.name must be a non-empty string.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.name must be a non-empty string.") })
   }
   return { ...source, url: url.href }
 }
 
 function assertId(id: unknown, provider: string, phase: string): asserts id is string {
   if (typeof id !== "string" || !id.trim()) {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", {
+    throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", {
       cause: new TypeError(`[vitehub] Transcription driver ${provider} returned an invalid ${phase} id.`),
       provider,
     })
   }
 }
 
-function invalidPayload(provider: string, cause?: unknown): TranscriptionError {
-  return new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", {
+function invalidPayload(provider: string, cause?: unknown): ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails> {
+  return transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", {
     ...(cause === undefined ? {} : { cause }),
     provider,
   })
@@ -199,7 +186,7 @@ function inspectDriverResult<T>(provider: string, inspect: () => T): T {
     return inspect()
   }
   catch (cause) {
-    if (cause instanceof TranscriptionError) throw cause
+    if (isTranscriptionError(cause)) throw cause
     throw invalidPayload(provider, cause)
   }
 }
@@ -242,7 +229,7 @@ function normalizeCompletion(completion: TranscriptionDriverCompletion, provider
     if (completion.status === "failed") {
       if (typeof completion.error !== "string" || !completion.error.trim()) throw invalidPayload(provider)
       return {
-        error: new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
+        error: transcriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
           cause: new Error(completion.error),
           provider,
         }),

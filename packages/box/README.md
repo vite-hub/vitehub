@@ -1,6 +1,6 @@
 # @vite-hub/box
 
-`@vite-hub/box` prepares one portable execution environment for every harness and command in a ViteHub Agent. A project declares environment inputs, immutable Home files, writable Home state, and boot checks; the selected runtime materializes them without reading the machine's normal Home.
+`@vite-hub/box` owns portable execution for ViteHub. A project declares environment inputs, immutable Home files, writable Home state, and boot checks; a runtime Adapter turns that declaration into an inspectable preparation plan and opens active Box sessions without exposing a provider SDK.
 
 ## Install
 
@@ -50,6 +50,48 @@ export default defineAgent<any, { ref: string; remote: string; sha: string }>({
   driver: codexDriver(),
 });
 ```
+
+Agent and Sandbox orchestration use the same active Interface under the hood. Direct callers can inspect preparation without resolving secrets, then open an invocation session:
+
+```ts
+import { resolveBox, trustedHost } from "@vite-hub/box";
+
+const box = await resolveBox(
+  {
+    env: { PROJECT_ENV: "test" },
+    requires: ["node", "pnpm"],
+    runtime: trustedHost(),
+  },
+  {},
+);
+
+console.log(box.plan.runtime, box.plan.requirements);
+
+const session = await box.open();
+try {
+  await session.files.write("workspace/input.bin", new Uint8Array([0, 1, 255]));
+  const result = await session.exec("node", ["workspace/run.mjs"], {
+    cwd: session.cwd,
+    timeout: 30_000,
+  });
+  if (!result.ok) throw new Error(result.stderr);
+} finally {
+  await session.close();
+}
+```
+
+Binary file reads and writes, directory operations, recursive listing, removal, and command execution are required across runtimes. Long-running processes and exposed ports are explicit optional capabilities through `session.spawn` and `session.ports`. `close()` is idempotent, and every operation rejects after closure.
+
+Hosted adapters use explicit subpath imports:
+
+```ts
+import { cloudflareBox } from "@vite-hub/box/cloudflare";
+import { vercelBox } from "@vite-hub/box/vercel";
+```
+
+`cloudflareBox()` preserves Durable Object idle reuse and bounds transient transport operations with retries and deadlines. `vercelBox({ ports })` exposes only the ports declared when the microVM is created. Both adapters reject host `cwd`; materialize a Workspace into their disposable working tree instead.
+
+`box.open({ initialize })` runs initialization inside runtime preparation. If initialization fails, a runtime must tear down the session and roll back state created for that failed boot.
 
 `checkout` gives each invocation a disposable real Git repository at the exact requested commit. The runtime fetches `ref` from `remote`, verifies the resulting commit against the full `sha`, and starts the harness in a detached checkout. Normal Git commits work, and callers can push explicitly with `git push origin HEAD:<branch>`. Use the source repository as `remote` for fork pull requests, and keep credentials in Box `env` or Home rather than embedding them in the remote URL.
 
@@ -123,6 +165,6 @@ Commands must remain owned by their Box session. Daemonizing or escaping the ses
 
 A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not isolate the filesystem, network, installed executables, or trusted project code. Use `trustedHost()` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
 
-Resolved environment values, file contents, state, physical Home paths, and sandbox handles are excluded from serialized Box metadata. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable session identity uses declaration targets and state keys, never secret values or temporary paths.
+Resolved environment values, file contents, state, and physical Home paths are excluded from `box.plan`. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 
-Box `cwd` and `checkout` cannot be combined with Agent Workspace materialization because each owns the working tree. Omit both when the Agent should use a disposable Workspace session.
+Box does not own Workspace snapshots, diffs, or commits. Workspace materializes those files through `BoxSession.files`, while Box remains responsible for execution and lifecycle.

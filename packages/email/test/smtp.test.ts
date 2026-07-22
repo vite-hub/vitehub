@@ -9,7 +9,7 @@ vi.mock("nodemailer", () => ({
   default: { createTransport: nodemailer.createTransport },
 }))
 
-import { createEmail, EmailError } from "../src/index.ts"
+import { createEmail } from "../src/index.ts"
 import { smtp } from "../src/drivers/smtp.ts"
 
 beforeEach(() => {
@@ -65,11 +65,11 @@ describe("smtp", () => {
   })
 
   it.each([
-    [{ code: "EAUTH", message: "Authentication failed" }, "authentication"],
-    [{ code: "ETIMEDOUT", message: "Timed out" }, "timeout"],
-    [{ code: "ECONNECTION", message: "Connection refused" }, "network"],
-    [{ message: "Too many messages, rate limit exceeded", responseCode: 451 }, "rate-limit"],
-    [{ code: "EENVELOPE", message: "Bad envelope" }, "provider"],
+    [{ code: "EAUTH", message: "Authentication failed" }, "EMAIL_AUTHENTICATION"],
+    [{ code: "ETIMEDOUT", message: "Timed out" }, "EMAIL_TIMEOUT"],
+    [{ code: "ECONNECTION", message: "Connection refused" }, "EMAIL_NETWORK"],
+    [{ message: "Too many messages, rate limit exceeded", responseCode: 451 }, "EMAIL_RATE_LIMITED"],
+    [{ code: "EENVELOPE", message: "Bad envelope" }, "EMAIL_PROVIDER_FAILED"],
   ])("normalizes Nodemailer failures", async (cause, code) => {
     nodemailer.sendMail.mockRejectedValue(cause)
     const client = createEmail({ driver: smtp("smtp://localhost") })
@@ -82,7 +82,7 @@ describe("smtp", () => {
     })).rejects.toMatchObject({
       cause,
       code,
-      driver: "smtp",
+      details: { driver: "smtp" },
       message: "[vitehub] SMTP delivery failed.",
     })
   })
@@ -112,9 +112,9 @@ describe("smtp", () => {
       subject: "Welcome",
       text: "Hello",
       to: "maxi@example.com",
-    })).rejects.toEqual(expect.objectContaining<Partial<EmailError>>({
-      code: "provider",
-      driver: "smtp",
+    })).rejects.toEqual(expect.objectContaining({
+      code: "EMAIL_PROVIDER_FAILED",
+      details: { driver: "smtp" },
     }))
   })
 })

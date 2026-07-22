@@ -164,7 +164,15 @@ function bytesFromAudioString(value: string): Uint8Array {
 
 async function responseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
   const contentLength = Number(response.headers.get("content-length"))
-  if (Number.isFinite(contentLength)) assertWithinMaxBytes(contentLength, maxBytes, "downloaded audio")
+  if (Number.isFinite(contentLength)) {
+    try {
+      assertWithinMaxBytes(contentLength, maxBytes, "downloaded audio")
+    }
+    catch (error) {
+      await response.body?.cancel(error).catch(() => undefined)
+      throw error
+    }
+  }
 
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer())
@@ -175,13 +183,22 @@ async function responseBytes(response: Response, maxBytes: number): Promise<Uint
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let byteLength = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
-    byteLength += chunk.byteLength
-    assertWithinMaxBytes(byteLength, maxBytes, "downloaded audio")
-    chunks.push(chunk)
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
+      byteLength += chunk.byteLength
+      assertWithinMaxBytes(byteLength, maxBytes, "downloaded audio")
+      chunks.push(chunk)
+    }
+  }
+  catch (error) {
+    await reader.cancel(error).catch(() => undefined)
+    throw error
+  }
+  finally {
+    reader.releaseLock()
   }
 
   const bytes = new Uint8Array(byteLength)
@@ -465,7 +482,6 @@ export function getTranscriptionResults(context: AgentInvocationContextStore | {
 
 export function transcribe(options: TranscribeOptions): AgentCapabilityDefinition {
   return defineCapability({
-    chatAttachments: { audio: true },
     id: "transcribe",
     metadata: {
       kind: "transcribe",
@@ -508,7 +524,10 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
         results.push(...messageResults)
         const text = transcripts.filter(Boolean).join("\n")
         const separator = text && message.parts.some(part => part.type === "text" && part.text.length > 0) ? "\n" : ""
-        messages.push(appendMessageText(message, `${separator}${text}`))
+        messages.push(appendMessageText({
+          ...message,
+          parts: message.parts.filter(part => !isAudioPart(part)),
+        }, `${separator}${text}`))
       }
       context.input.setMessages(messages)
       appendTranscriptionResults(context.context, results)

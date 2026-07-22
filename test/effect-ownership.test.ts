@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const effectVersion = "4.0.0-beta.99"
-const expectedEffectOwners = ["agent", "internal", "schedule", "source", "workspace"]
+const expectedEffectOwners = ["agent", "internal", "schedule", "source"]
 const allowedEffectOwners = new Set(expectedEffectOwners)
 
 type PackageEffectOwnership = {

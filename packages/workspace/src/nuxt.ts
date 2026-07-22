@@ -7,7 +7,11 @@ export interface WorkspaceNuxtModuleOptions extends WorkspaceModuleOptions {}
 type NuxtLike = {
   hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) => void
   options: {
+    alias?: Record<string, string>
     dev?: boolean
+    imports?: {
+      imports?: Array<{ from: string, name: string }>
+    }
     rootDir?: string
     srcDir?: string
     vite?: {
@@ -29,6 +33,14 @@ function resolveWorkspaceOptions(options: WorkspaceNuxtModuleOptions, viteOption
 export default function viteHubWorkspaceNuxtModule(options: WorkspaceNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
 
+  nuxt.options.imports ??= {}
+  nuxt.options.imports.imports ??= []
+  for (const name of ["useWorkspaceCollection", "useWorkspaceCollectionItem"]) {
+    if (!nuxt.options.imports.imports.some(entry => entry.name === name)) {
+      nuxt.options.imports.imports.push({ from: "@vite-hub/workspace/collections/client", name })
+    }
+  }
+
   nuxt.options.vite ??= {}
   const workspaceOptions = resolveWorkspaceOptions(options, nuxt.options.vite.workspace)
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []
@@ -40,6 +52,7 @@ export default function viteHubWorkspaceNuxtModule(options: WorkspaceNuxtModuleO
   nuxt.hook?.("nitro:config", async (nitroConfig) => {
     const rootDir = nuxt.options.rootDir || process.cwd()
     const nitro = await createWorkspaceNitroConfig({
+      aliases: nuxt.options.alias,
       command: nuxt.options.dev ? "serve" : "build",
       nitro: nitroConfig,
       viteRoot: nuxt.options.srcDir || rootDir,

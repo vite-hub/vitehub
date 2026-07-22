@@ -49,6 +49,7 @@ export default defineConfig({
     ssr: true,
   },
   plugins: [vitehub({
+    preset: "node",
     blob: false,
     database: false,
     devtools: false,

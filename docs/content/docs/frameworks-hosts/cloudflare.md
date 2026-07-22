@@ -13,7 +13,7 @@ The Definition and Runtime Helper should stay host-neutral; Cloudflare details b
 | Concern | ViteHub boundary |
 | --- | --- |
 | Workers and generated bundles | Provider Output written during production-shaped builds. |
-| D1, R2, KV, Queues, Rate Limiting bindings, Workflows, and Sandbox resources | Primitive package configuration plus Provision Steps where available. |
+| D1, R2, KV, Queues, Browser Run, Rate Limiting bindings, Workflows, and Sandbox resources | Primitive package configuration plus Provision Steps where available. |
 | Credentials | Provider env vars for provisioning or host runtime secrets through Server Env. |
 | Runtime context | Runtime Host Context passed by the host integration, not app-owned global state. |
 | Agent state | Agent Package state provider configuration when Cloudflare-backed state is selected. |
@@ -112,6 +112,21 @@ export default defineConfig({
 ```
 
 Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Workspace preserves unrelated app-owned Artifacts bindings. Cloudflare hosting still defaults to the ephemeral `memory` Store because Artifacts requires explicit beta access.
+
+### Browser Run bindings
+
+Register the Browser integration when trusted server code needs Cloudflare Browser Run sessions.
+
+```ts [vite.config.ts]
+import { hubBrowser } from '@vite-hub/browser/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubBrowser({ binding: 'BROWSER' })],
+})
+```
+
+`hubBrowser()` writes the generated `browser` binding. In Nitro-backed builds it also merges the required `nodejs_compat` flag; other Vite builds must add `nodejs_compat` to their app-owned Wrangler configuration. Runtime code should keep importing Browser helpers from `@vite-hub/browser`; the generated `wrangler.json` is Provider Output, not an application import surface.
 
 ## Production notes
 

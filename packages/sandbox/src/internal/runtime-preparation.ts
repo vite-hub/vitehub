@@ -254,6 +254,7 @@ export async function prepareSandboxRuntime(options: {
       definitions: [],
       files: [],
       hosting: context.hosting,
+      provider: undefined,
       stateModule,
     }
   }
@@ -271,7 +272,6 @@ export async function prepareSandboxRuntime(options: {
       scanRoots: [rootDir],
       serverImports: { presets: [] },
     },
-    !options.resolvedConfig,
   )
   const aliases = createGeneratedAliasMap(rootDir, plan)
   if (options.writeArtifacts === false) {
@@ -281,6 +281,7 @@ export async function prepareSandboxRuntime(options: {
       definitions,
       files: [],
       hosting: context.hosting,
+      provider: getSandboxFeatureProvider(context.config)?.provider,
       stateModule,
     }
   }
@@ -300,6 +301,7 @@ export async function prepareSandboxRuntime(options: {
     definitions,
     files: [facadeFile, ...Array.from(emitted.values(), artifact => artifact.dst)],
     hosting: context.hosting,
+    provider: getSandboxFeatureProvider(context.config)?.provider,
     stateModule,
   }
 }

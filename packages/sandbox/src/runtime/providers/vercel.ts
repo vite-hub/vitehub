@@ -1,7 +1,6 @@
 import type { SandboxDefinitionOptions, VercelSandboxProviderOptions } from '../../module-types'
+import { resolveVercelBox } from '@vite-hub/box/vercel'
 import { readNonEmptyEnv } from '../../internal/shared/env'
-import { normalizeVercelSandboxRuntime } from '../../sandbox/providers/vercel-runtime'
-import type { ResolvedVercelSandboxCredentials } from '../../sandbox/providers/shared'
 
 type SandboxOptions = {
   local: SandboxDefinitionOptions
@@ -13,7 +12,7 @@ function readConfigCredential(value: string | undefined) {
   return trimmed || undefined
 }
 
-function resolveEnvCredentials(): Partial<ResolvedVercelSandboxCredentials> {
+function resolveEnvCredentials() {
   const env = typeof process !== 'undefined' ? process.env : {}
   const token = readNonEmptyEnv(env, 'VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN')
   const teamId = readNonEmptyEnv(env, 'VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID')
@@ -26,7 +25,7 @@ function resolveEnvCredentials(): Partial<ResolvedVercelSandboxCredentials> {
   }
 }
 
-function resolveCredentials(provider: VercelSandboxProviderOptions): ResolvedVercelSandboxCredentials | undefined {
+function resolveCredentials(provider: VercelSandboxProviderOptions) {
   const env = resolveEnvCredentials()
   const token = readConfigCredential(provider.token) || env.token
   const teamId = readConfigCredential(provider.teamId) || env.teamId
@@ -42,17 +41,21 @@ function resolveCredentials(provider: VercelSandboxProviderOptions): ResolvedVer
   }
 }
 
-export async function resolveSandboxProvider(options: SandboxOptions) {
-  return {
-    provider: 'vercel' as const,
-    runtime: normalizeVercelSandboxRuntime(options.provider.runtime),
+export async function resolveSandboxBox(options: SandboxOptions) {
+  const credentials = resolveCredentials(options.provider)
+  const boxOptions = {
+    runtime: options.provider.runtime || 'node24',
     timeout: typeof options.local.timeout === 'number'
       ? options.local.timeout
-      : (typeof options.provider.timeout === 'number' ? options.provider.timeout : undefined),
+      : options.provider.timeout,
     cpu: options.provider.cpu,
     ports: options.provider.ports,
-    credentials: resolveCredentials(options.provider),
     source: options.provider.source,
     networkPolicy: options.provider.networkPolicy,
+    ...credentials,
+  }
+  return {
+    provider: 'vercel' as const,
+    resolveBox: async (requirements: readonly string[]) => await resolveVercelBox(boxOptions, requirements),
   }
 }

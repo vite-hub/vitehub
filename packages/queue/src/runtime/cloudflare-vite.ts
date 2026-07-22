@@ -2,9 +2,11 @@ import { createCloudflareHostedWorker } from "@vite-hub/internal/runtime/cloudfl
 
 import { normalizeQueueOptions } from "../config.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../internal/cloudflare-resource-name.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 
 import { createCloudflareRuntimeEvent, createQueueJob, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
+import { createCloudflareQueueRuntimeClient } from "../internal/runtime/cloudflare-client.ts"
 import type { QueueApp } from "./_app.ts"
 import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
@@ -24,13 +26,29 @@ export interface QueueCloudflareWorker {
   queue: (batch: CloudflareQueueMessageBatch, env: CloudflareWorkerEnv, context: CloudflareWorkerExecutionContext) => Promise<void>
 }
 
+function createRegistryDefinitionNames(registry: QueueDefinitionRegistry | undefined, namePrefix: string): Record<string, string> | undefined {
+  if (!registry) return undefined
+  const definitions: Record<string, string> = {}
+  for (const name of Object.keys(registry)) {
+    const physicalName = getCloudflareQueueName(name, namePrefix)
+    if (definitions[physicalName]) {
+      throw new Error(`Queue names ${JSON.stringify(definitions[physicalName])} and ${JSON.stringify(name)} collide after Cloudflare resource name derivation.`)
+    }
+    definitions[physicalName] = name
+  }
+  return definitions
+}
+
 export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOptions = {}): QueueCloudflareWorker {
   const queueConfig = options.queue === false ? false : normalizeQueueOptions(options.queue, { hosting: "cloudflare" })!
   const registry = options.registry
   const definitions = options.definitions
+  const registryDefinitions = !definitions && queueConfig !== false && queueConfig.provider === "cloudflare"
+    ? createRegistryDefinitionNames(registry, queueConfig.namePrefix ?? "")
+    : undefined
 
   const applyRuntimeState = () => {
-    setQueueRuntimeConfig(queueConfig)
+    setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry(registry)
   }
 
@@ -54,9 +72,12 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
       await runWithActiveCloudflareEnv(env, async () => {
         const definitionName = definitions
           ? definitions[batch.queue]
-          : queueConfig.namePrefix && !batch.queue.startsWith(queueConfig.namePrefix)
+          : registryDefinitions?.[batch.queue]
+            ?? (/-[0-9a-f]{32}$/.test(batch.queue)
+            && !/(?:^|-)queue--(?:[0-9a-f]{2})+$/i.test(batch.queue)
+            || (queueConfig.namePrefix && !batch.queue.startsWith(queueConfig.namePrefix))
             ? undefined
-            : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix)
+            : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix))
         if (!definitionName) {
           throw new Error(`[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} is not mapped to a Queue Definition.`)
         }

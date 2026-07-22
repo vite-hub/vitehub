@@ -1,18 +1,10 @@
 import type { SandboxRunResult } from "../module-types"
-import type { SandboxError } from "../sandbox/errors"
+import type { ViteHubError } from "@vite-hub/runtime"
 
 export function ok<TResult>(value: TResult): SandboxRunResult<TResult> {
-  return {
-    isOk: () => true,
-    isErr: () => false,
-    value,
-  }
+  return [null, value]
 }
 
-export function err<TResult = never>(error: SandboxError): SandboxRunResult<TResult> {
-  return {
-    isOk: () => false,
-    isErr: () => true,
-    error,
-  }
+export function err<TResult = never>(error: ViteHubError<`SANDBOX_${string}`>): SandboxRunResult<TResult> {
+  return [error, undefined]
 }

@@ -1,7 +1,6 @@
 import {
-  ApprovalRequiredError,
-  CapabilityDeniedError,
   resolveCapabilityPolicy,
+  ViteHubError,
 } from "@vite-hub/runtime"
 
 import type {
@@ -60,10 +59,16 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       const approvalRequest = createApprovalRequest(tool.name, input)
 
       if (decision === "deny") {
-        throw new CapabilityDeniedError(tool.name)
+        throw new ViteHubError("CAPABILITY_DENIED", `[vitehub:runtime] Capability "${tool.name}" was denied.`, {
+          details: { capability: tool.name },
+        })
       }
       if (decision === "require-approval") {
-        throw new ApprovalRequiredError(approvalRequest)
+        throw new ViteHubError("APPROVAL_REQUIRED", `[vitehub:runtime] Approval is required for "${tool.name}".`, {
+          cause: approvalRequest,
+          details: { capability: tool.name, requestId: approvalRequest.id },
+          requestId: approvalRequest.id,
+        })
       }
       if (decision === "retryable-failure") {
         throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)

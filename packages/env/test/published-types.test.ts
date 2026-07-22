@@ -14,7 +14,7 @@ const runtimeRoot = resolve(packageRoot, "../runtime")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 
-it("publishes the Env error contract", async () => {
+it("publishes Env error codes for the shared ViteHubError contract", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-env-types-"))
 
   try {

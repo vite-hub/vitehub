@@ -34,7 +34,8 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["vite", /^@vite-hub\//],
+      neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$))/],
+      alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
     plugins: [{

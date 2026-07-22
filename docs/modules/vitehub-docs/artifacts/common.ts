@@ -48,7 +48,7 @@ export function parseScalar(value: string) {
     return false;
   }
 
-  if (/^-?\d+$/.test(trimmed)) {
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
     return Number(trimmed);
   }
 

@@ -10,13 +10,16 @@ import { configureCloudflareKV } from "../../../packages/kv/src/integrations/clo
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
 import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.ts"
-import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
+import { getCloudflareQueueBindingName } from "../../../packages/queue/src/integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../../../packages/queue/src/internal/cloudflare-resource-name.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
+import { discoverRateLimitCatalog } from "../../../packages/rate-limit/src/discovery.ts"
+import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
 import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/cloudflare.ts"
-import { extractSandboxDefinitionOptions } from "../../../packages/sandbox/src/definition-options.ts"
+import { resolveSandboxProject } from "../../../packages/sandbox/src/project.ts"
 import { discoverServerSandboxDefinitions } from "../../../packages/sandbox/src/discovery.ts"
 import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts"
 import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
@@ -52,6 +55,7 @@ const blobPackageDir = resolve(packagesDir, "blob")
 const dbPackageDir = resolve(packagesDir, "database")
 const kvPackageDir = resolve(packagesDir, "kv")
 const queuePackageDir = resolve(packagesDir, "queue")
+const rateLimitPackageDir = resolve(packagesDir, "rate-limit")
 const schedulePackageDir = resolve(packagesDir, "schedule")
 const sandboxPackageDir = resolve(packagesDir, "sandbox")
 const workspacePackageDir = resolve(packagesDir, "workspace")
@@ -69,6 +73,7 @@ interface ViteE2EComposerOptions {
   rootDir: string
   sandbox?: false | AgentSandboxConfig
   queue?: false | ResolvedQueueOptions
+  rateLimit?: false | { namespace: string }
   schedule?: false | true
   workspace?: false | ResolvedWorkspaceModuleOptions
   workflow?: false | ResolvedWorkflowOptions
@@ -90,6 +95,7 @@ interface CloudflareWranglerConfig {
     consumers: Array<{ queue: string }>
     producers: Array<{ binding: string, queue: string }>
   }
+  ratelimits?: Array<Record<string, unknown>>
   r2_buckets?: Array<{ binding: string, bucket_name: string }>
   artifacts?: Array<{ binding: string, namespace: string }>
   triggers?: { crons: string[] }
@@ -101,6 +107,7 @@ interface GeneratedFeatureArtifacts {
   generatedDir: string
   queueDefinitions: Array<{ name: string, handler: string }>
   queueRegistryFile?: string
+  rateLimitDeclarations: ReturnType<typeof discoverRateLimitCatalog>["declarations"]
   scheduleCrons: Map<string, string>
   scheduleDefinitions: Array<{ name: string, handler: string }>
   scheduleRegistryFile?: string
@@ -278,8 +285,8 @@ function renderQueueRuntimeModule(file: string) {
   return [
     `export { defineQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/definition.ts")))}`,
     `export { createQueueMessageId } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/enqueue.ts")))}`,
-    `export { QueueError } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/errors.ts")))}`,
-    `export { createQueueClient, deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { createQueueClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/create-client.ts")))}`,
     "",
   ].join("\n")
 }
@@ -304,7 +311,6 @@ function renderSandboxRuntimeModule(file: string) {
 function renderWorkflowRuntimeModule(file: string) {
   return [
     `export { defineWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/definition.ts")))}`,
-    `export { ApplicationWorkflowError, WorkflowError } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/errors.ts")))}`,
     `export { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
     `export { readRequestPayload, readValidatedPayload, validatePayload } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/payload.ts")))}`,
     "",
@@ -569,6 +575,24 @@ function renderWorkspaceRuntimeModule(file: string, assetsRegistryFile: string) 
     "  }",
     "  return facade",
     "}",
+    "export const createWorkspace = definition => {",
+    "  const workspace = useWorkspace(definition.name, { mode: 'write' })",
+    "  workspace.startSession = async ({ host, target }) => {",
+    "    const entries = await workspace.fs.list('', { recursive: true })",
+    "    for (const entry of entries) {",
+    "      const path = `${target}/${entry.path}`",
+    "      if (entry.type === 'directory') await host.files.mkdir(path, { recursive: true })",
+    "      else {",
+    "        const parent = path.slice(0, path.lastIndexOf('/'))",
+    "        if (parent) await host.files.mkdir(parent, { recursive: true })",
+    "        const content = await workspace.fs.readFile(entry.path)",
+    "        await host.files.write(path, typeof content === 'string' ? new TextEncoder().encode(content) : content)",
+    "      }",
+    "    }",
+    "    return { async close() {} }",
+    "  }",
+    "  return workspace",
+    "}",
     `function createHostedSourceStub(kind, input) {`,
     `  return {`,
     `    fingerprint: { input, kind },`,
@@ -640,19 +664,15 @@ function renderSandboxRegistryModule(definitions: Array<{ name: string, file: st
 
 function renderSandboxProviderLoaderModule(file: string, provider: "cloudflare" | "vercel") {
   const runtimeProviderFile = resolvePackageRuntime(sandboxPackageDir, `runtime/providers/${provider}`)
-  const clientProviderFile = resolvePackageRuntime(sandboxPackageDir, `sandbox/providers/${provider}`)
-  const clientFactory = provider === "cloudflare" ? "createCloudflareSandboxClient" : "createVercelSandboxClient"
 
   return [
-    `import { resolveSandboxProvider } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
-    `import { ${clientFactory} } from ${JSON.stringify(createImportPath(file, clientProviderFile))}`,
+    `import { resolveSandboxBox } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
     "",
     "export async function loadSandboxRuntimeProvider(selectedProvider) {",
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
     "    throw new Error(`[vitehub] Unsupported sandbox provider for this hosted build: ${selectedProvider}`)",
     "  return {",
-    "    resolveSandboxProvider,",
-    `    createSandboxClient: ${clientFactory},`,
+    "    resolveSandboxBox,",
     "  }",
     "}",
     "",
@@ -669,6 +689,9 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   let workspaceAssetsRuntimeFile: string | undefined
   const queueDefinitions = options.queue
     ? discoverQueueDefinitions({ mode: "server-queues", scanDirs: [resolve(options.rootDir, "server")] })
+    : []
+  const rateLimitDeclarations = options.rateLimit
+    ? discoverRateLimitCatalog({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] }).declarations
     : []
   const scheduleDefinitions = options.schedule
     ? discoverScheduleDefinitions({ rootDir: options.rootDir })
@@ -727,6 +750,10 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     runtimeWrites.push(writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8"))
   }
 
+  if (options.rateLimit) {
+    alias["@vite-hub/rate-limit"] = resolve(rateLimitPackageDir, "src/index.ts")
+  }
+
   if (typeof options.schedule !== "undefined") {
     const scheduleRuntimeFile = resolve(generatedDir, "schedule-runtime.mjs")
     alias["@vite-hub/schedule"] = scheduleRuntimeFile
@@ -754,6 +781,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     workspaceAssetsRegistryFile = resolve(options.rootDir, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
     alias["#vitehub-workspace-assets-registry"] = workspaceAssetsRegistryFile
     alias["@vite-hub/workspace/internal/runtime/assets"] = workspaceAssetsRuntimeFile
+    alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile
     alias["@vite-hub/workspace/runtime"] = workspaceStateRuntimeFile
     alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
     alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
@@ -787,13 +815,16 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
     const emittedDefinitions = await Promise.all(sandboxDefinitions.map(async (definition) => {
       const file = resolve(generatedDir, "runtime", "sandbox-definitions", `${toSandboxArtifactName(definition.name)}.mjs`)
-      const [source, definitionOptions] = await Promise.all([
+      const [source, project] = await Promise.all([
         readFile(definition._meta.sourcePath, "utf8"),
-        extractSandboxDefinitionOptions(definition.handler),
+        resolveSandboxProject(definition.handler, options.rootDir, { readSandboxOptions: true }),
       ])
-      const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath)
+      const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath, {
+        execution: "module",
+        project,
+      })
       await mkdir(dirname(file), { recursive: true })
-      await writeFile(file, `export default ${JSON.stringify({ bundle, options: definitionOptions ?? undefined })}\n`, "utf8")
+      await writeFile(file, `export default ${JSON.stringify({ bundle, options: project.options })}\n`, "utf8")
       return { file, name: definition.name }
     }))
 
@@ -833,6 +864,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     generatedDir,
     queueDefinitions,
     queueRegistryFile,
+    rateLimitDeclarations,
     scheduleCrons,
     scheduleDefinitions,
     scheduleRegistryFile,
@@ -850,6 +882,8 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   const cloudflareEnv = resolve(packagesDir, "internal/src/runtime/cloudflare-env.ts")
   const workspaceProvider = options.workspace && options.workspace.store.provider
   const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/runtime"] || resolve(workspacePackageDir, "src/runtime/state.ts")
+  const queueNamePrefix = options.queue ? options.queue.namePrefix : ""
+  const queueDefinitionNames = Object.fromEntries(artifacts.queueDefinitions.map(definition => [getCloudflareQueueName(definition.name, queueNamePrefix), definition.name]))
 
   const imports = [
     `import { H3, toWebHandler } from "h3"`,
@@ -857,13 +891,14 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { clearActiveCloudflareEnv, createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(createImportPath(file, cloudflareEnv))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
     `import { createCloudflareQueueBatchHandler } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/providers/cloudflare.ts")))}`,
-    `import { getCloudflareQueueDefinitionName } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/integrations/cloudflare.ts")))}`,
+    `import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/internal/runtime/cloudflare-client.ts")))}`,
     `import { createQueueJob } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/cloudflare-shared.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(createImportPath(file, resolve(schedulePackageDir, "src/runtime/execute.ts")))}`,
     `import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/cloudflare-runner.ts")))}`,
     `import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
+    `import { setRateLimitRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(rateLimitPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, workspaceRuntimeState))}`,
   ]
@@ -910,15 +945,17 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     ...imports,
     "",
     `const queueConfig = ${JSON.stringify(options.queue || false, null, 2)}`,
+    `const queueDefinitionNames = ${JSON.stringify(queueDefinitionNames, null, 2)}`,
     `const workflowConfig = ${JSON.stringify(options.workflow || false, null, 2)}`,
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,
     `const sandboxConfig = ${JSON.stringify(artifacts.sandboxConfig || false, null, 2)}`,
     `const workspaceConfig = ${JSON.stringify(options.workspace || false, null, 2)}`,
-    "setQueueRuntimeConfig(queueConfig)",
+    "setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)",
     `setQueueRuntimeRegistry(${artifacts.queueRegistryFile ? "queueRegistry" : "undefined"})`,
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
     "setBlobRuntimeConfig(blobConfig)",
+    ...(options.rateLimit ? ["setRateLimitRuntimeConfig({ provider: 'cloudflare' })"] : []),
     "setSandboxRuntimeConfig(sandboxConfig)",
     `setSandboxRuntimeRegistry(${artifacts.alias["#vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
@@ -960,7 +997,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     "    if (queueConfig === false || queueConfig?.provider !== 'cloudflare') return",
     "    setActiveCloudflareEnv(env)",
     "    try {",
-    "      const definition = await loadQueueDefinition(getCloudflareQueueDefinitionName(batch.queue))",
+    "      const definition = await loadQueueDefinition(queueDefinitionNames[batch.queue])",
     "      if (!definition) return",
     "      const runtimeEvent = createCloudflareRuntimeEvent(env, context)",
     "      await createCloudflareQueueBatchHandler({",
@@ -1010,6 +1047,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { H3, fromWebHandler } from "h3"`,
     `import { toNodeHandler } from "h3/node"`,
     `import { resolveAppFetch } from ${JSON.stringify(createImportPath(file, resolveApp))}`,
+    `import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/internal/runtime/vercel-client.ts")))}`,
     `import { setQueueRuntimeConfig, setQueueRuntimeRegistry, runWithQueueRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, runWithWorkflowRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
@@ -1018,7 +1056,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]
   if (preloadVercelQueue) {
-    imports.push("import * as __vitehubVercelQueue from '@vercel/queue'")
+    imports.push(`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/queue")))}`)
   }
 
   if (workspaceProvider === "vercel-blob") {
@@ -1046,7 +1084,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,
     `const sandboxConfig = ${JSON.stringify(artifacts.sandboxConfig || false, null, 2)}`,
     `const workspaceConfig = ${JSON.stringify(options.workspace || false, null, 2)}`,
-    "setQueueRuntimeConfig(queueConfig)",
+    "setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)",
     `setQueueRuntimeRegistry(${artifacts.queueRegistryFile ? "queueRegistry" : "undefined"})`,
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
@@ -1091,17 +1129,18 @@ function renderVercelQueueWrapper(file: string, queueRegistryFile: string, defin
     "import { toNodeHandler } from 'h3/node'",
   ]
   if (preloadVercelQueue) {
-    imports.push("import * as __vitehubVercelQueue from '@vercel/queue'")
+    imports.push(`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/queue")))}`)
   }
 
   return [
     ...imports,
+    `import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/internal/runtime/vercel-client.ts")))}`,
     `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/hosted.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, queueRegistryFile))}`,
     "",
     preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
-    `setQueueRuntimeConfig(${JSON.stringify(queueConfig || false, null, 2)})`,
+    `setQueueRuntimeConfig(${JSON.stringify(queueConfig || false, null, 2)}, createVercelQueueRuntimeClient)`,
     "setQueueRuntimeRegistry(queueRegistry)",
     "",
     "const app = new H3()",
@@ -1174,13 +1213,13 @@ function sanitizeVercelConsumerName(functionPath: string) {
   return result
 }
 
-function createCloudflareQueueBindings(definitions: Array<{ name: string }>) {
+function createCloudflareQueueBindings(definitions: Array<{ name: string }>, namePrefix = "") {
   if (!definitions.length) return undefined
   return {
-    consumers: definitions.map(definition => ({ queue: getCloudflareQueueName(definition.name) })),
+    consumers: definitions.map(definition => ({ queue: getCloudflareQueueName(definition.name, namePrefix) })),
     producers: definitions.map(definition => ({
       binding: getCloudflareQueueBindingName(definition.name),
-      queue: getCloudflareQueueName(definition.name),
+      queue: getCloudflareQueueName(definition.name, namePrefix),
     })),
   }
 }
@@ -1252,10 +1291,12 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
       "node:crypto",
       "node:fs",
       "node:fs/promises",
+      "node:os",
       "node:path",
       "node:path/posix",
       "node:stream",
       "node:url",
+      "node:util",
       "workflow",
       "workflow/api",
       "workflow/runtime",
@@ -1265,7 +1306,10 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
   })
 
   const d1Databases = createCloudflareD1Bindings(options.rootDir, options.db)
-  const queueBindings = createCloudflareQueueBindings(artifacts.queueDefinitions)
+  const queueBindings = createCloudflareQueueBindings(artifacts.queueDefinitions, options.queue ? options.queue.namePrefix : "")
+  const rateLimitBindings = options.rateLimit
+    ? createCloudflareRateLimitBindings(artifacts.rateLimitDeclarations, options.rateLimit.namespace)
+    : undefined
   const r2Buckets = createCloudflareR2Bindings(options.blob)
 
   const wranglerConfig: CloudflareWranglerConfig = {
@@ -1277,6 +1321,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     observability: { enabled: true },
     ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
     ...(queueBindings ? { queues: queueBindings } : {}),
+    ...(rateLimitBindings?.length ? { ratelimits: rateLimitBindings } : {}),
     ...(artifacts.scheduleCrons.size ? { triggers: { crons: [...new Set(artifacts.scheduleCrons.values())] } } : {}),
     ...(artifacts.workflowBindings.length ? { workflows: artifacts.workflowBindings } : {}),
     ...(r2Buckets ? { r2_buckets: r2Buckets } : {}),
@@ -1477,6 +1522,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
     hosting: provider,
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,
+    rateLimit: provider === "cloudflare" ? { namespace: "vitehub-playground-vite-e2e" } : false,
     schedule: true,
     sandbox: resolveSandboxFeatureConfig({}, hosting),
     workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),

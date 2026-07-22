@@ -1,6 +1,7 @@
 import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition } from "./openworkflow.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
-import { WorkflowError } from "../errors.ts"
+import { ViteHubError } from "@vite-hub/runtime"
+import { createWorkflowError } from "../errors.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
 
@@ -13,7 +14,7 @@ export interface CreateOpenWorkflowWorkerOptions {
 }
 
 export interface StartOpenWorkflowWorkerOptions extends CreateOpenWorkflowWorkerOptions {
-  onError?: (error: WorkflowError) => Promise<void> | void
+  onError?: (error: ViteHubError) => Promise<void> | void
   signal?: AbortSignal
   signals?: boolean
 }
@@ -111,7 +112,7 @@ export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOp
     stopTask ??= Promise.resolve()
       .then(() => originalStop())
       .catch((cause) => {
-        throw new WorkflowError({
+        throw createWorkflowError({
           cause,
           code: "OPENWORKFLOW_WORKER_STOP_FAILED",
           details: { provider: "openworkflow" },
@@ -120,7 +121,7 @@ export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOp
     return stopTask
   }
 
-  const reportUnhandledError = (error: WorkflowError): void => {
+  const reportUnhandledError = (error: ViteHubError): void => {
     try {
       if (proc?.emitWarning) proc.emitWarning(error)
       else console.error(error)
@@ -128,7 +129,7 @@ export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOp
     catch {}
   }
 
-  const reportError = (error: WorkflowError): void => {
+  const reportError = (error: ViteHubError): void => {
     if (!options.onError) {
       reportUnhandledError(error)
       return

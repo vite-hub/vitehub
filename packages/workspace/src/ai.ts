@@ -284,10 +284,8 @@ async function resolveExecutionProvider(
 function isUnavailableWorkspaceSession(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   return message.includes("Workspace exec requires an executable runtime")
+    || message.includes("Workspace exec requires a Box session host")
     || (message.includes("Workspace") && message.includes("is not registered"))
-    || message.includes("Workspace runtime `trusted-host` is only available outside production")
-    || message.includes("Workspace runtime `sandbox` requires app-level `sandbox` config")
-    || message.includes("Sandbox workspace runtime requires @vite-hub/sandbox")
 }
 
 function cleanWorkspaceShellPath(path: string) {

@@ -23,6 +23,7 @@ describe("published ViteHubError runtime", () => {
       code: "PROVIDER_FAILED",
       details: { nested: { provider: "fixture" } },
       message: "The provider request failed.",
+      name: "ViteHubError",
     })
     expect(Object.keys(error)).not.toContain("toJSON")
     expect(error.cause).toBe(cause)

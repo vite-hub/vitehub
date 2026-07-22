@@ -1,6 +1,6 @@
 import type { Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
-import type { BoxDefinition, BoxRequirement, ResolvedBox } from "@vite-hub/box"
+import type { Box, BoxDefinition, BoxRequirement } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
@@ -333,6 +333,13 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
+  webhook?: AgentWebhookInvocationOwnership
+}
+
+export interface AgentWebhookInvocationOwnership {
+  concurrencyKey?: string
+  concurrencyTtlMs?: number
+  deliveryId: string
 }
 
 export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
@@ -803,9 +810,6 @@ export interface AgentCapabilityDefinition<
   bash?: readonly AgentCapabilityBashCommand[]
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
-  chatAttachments?: {
-    audio?: boolean
-  }
   cli?: AgentCapabilityCliResolver<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -922,10 +926,15 @@ export interface AgentModelExecutionInstrumentation<
   model?: AgentModelInstrumentation<TRuntimeConfig>
 }
 
+export interface AgentAttachmentExecutionOptions {
+  maxBytes?: number
+}
+
 export interface AgentModelExecutionOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
+  attachments?: AgentAttachmentExecutionOptions
   callSettings?: Record<string, unknown>
   instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
   stepLimit?: number
@@ -1297,6 +1306,19 @@ export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
 
+export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  webhook: {
+    agentName: string
+    channelId?: string
+    provider: string
+    stateKeyPrefix: string
+  }
+}
+
+export type AgentWebhookStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<StateAdapter, AgentWebhookStateContext<TRuntimeConfig>>
+
 export type AgentChatMessage =
   | AdapterPostableMessage
   | { text: string }
@@ -1585,7 +1607,7 @@ export interface AgentAdapterRunContext<
   Name extends WorkspaceName = WorkspaceName,
 > {
   actor: AgentActor
-  box?: ResolvedBox
+  box?: Box
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
@@ -1606,6 +1628,7 @@ export interface AgentAdapterRunContext<
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
+  workspaceMaterializationSource?: ReadonlyWorkspaceFacade<Name>
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>

@@ -8,6 +8,8 @@ let remoteTreeSha = "base-tree";
 let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number; type: "blob" }> = [];
 let commitIndex = 0;
 let treeIndex = 0;
+let mirrorRefSha: string | undefined;
+let mirrorRefStatus = 404;
 const blobs = new Map<string, Uint8Array>();
 const jsonBlobResponses = new Set<string>();
 
@@ -44,6 +46,8 @@ beforeEach(() => {
   remoteTree = [];
   commitIndex = 0;
   treeIndex = 0;
+  mirrorRefSha = undefined;
+  mirrorRefStatus = 404;
   blobs.clear();
   jsonBlobResponses.clear();
   delete process.env.WORKSPACE_GITHUB_TOKEN;
@@ -58,12 +62,21 @@ beforeEach(() => {
           ? (JSON.parse(init.body) as {
               content?: string;
               force?: boolean;
+              ref?: string;
               sha?: string | null;
               tree?: Array<{ mode?: string; path: string; sha: string | null; type: "blob" }>;
             })
           : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
 
+      if (url.pathname === "/repos/onmax/repo/git/ref/heads/mirror") {
+        if (mirrorRefSha) return jsonResponse({ object: { sha: mirrorRefSha } });
+        return new Response("missing mirror branch", {
+          status: mirrorRefStatus,
+          statusText: mirrorRefStatus === 404 ? "Not Found" : "Forbidden",
+        });
+      }
+      if (url.pathname === "/repos/onmax/repo") return jsonResponse({ default_branch: "main" });
       if (url.pathname === "/repos/onmax/repo/git/ref/heads/main")
         return jsonResponse({ object: { sha: refSha } });
       if (url.pathname.startsWith("/repos/onmax/repo/git/commits/"))
@@ -111,6 +124,14 @@ beforeEach(() => {
       }
       if (url.pathname === "/repos/onmax/repo/git/commits" && method === "POST")
         return jsonResponse({ sha: `commit-sha-${++commitIndex}` });
+      if (url.pathname === "/repos/onmax/repo/git/refs" && method === "POST") {
+        if (body?.ref === "refs/heads/mirror" && body.sha) mirrorRefSha = body.sha;
+        return jsonResponse({});
+      }
+      if (url.pathname === "/repos/onmax/repo/git/refs/heads/mirror" && method === "PATCH") {
+        if (body?.sha) mirrorRefSha = body.sha;
+        return jsonResponse({});
+      }
       if (url.pathname === "/repos/onmax/repo/git/refs/heads/main" && method === "PATCH") {
         if (body?.sha) refSha = body.sha;
         return jsonResponse({});
@@ -284,6 +305,74 @@ describe("GitHub workspace store", () => {
     await expect(freshStore.getMeta!("loader")).resolves.toEqual({ digest: "abc" });
   });
 
+  it("creates a missing branch from the default branch before using non-forced updates", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        branch: "mirror",
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("tasks/first.md", { path: "tasks/first.md", content: "first\n" });
+    await store.snapshot({ name: "first publish" });
+
+    expect(requests.map(request => request.path)).toEqual(expect.arrayContaining([
+      "/repos/onmax/repo/git/ref/heads/mirror",
+      "/repos/onmax/repo",
+      "/repos/onmax/repo/git/ref/heads/main",
+    ]));
+    expect(
+      requests.find(request => request.path.endsWith("/git/trees") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({ base_tree: "base-tree" });
+    expect(
+      requests.find(request => request.path.endsWith("/git/commits") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({ parents: ["base-sha"] });
+    expect(
+      requests.find(request => request.path === "/repos/onmax/repo/git/refs" && request.method === "POST")
+        ?.body,
+    ).toEqual({ ref: "refs/heads/mirror", sha: "commit-sha-1" });
+    expect(requests.some(request => request.method === "PATCH")).toBe(false);
+
+    requests.length = 0;
+    await store.writeFile("tasks/second.md", { path: "tasks/second.md", content: "second\n" });
+    await store.snapshot({ name: "second publish" });
+
+    expect(
+      requests.find(request => request.path.endsWith("/git/refs/heads/mirror") && request.method === "PATCH")
+        ?.body,
+    ).toEqual({ force: false, sha: "commit-sha-2" });
+    expect(requests.some(request => request.path === "/repos/onmax/repo/git/refs" && request.method === "POST")).toBe(false);
+  });
+
+  it("does not treat non-404 branch failures as missing", async () => {
+    mirrorRefStatus = 403;
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        branch: "mirror",
+        provider: "github",
+        repository: "onmax/repo",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.list()).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+      message: "[vitehub] GitHub workspace request failed.",
+    });
+    expect(requests.map(request => request.path)).toEqual([
+      "/repos/onmax/repo/git/ref/heads/mirror",
+    ]);
+  });
+
   it("decodes GitHub JSON blob responses when raw bytes are unavailable", async () => {
     const content = "fallback\n";
     const sha = textSha(content);
@@ -344,6 +433,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
       {
+        branch: "mirror",
         provider: "github",
         repository: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",

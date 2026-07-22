@@ -1,16 +1,37 @@
+import { createHash } from 'node:crypto'
+import { basename } from 'pathe'
+import { prepareExecutablePackageProject } from './internal/package-entry'
 import { bundleDiscoveredDefinitionModuleGraph } from './internal/shared/discovered-definition'
 import type { SandboxDefinitionBundle } from './module-types'
+import type { SandboxProject } from './project'
 
 const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
 
 export async function bundleSandboxDefinition(
   source: string,
   file: string,
-  options: { alias?: Record<string, string> } = {},
+  options: {
+    alias?: Record<string, string>
+    execution?: SandboxDefinitionBundle['execution']
+    project?: SandboxProject
+  } = {},
 ): Promise<SandboxDefinitionBundle> {
-  return await bundleDiscoveredDefinitionModuleGraph({
+  if (options.execution === 'module' && options.project) {
+    const prefix = options.project.packagePath === '.' ? '' : `${options.project.packagePath}/`
+    const entry = `${prefix}${basename(file)}`
+    const executable = prepareExecutablePackageProject(options.project, entry)
+    return {
+      entry: executable.entry,
+      execution: 'module',
+      modules: {},
+      project: executable.project,
+    }
+  }
+
+  const bundle = await bundleDiscoveredDefinitionModuleGraph({
     alias: options.alias,
     filename: file,
+    packages: options.project ? 'external' : 'bundle',
     source,
     plugins: [
       {
@@ -54,8 +75,9 @@ export async function bundleSandboxDefinition(
               '  }',
               '}',
               '',
-              'export function defineSandbox(run, options) {',
-              '  return { run, options }',
+              'export function defineSandbox(input) {',
+              '  const { run, ...options } = input',
+              '  return { run, options: Object.keys(options).length ? options : undefined }',
               '}',
             ].join('\n'),
             loader: 'js',
@@ -64,4 +86,29 @@ export async function bundleSandboxDefinition(
       },
     ],
   })
+  if (!options.project) {
+    return {
+      ...bundle,
+      ...(options.execution ? { execution: options.execution } : {}),
+    }
+  }
+
+  const prefix = options.project.packagePath === '.'
+    ? '.vitehub-sandbox'
+    : `${options.project.packagePath}/.vitehub-sandbox`
+  const modules = {
+    [`${prefix}/package.json`]: JSON.stringify({ private: true, type: 'module' }),
+    ...Object.fromEntries(
+      Object.entries(bundle.modules).map(([path, contents]) => [`${prefix}/${path}`, contents]),
+    ),
+  }
+  const digest = createHash('sha256')
+    .update(JSON.stringify({ modules, packagePath: options.project.packagePath, project: options.project.digest }))
+    .digest('hex')
+  return {
+    entry: `${prefix}/${bundle.entry}`,
+    ...(options.execution ? { execution: options.execution } : {}),
+    modules,
+    project: { ...options.project, digest },
+  }
 }

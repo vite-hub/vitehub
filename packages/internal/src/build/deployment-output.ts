@@ -8,6 +8,7 @@ import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProvider
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
@@ -77,6 +78,8 @@ interface VercelProviderDeploymentCleanup {
   serverFunctionName?: string
 }
 
+type VercelProviderDeploymentCleanupInput = VercelProviderDeploymentCleanup | VercelProviderDeploymentCleanup[] | (() => VercelProviderDeploymentCleanup | VercelProviderDeploymentCleanup[] | undefined | Promise<VercelProviderDeploymentCleanup | VercelProviderDeploymentCleanup[] | undefined>)
+
 interface NetlifyProviderDeploymentCleanup {
   configKeys?: string[]
   functionNames?: string[]
@@ -89,7 +92,7 @@ interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   cleanup?: {
     cloudflare?: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)
     netlify?: NetlifyProviderDeploymentCleanup
-    vercel?: VercelProviderDeploymentCleanup
+    vercel?: VercelProviderDeploymentCleanupInput
   }
   netlify?: NetlifyProviderDeploymentOutput
   vercel?: VercelProviderDeploymentOutput
@@ -100,15 +103,17 @@ const providerDeploymentOutputWrites = new Map<string, Promise<void>>()
 
 export interface ComposedProviderOutput {
   runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
+  vercelRuntimePackagesByProduct?: Record<string, VercelFunctionRuntimePackage[] | undefined>
 }
 
 export function useComposedProviderOutput(config: object): ComposedProviderOutput {
   const owner = config as Record<symbol, ComposedProviderOutput | undefined>
-  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {} }
+  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {}, vercelRuntimePackagesByProduct: {} }
 }
 
 export function resetComposedProviderOutput(composed: ComposedProviderOutput | undefined): void {
   if (composed) composed.runtimeModuleFilesByProduct = {}
+  if (composed) composed.vercelRuntimePackagesByProduct = {}
 }
 
 export function registerProviderRuntimeModules(composed: ComposedProviderOutput | undefined, product: string, runtimeModuleFiles: Record<string, string>): void {
@@ -117,6 +122,14 @@ export function registerProviderRuntimeModules(composed: ComposedProviderOutput 
 
 export function getProviderRuntimeModule(composed: ComposedProviderOutput | undefined, product: string, provider: string): string | undefined {
   return composed?.runtimeModuleFilesByProduct[product]?.[provider]
+}
+
+export function registerVercelRuntimePackages(composed: ComposedProviderOutput | undefined, product: string, packages: VercelFunctionRuntimePackage[]): void {
+  if (composed) (composed.vercelRuntimePackagesByProduct ??= {})[product] = packages
+}
+
+export function getVercelRuntimePackages(composed: ComposedProviderOutput | undefined, product: string): VercelFunctionRuntimePackage[] {
+  return composed?.vercelRuntimePackagesByProduct?.[product] ?? []
 }
 
 interface ResolvedClientOutput {
@@ -274,6 +287,10 @@ async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelPro
   await Promise.all(writes)
 }
 
+async function cleanupVercelDeploymentOutputs(rootDir: string, cleanup: VercelProviderDeploymentCleanup | VercelProviderDeploymentCleanup[]): Promise<void> {
+  await Promise.all((Array.isArray(cleanup) ? cleanup : [cleanup]).map(item => cleanupVercelDeploymentOutput(rootDir, item)))
+}
+
 async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyProviderDeploymentCleanup): Promise<void> {
   const outputRoot = cleanup.outputRoot ?? createDefaultNetlifyOutputRoot(rootDir)
   const functionsRoot = resolve(outputRoot, "functions")
@@ -310,7 +327,8 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
       rootDir: options.rootDir,
     }))
   } else if (options.cleanup?.vercel) {
-    writes.push(cleanupVercelDeploymentOutput(options.rootDir, options.cleanup.vercel))
+    const cleanup = typeof options.cleanup.vercel === "function" ? await options.cleanup.vercel() : options.cleanup.vercel
+    if (cleanup) writes.push(cleanupVercelDeploymentOutputs(options.rootDir, cleanup))
   }
   await Promise.all(writes)
   await options.afterWrite?.()

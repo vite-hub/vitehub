@@ -50,6 +50,7 @@ export default defineConfig({
   },
   plugins: [
     vitehub({
+      preset: "node",
       agent: false,
       blob: false,
       database: false,

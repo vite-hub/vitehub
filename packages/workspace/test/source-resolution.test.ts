@@ -10,6 +10,7 @@ import {
   file,
   github,
   mcpResources,
+  type PublishContext,
   type WorkspaceShellResult,
   type ReadonlyWorkspaceFacade,
   type WritableWorkspaceFacade,
@@ -24,7 +25,9 @@ import {
   type WorkspaceSourceResolutionOptions,
 } from "../src/runtime.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
+import { github as githubPublisher } from "../src/publish.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { workspaceStoreTarget } from "../src/storage/target.ts"
 
 const invocation = {
   context: {
@@ -136,6 +139,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
       path: options?.path || "",
       sources: [],
     },
+    publish: async options => await workspace.publish(options),
     setMeta: async (key, value) => await workspace.setMeta?.(key, value),
     snapshot: async options => await workspace.snapshot(options),
     startSession: async options => await workspace.startSession(options),
@@ -626,7 +630,6 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: { allowProduction: true, type: "trusted-host" },
       sources: {
         inventoryHealthSummary: fetch({
           url: "https://portal.example.com/runtime/inventory-health",
@@ -1053,6 +1056,69 @@ describe("Workspace Source Resolution", () => {
     await expect(base.exists("artifacts/moved.md")).resolves.toBe(false)
   })
 
+  it("publishes the resolved writable overlay", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const publish = vi.fn<(context: PublishContext) => Promise<void>>(async () => {})
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      publish: [{ name: "test", publish }],
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          mount: "docs",
+          async getKeys() {
+            return ["README.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Resolved docs\n" }
+          },
+        }),
+      },
+    }
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    const writable = workspace as WritableWorkspaceFacade
+    await writable.materializeSources({ path: "docs" })
+    await writable.publish({ name: "publish resolved view" })
+
+    expect(publish).toHaveBeenCalledOnce()
+    const context = publish.mock.calls[0]![0]
+    expect(context.snapshot).toMatchObject({
+      entries: {
+        "docs/README.md": expect.objectContaining({ type: "file" }),
+      },
+      name: "publish resolved view",
+    })
+    await expect(context.store.readFile("docs/README.md")).resolves.toMatchObject({
+      content: "# Resolved docs\n",
+    })
+  })
+
+  it("preserves the active GitHub Store target in resolved publication", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      publish: [githubPublisher({
+        branch: "main",
+        repository: "onmax/repo",
+        token: "token",
+      })],
+    }
+    const facade = writableFacade(base) as WritableWorkspaceFacade & { [workspaceStoreTarget]: () => unknown }
+    facade[workspaceStoreTarget] = () => ({ provider: "github", branch: "main", repository: "onmax/repo" })
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade, definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect((workspace as WritableWorkspaceFacade).publish()).rejects.toThrow(
+      "GitHub publisher cannot publish to onmax/repo@main while it backs the active GitHub Workspace Store",
+    )
+  })
+
   it("syncs contributed sources through writable overlays", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
@@ -1129,7 +1195,6 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: "trusted-host",
       sources: {
         docs: custom({
           materialize: "lazy",
@@ -1176,7 +1241,6 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: { allowProduction: true, type: "trusted-host" },
       sources: {
         portal: custom({
           materialize: "lazy",
@@ -1221,7 +1285,7 @@ describe("Workspace Source Resolution", () => {
     try {
       await expect(runShell(workspace, `rg -i "months.*stock" portal/app --max-depth 3`)).resolves.toMatchObject({
         exitCode: 0,
-        stdout: "portal/app/components/OrderSuggestion.vue:Months of Stock (Incl. Order Suggestion)\n",
+        stdout: "portal/app/components/OrderSuggestion.vue:1:Months of Stock (Incl. Order Suggestion)\n",
       })
       expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
     }
@@ -1307,7 +1371,6 @@ describe("Workspace Source Resolution", () => {
     await base.writeFile("secrets/private.md", "secret")
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: "trusted-host",
       sources: {},
     }
 

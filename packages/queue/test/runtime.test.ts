@@ -2,18 +2,21 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { QueueError } from "../src/errors.ts"
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback } from "../src/runtime/hosted.ts"
 import { runQueue } from "../src/runtime/client.ts"
 import { createQueueCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
+import { createCloudflareQueueRuntimeClient } from "../src/internal/runtime/cloudflare-client.ts"
+import { createQueueClient } from "../src/runtime/create-client.ts"
 import { createQueueVercelServer } from "../src/runtime/vercel-vite.ts"
+import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
 import { deferQueue } from "../src/runtime/client.ts"
-import { enterQueueRuntimeEvent, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
+import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 
 import type { VercelQueueCallbackOptions } from "../src/types.ts"
 
@@ -61,6 +64,53 @@ afterEach(() => {
 })
 
 describe("cloudflare queue runtime", () => {
+  it("clears the selected client factory when Queue support is disabled", () => {
+    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
+    expect(getQueueRuntimeClientFactory()).toBe(createVercelQueueRuntimeClient)
+
+    setQueueRuntimeConfig(false)
+    expect(getQueueRuntimeClientFactory()).toBeUndefined()
+  })
+
+  it("selects an explicit Queue client without generated runtime state", async () => {
+    const cloudflareSend = vi.fn(async () => {})
+    const cloudflare = await createQueueClient({ binding: { send: cloudflareSend, sendBatch: vi.fn(async () => {}) }, provider: "cloudflare" })
+    await cloudflare.send({ payload: "cloudflare" })
+    expect(cloudflareSend).toHaveBeenCalledWith("cloudflare", {})
+
+    const vercelSend = vi.fn(async () => ({ messageId: "message-1" }))
+    const vercel = await createQueueClient({
+      client: { handleCallback: vi.fn(), send: vercelSend },
+      provider: "vercel",
+      topic: "topic",
+    })
+    await vercel.send({ payload: "vercel" })
+    expect(vercelSend).toHaveBeenCalledWith("topic", "vercel", expect.any(Object))
+  })
+
+  it("rejects region for single and batch sends while forwarding supported options", async () => {
+    const send = vi.fn(async () => {})
+    const sendBatch = vi.fn(async () => {})
+    const client = createCloudflareQueueClient({
+      binding: { send, sendBatch },
+      provider: "cloudflare",
+    })
+
+    const unsupportedRegion = {
+      code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
+      details: { provider: "cloudflare", unsupported: ["region"] },
+    }
+    await expect(client.send({ payload: { id: 1 }, region: "weur" })).rejects.toMatchObject(unsupportedRegion)
+    await expect(client.sendBatch([{ body: { id: 2 } }], { region: "weur" })).rejects.toMatchObject(unsupportedRegion)
+    expect(send).not.toHaveBeenCalled()
+    expect(sendBatch).not.toHaveBeenCalled()
+
+    await client.send({ contentType: "json", delaySeconds: 1, payload: { id: 3 } })
+    await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })
+    expect(send).toHaveBeenCalledWith({ id: 3 }, { contentType: "json", delaySeconds: 1 })
+    expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
+  })
+
   it("sets the Cloudflare environment when enterWith is unavailable", () => {
     const env = { QUEUE_WELCOME: {} }
     vi.spyOn(AsyncLocalStorage.prototype, "enterWith").mockImplementation(() => {
@@ -103,20 +153,15 @@ describe("cloudflare queue runtime", () => {
     expect(report).toHaveBeenCalledTimes(1)
   })
 
-  it("acks permanent failures unless onError returns an explicit directive", async () => {
+  it("honors explicit Cloudflare delivery directives", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const first = { ack: vi.fn(), retry: vi.fn() }
     const second = { ack: vi.fn(), retry: vi.fn() }
-    const onError = vi.fn((_error: unknown, message: { body: string }) => message.body === "override" ? "retry" as const : undefined)
+    const onError = vi.fn((_error: unknown, message: { body: string }) => message.body === "override" ? "retry" as const : "ack" as const)
     const batchHandler = createCloudflareQueueBatchHandler<string>({
       onError,
       onMessage: async () => {
-        throw new QueueError<"INVALID_PAYLOAD">({
-          code: "INVALID_PAYLOAD",
-          custom: true,
-          message: "Invalid payload.",
-          retryable: false,
-        })
+        throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.")
       },
     })
 
@@ -136,7 +181,7 @@ describe("cloudflare queue runtime", () => {
     expect(second.retry).toHaveBeenCalledTimes(1)
     expect(onError).toHaveBeenCalledTimes(2)
     expect(report).toHaveBeenCalledTimes(2)
-    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: false })
+    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: true })
   })
 
   it("maps Cloudflare send failures without exposing provider payloads", async () => {
@@ -167,11 +212,7 @@ describe("cloudflare queue runtime", () => {
 
   it("preserves abort and custom Queue errors from Cloudflare send", async () => {
     const abort = Object.assign(new Error("caller stopped queue send"), { name: "AbortError" })
-    const custom = new QueueError<"WELCOME_EMAIL_REJECTED">({
-      code: "WELCOME_EMAIL_REJECTED",
-      custom: true,
-      message: "Welcome email was rejected.",
-    })
+    const custom = new ViteHubError("WELCOME_EMAIL_REJECTED", "Welcome email was rejected.")
     const send = vi.fn()
       .mockRejectedValueOnce(abort)
       .mockRejectedValueOnce(custom)
@@ -310,6 +351,9 @@ describe("cloudflare queue runtime", () => {
     const worker = createQueueCloudflareWorker({
       queue: { namePrefix: "preview-", provider: "cloudflare" },
       registry: {
+        abcdefghijklmnop: async () => ({
+          default: { handler },
+        }),
         welcome: async () => ({
           default: { handler },
         }),
@@ -324,12 +368,53 @@ describe("cloudflare queue runtime", () => {
     }, {}, { waitUntil: vi.fn() })
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 2 }, id: "2", retry: vi.fn() }],
+      queue: "preview-queue--6162636465666768696a6b6c6d6e6f70",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 2 } }))
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 3 }, id: "3", retry: vi.fn() }],
+      queue: "preview-welcome",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 3 } }))
+
     await expect(worker.queue({
       ackAll: vi.fn(),
       messages: [],
       queue: "queue--77656c636f6d65",
       retryAll: vi.fn(),
     }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+    await expect(worker.queue({
+      ackAll: vi.fn(),
+      messages: [],
+      queue: "preview-welcome-0123456789abcdef0123456789abcdef",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+  })
+
+  it("derives bounded physical names from manual worker registries", async () => {
+    const handler = vi.fn(async () => {})
+    const worker = createQueueCloudflareWorker({
+      queue: { namePrefix: `${"deployment".repeat(8)}-`, provider: "cloudflare" },
+      registry: {
+        "images/nested/optimization-aaaaaaaa": async () => ({ default: { handler } }),
+      },
+    })
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 1 }, id: "1", retry: vi.fn() }],
+      queue: "deploymentdeploymentdeployment-f537f0129ff2b8673b34a44f70a00fad",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
   })
 
   it("rejects unknown physical and logical Cloudflare queue mappings", async () => {
@@ -353,7 +438,7 @@ describe("cloudflare queue runtime", () => {
     const waitUntil = vi.fn()
     const sendBatch = vi.fn(async () => {})
 
-    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -393,7 +478,7 @@ describe("cloudflare queue runtime", () => {
       },
     }
 
-    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -426,7 +511,7 @@ describe("cloudflare queue runtime", () => {
     const sendBatch = vi.fn(async () => {})
     const waitUntil = vi.fn()
 
-    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -458,6 +543,11 @@ describe("cloudflare queue runtime", () => {
 })
 
 describe("vercel provider", () => {
+  it("requires a selected client factory for default manual servers", () => {
+    expect(() => createQueueVercelServer({} as never)).toThrow("requires its generated client factory")
+    expect(() => createQueueVercelServer({ queue: false })).not.toThrow()
+  })
+
   it("uses the sdk send and callback contract", async () => {
     const send = vi.fn(async () => ({ messageId: "message-1" }))
     const handleCallback = vi.fn(() => async () => new Response("queued"))
@@ -590,18 +680,12 @@ describe("vercel provider", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
-  it("acknowledges permanent failures when the retry callback returns undefined", async () => {
+  it("preserves Vercel behavior when the retry callback returns undefined", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const retry = vi.fn(() => undefined)
     const definition = {
       handler: async () => {
-        throw new QueueError<"INVALID_PAYLOAD">({
-          cause: new Error("private provider detail"),
-          code: "INVALID_PAYLOAD",
-          custom: true,
-          message: "Invalid payload.",
-          retryable: false,
-        })
+        throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.", { cause: new Error("private provider detail") })
       },
       options: { callbackOptions: { retry } },
     }
@@ -614,12 +698,12 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
     const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
 
-    expect(result).toEqual({ acknowledge: true })
+    expect(result).toBeUndefined()
     expect(retry).toHaveBeenCalledTimes(1)
     expect(report).toHaveBeenCalledTimes(1)
     expect(report.mock.calls[0]?.[1]).toMatchObject({
@@ -627,17 +711,17 @@ describe("vercel provider", () => {
       id: "message-3",
       provider: "vercel",
       queue: "welcome",
-      retryable: false,
+      retryable: true,
     })
     expect(JSON.stringify(report.mock.calls[0]?.[1])).not.toContain("private provider detail")
   })
 
-  it("preserves an explicit Vercel retry directive for permanent failures", async () => {
+  it("preserves an explicit Vercel retry directive", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const retry = vi.fn(() => ({ afterSeconds: 30 } as const))
     const definition = {
       handler: async () => {
-        throw new QueueError<"INVALID_PAYLOAD">({ code: "INVALID_PAYLOAD", custom: true, message: "Invalid payload.", retryable: false })
+        throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.")
       },
       options: { callbackOptions: { retry } },
     }
@@ -650,7 +734,7 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
     const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
@@ -689,7 +773,7 @@ describe("vercel provider", () => {
   })
 
   it("does not cache regions inferred from Vercel requests", async () => {
-    setQueueRuntimeConfig({ provider: "vercel" })
+    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({ handler: async () => {} }),
     })
@@ -708,6 +792,7 @@ describe("vercel provider", () => {
         deferQueue("welcome-email", { email: "ava@example.com" })
         return new Response("ok")
       },
+      createClient: createVercelQueueRuntimeClient,
       queue: { provider: "vercel" },
       registry: {
         "welcome-email": async () => ({
@@ -727,6 +812,7 @@ describe("vercel provider", () => {
     const response = await fetch(`http://127.0.0.1:${address.port}/`)
     expect(await response.text()).toBe("ok")
     expect(vercelFunctionsMock.waitUntil).toHaveBeenCalledTimes(1)
+    await vercelFunctionsMock.waitUntil.mock.calls[0]?.[0]
     expect(vercelQueueMock.send).toHaveBeenCalledTimes(1)
 
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))

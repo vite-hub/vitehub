@@ -1,13 +1,13 @@
 import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
-import { SandboxError } from '../sandbox/errors'
-import { detectSandbox } from '../sandbox/providers/shared'
+import { createProviderDetector, isCloudflare, isVercel } from '../internal/shared/provider-detection'
+import { sandboxError } from '../sandbox/errors'
 import { loadSandboxProviderRuntime } from './provider-loader-resolver'
 
 import type {
   SandboxDefinitionOptions,
   SandboxDefinitionProviderOptions,
 } from '../module-types'
-import type { SandboxProvider, SandboxProviderOptions } from '../sandbox/types'
+import type { SandboxProvider } from '../module-types'
 
 type SandboxEvent = {
   context?: {
@@ -16,7 +16,52 @@ type SandboxEvent = {
   }
 }
 
-const allowedDefinitionKeys = new Set(['timeout', 'env', 'runtime'])
+const allowedDefinitionKeys = new Set(['timeout', 'env'])
+const detectProvider = createProviderDetector<'cloudflare' | 'vercel'>([
+  { provider: 'cloudflare', when: isCloudflare },
+  { provider: 'vercel', when: isVercel },
+])
+
+export function detectSandbox() {
+  const env = (typeof process !== 'undefined' ? process.env : {}) as Record<string, string | undefined>
+  const type = detectProvider() || 'none'
+  if (type === 'cloudflare')
+    return { type, details: { runtime: typeof process === 'undefined' ? 'workerd' : 'node' } }
+  if (type === 'vercel')
+    return { type, details: { env: env.VERCEL_ENV } }
+  return { type }
+}
+
+function canResolvePackageSync(specifier: string) {
+  const runtimeRequire = (globalThis as { require?: { resolve?: (id: string) => string } }).require
+  if (typeof runtimeRequire?.resolve === 'function') {
+    try {
+      runtimeRequire.resolve(specifier)
+      return true
+    }
+    catch {
+      return false
+    }
+  }
+
+  try {
+    return typeof (import.meta as ImportMeta & { resolve?: (id: string) => string }).resolve?.(specifier) === 'string'
+  }
+  catch {
+    return false
+  }
+}
+
+export function isSandboxAvailable(provider?: SandboxProvider): boolean {
+  if (provider === 'cloudflare')
+    return canResolvePackageSync('@cloudflare/sandbox')
+  if (provider === 'vercel')
+    return canResolvePackageSync('@vercel/sandbox')
+  const detected = detectSandbox()
+  return detected.type === 'cloudflare' || detected.type === 'vercel'
+    ? isSandboxAvailable(detected.type)
+    : false
+}
 
 function hashCloudflareSandboxName(name: string) {
   let hash = 2166136261
@@ -50,7 +95,7 @@ export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptio
   if (detected.type === 'cloudflare' || detected.type === 'vercel')
     return detected.type
 
-  throw new SandboxError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
+  throw sandboxError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
     code: 'SANDBOX_PROVIDER_REQUIRED',
   })
 }
@@ -58,25 +103,20 @@ export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptio
 export function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw new TypeError(`[vitehub] Sandbox definition options only support timeout, env, runtime. Unsupported: ${invalidKeys.join(', ')}`)
+    throw new TypeError(`[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}`)
 }
 
-export async function resolveSandboxProvider(
+export async function resolveSandboxBox(
   provider: SandboxProvider,
   providerOptions: SandboxDefinitionProviderOptions & { provider: SandboxProvider },
   local: SandboxDefinitionOptions,
   context: { event?: SandboxEvent },
 ) {
   const runtimeProvider = await loadSandboxProviderRuntime(provider)
-  const resolvedProvider = await runtimeProvider.resolveSandboxProvider({
+  return await runtimeProvider.resolveSandboxBox({
     local,
     provider: providerOptions,
-  }, context) as SandboxProviderOptions
-
-  return {
-    createSandboxClient: runtimeProvider.createSandboxClient,
-    resolvedProvider,
-  }
+  }, context)
 }
 
 export function withSandboxProvider(

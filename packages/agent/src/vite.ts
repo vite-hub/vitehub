@@ -440,7 +440,7 @@ function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "verce
   ]
   for (const value of values) {
     const provider = getHostingProvider(value)
-    if (provider) return provider
+    if (provider === "cloudflare" || provider === "netlify" || provider === "vercel") return provider
   }
 
   if (process.env.CLOUDFLARE_WORKER || process.env.CF_PAGES) return "cloudflare"
@@ -926,9 +926,9 @@ async function generateAgentWebhookRouteHandler(
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
   const webhookStateOption = options.cloudflareState
-    ? "state: chatStateFromCloudflare(cloudflare), "
+    ? "state: chatStateFromCloudflare(cloudflare), webhookState: chatStateFromCloudflare(cloudflare), "
     : options.libsqlState
-      ? "state: viteHubChatStateResolver, "
+      ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, "
       : ""
 
   return [
@@ -993,7 +993,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
-  const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, " : ""
+  const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, " : ""
 
   return [
     ...deploymentCatalog.imports,
@@ -1172,7 +1172,7 @@ async function writeAgentDiscordGatewayRouteHandler(
 async function generateAgentDenoServer(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -1189,6 +1189,7 @@ async function generateAgentDenoServer(
 
   return [
     ...deploymentCatalog.imports,
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -1201,6 +1202,7 @@ async function generateAgentDenoServer(
     "})",
     "",
     ...deploymentCatalog.setup,
+    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState) : []),
     ...routeCapabilities.setup,
     "function jsonError(status, message) {",
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
@@ -1245,7 +1247,7 @@ async function generateAgentDenoServer(
     "  const webhook = groups.webhook || ''",
     "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler || (!chatMatch && !webhookMatch)) return jsonError(404, 'Unknown ViteHub agent route.')",
-    `  return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty} }) : await handler(request, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty} })`,
+    `  return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver" : ""} }) : await handler(request, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver" : ""} })`,
     "}",
     "",
     "const serveOptions = resolveDenoServeOptions(Deno.args)",
@@ -1261,7 +1263,7 @@ async function generateAgentDenoServer(
 
 async function writeAgentDenoServer(
   root: string,
-  options: { chatRoute?: false | string, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDenoServer)
   const definitions = discoverAgentDefinitions({
@@ -1392,6 +1394,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await writeAgentDenoServer(config.root, {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
+          libsqlState: resolveLibsqlAgentState(normalized, config),
           runtimeCapabilities: standaloneRuntimeCapabilities,
           schedule,
           scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),

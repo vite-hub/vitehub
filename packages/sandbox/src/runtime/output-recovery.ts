@@ -1,15 +1,17 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
-import { SandboxError } from '../sandbox/errors'
+import { sandboxError } from '../sandbox/errors'
+import { readSandboxErrorMetadata } from './error-normalization'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
-import type { SandboxClient } from '../sandbox/types'
+import type { SandboxExecutionBox } from './execution-box'
 
 const MIN_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 20_000
 const DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 60_000
 const MAX_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 120_000
 const EXEC_OUTPUT_RECOVERY_POLL_MS = 1_000
 const EXEC_OUTPUT_PREVIEW_LENGTH = 500
+const HANDLER_DIAGNOSTIC_LENGTH = 16_384
 
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
 
@@ -35,28 +37,33 @@ function getErrorMessage(error: unknown) {
 }
 
 function isRecoverableCloudflareExecError(error: unknown) {
-  const sandboxError = error instanceof SandboxError ? error : undefined
+  const metadata = readSandboxErrorMetadata(error)
 
-  if (sandboxError?.provider && sandboxError.provider !== 'cloudflare')
+  if (metadata?.provider && metadata.provider !== 'cloudflare')
     return false
 
-  if (sandboxError?.code === 'TIMEOUT' || sandboxError?.code === 'SANDBOX_TRANSPORT_ERROR')
+  if (metadata?.code === 'SANDBOX_TIMEOUT' || metadata?.code === 'SANDBOX_TRANSPORT_ERROR')
     return true
 
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
 }
 
 export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
-  return new SandboxError(message, {
+  const publicDetails: Record<string, string | number | boolean | null> = {}
+  for (const [key, value] of Object.entries(details || {})) {
+    if (typeof value === 'string') publicDetails[key] = value.slice(0, HANDLER_DIAGNOSTIC_LENGTH)
+    else if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) publicDetails[key] = value
+  }
+  return sandboxError(message.slice(0, HANDLER_DIAGNOSTIC_LENGTH) || 'Sandbox handler failed.', {
     code: 'SANDBOX_HANDLER_ERROR',
     provider,
-    details,
+    details: Object.keys(publicDetails).length ? publicDetails : undefined,
   })
 }
 
 export function createTimeoutError(provider: string, timeout: number) {
-  return new SandboxError(`Sandbox definition timed out after ${timeout}ms.`, {
-    code: 'TIMEOUT',
+  return sandboxError(`Sandbox definition timed out after ${timeout}ms.`, {
+    code: 'SANDBOX_TIMEOUT',
     provider,
     details: { timeout },
   })
@@ -143,7 +150,7 @@ function resolveExecOutputRecoveryTimeout(timeout?: number) {
 }
 
 function createExecOutputFailure(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   recoveryTimeout: number,
@@ -161,7 +168,7 @@ function createExecOutputFailure(
 }
 
 async function waitForExecOutput(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout: number | undefined,
@@ -194,7 +201,7 @@ async function waitForExecOutput(
 }
 
 async function recoverExecOutput(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout?: number,
@@ -214,7 +221,7 @@ async function recoverExecOutput(
 }
 
 async function waitForCloudflareOutput(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout?: number,
@@ -236,7 +243,7 @@ async function waitForCloudflareOutput(
 }
 
 export async function readExecOutputWithRecovery(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout?: number,

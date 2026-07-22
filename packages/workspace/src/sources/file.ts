@@ -1,4 +1,4 @@
-import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source"
+import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/sources/file"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 

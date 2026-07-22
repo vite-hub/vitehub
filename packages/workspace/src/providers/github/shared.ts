@@ -1,6 +1,6 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
-import { WorkspaceError } from "../../core/errors.ts";
+import { workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeWorkspacePath } from "../../core/path.ts";
 
 import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
@@ -27,6 +27,7 @@ export interface GitHubTreeResponse {
 }
 
 export interface GitHubBranchState {
+  branchExists: boolean;
   files: Map<string, GitHubTreeEntry>;
   refSha: string;
   treeSha: string;
@@ -42,6 +43,26 @@ export interface GitHubFileUpdate {
 export interface GitHubCommitResult {
   commitSha: string;
   treeSha: string;
+}
+
+class GitHubRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "GitHubRequestError";
+  }
+}
+
+function githubRequestStatus(error: unknown): number | undefined {
+  const cause = error instanceof GitHubRequestError
+    ? error
+    : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
+  return cause?.status;
+}
+
+export interface GitHubWorkspaceStoreTarget {
+  provider: "github";
+  branch: string;
+  repository: string;
 }
 
 export function processEnv(
@@ -64,7 +85,7 @@ export function requireGitHubOption(
   label: string,
   value: string | undefined,
 ): string {
-  if (!value) throw new WorkspaceError(`[vitehub] GitHub workspace ${kind} requires ${label}.`);
+  if (!value) throw workspaceError(`[vitehub] GitHub workspace ${kind} requires ${label}.`);
   return value;
 }
 
@@ -74,7 +95,7 @@ export function splitGitHubRepository(
 ): { owner: string; repo: string } {
   const [owner, repo] = repository.split("/");
   if (!owner || !repo) {
-    throw new WorkspaceError(
+    throw workspaceError(
       `[vitehub] GitHub workspace ${kind} requires a repository in owner/repo format.`,
     );
   }
@@ -211,9 +232,11 @@ export async function requestGitHubJson<T>(
   });
 
   if (!response.ok) {
-    throw new WorkspaceError(
+    const cause = new GitHubRequestError(
       `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
+      response.status,
     );
+    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
   return (await response.json()) as T;
 }
@@ -236,14 +259,16 @@ export async function requestGitHubBytes(
   });
 
   if (!response.ok) {
-    throw new WorkspaceError(
+    const cause = new GitHubRequestError(
       `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
+      response.status,
     );
+    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
   if (response.headers.get("content-type")?.includes("application/json")) {
     const blob = await response.json() as { content?: unknown; encoding?: unknown };
     if (blob.encoding === "base64" && typeof blob.content === "string") return fromBase64(blob.content);
-    throw new WorkspaceError(`[vitehub] GitHub workspace request for ${repository} returned unsupported byte response.`);
+    throw workspaceError(`[vitehub] GitHub workspace request for ${repository} returned unsupported byte response.`);
   }
   return new Uint8Array(await response.arrayBuffer());
 }
@@ -254,7 +279,7 @@ export function findGitHubRemoteFiles(
   kind: "publisher" | "store",
 ): Map<string, GitHubTreeEntry> {
   if (tree.truncated) {
-    throw new WorkspaceError(
+    throw workspaceError(
       `[vitehub] GitHub workspace ${kind} could not compare the remote tree because GitHub returned a truncated tree.`,
     );
   }
@@ -271,27 +296,74 @@ export function findGitHubRemoteFiles(
 export async function readGitHubBranchState(input: {
   branch: string;
   kind: "publisher" | "store";
+  paths?: string[];
   repository: string;
   root: string;
   token: string;
 }): Promise<GitHubBranchState> {
   const { owner, repo } = splitGitHubRepository(input.repository, input.kind);
-  const ref = await requestGitHubJson<{ object: { sha: string } }>(
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/ref/heads/${input.branch}`,
-  );
+  let branchExists = true;
+  let ref: { object: { sha: string } };
+  try {
+    ref = await requestGitHubJson(
+      input.repository,
+      input.token,
+      `/repos/${owner}/${repo}/git/ref/heads/${input.branch}`,
+    );
+  }
+  catch (error) {
+    if (githubRequestStatus(error) !== 404) throw error;
+    const repository = await requestGitHubJson<{ default_branch: string }>(
+      input.repository,
+      input.token,
+      `/repos/${owner}/${repo}`,
+    );
+    ref = await requestGitHubJson(
+      input.repository,
+      input.token,
+      `/repos/${owner}/${repo}/git/ref/heads/${repository.default_branch}`,
+    );
+    branchExists = false;
+  }
   const current = await requestGitHubJson<{ tree: { sha: string } }>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`,
   );
+  if (input.paths) {
+    const entries = await Promise.all(input.paths.map(async (path) => {
+      const fullPath = joinGitPath(input.root, path);
+      const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
+      try {
+        return await requestGitHubJson<GitHubTreeEntry>(
+          input.repository,
+          input.token,
+          `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref.object.sha)}`,
+          { headers: { accept: "application/vnd.github.object+json" } },
+        );
+      }
+      catch (error) {
+        if (githubRequestStatus(error) === 404) return undefined;
+        throw error;
+      }
+    }));
+    return {
+      branchExists,
+      files: new Map(input.paths.flatMap((path, index) => {
+        const entry = entries[index];
+        return entry?.type === "file" && entry.sha ? [[path, entry] as const] : [];
+      })),
+      refSha: ref.object.sha,
+      treeSha: current.tree.sha,
+    };
+  }
   const tree = await requestGitHubJson<GitHubTreeResponse>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/trees/${current.tree.sha}?recursive=1`,
   );
   return {
+    branchExists,
     files: findGitHubRemoteFiles(tree, input.root, input.kind),
     refSha: ref.object.sha,
     treeSha: current.tree.sha,
@@ -315,6 +387,7 @@ export async function readGitHubBlob(input: {
 export async function commitGitHubChanges(input: {
   baseTreeSha: string;
   branch: string;
+  branchExists: boolean;
   deletePaths: string[];
   files: GitHubFileUpdate[];
   kind?: "publisher" | "store";
@@ -370,15 +443,28 @@ export async function commitGitHubChanges(input: {
       method: "POST",
     },
   );
-  await requestGitHubJson(
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/refs/heads/${input.branch}`,
-    {
-      body: JSON.stringify({ force: false, sha: commit.sha }),
-      method: "PATCH",
-    },
-  );
+  if (input.branchExists) {
+    await requestGitHubJson(
+      input.repository,
+      input.token,
+      `/repos/${owner}/${repo}/git/refs/heads/${input.branch}`,
+      {
+        body: JSON.stringify({ force: false, sha: commit.sha }),
+        method: "PATCH",
+      },
+    );
+  }
+  else {
+    await requestGitHubJson(
+      input.repository,
+      input.token,
+      `/repos/${owner}/${repo}/git/refs`,
+      {
+        body: JSON.stringify({ ref: `refs/heads/${input.branch}`, sha: commit.sha }),
+        method: "POST",
+      },
+    );
+  }
   return { commitSha: commit.sha, treeSha: tree.sha };
 }
 

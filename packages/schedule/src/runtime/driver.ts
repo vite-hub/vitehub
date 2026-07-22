@@ -10,7 +10,7 @@ import {
   setScheduleRunStore,
   setScheduleRuntimeRegistry,
 } from "./state.ts"
-import { ScheduleError } from "../errors.ts"
+import { createScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
 
@@ -393,7 +393,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
             const staticSchedule = staticSchedules.byId.get(input.scheduleId)
             if (staticSchedule) {
               if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
-                throw new ScheduleError("SCHEDULE_NOT_DUE")
+                throw createScheduleError("SCHEDULE_NOT_DUE")
               }
               await executeStaticSchedule({
                 cron: staticSchedule.definition.cron,

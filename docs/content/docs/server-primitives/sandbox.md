@@ -1,25 +1,19 @@
 ---
 title: Sandbox
-description: Run named isolated work through an explicit Sandbox Provider boundary.
+description: Run named package projects through Workspace and Box.
 navigation.order: 12
 icon: i-lucide-terminal-square
 ---
 
-Sandbox owns isolated execution. Use it when named work should run away from the request process or when execution needs a provider-managed boundary.
-
-Sandbox is not Shell. Sandbox owns isolated Sandbox Runs; Shell owns controlled Unix-like command sessions and Shell Observations.
+A Sandbox Definition is portable orchestration. Its package project supplies dependencies, its Workspace supplies durable files, and its Box adapter supplies execution.
 
 ## Quick start
 
-::steps{level="3"}
-
-### Install
+Install and register the Vite integration:
 
 ```bash [Terminal]
 pnpm add @vite-hub/sandbox
 ```
-
-### Configure
 
 ```ts [vite.config.ts]
 import { hubSandbox } from '@vite-hub/sandbox/vite'
@@ -30,179 +24,135 @@ export default defineConfig({
 })
 ```
 
-### Start using it
+Every discovered Definition belongs to a real package project. ViteHub never writes a manifest into your repository, so create the smallest valid one when the package has no dependencies:
 
-```ts [server/sandboxes/release-notes.ts]
-import { defineSandbox } from '@vite-hub/sandbox'
+```json [server/sandboxes/release-notes/package.json]
+{
+  "private": true,
+  "type": "module",
+  "vitehub": {
+    "sandbox": {
+      "timeout": 30000
+    }
+  }
+}
+```
 
-export default defineSandbox(async (payload: { notes?: string } = {}) => {
+```ts [server/sandboxes/release-notes/index.ts]
+interface SandboxPayload {
+  notes?: string
+}
+
+export default async function releaseNotes(payload: SandboxPayload = {}) {
   return { text: payload.notes?.toUpperCase() || 'No notes' }
-})
+}
 ```
 
 ```ts [server/api/release-notes.post.ts]
 import { runSandbox } from '@vite-hub/sandbox'
 
 export default defineEventHandler(async () => {
-  return runSandbox('release-notes', { notes: 'ship it' })
+  const [error, result] = await runSandbox('release-notes', { notes: 'ship it' })
+  if (error) throw error
+  return result
 })
 ```
 
-::
+## The three Modules
+
+- Sandbox owns Definition discovery, typed invocation, package-project resolution, preparation policy, serialization, timeout, and lifecycle orchestration.
+- Workspace owns authoritative files, Sources, snapshots, diffs, commit, and rollback.
+- Box owns isolation, processes, runtime files, disposable caches, ports, and provider-specific preparation or deployment output.
+
+Sandbox and Agent use the same Box Interface. Workspace never selects Cloudflare, Vercel, Crabbox, or trusted-host execution.
+
+## Package projects
+
+Under `server/sandboxes`, use one folder per package project with an adjacent `package.json` and `index.ts`. The folder path supplies the Definition name. Other files in the package are ordinary helpers rather than independently discovered Sandboxes.
+
+```text
+server/sandboxes/
+├── image/
+│   ├── package.json
+│   └── index.ts
+└── metadata/
+    ├── package.json
+    └── index.ts
+```
+
+For free-form Definitions outside `server/sandboxes`, use the `<path>.sandbox.ts` suffix convention with `defineSandbox()`. Those Definitions use their nearest `package.json`, so several files can share one package project.
+
+Package-manager selection uses the manifest's `packageManager` field, then a lockfile at that package root, then npm. A nested independent package never inherits an unrelated ancestor lockfile. Lockfiles enable frozen installation. ViteHub installs the project inside the Box before the entrypoint launches, and dependency trees never enter Workspace commits.
+
+ViteHub also understands a standard pnpm Workspace without adding ViteHub-specific workspace configuration:
+
+```text
+server/sandboxes/
+├── package.json
+├── pnpm-lock.yaml
+├── pnpm-workspace.yaml
+└── image/
+    ├── package.json
+    └── index.ts
+```
+
+Installation runs at the pnpm Workspace root and the Definition runs from `server/sandboxes/image`. ViteHub carries every local package in the transitive `workspace:*` dependency closure, then pnpm remains responsible for installation and linking semantics. Other Workspace packages stay outside the runtime project.
+
+## Package entrypoint
+
+The package `index.ts` default-exports an ordinary async function. ViteHub calls it with the invocation payload and context, then returns its awaited result.
+
+```ts
+export default async function optimize(
+  payload: { image: Blob },
+  context: { requestId: string },
+) {
+  return await optimizeImage(payload.image, context.requestId)
+}
+```
+
+`runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload. Existing non-function default exports remain supported; those entries can export `SandboxPayload` to provide the payload type, otherwise it is `unknown`.
+
+Nested `Blob` and `Uint8Array` values in payloads and results are staged through invocation-local Box files. Node.js `Buffer` values retain their `Buffer` type. Application code keeps the binary values and does not convert them to base64 JSON. Other values keep the existing JSON-serialization contract.
+
+The entrypoint gets normal JavaScript, package imports, top-level await, `process.cwd()`, environment variables, and a filesystem, without a runtime framework import.
+
+The first package metadata schema contains only `vitehub.sandbox.timeout`. It must be a positive integer no greater than `2_147_483_647`, and ViteHub enforces it while preparing and executing the package.
+
+## Box adapters and images
+
+Cloudflare, Vercel, Crabbox, and trusted host implement the Box Interface. The common contract covers binary files, directory operations, cwd/env/timeout command execution, abort, and lifecycle. Processes and ports are explicit optional capabilities.
+
+Provider selection and full image overrides are application or host configuration. For Cloudflare, configure the application-owned container with a complete Dockerfile; for Vercel, configure the Box runtime image. Sandbox has no Dockerfile-fragment helper because partial image syntax cannot be portable across providers.
+
+## Breaking migration
+
+Move canonical Definitions into a package folder and export the run function directly:
+
+```ts
+// Before
+import { defineSandbox } from '@vite-hub/sandbox'
+
+export default defineSandbox({
+  timeout: 30_000,
+  run,
+})
+
+// Now
+export default run
+```
+
+- Move `timeout` to `package.json#vitehub.sandbox.timeout`.
+- Remove the package entrypoint's `defineSandbox()` wrapper and `@vite-hub/sandbox` runtime dependency.
+- Default-export the run function; its first parameter and awaited return value become the generated invocation types.
+- Keep Blob and Uint8Array values native in application payloads and results.
 
 ## Public imports
 
 | Import | Use |
 | --- | --- |
-| `defineSandbox` from `@vite-hub/sandbox` | Declare a Sandbox Definition. |
-| `runSandbox` from `@vite-hub/sandbox` | Execute a named Sandbox Definition. |
-| `defineDockerfileFragment` from `@vite-hub/sandbox/cloudflare` | Add Cloudflare-only build layers to the generated Sandbox image. |
-| `hubSandbox` from `@vite-hub/sandbox/vite` | Register Sandbox discovery, generated types, and provider runtime wiring. |
-| `@vite-hub/sandbox/runtime/providers/cloudflare` | Cloudflare runtime provider loader entry. |
-| `@vite-hub/sandbox/runtime/providers/vercel` | Vercel runtime provider loader entry. |
-| `@vite-hub/sandbox/sandbox/providers/cloudflare` | Cloudflare direct Sandbox client provider. |
-| `@vite-hub/sandbox/sandbox/providers/vercel` | Vercel direct Sandbox client provider. |
+| `defineSandbox` from `@vite-hub/sandbox` | Declare a free-form `<path>.sandbox.ts` Definition. |
+| `runSandbox` from `@vite-hub/sandbox` | Invoke a discovered Definition. |
+| `hubSandbox` from `@vite-hub/sandbox/vite` | Register discovery, types, preparation, and provider output. |
 
-Sandbox Definition, Provider, Execution Options, and Run Result types are exported from `@vite-hub/sandbox`.
-
-When a Cloudflare build discovers exactly one Sandbox Definition, it can colocate static image layers beside that definition. Use `defineDockerfileFragment` as a top-level tagged template; ViteHub supplies the installed Cloudflare Sandbox base image and keeps this build-only statement out of the runtime bundle.
-
-```ts [src/tools/image.sandbox.ts]
-import { defineSandbox } from '@vite-hub/sandbox'
-import { defineDockerfileFragment } from '@vite-hub/sandbox/cloudflare'
-
-defineDockerfileFragment`
-RUN apt-get update \
-  && apt-get install -y imagemagick
-`
-
-export default defineSandbox(async () => null)
-```
-
-This surface belongs to Cloudflare's current app-level Sandbox image. Multiple definitions, interpolation, `FROM`, other hosts, and an application-owned container image are rejected instead of implying per-definition or provider-neutral image support.
-
-## Configure the Vite Integration
-
-```ts [vite.config.ts]
-import { hubSandbox } from '@vite-hub/sandbox/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubSandbox()],
-})
-```
-
-The Vite config key is `sandbox`.
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `sandbox: false` | `false` | enabled | Disables Sandbox discovery and provider runtime output. |
-| `provider` | `SandboxProvider` | inferred from hosting | Selects `cloudflare` or `vercel`. Omit it only when hosting inference is enough. |
-| `name` | `string` | package default | Shared provider resource name hint. |
-| Cloudflare provider options | `CloudflareSandboxDefinitionProviderOptions` | `sandboxId`: safely prefixed, bounded, URL-encoded and hashed Definition name; `sleepAfter`: `5m` | `binding`, `className`, `migrationTag`, `sandboxId`, `sleepAfter`, `keepAlive`, and `normalizeId`. |
-| Vercel provider options | `VercelSandboxProviderOptions` | provider defaults | `runtime`, `timeout`, `cpu`, `ports`, `source`, `networkPolicy`, `token`, `teamId`, and `projectId`. |
-
-Provider inference supports Cloudflare and Vercel hosting. Netlify cannot infer a Sandbox Provider; set `sandbox.provider` explicitly when a build target needs sandbox output.
-
-Hosting inference is activated by discovered Sandbox Definitions. Definition-free consumers such as a Workspace using `runtime: 'sandbox'` must configure `sandbox.provider` explicitly so ViteHub knows to provision provider output.
-
-## Providers
-
-| Provider | Configure with | Provider output | Nuance |
-| --- | --- | --- | --- |
-| Cloudflare | Inferred from hosting or `sandbox: { provider: 'cloudflare' }` | Durable Object binding, migration, and runtime provider loader output. | Uses request environment bindings. `binding` defaults to `SANDBOX`; a safely prefixed, bounded, URL-encoded and hashed Definition name defaults `sandboxId`; `sleepAfter` defaults to `5m`. |
-| Vercel | `sandbox: { provider: 'vercel' }` | Vercel Sandbox runtime provider output. | Requires `@vercel/sandbox` at runtime. Supported runtimes are currently `node22` and `node24`. |
-
-Cloudflare and Vercel expose different lifecycle, credential, network, and file behavior. Keep provider credentials in Server Env or provider configuration, not in Sandbox Payloads.
-
-Cloudflare runs remain available until their idle timeout so later runs of the same Definition can reuse them. Each invocation removes its isolated temporary files on success or failure. When `keepAlive: true` disables Cloudflare idle shutdown, ViteHub stops the sandbox after every run instead. Vercel runs are stopped immediately.
-
-## Define sandbox work
-
-Create a Sandbox Definition for work that can run through a Sandbox Provider.
-
-```ts [server/sandboxes/release-notes.ts]
-import { defineSandbox } from '@vite-hub/sandbox'
-
-export default defineSandbox(async (payload: { notes?: string } = {}) => {
-  return {
-    text: payload.notes?.toUpperCase() || 'No notes',
-  }
-})
-```
-
-## Sandbox Definition options
-
-`defineSandbox(handler, options?)` accepts these options. The discovered file name provides the Definition name.
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `timeout` | `number` | Runtime timeout in milliseconds when the provider supports ViteHub-side timeout enforcement. |
-| `env` | `Record<string, string>` | Environment variables passed to the Sandbox Definition process. |
-| `runtime.command` | `string` | Custom command used to launch the Sandbox Definition. |
-| `runtime.args` | `string[]` | Arguments passed to `runtime.command`. |
-
-The handler receives optional Sandbox Payload and optional `context` values supplied by Invocation Options.
-
-## Run it at runtime
-
-Use `runSandbox()` from server code.
-
-```ts [server/api/release-notes.post.ts]
-import { runSandbox } from '@vite-hub/sandbox'
-
-export default defineEventHandler(async (event) => {
-  return runSandbox('release-notes', await readBody(event), {
-    sandboxId: 'release-notes-preview',
-  })
-})
-```
-
-The payload is Sandbox Payload. Provider reuse hints such as Sandbox Identity belong to Invocation Options, not to the portable Sandbox Definition identity.
-
-## Invocation options
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `context` | `Record<string, unknown>` | Trusted runtime context passed as the handler second argument. |
-| `sandboxId` | `string` | Provider sandbox identity or reuse hint for this run. |
-
-`runSandbox()` returns a `SandboxRunResult`: `isOk()` results contain `value`, and `isErr()` results contain a normalized `SandboxError`.
-
-## Pair it with Workspace
-
-Use Workspace when isolated execution should operate on a file tree.
-
-```ts [server/tasks/test-workspace.ts]
-import { useWorkspace } from '@vite-hub/workspace'
-
-export async function testWorkspace() {
-  const session = await useWorkspace('docs', { mode: 'write' }).startSession()
-
-  await session.exec('pnpm', ['test'])
-  const diff = await session.diff()
-  await session.close()
-
-  return diff
-}
-```
-
-Workspace owns files, rules, snapshots, diffs, and commit behavior. Sandbox owns the isolated provider execution boundary.
-
-## Connect it to Agents
-
-An Agent can execute isolated work only through an attached Sandbox Capability or through app-owned server behavior that you explicitly expose. Do not attach execution Capabilities casually.
-
-Limit commands, inspect outputs, and prefer read-only Workspace access until the Agent has a real need to mutate files.
-
-## Production boundaries
-
-Sandbox execution can create cost, persistence, credential, and isolation concerns. Treat provider credentials as Server Env secrets and keep payloads free of raw secret material.
-
-Use Shell when the app needs a controlled command session over a declared filesystem boundary. Use Sandbox when isolation and provider-managed execution are the main requirement.
-
-## Next steps
-
-- Use [Shell](/docs/server-primitives/shell) for controlled command sessions.
-- Use [Workspace](/docs/server-primitives/workspace) for file-tree state.
-- Expose execution to agents through [Official capabilities](/docs/capabilities/official-capabilities).
+Use [Workspace](/docs/server-primitives/workspace) for durable file state and Box configuration for execution environments.

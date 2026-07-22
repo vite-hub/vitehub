@@ -1,4 +1,4 @@
-import { WorkflowError } from "../errors.ts"
+import { createWorkflowError } from "../errors.ts"
 
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 
@@ -101,7 +101,7 @@ async function getVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
   catch (error) {
     if (isWorkflowBoundaryError(error)) throw error
 
-    throw new WorkflowError({
+    throw createWorkflowError({
       cause: error,
       code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED",
       details: { provider: "vercel" },
@@ -195,7 +195,7 @@ async function readRunIdentity(run: VercelRun): Promise<{ exists: false } | { ex
 function getNativeWorkflowName<TPayload, TResult>(name: string, definition: WorkflowDefinition<TPayload, TResult>): string {
   const workflowName = (definition.options?.native as WorkflowDefinition<TPayload, TResult>["handler"] & { workflowId?: string } | undefined)?.workflowId
   if (!workflowName) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_INVALID",
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })
@@ -248,7 +248,7 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
 export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>(name: string, definition: WorkflowDefinition<TPayload, TResult>, payload?: TPayload): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_REQUIRED",
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })

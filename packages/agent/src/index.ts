@@ -1,17 +1,21 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
-import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
-import { AgentOutputValidationError, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
+import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
+import {
+  createBackedAgentInvocationController,
+  startLiveAgentInvocation,
+} from "./agent-invocation.ts"
 import {
   createReactionDeliveryEffectIntent,
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
-import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from "@vite-hub/runtime"
+import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   finishMessageChannelTitleDelivery,
@@ -40,7 +44,7 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
-import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
@@ -62,7 +66,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream } from "./stream-output.ts"
+import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -141,6 +145,10 @@ import type {
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
+import type {
+  AgentInvocationController,
+  AgentInvocationSnapshot,
+} from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
@@ -153,9 +161,23 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceName,
+  WorkspaceSession,
+  WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
-import type { BoxRequirement, ResolvedBox } from "@vite-hub/box"
+import type { Box, BoxRequirement } from "@vite-hub/box"
+import { isHarnessBoxActive, shareBoxSessions } from "./harness/shared-box.ts"
+
+export type {
+  AgentInvocationControlOutcome,
+  AgentInvocationControlResult,
+  AgentInvocationController,
+  AgentInvocationInputMode,
+  AgentInvocationInputSupport,
+  AgentInvocationInspection,
+  AgentInvocationSnapshot,
+  AgentInvocationStatus,
+} from "./agent-invocation.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -355,9 +377,6 @@ export type {
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
 
-export { AgentOutputValidationError }
-export type { AgentOutputValidationErrorCode, AgentOutputValidationErrorOptions } from "./internal/agent-structured-output.ts"
-
 export {
   createAgentDevtoolsMetadata,
   materializeAgentDevtoolsSourceMetadata,
@@ -553,7 +572,7 @@ type AgentDefinitionWithBaseResolve<
 }
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
-  run?: AgentRunMetadata
+  run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeContext["runtime"]
   runtimeConfig?: AgentRuntimeConfig
 }
@@ -564,6 +583,10 @@ interface AgentWorkflowRun<TOutput = unknown> {
   provider: string
   result?: TOutput
   status: "cancelled" | "completed" | "failed" | "queued" | "running" | "unknown"
+}
+interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
+  handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
+  run: AgentWorkflowRun<TOutput>
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -655,7 +678,8 @@ async function runAgentAsWorkflow<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-) {
+  options: { fresh?: boolean } = {},
+): Promise<StartedAgentWorkflow<CALL_OPTIONS, TOutput> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
   if ("discoveryDefault" in binding) {
@@ -675,12 +699,15 @@ async function runAgentAsWorkflow<
   const workflowInput = { ...input }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
+  const inheritedRun = options.fresh && context.run
+    ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
+    : context.run
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     input: workflowInput,
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
-    ...(context.run ? { run: context.run } : {}),
+    ...(inheritedRun ? { run: inheritedRun } : {}),
   }
   const workflowEvent = {
     ...(context.cloudflare?.env ? { env: context.cloudflare.env } : {}),
@@ -691,7 +718,11 @@ async function runAgentAsWorkflow<
     },
   }
   const { runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
-  return await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(payload, context.run?.runId ? { id: context.run.runId } : {}))
+  const run = await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+    payload,
+    !options.fresh && context.run?.runId ? { id: context.run.runId } : {},
+  ))
+  return { handle, run }
 }
 
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
@@ -1129,6 +1160,7 @@ function createWorkspaceAgentDefinition<
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   if (Array.isArray(options.capabilities)) {
     validateAgentCapabilityComposition(options.capabilities, {
+      hasBox: Boolean(options.box),
       hasWorkspace: true,
       workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
     })
@@ -1274,7 +1306,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  box?: ResolvedBox
+  box?: Box
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -1328,8 +1360,53 @@ async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<
     return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
   }
   catch (error) {
-    if (error instanceof Error && error.name === "WorkspaceNotFoundError") return undefined
+    if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
     throw error
+  }
+}
+
+function withBoxWorkspaceSessions<Name extends WorkspaceName>(
+  workspace: WritableWorkspaceFacade<Name>,
+  box: Box,
+): WritableWorkspaceFacade<Name> {
+  async function startBoxSession(target: WritableWorkspaceFacade<Name>, options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
+    if (options?.host) return await target.startSession(options)
+    const host = await box.open()
+    try {
+      const session = await target.startSession({
+        ...options,
+        attach: isHarnessBoxActive(box),
+        host,
+        target: options?.target || host.cwd,
+      })
+      let closePromise: Promise<void> | undefined
+      return { ...session, async close() {
+        closePromise ??= (async () => {
+          let sessionError: unknown
+          try { await session.close() }
+          catch (error) { sessionError = error }
+          try { await host.close() }
+          catch (error) {
+            if (sessionError) throw new AggregateError([sessionError, error], "[vitehub] Workspace and Box session cleanup failed.")
+            throw error
+          }
+          if (sessionError) throw sessionError
+        })()
+        await closePromise
+      } }
+    }
+    catch (error) {
+      try { await host.close() }
+      catch (closeError) { throw new AggregateError([error, closeError], "[vitehub] Workspace session setup and Box cleanup failed.") }
+      throw error
+    }
+  }
+  return {
+    ...workspace,
+    [Symbol.for("vitehub.workspace.start-box-session")]: startBoxSession,
+    async startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
+      return await startBoxSession(workspace, options)
+    },
   }
 }
 
@@ -1445,12 +1522,16 @@ async function createAgentInvocationContext<
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
+      hasBox: Boolean(definition?.box),
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
     const boxDefinition = definition?.box
+    if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
+      throw new Error("[vitehub] defineAgent({ box, workspace }) cannot combine a Workspace with Box cwd or checkout because both own the same working tree. Remove cwd/checkout and let Workspace materialize into the Box.")
+    }
     const box = boxDefinition
-      ? await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
+      ? shareBoxSessions(await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
           ...callbackContext,
           actor: invoker,
           context: invocationContext,
@@ -1459,17 +1540,11 @@ async function createAgentInvocationContext<
           run: context.run,
         }, {
           requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
-        })
+        }))
       : undefined
-    if ((box?.workspace.path || box?.workspace.workDir) && workspaceOptions) {
-      throw new Error("[vitehub] defineAgent({ box.cwd or box.checkout, workspace }) is not supported because a Box-owned working tree must not be reset by Workspace materialization.")
-    }
-    const harnessSandboxProvider = box?.sandbox || (box
-      ? (await import("./harness/local-sandbox.ts")).createTrustedHostHarnessSandbox({
-          env: box.environment.env,
-          ...(box.workspace.path ? { workspaceDir: box.workspace.path } : {}),
-        })
-      : undefined)
+    const harnessSandboxProvider = box
+      ? (await import("./harness/box-sandbox.ts")).createBoxHarnessSandbox(box)
+      : undefined
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
       : undefined
@@ -1487,11 +1562,6 @@ async function createAgentInvocationContext<
       ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
     const resolvedWorkspaceDefinition = baseResolvedWorkspaceDefinition
-      && workspaceMode === "write"
-      && runtimeContext.runtime === "vite"
-      && !baseResolvedWorkspaceDefinition.runtime
-      ? { ...baseResolvedWorkspaceDefinition, runtime: "trusted-host" as const }
-      : baseResolvedWorkspaceDefinition
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
@@ -1499,11 +1569,14 @@ async function createAgentInvocationContext<
       ? { definition: resolvedWorkspaceDefinition }
       : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
-    const workspace = workspaceName && workspaceModule
+    const baseWorkspace = workspaceName && workspaceModule
       ? workspaceMode === "write"
         ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
         : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
       : undefined
+    const workspace = box && baseWorkspace && workspaceMode === "write"
+      ? withBoxWorkspaceSessions(baseWorkspace as WritableWorkspaceFacade<WorkspaceName>, box)
+      : baseWorkspace
     const capabilityOptions = resolvedCapabilityDefinitions.length
       ? { capabilities: resolvedCapabilityDefinitions, hooks: definition?.hooks as never }
       : undefined
@@ -1579,7 +1652,6 @@ async function createAgentInvocationContext<
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
       harnessSandboxProvider,
-      harnessWorkDir: box?.workspace.workDir ?? (box?.workspace.path ? "workspace" : undefined),
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
@@ -1600,6 +1672,7 @@ async function createAgentInvocationContext<
       workspaceAutoCommit,
       workspaceDefinition: activeWorkspaceDefinition,
       workspaceInstructionBindings,
+      workspaceMaterializationSource: box ? activeWorkspace : undefined,
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }
@@ -2199,7 +2272,25 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = shouldWrapInvocationOutput(context)
   try {
     if (result instanceof Response) {
-      const response = shouldWrapOutput ? await withResponseCleanup(result, outcome => lifecycle.finish(finishOutcomeFromCleanup(outcome, result))) : result
+      const responseMediaType = result.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
+      const responseIsText = responseMediaType !== "text/event-stream" && (responseMediaType?.startsWith("text/")
+        || responseMediaType === "application/json"
+        || responseMediaType?.endsWith("+json")
+        || responseMediaType === "application/xml"
+        || responseMediaType?.endsWith("+xml"))
+      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true && responseIsText
+        ? new TextDecoder()
+        : undefined
+      let responseText = ""
+      const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
+        responseText += responseDecoder?.decode() ?? ""
+        const finishResult = responseText && !outcome.failed
+          ? { raw: result, text: responseText }
+          : result
+        await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+      }, {
+        onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
+      }) : result
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
@@ -2245,8 +2336,11 @@ async function materializeAgentStructuredOutput(result: unknown, abortSignal?: A
 }
 
 type AgentInvocationExecutionOptions =
-  | { kind: "run", renderOutput: boolean }
-  | { kind: "stream", output: "events" | "ui-message-stream" }
+  & (
+    | { kind: "run", renderOutput: boolean }
+    | { kind: "stream", output: "events" | "ui-message-stream" }
+  )
+  & { onFinish?: (outcome: AgentInvocationFinishOutcome) => void }
 
 async function executeAgentInvocation<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -2265,7 +2359,16 @@ async function executeAgentInvocation<
     : undefined
   const invocation = await createAgentInvocationContext(definition, context, input)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
-    outcome => finishAgentInvocation(invocation, outcome),
+    async (outcome) => {
+      try {
+        await finishAgentInvocation(invocation, outcome)
+        options.onFinish?.(outcome)
+      }
+      catch (error) {
+        options.onFinish?.({ error, status: "error" })
+        throw error
+      }
+    },
   )
 
   const runFailureMessage = "[vitehub] Agent run failed and finish lifecycle also failed."
@@ -2292,7 +2395,8 @@ async function executeAgentInvocation<
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
-  if (invocation.context.get<boolean>(finalChannelOutputContextKey) === true
+  if (options.kind === "run"
+    && invocation.context.get<boolean>(finalChannelOutputContextKey) === true
     && !isAsyncIterable(result)
     && !hasTraceableStreamResult(result)) {
     const text = finalTextFromAgentOutput(result)
@@ -2327,6 +2431,91 @@ async function executeAgentInvocation<
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
+      if (options.renderOutput
+        && !invocation.output
+        && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
+        && rendered !== result
+        && (isAsyncIterable((rendered as { stream?: unknown }).stream)
+          || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
+          || isUIMessageStreamResult(rendered))
+        && shouldWrapInvocationOutput(invocation)) {
+        if (isUIMessageStreamResult(rendered)
+          && !isAsyncIterable((rendered as { stream?: unknown }).stream)
+          && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {
+          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+          let finishTask: Promise<void> | undefined
+          let streamedText = ""
+          let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+          const preserved = cloneWithPropertyDescriptors(rendered, {
+            toUIMessageStream: {
+              configurable: true,
+              enumerable: false,
+              value: (...args: unknown[]) => withReadableStreamCleanup(
+                normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)),
+                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText, streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+                {
+                  onChunk(chunk) {
+                    streamedText += uiMessageTextDelta(chunk) || ""
+                    streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+                  },
+                },
+              ),
+            },
+          })
+          return {
+            deferFinish: true,
+            finishResult: preserved,
+            value: preserved,
+          }
+        }
+        const streamProperties = (["stream", "fullStream"] as const)
+          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
+        let finishTask: Promise<void> | undefined
+        const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
+          const streamed = withStreamedResult(renderedStream, rendered, driverUsageRecord)
+          const value = withCapabilityCleanup(streamed.stream, (outcome) => {
+            return finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+          }, { abortSignal: invocation.input.abortSignal })
+          const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
+            ? toReadableAsyncIterableStream(value)
+            : value
+          return preservedStream
+        }
+        const descriptors: PropertyDescriptorMap = Object.fromEntries(streamProperties.map((property) => {
+          const renderedStream = (rendered as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> })[property]!
+          return [property, {
+            configurable: true,
+            enumerable: true,
+            value: preserveStream(renderedStream),
+            writable: true,
+          }]
+        }))
+        let textStreamDescriptor: PropertyDescriptor | undefined
+        for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
+          textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
+        if (textStreamDescriptor) {
+          let preservedTextStream: unknown
+          let initialized = false
+          descriptors.textStream = {
+            configurable: true,
+            enumerable: textStreamDescriptor.enumerable ?? false,
+            get() {
+              if (!initialized) {
+                const textStream = Reflect.get(rendered as object, "textStream")
+                preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
+                initialized = true
+              }
+              return preservedTextStream
+            },
+          }
+        }
+        const preserved = cloneWithPropertyDescriptors(rendered as object, descriptors)
+        return {
+          deferFinish: true,
+          finishResult: preserved,
+          value: preserved,
+        }
+      }
       const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
       const structuredFinal = options.renderOutput && invocation.output ? await materializeAgentStructuredOutput(final, invocation.input.abortSignal) : final
       const structuredUsageRecord = options.renderOutput && invocation.output
@@ -2437,6 +2626,94 @@ export async function runAgentInline<
   }) as TOutput
 }
 
+function agentInvocationSnapshotFromWorkflow<TOutput>(
+  run: AgentWorkflowRun<TOutput>,
+): AgentInvocationSnapshot<TOutput> | undefined {
+  const status = run.status === "queued"
+    ? "pending"
+    : run.status === "unknown"
+      ? undefined
+      : run.status
+  if (!status) return undefined
+  return {
+    ...(run.status === "failed" && run.metadata !== undefined ? { error: run.metadata } : {}),
+    id: run.id,
+    ...(run.result !== undefined ? { output: run.result } : {}),
+    status,
+  }
+}
+
+function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable" {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: unknown }).code === "WORKFLOW_OPERATION_UNSUPPORTED"
+    ? "unsupported"
+    : "unavailable"
+}
+
+function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
+  started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
+  parentAbortSignal?: AbortSignal,
+): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
+  const { handle, run } = started
+  return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
+    cancel: async () => agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>),
+    errorOutcome: workflowOperationOutcome,
+    id: run.id,
+    inspect: async () => agentInvocationSnapshotFromWorkflow(await handle.getRun(run.id) as AgentWorkflowRun<TOutput>),
+    parentAbortSignal,
+    result: Promise.resolve(run),
+  })
+}
+
+function createInlineAgentInvocationController<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+  TOutput,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
+  return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS>({
+    parentAbortSignal: input.abortSignal,
+    start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
+      ...context,
+      run: { ...context.run, runId: id },
+    }, { ...input, abortSignal }, {
+      kind: "run",
+      onFinish(outcome) {
+        onFinish(outcome.status === "success"
+          ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
+          : { error: outcome.error, status: "failed" })
+      },
+      renderOutput: true,
+    }),
+  })
+}
+
+export async function startAgentInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+): Promise<AgentInvocationController<TOutput | Response, CALL_OPTIONS>> {
+  const invocationContext = withAgentIdentityOwner(agent, context)
+  const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
+    agent,
+    invocationContext,
+    input,
+    { fresh: true },
+  )
+  return workflow
+    ? createWorkflowAgentInvocationController(workflow, input.abortSignal)
+    : createInlineAgentInvocationController(agent, invocationContext, input)
+}
+
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2447,8 +2724,8 @@ export async function runAgent<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<TOutput | Response | AgentWorkflowRun<TOutput>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
-  const workflowRun = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
-  if (workflowRun) return workflowRun
+  const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
+  if (workflow) return workflow.run
   return await runAgentInline(agent, invocationContext, input)
 }
 

@@ -135,13 +135,13 @@ function assertWorkspace(workspace: unknown, message: string): asserts workspace
 }
 
 export function workspaceCommandTools(
-  commands: readonly (string | WorkspaceCommandEntry)[] | "trusted-host",
+  commands: readonly (string | WorkspaceCommandEntry)[] | "all",
   mode: AgentCapabilityMode,
   timeout: number | undefined,
   workspace: unknown,
   options: WorkspaceCommandToolOptions = {},
 ): AgentToolSet {
-  const unrestricted = commands === "trusted-host"
+  const unrestricted = commands === "all"
   const entries = unrestricted ? [] : commands.map(command => typeof command === "string" ? { command } : command)
   const commandNames = entries.map(entry => entry.command)
   const toolName = options.toolName || "workspace_exec"
@@ -149,8 +149,8 @@ export function workspaceCommandTools(
   return {
     [toolName]: defineInternalTool({
       description: options.description || (unrestricted
-        ? "Run any executable in a trusted Workspace Session with the host service account's authority."
-        : `Run one configured command in a trusted Workspace Session at the workspace root. Allowed commands: ${summary}.`),
+        ? "Run any executable in the Box-backed Workspace Session."
+        : `Run one configured command in the Box-backed Workspace Session at the workspace root. Allowed commands: ${summary}.`),
       inputSchema: {
         additionalProperties: false,
         properties: {
@@ -175,7 +175,7 @@ export function workspaceCommandTools(
         const cwd = normalizeCwd(value.cwd)
         const env = envRecord(value.env)
         const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout ?? defaultWorkspaceCommandTimeout
-        assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an executable Workspace Session. Trusted workspace/session execution requires a writable workspace.")
+        assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires a Box-backed writable Workspace Session.")
         const session = await workspace.startSession()
         let result
         try {

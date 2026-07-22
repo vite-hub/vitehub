@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
@@ -262,7 +262,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   function assertWritableStorePath(path: string, workspacePath: string, type: "source" | "store") {
     if (type === "source" || isLazySourcePath(workspacePath)) {
-      throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
   }
 
@@ -308,17 +308,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     assertWritableStorePath(path, workspacePath, type)
     await materializeRootSourceForPath(workspacePath)
     if (isSyncSourceMountPath(workspacePath) || await isSyncedStatePath(workspacePath) || await isSourceBackedStorePath(workspacePath)) {
-      throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
   }
 
   async function assertWritablePath(path: string) {
     if (isDescriptorPath(normalizeWorkspacePath(path))) {
-      throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
     const resolution = resolveWorkspacePath(definition, path)
     if (isDescriptorPath(resolution.workspacePath)) {
-      throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      throw workspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
     await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
     return resolution
@@ -345,7 +345,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       await materializeRootSourceForPath(resolution.workspacePath)
       const file = await store.readFile(resolution.workspacePath)
-      if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+      if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
@@ -404,14 +404,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (isLiveSource(resolution.sourceKey)) {
           if (!resolution.workspacePath) return { path: "", type: "directory" }
           const result = liveSourceStat(resolution.source, resolution.workspacePath)
-          if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+          if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
           return result
         }
         const stored = await store.stat(resolution.workspacePath)
         if (stored) return stored
         await ensureMaterialized(resolution.sourceKey)
         const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source))
-        if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+        if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
       let result = await store.stat(resolution.workspacePath)
@@ -422,7 +422,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await materializeRootSourceForPath(resolution.workspacePath)
         result = await store.stat(resolution.workspacePath)
       }
-      if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
       return result
     },
     async materializeSources(options) {
@@ -520,7 +520,7 @@ function liveSourceEntries(source: ReturnType<typeof normalizeWorkspaceSources>[
 async function sourceItemContent(item: WorkspaceSourceItem): Promise<WorkspaceContent> {
   if (item.contentStream) {
     if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
-      throw new WorkspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
+      throw workspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
     }
     return await contentStreamToBytes(item.contentStream)
   }

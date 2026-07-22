@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { getTranscriptionResults, transcribe } from "../src/capabilities.ts"
+import { getTranscriptionResults, title, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
 import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
 
@@ -80,6 +80,56 @@ describe("agent transcription", () => {
     }, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
   })
 
+  it("cancels oversized and erroring audio responses and releases readers", async () => {
+    const headerCancel = vi.fn()
+    const headerOversized = new ReadableStream<Uint8Array>({ cancel: headerCancel })
+    const cancel = vi.fn()
+    const oversized = new ReadableStream<Uint8Array>({
+      cancel,
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]))
+        controller.enqueue(new Uint8Array([3, 4]))
+      },
+    })
+    const readError = new Error("audio stream failed")
+    const erroring = new ReadableStream<Uint8Array>({
+      pull() {
+        throw readError
+      },
+    })
+    const successful = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]))
+        controller.enqueue(new Uint8Array([3]))
+        controller.close()
+      },
+    })
+    const fetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(headerOversized, { headers: { "content-length": "4" } }))
+      .mockResolvedValueOnce(new Response(oversized))
+      .mockResolvedValueOnce(new Response(erroring))
+      .mockResolvedValueOnce(new Response(successful))
+    const audio = { mediaType: "audio/ogg", type: "audio" as const, url: "https://example.com/audio.ogg" }
+
+    try {
+      await expect(audioBytes(audio, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
+      expect(headerCancel).toHaveBeenCalledOnce()
+
+      await expect(audioBytes(audio, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(oversized.locked).toBe(false)
+
+      await expect(audioBytes(audio, { maxBytes: 3 })).rejects.toBe(readError)
+      expect(erroring.locked).toBe(false)
+
+      await expect(audioBytes(audio, { maxBytes: 3 })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+      expect(successful.locked).toBe(false)
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
   it("reuses lazy audio bytes between transcription and audio artifacts", async () => {
     const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const capability = transcribe({
@@ -112,7 +162,7 @@ describe("agent transcription", () => {
     )
   })
 
-  it("accepts audio message parts", () => {
+  it("accepts typed attachment message parts and preserves multiple handles", () => {
     expect(createMessage({
       parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
       role: "user",
@@ -121,21 +171,45 @@ describe("agent transcription", () => {
     ])
 
     expect(createMessage({
-      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
+      parts: [{ fetchData: () => new Uint8Array([1]), fetchMetadata: { fileId: "audio-1" }, mediaType: "audio/ogg", type: "audio", url: "https://example.com/audio.ogg" }],
       role: "user",
     }).parts[0]).toMatchObject({
+      fetchData: expect.any(Function),
+      fetchMetadata: { fileId: "audio-1" },
       mediaType: "audio/ogg",
       type: "audio",
+      url: "https://example.com/audio.ogg",
     })
+
+    expect(createMessage({
+      parts: [
+        { mediaType: "image/png", type: "image", url: "https://example.com/photo.png" },
+        { mediaType: "application/pdf", name: "report.pdf", type: "file", url: "https://example.com/report.pdf" },
+      ],
+      role: "user",
+    }).parts).toMatchObject([
+      { type: "image", url: "https://example.com/photo.png" },
+      { name: "report.pdf", type: "file", url: "https://example.com/report.pdf" },
+    ])
   })
 
-  it("rejects serializing lazy audio message parts", () => {
+  it("rejects serializing lazy attachment message parts", () => {
     const message = createMessage({
       parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
       role: "user",
     })
 
     expect(() => serializeMessages([message])).toThrow("cannot serialize")
+
+    expect(() => serializeMessages([createMessage({
+      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "image/png", type: "image" }],
+      role: "user",
+    })])).toThrow("cannot serialize")
+
+    expect(() => serializeMessages([createMessage({
+      parts: [{ data: new Uint8Array([1]), mediaType: "image/png", type: "image" }],
+      role: "user",
+    })])).toThrow("cannot serialize binary data")
   })
 
   it("rejects invalid audio message parts", () => {
@@ -145,9 +219,19 @@ describe("agent transcription", () => {
     })).toThrow("audio/* mediaType")
 
     expect(() => createMessage({
-      parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio", url: "https://example.com/audio.wav" }],
+      parts: [{ mediaType: "audio/wav", type: "audio" }],
       role: "user",
-    })).toThrow("exactly one of data, fetchData, or url")
+    })).toThrow("requires data, fetchData, or url")
+
+    expect(() => createMessage({
+      parts: [{ mediaType: "application/octet-stream", type: "image", url: "https://example.com/image" }],
+      role: "user",
+    })).toThrow("image/* mediaType")
+
+    expect(() => createMessage({
+      parts: [{ data: new Uint8Array(), mediaType: "audio/wav", type: "audio" }],
+      role: "user",
+    })).toThrow("requires data, fetchData, or url")
   })
 
   it("transcribes audio input with custom execution before agent execution", async () => {
@@ -182,6 +266,9 @@ describe("agent transcription", () => {
     expect(execute).toHaveBeenCalledWith({
       audio: { data: "AAAA", mediaType: "audio/wav", type: "audio" },
     })
+    expect(finish.mock.calls[0]![0].input.messages.at(-1)?.parts).toEqual([
+      { id: "text-0", text: "voice transcript", type: "text" },
+    ])
     expect(finish.mock.calls[0]![0].extensions.get("transcribe")).toEqual([{
       createdAt: expect.any(String),
       date: expect.any(String),
@@ -189,6 +276,61 @@ describe("agent transcription", () => {
       stem: expect.any(String),
       transcript: "voice transcript",
     }])
+  })
+
+  it("generates titles from prepared audio transcripts", async () => {
+    const executeTitle = vi.fn(({ text }) => `Title: ${text}`)
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        title({ execute: executeTitle }),
+        transcribe({ execute: vi.fn(async () => "voice transcript") }),
+      ],
+      driver: { run: () => ({ text: "agent reply" }) },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    await runAgent(agent, runtime(), {
+      messages: [createMessage({
+        parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
+        role: "user",
+      })],
+    })
+
+    expect(executeTitle).toHaveBeenCalledWith(expect.objectContaining({
+      source: "input",
+      text: "voice transcript",
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: voice transcript" })
+  })
+
+  it("combines authored text and audio transcripts before generating a title", async () => {
+    const executeTitle = vi.fn(({ text }) => `Title: ${text}`)
+    const agent = defineAgent({
+      capabilities: [
+        title({ execute: executeTitle }),
+        transcribe({ execute: vi.fn(async () => "voice transcript") }),
+      ],
+      driver: { run: () => ({ text: "agent reply" }) },
+      hooks: {
+        "agent:finish": vi.fn(),
+      },
+    })
+
+    await runAgent(agent, runtime(), {
+      messages: [createMessage({
+        parts: ["authored context", { data: "AAAA", mediaType: "audio/wav", type: "audio" }],
+        role: "user",
+      })],
+    })
+
+    expect(executeTitle).toHaveBeenCalledOnce()
+    expect(executeTitle).toHaveBeenCalledWith(expect.objectContaining({
+      source: "input",
+      text: "authored context\nvoice transcript",
+    }))
   })
 
   it("supports AI SDK v6 experimental_transcribe export", async () => {

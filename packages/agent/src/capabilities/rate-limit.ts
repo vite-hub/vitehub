@@ -1,4 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { ViteHubError } from "@vite-hub/runtime"
 
 import type {
   RateLimitDecision as CoreRateLimitDecision,
@@ -63,29 +64,16 @@ export interface RateLimitOptions {
   trustedIpHeaders?: string[]
 }
 
-export class RateLimitRejectedError extends Error {
-  capabilityId: string
-  decision: RateLimitDecision
-  headers: Record<string, string>
-  retryAfter?: number
-
-  constructor(capabilityId: string, decision: RateLimitDecision, message?: string) {
-    const unavailable = decision.reason === "unavailable"
-    super(message || (unavailable ? "Rate limiting is unavailable." : "Rate limit exceeded. Try again later."), unavailable ? { cause: decision.cause } : undefined)
-    this.capabilityId = capabilityId
-    this.decision = decision
-    this.headers = {}
-    this.name = "RateLimitRejectedError"
-    this.retryAfter = decision.retryAfter
-    if (decision.retryAfter !== undefined) {
-      this.headers["retry-after"] = String(decision.retryAfter)
-      this.headers["x-retry-after"] = String(decision.retryAfter)
-    }
-    Object.defineProperty(this, "statusCode", {
-      enumerable: true,
-      value: unavailable ? 503 : 429,
-    })
-  }
+function rateLimitRejectedError(capabilityId: string, decision: RateLimitDecision, message?: string) {
+  const unavailable = decision.reason === "unavailable"
+  return new ViteHubError(unavailable ? "RATE_LIMIT_UNAVAILABLE" : "RATE_LIMIT_REJECTED", message || (unavailable ? "Rate limiting is unavailable." : "Rate limit exceeded. Try again later."), {
+    cause: unavailable ? decision.cause : undefined,
+    details: {
+      capabilityId,
+      reason: decision.reason,
+      retryAfter: decision.retryAfter,
+    },
+  })
 }
 
 function resolveRunIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
@@ -262,7 +250,7 @@ export function rateLimit(
         limiter,
       })
       if (!decision.allowed) {
-        throw new RateLimitRejectedError(id, decision, resolveRejectedMessage(options.message, decision))
+        throw rateLimitRejectedError(id, decision, resolveRejectedMessage(options.message, decision))
       }
     },
   })

@@ -277,7 +277,6 @@ export async function resolveAgentCapabilityDefinitions<
     const unsupported = [
       capability.triggers ? "triggers" : undefined,
       capability.workspaceSources ? "workspaceSources" : undefined,
-      capability.chatAttachments ? "chatAttachments" : undefined,
       accessMetadata?.chat === true ? "chat access" : undefined,
     ].filter((value): value is string => Boolean(value))
     if (unsupported.length) {
@@ -320,7 +319,7 @@ function capabilityRequiresWorkspace(capability: AgentCapabilityDefinition): boo
 
 export function validateAgentCapabilityComposition(
   capabilities: readonly AgentCapabilityDefinition[],
-  options: { hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
+  options: { hasBox?: boolean, hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
 ): void {
   for (const capability of normalizeCapabilities(capabilities)) {
     if (capability.id === "sandbox") {
@@ -341,12 +340,18 @@ export function validateAgentCapabilityComposition(
       if (requiresWritableSession && workspaceMode !== "write") {
         throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
       }
+      if (requiresWritableSession && !options.hasBox) {
+        throw new Error("[vitehub] workspaceShell({ commands }) requires defineAgent({ box }).")
+      }
       if (!requiresWritableSession && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
         throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
       }
     }
     if (capability.bash?.length && workspaceMode !== "write") {
       throw new Error(`[vitehub] ${capability.id}() bash requires workspace.mode: "write".`)
+    }
+    if (capability.bash?.length && !options.hasBox) {
+      throw new Error(`[vitehub] ${capability.id}() bash requires defineAgent({ box }).`)
     }
   }
 }
@@ -1438,7 +1443,11 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   })()
 }
 
-export function withResponseCleanup(response: Response, close: (outcome: CapabilityCleanupOutcome) => Promise<void>): Response | Promise<Response> {
+export function withResponseCleanup(
+  response: Response,
+  close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
+  options: { onChunk?: (chunk: Uint8Array) => void } = {},
+): Response | Promise<Response> {
   if (!response.body) {
     return close({ failed: false }).then(() => response)
   }
@@ -1471,6 +1480,7 @@ export function withResponseCleanup(response: Response, close: (outcome: Capabil
           controller.close()
           return
         }
+        options.onChunk?.(result.value)
         controller.enqueue(result.value)
       }
       catch (error) {

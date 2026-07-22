@@ -153,6 +153,51 @@ Message-shaped Channels also record a canonical `channel` Agent Invocation Conte
 
 Augment `ViteHubAgentChannelMeta` and `ViteHubAgentChannelUser` in application code to type app-owned metadata and user fields.
 
+### Receive attachments as references
+
+Adapter-backed Channels preserve incoming images, audio, and generic files as typed Agent Message parts by default. No Capability or Channel option enables this. Each part keeps every handle supplied by the adapter: inline `data`, lazy `fetchData`, adapter-owned `fetchMetadata`, `url`, `mediaType`, `name`, and `size`.
+
+Normalization does not call `fetchData`, fetch a generic attachment URL, write a local file, or persist a blob. A Capability or Agent Driver chooses how to consume the reference. This keeps authenticated and expiring provider access inside the adapter while letting a consumer pass an HTTPS URL, resolve bytes, or explicitly persist the attachment only when needed.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    run({ messages }) {
+      const attachments = messages.flatMap(message =>
+        message.parts.filter(part =>
+          part.type === 'image' || part.type === 'audio' || part.type === 'file',
+        ),
+      )
+
+      return `Received ${attachments.length} attachment references.`
+    },
+  },
+})
+```
+
+Model-backed Agents pass inline data and HTTPS references as typed model input. For the current Channel turn, the model driver prefers an attachment's adapter-owned `fetchData` callback immediately before invocation. Channel history callbacks are not replayed; history retains only serializable data and URL references. The driver resolves attachments sequentially and checks both the declared and resolved byte size against one invocation-wide budget. The default limit is 25 MiB; change the real resource policy with `driver.execution.attachments.maxBytes`.
+
+```ts [server/agents/vision.ts]
+export default defineAgent({
+  driver: {
+    model,
+    execution: {
+      attachments: { maxBytes: 10 * 1024 * 1024 },
+    },
+  },
+})
+```
+
+Only HTTPS attachment URLs are forwarded as remote model input. ViteHub does not download arbitrary URLs on the server, because that would create an SSRF surface. Forwarding a signed URL also discloses its temporary access to the model provider, and provider URLs may expire; use `fetchData` for authenticated or refreshable access and treat durable persistence as a separate application decision.
+
+The byte limit checks a declared `size` before resolving provider data, then checks the resolved value using UTF-8 bytes for strings, `byteLength` for buffers and typed-array views, and `size` for Blobs. Invalid and non-HTTPS URLs are omitted from model input.
+
+Harness-backed Agents retain URL-bearing parts in their input, but callbacks and binary objects cannot cross a serialized harness boundary. A private callback-only attachment needs a Capability that consumes it or an explicit future asset/persistence contract; ViteHub does not materialize it in `/tmp`. `serializeMessages()` rejects unresolved attachment callbacks and non-string binary data. The pure synchronous `toAiSdkModelMessages()` converter rejects callback- and Blob-only inputs; use the model-backed Agent Driver for its asynchronous invocation-time conversion, or provide an HTTPS URL.
+
+Text-like files keep the existing bounded prompt behavior: ViteHub decodes recognized text attachments up to 8 MiB and emits a text part instead of a duplicate file part. Other attachment normalization is inert.
+
 ## Admit web chat requests
 
 Use `webChat()` when a web destination should expose the generated AI SDK UI-message route. Pass `route` options when the route needs authentication or product context, or set `route: false` when application code invokes the Channel from its own handler.

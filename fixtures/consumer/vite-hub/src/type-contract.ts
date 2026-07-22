@@ -51,7 +51,7 @@ export const contract = {
     workspacePublisher,
     workspaceServer,
   ],
-  plugins: vitehub(),
+  plugins: vitehub({ preset: "node" }),
   rateLimit: requireRateLimit,
   workflow: defineWorkflow(async ({ payload }: { payload: { marker: string } }) => payload.marker),
   workspace: defineWorkspace({ store: { provider: "memory" } }),

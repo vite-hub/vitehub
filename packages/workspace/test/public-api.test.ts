@@ -2,13 +2,14 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { defineWorkspace, file, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
@@ -99,7 +100,7 @@ describe("workspace public API", () => {
     expect(builtAi).not.toContain("import('@vite-hub/shell')")
     expect(builtAi).not.toContain("import(\"@vite-hub/shell/workspace\")")
     expect(builtAi).not.toContain("import('@vite-hub/shell/workspace')")
-    expect(builtDependencyLoaders).toContain("@vite-hub/shell/workspace")
+    expect(`${builtAi}\n${builtDependencyLoaders}`).toContain("@vite-hub/shell/workspace")
     expect(builtDependencyLoaders).not.toContain('import("@vite-hub/shell/workspace")')
     expect(builtDependencyLoaders).not.toContain("import('@vite-hub/shell/workspace')")
     expect(builtRuntime).not.toContain("import(\"@vite-hub/shell")
@@ -109,6 +110,7 @@ describe("workspace public API", () => {
   it("keeps workspace declarations installable without optional integration peers", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
+    const builtCollectionsClient = await readFile(new URL("../dist/collections/client.js", import.meta.url), "utf8")
     const builtSandboxStore = await readFile(new URL("../dist/providers/vercel/blob-store.d.ts", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
@@ -125,13 +127,20 @@ describe("workspace public API", () => {
       "providers/vercel/blob-store.js",
     ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
     const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
+    const vueFreeBundles = (await Promise.all(["index.js", "server.js", "collections.js"]
+      .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
+    expect(packageJson.exports).toHaveProperty("./collections")
+    expect(packageJson.exports).toHaveProperty("./collections/client")
+    expect(packageJson.peerDependencies?.vue).toBe("catalog:ui")
+    expect(packageJson.peerDependenciesMeta?.vue).toEqual({ optional: true })
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
-    expect(packageJson.peerDependencies?.["@vite-hub/sandbox"]).toBe("workspace:*")
-    expect(packageJson.peerDependenciesMeta?.["@vite-hub/sandbox"]).toEqual({ optional: true })
+    expect(packageJson.peerDependencies?.["@vite-hub/sandbox"]).toBeUndefined()
+    expect(packageJson.peerDependenciesMeta?.["@vite-hub/sandbox"]).toBeUndefined()
     expect(packageJson.peerDependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.["@vercel/blob"]).toBe("catalog:storage")
@@ -143,6 +152,8 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("@vite-hub/sandbox")
     expect(declarations).not.toMatch(effectImport)
     expect(effectFreeBundles).not.toMatch(effectImport)
+    expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
+    expect(builtCollectionsClient).toMatch(/from\s*["']vue["']/)
   })
 
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
@@ -206,6 +217,47 @@ describe("workspace public API", () => {
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
     })
     expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
+  })
+
+  it("publishes from the writable facade without running definition sync", async () => {
+    const store = createMemoryWorkspaceStore()
+    const snapshot = vi.spyOn(store, "snapshot")
+    const publish = vi.fn(async () => {})
+    registerWorkspace("publish-api", defineWorkspace({
+      loaders: [{ name: "sync-probe", async load() {} }],
+      publish: [{ name: "test", publish }],
+      store,
+    }))
+
+    const workspace = useWorkspace("publish-api", { mode: "write" })
+    await workspace.publish({ name: "publish current state" })
+
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(publish).toHaveBeenCalledOnce()
+  })
+
+  it("waits for in-flight definition sync before publishing", async () => {
+    let markSyncStarted!: () => void
+    const syncStarted = new Promise<void>((resolve) => { markSyncStarted = resolve })
+    let finishSync!: () => void
+    const syncing = new Promise<void>((resolve) => { finishSync = resolve })
+    const publish = vi.fn(async () => {})
+    registerWorkspace("publish-after-sync", defineWorkspace({
+      loaders: [{ name: "sync-probe", async load() { markSyncStarted(); await syncing } }],
+      publish: [{ name: "test", publish }],
+      store: { provider: "memory" },
+    }))
+
+    const workspace = useWorkspace("publish-after-sync", { mode: "write" })
+    const read = workspace.fs.exists("README.md")
+    await syncStarted
+    const publication = workspace.publish()
+    await Promise.resolve()
+    expect(publish).not.toHaveBeenCalled()
+
+    finishSync()
+    await Promise.all([read, publication])
+    expect(publish).toHaveBeenCalledTimes(2)
   })
 
   it("serves allowlisted workspace files as H3-compatible responses", async () => {

@@ -1,6 +1,6 @@
 import { minimatch } from "minimatch"
 
-import { WorkspaceError } from "./errors.ts"
+import { workspaceError } from "./errors.ts"
 import { contentToBytes, normalizeWorkspacePath } from "./path.ts"
 
 import type {
@@ -112,17 +112,17 @@ function assertRuleAllows(input: WorkspaceWriteInput) {
 
   const exists = Boolean(input.previous)
   if (!writeAllowed(rule.write, input.operation, exists)) {
-    throw new WorkspaceError(`[vitehub] Workspace rule "${rule.pattern}" does not allow ${input.operation} for ${input.path}.`)
+    throw workspaceError(`[vitehub] Workspace rule "${rule.pattern}" does not allow ${input.operation} for ${input.path}.`)
   }
 
   if (rule.maxBytes !== undefined && sizeOf(input.content) > rule.maxBytes) {
-    throw new WorkspaceError(`[vitehub] Workspace rule "${rule.pattern}" limits writes to ${rule.maxBytes} bytes: ${input.path}.`)
+    throw workspaceError(`[vitehub] Workspace rule "${rule.pattern}" limits writes to ${rule.maxBytes} bytes: ${input.path}.`)
   }
 
   if (rule.mediaType && input.mediaType) {
     const allowed = Array.isArray(rule.mediaType) ? rule.mediaType : [rule.mediaType]
     if (!allowed.includes(input.mediaType)) {
-      throw new WorkspaceError(`[vitehub] Workspace rule "${rule.pattern}" does not allow media type ${input.mediaType}: ${input.path}.`)
+      throw workspaceError(`[vitehub] Workspace rule "${rule.pattern}" does not allow media type ${input.mediaType}: ${input.path}.`)
     }
   }
 }
@@ -138,7 +138,7 @@ async function runValidators(validators: WorkspaceWriteValidator[], input: Works
   for (const validate of validators) {
     const result = await validate(current)
     if (result === false) {
-      throw new WorkspaceError(`[vitehub] Workspace validator rejected ${current.operation} for ${current.path}.`)
+      throw workspaceError(`[vitehub] Workspace validator rejected ${current.operation} for ${current.path}.`)
     }
     if (typeof result === "object" && result !== null) current = result
   }

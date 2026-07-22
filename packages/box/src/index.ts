@@ -48,7 +48,94 @@ export interface BoxDefinition<Context = unknown> {
 
 export interface BoxRuntime {
   readonly name: string;
-  resolve(input: ResolvedBoxInput): Promise<ResolvedBox>;
+  open(input: BoxRuntimeInput, options?: BoxOpenOptions): Promise<BoxSession>;
+  prepare(input: BoxRuntimeInput): Promise<BoxPlan>;
+}
+
+export interface BoxOpenOptions {
+  id?: string;
+  initialize?: (
+    session: BoxSession,
+    context: { signal?: AbortSignal },
+  ) => Promise<void>;
+  signal?: AbortSignal;
+}
+
+export interface BoxExecOptions {
+  cwd?: string;
+  env?: Readonly<Record<string, string>>;
+  signal?: AbortSignal;
+  timeout?: number;
+}
+
+export interface BoxExecResult {
+  readonly code: number;
+  readonly ok: boolean;
+  readonly stderr: string;
+  readonly stdout: string;
+}
+
+export interface BoxProcessExit {
+  readonly code: number;
+}
+
+export interface BoxProcess {
+  readonly pid?: number;
+  readonly stderr: ReadableStream<Uint8Array>;
+  readonly stdout: ReadableStream<Uint8Array>;
+  kill(signal?: string): Promise<void>;
+  wait(): Promise<BoxProcessExit>;
+}
+
+export interface BoxFileEntry {
+  readonly path: string;
+  readonly size?: number;
+  readonly type: "directory" | "file" | "symlink";
+}
+
+export interface BoxFileOptions {
+  signal?: AbortSignal;
+}
+
+export interface BoxListFilesOptions extends BoxFileOptions {
+  recursive?: boolean;
+}
+
+export interface BoxRemoveFileOptions extends BoxFileOptions {
+  recursive?: boolean;
+}
+
+export interface BoxFiles {
+  exists(path: string, options?: BoxFileOptions): Promise<boolean>;
+  list(path: string, options?: BoxListFilesOptions): Promise<readonly BoxFileEntry[]>;
+  mkdir(path: string, options?: BoxFileOptions & { recursive?: boolean }): Promise<void>;
+  move?(source: string, destination: string, options?: BoxFileOptions): Promise<void>;
+  read(path: string, options?: BoxFileOptions): Promise<Uint8Array | null>;
+  remove(path: string, options?: BoxRemoveFileOptions): Promise<void>;
+  write(path: string, contents: Uint8Array, options?: BoxFileOptions): Promise<void>;
+}
+
+export interface BoxPorts {
+  readonly values: readonly number[];
+  expose(port: number, options?: { protocol?: "http" | "https" | "ws" }): Promise<URL>;
+}
+
+export interface BoxSession {
+  readonly cwd: string;
+  readonly files: BoxFiles;
+  readonly id: string;
+  readonly ports?: BoxPorts;
+  readonly spawn?: (
+    command: string,
+    args?: readonly string[],
+    options?: BoxExecOptions,
+  ) => Promise<BoxProcess>;
+  close(): Promise<void>;
+  exec(
+    command: string,
+    args?: readonly string[],
+    options?: BoxExecOptions,
+  ): Promise<BoxExecResult>;
 }
 
 export interface ResolvedBoxFile {
@@ -74,7 +161,7 @@ export interface ResolvedBoxRequirementInput {
   readonly name: string;
 }
 
-export interface ResolvedBoxInput {
+export interface BoxRuntimeInput {
   checkout?: ResolvedBoxCheckout;
   cwd?: string;
   identity: string;
@@ -88,30 +175,34 @@ export interface ResolvedBoxCheckout {
   readonly sha: string;
 }
 
-export interface ResolvedBoxEnvironment {
+export interface BoxEnvironment {
   readonly env: Readonly<Record<string, string | undefined>>;
 }
 
-export interface ResolvedBoxRequirement {
+export interface BoxResolvedRequirement {
   readonly command: string;
   readonly name: string;
 }
 
-export interface ResolvedBox {
+export interface BoxPlan {
   readonly cache: {
     readonly state: "disposable";
   };
-  readonly environment: ResolvedBoxEnvironment;
+  readonly environment: BoxEnvironment;
   readonly identity: string;
-  readonly isolation: "none";
-  readonly requirements: readonly ResolvedBoxRequirement[];
+  readonly isolation: "container" | "microvm" | "none" | "process";
+  readonly requirements: readonly BoxResolvedRequirement[];
   readonly runtime: string;
-  readonly sandbox?: object;
   readonly workspace: {
     readonly path?: string;
     readonly state: "authoritative" | "disposable";
     readonly workDir?: "." | "workspace";
   };
+}
+
+export interface Box {
+  readonly plan: BoxPlan;
+  open(options?: BoxOpenOptions): Promise<BoxSession>;
 }
 
 export interface ResolveBoxOptions {
@@ -133,12 +224,13 @@ export async function resolveBox<Context>(
   definition: BoxDefinition<Context>,
   context: Context,
   options: ResolveBoxOptions = {},
-): Promise<ResolvedBox> {
+): Promise<Box> {
   if (
     !definition ||
     typeof definition !== "object" ||
     !definition.runtime ||
-    typeof definition.runtime.resolve !== "function"
+    typeof definition.runtime.open !== "function" ||
+    typeof definition.runtime.prepare !== "function"
   ) {
     throw new TypeError("[vitehub] Box requires a runtime.");
   }
@@ -163,12 +255,20 @@ export async function resolveBox<Context>(
     ...(definition.requires || []),
     ...(options.requires || []),
   ]);
-  return await definition.runtime.resolve({
+  const input: BoxRuntimeInput = {
     ...(checkout ? { checkout } : {}),
     ...(cwd ? { cwd } : {}),
     identity: planIdentity(plan, requirements, checkout),
     plan,
     requirements,
+  };
+  const prepared = await definition.runtime.prepare(input);
+  return Object.freeze({
+    async open(options?: BoxOpenOptions) {
+      options?.signal?.throwIfAborted();
+      return await definition.runtime.open(input, options);
+    },
+    plan: prepared,
   });
 }
 

@@ -3,22 +3,21 @@ import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/c
 import { normalizeQueueOptions } from "../config.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import {
+  createQueueError,
   isQueueBoundaryIdentity,
   normalizePublicQueueIdentifier,
-  QueueError,
   runQueueProviderOperation,
 } from "../errors.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
-import { getQueueClientCache, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "./state.ts"
+import { getQueueClientCache, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "./state.ts"
 
 import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
-function createQueueDefinitionNotFoundError(name: string): QueueError<"QUEUE_DEFINITION_NOT_FOUND"> {
+function createQueueDefinitionNotFoundError(name: string) {
   const queue = normalizePublicQueueIdentifier(name)
-  return new QueueError<"QUEUE_DEFINITION_NOT_FOUND">({
-    code: "QUEUE_DEFINITION_NOT_FOUND",
+  return createQueueError("QUEUE_DEFINITION_NOT_FOUND", {
     details: queue ? { queue } : undefined,
   })
 }
@@ -30,9 +29,8 @@ async function loadNamedQueueDefinition(name: string) {
   catch (cause) {
     if (isQueueBoundaryIdentity(cause)) throw cause
     const queue = normalizePublicQueueIdentifier(name)
-    throw new QueueError<"QUEUE_DEFINITION_LOAD_FAILED">({
+    throw createQueueError("QUEUE_DEFINITION_LOAD_FAILED", {
       cause,
-      code: "QUEUE_DEFINITION_LOAD_FAILED",
       details: queue ? { queue } : undefined,
     })
   }
@@ -62,16 +60,6 @@ function toProviderOptions(name: string, config: ResolvedQueueOptions): QueuePro
   } satisfies VercelQueueProviderOptions
 }
 
-export async function createQueueClient(options: QueueProviderOptions): Promise<QueueClient> {
-  if (options.provider === "cloudflare") {
-    const { createCloudflareQueueClient } = await import("../providers/cloudflare.ts")
-    return createCloudflareQueueClient(options)
-  }
-
-  const { createVercelQueueClient } = await import("../providers/vercel.ts")
-  return await createVercelQueueClient(options)
-}
-
 function getActiveQueueConfig(): false | ResolvedQueueOptions {
   const config = getQueueRuntimeConfig()
   if (config === false) {
@@ -92,13 +80,15 @@ function hasRequestScopedVercelRegion(config: ResolvedQueueOptions): boolean {
 async function createNamedQueueClient(name: string): Promise<QueueClient> {
   const config = getActiveQueueConfig()
   if (config === false) {
-    throw new QueueError<"QUEUE_DISABLED">({
-      code: "QUEUE_DISABLED",
-    })
+    throw createQueueError("QUEUE_DISABLED")
   }
 
   const provider = toProviderOptions(name, config)
-  return await runQueueProviderOperation(provider.provider, "create-client", () => createQueueClient(provider))
+  const createClient = getQueueRuntimeClientFactory()
+  if (!createClient) {
+    throw new Error("[vitehub] Queue Client is installed by generated Provider Output.")
+  }
+  return await runQueueProviderOperation(provider.provider, "create-client", () => createClient(provider))
 }
 
 export async function getQueue(name: string): Promise<QueueClient> {

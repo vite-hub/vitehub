@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
+import { ViteHubError } from "@vite-hub/runtime"
 
-import { ApplicationWorkflowError, WorkflowError } from "../src/errors.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "../src/runtime/provider-operation.ts"
 
 describe("Workflow provider operation errors", () => {
@@ -13,17 +13,19 @@ describe("Workflow provider operation errors", () => {
       throw cause
     }).catch(error => error)
 
-    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       cause,
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       details: { operation: "start", provider: "vercel", status: 503 },
       message: "Workflow provider operation failed.",
+      name: "ViteHubError",
     })
     expect(JSON.parse(JSON.stringify(error))).toEqual({
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       details: { operation: "start", provider: "vercel", status: 503 },
       message: "Workflow provider operation failed.",
+      name: "ViteHubError",
     })
     expect(JSON.stringify(error)).not.toContain("provider-secret")
     expect(JSON.stringify(error)).not.toContain("private-id")
@@ -39,8 +41,8 @@ describe("Workflow provider operation errors", () => {
     expect(JSON.stringify(error)).not.toContain("secret")
   })
 
-  it("preserves Workflow and abort errors by exact identity", async () => {
-    const custom = new ApplicationWorkflowError({ code: "CUSTOM_WORKFLOW_FAILURE", message: "Custom failure." })
+  it("preserves ViteHub and abort errors by exact identity", async () => {
+    const custom = new ViteHubError("CUSTOM_WORKFLOW_FAILURE", "Custom failure.")
     const abort = new DOMException("cancelled", "AbortError")
 
     await expect(runWorkflowProviderOperation("vercel", "get-run", () => {

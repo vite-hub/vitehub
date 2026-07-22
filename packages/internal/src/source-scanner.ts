@@ -14,9 +14,11 @@ function isQuote(char: string | undefined) {
   return char === "\"" || char === "'" || char === "`"
 }
 
-function skipQuoted(source: string, index: number) {
+type ControlFlowRegexCache = Map<number, boolean | undefined>
+
+function skipQuoted(source: string, index: number, controlFlowRegexes = new Map<number, boolean | undefined>()) {
   const quote = source[index]
-  if (quote === "`") return skipTemplateLiteral(source, index)
+  if (quote === "`") return skipTemplateLiteral(source, index, controlFlowRegexes)
   index += 1
   while (index < source.length) {
     if (source[index] === "\\") {
@@ -31,7 +33,7 @@ function skipQuoted(source: string, index: number) {
   return index
 }
 
-function skipTemplateLiteral(source: string, index: number): number {
+function skipTemplateLiteral(source: string, index: number, controlFlowRegexes: ControlFlowRegexCache): number {
   index += 1
   let expressionDepth = 0
   let previousSignificant = ""
@@ -54,12 +56,12 @@ function skipTemplateLiteral(source: string, index: number): number {
       continue
     }
     if (char === "\"" || char === "'") {
-      index = skipQuoted(source, index)
+      index = skipQuoted(source, index, controlFlowRegexes)
       previousSignificant = "literal"
       continue
     }
     if (char === "`") {
-      index = skipTemplateLiteral(source, index)
+      index = skipTemplateLiteral(source, index, controlFlowRegexes)
       previousSignificant = "literal"
       continue
     }
@@ -71,7 +73,7 @@ function skipTemplateLiteral(source: string, index: number): number {
       index = skipBlockComment(source, index)
       continue
     }
-    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index, controlFlowRegexes))) {
       index = skipRegexLiteral(source, index)
       previousSignificant = "/"
       continue
@@ -104,12 +106,12 @@ function isRegexLiteralStart(previousSignificant: string) {
   return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
 }
 
-function findLineCommentStart(source: string, start: number, end: number) {
+function findLineCommentStart(source: string, start: number, end: number, controlFlowRegexes: ControlFlowRegexCache) {
   for (let index = start; index <= end;) {
     const char = source[index]
     const next = source[index + 1]
     if (isQuote(char)) {
-      index = skipQuoted(source, index)
+      index = skipQuoted(source, index, controlFlowRegexes)
       continue
     }
     if (char === "/" && next === "*") {
@@ -122,7 +124,7 @@ function findLineCommentStart(source: string, start: number, end: number) {
   return -1
 }
 
-function previousCodeIndex(source: string, index: number) {
+function previousCodeIndex(source: string, index: number, controlFlowRegexes: ControlFlowRegexCache) {
   let current = index
   while (current >= 0) {
     while (/\s/.test(source[current] ?? "")) current--
@@ -133,7 +135,7 @@ function previousCodeIndex(source: string, index: number) {
       continue
     }
     const lineStart = source.lastIndexOf("\n", current) + 1
-    const lineComment = findLineCommentStart(source, lineStart, current)
+    const lineComment = findLineCommentStart(source, lineStart, current, controlFlowRegexes)
     if (lineComment !== -1 && lineComment <= current) {
       current = lineStart - 1
       continue
@@ -143,18 +145,35 @@ function previousCodeIndex(source: string, index: number) {
   return current
 }
 
-function isControlFlowRegexStart(source: string, index: number) {
-  const closeParen = previousCodeIndex(source, index - 1)
-  if (source[closeParen] !== ")") return false
+function isControlFlowRegexStart(source: string, index: number, controlFlowRegexes = new Map<number, boolean | undefined>()) {
+  const cached = controlFlowRegexes.get(index)
+  if (cached !== undefined) return cached
+  // A template rescan can revisit the slash whose classification initiated it; treating that candidate as a regex breaks the cycle while completed classifications prevent repeated rescans.
+  if (controlFlowRegexes.has(index)) return true
+  controlFlowRegexes.set(index, undefined)
+  try {
+    const closeParen = previousCodeIndex(source, index - 1, controlFlowRegexes)
+    if (source[closeParen] !== ")") {
+      controlFlowRegexes.set(index, false)
+      return false
+    }
 
-  for (let current = closeParen; current >= 0; current--) {
-    if (source[current] !== "(") continue
-    if (findMatching(source, current, "(", ")") !== closeParen) continue
-    const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
-    return /(?:^|[^\w$])(?:catch|for|if|while|with)\s*$/.test(head)
+    for (let current = closeParen; current >= 0; current--) {
+      if (source[current] !== "(") continue
+      if (findMatching(source, current, "(", ")", controlFlowRegexes) !== closeParen) continue
+      const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
+      const result = /(?:^|[^\w$])(?:catch|for|if|while|with)\s*$/.test(head)
+      controlFlowRegexes.set(index, result)
+      return result
+    }
+
+    controlFlowRegexes.set(index, false)
+    return false
   }
-
-  return false
+  catch (error) {
+    controlFlowRegexes.delete(index)
+    throw error
+  }
 }
 
 function skipRegexLiteral(source: string, index: number) {
@@ -287,14 +306,14 @@ function isMemberAccessName(source: string, index: number) {
   return previousNonWhitespace(source, index) === "."
 }
 
-export function findMatching(source: string, index: number, open: string, close: string): number | undefined {
+export function findMatching(source: string, index: number, open: string, close: string, controlFlowRegexes = new Map<number, boolean | undefined>()): number | undefined {
   let depth = 0
   let previousSignificant = ""
   for (let current = index; current < source.length; current++) {
     const char = source[current]
     const next = source[current + 1]
     if (isQuote(char)) {
-      current = skipQuoted(source, current) - 1
+      current = skipQuoted(source, current, controlFlowRegexes) - 1
       previousSignificant = "literal"
       continue
     }
@@ -306,7 +325,7 @@ export function findMatching(source: string, index: number, open: string, close:
       current = skipBlockComment(source, current) - 1
       continue
     }
-    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, current))) {
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, current, controlFlowRegexes))) {
       current = skipRegexLiteral(source, current) - 1
       previousSignificant = "/"
       continue

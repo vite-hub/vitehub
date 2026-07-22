@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -9,7 +11,9 @@ import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/depl
 
 import { hubQueue } from "../src/vite.ts"
 
+const execFileAsync = promisify(execFile)
 const roots: string[] = []
+const workspaceRoot = resolve(import.meta.dirname, "../../..")
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
@@ -54,21 +58,42 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     const nitroMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
-    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig)")
+    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
     expect(nitroPlugin).not.toContain("enterQueueRuntimeEvent")
     expect(nitroPlugin).not.toContain("hooks.hook('request'")
     expect(nitroMiddleware).toContain("defineMiddleware((event) =>")
+    expect(nitroMiddleware).toContain("const runtimeEvent = event as any")
+    expect(nitroMiddleware).toContain("Object.assign(event, { env: runtimeEvent.env ?? runtimeEvent.context?.cloudflare?.env ?? runtimeEvent.context?._platform?.cloudflare?.env ?? runtimeEvent.req?.runtime?.cloudflare?.env ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv, waitUntil: vitehubWaitUntil })")
     expect(nitroMiddleware).toContain("enterQueueRuntimeEvent(event)")
-    expect(nitroMiddleware).toContain("event.context?.cloudflare?.env")
-    expect(nitroMiddleware).toContain("event.req?.runtime?.cloudflare?.env")
-    expect(nitroMiddleware).toContain("event.node?.req?.runtime?.cloudflare?.env")
+    expect(nitroMiddleware).not.toContain("enterQueueRuntimeEvent(runtimeEvent)")
     expect(nitroMiddleware).toContain("waitUntil: vitehubWaitUntil")
     expect(nitroMiddleware).not.toContain("next")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
     expect(nitroPlugin).toContain("cloudflare:queue")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
     expect(registry).toContain("welcome.queue.ts")
+
+    await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "runtime-types.d.ts"), [
+      "declare module 'cloudflare:workers' {",
+      "  export const env: unknown",
+      "  export function waitUntil(promise: Promise<unknown>): void",
+      "}",
+      "",
+    ].join("\n"))
+    await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+      compilerOptions: {
+        module: "Preserve",
+        moduleResolution: "Bundler",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        types: [],
+      },
+      files: ["runtime-types.d.ts", ".vitehub/nitro/queue/middleware.ts"],
+    }, null, 2)}\n`)
+    await execFileAsync(process.execPath, [join(workspaceRoot, "node_modules/typescript/bin/tsc"), "-p", root], { cwd: root })
   })
 
   it("keeps inferred Cloudflare queue prefixes aligned across bindings and runtime definitions", async () => {
@@ -91,6 +116,28 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"preview-queue--77656c636f6d65": "welcome"')
     expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
+  })
+
+  it("maps the long Drop deployment to its existing legacy Queue", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-legacy-"))
+    roots.push(root)
+    await writeFile(join(root, "image-optimization.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const namePrefix = "vitehub-drop-pm-20260719-"
+    const plugin = hubQueue({ namePrefix, provider: "cloudflare" })
+    const userConfig = { nitro: { preset: "cloudflare_module" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
+      consumers: [{ queue: "vitehub-drop-pm-20260719-image-optimization" }],
+      producers: [{ binding: "QUEUE_696D6167652D6F7074696D697A6174696F6E", queue: "vitehub-drop-pm-20260719-image-optimization" }],
+    })
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      ...userConfig,
+      queue: { namePrefix, provider: "cloudflare" },
+    } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"vitehub-drop-pm-20260719-image-optimization": "image-optimization"')
   })
 
   it("provisions inferred Cloudflare queues with the configured prefix in plain Vite builds", async () => {
@@ -118,16 +165,16 @@ describe("hubQueue", () => {
     expect(actions[0]!.name).toBe("preview-queue--77656c636f6d65")
   })
 
-  it("accepts Cloudflare physical queue names at the provider limit", async () => {
+  it("bounds Cloudflare physical queue names at the provider limit", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-limit-"))
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    const validConfig = hubQueue({ namePrefix: "x".repeat(42), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-    expect(() => validConfig({ nitro: { preset: "cloudflare_module" }, root })).not.toThrow()
-
-    const invalidConfig = hubQueue({ namePrefix: "x".repeat(43), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-    expect(() => invalidConfig({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must be at most 63 characters")
+    const config = { nitro: { preset: "cloudflare_module" }, root }
+    const pluginConfig = hubQueue({ namePrefix: "x".repeat(80), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+    expect(() => pluginConfig(config)).not.toThrow()
+    const queue = ((config.nitro as Record<string, unknown>).cloudflare as { wrangler: { queues: { producers: Array<{ queue: string }> } } }).wrangler.queues.producers[0]!.queue
+    expect(queue).toHaveLength(63)
   })
 
   it("rejects invalid Cloudflare queue prefixes during configuration", async () => {
@@ -147,7 +194,13 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({})
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ queue: {}, root, nitro: { preset: "vercel" } } as never)
-    expect(await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).toContain("import * as __vitehubVercelQueue from '@vercel/queue'")
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain("@vercel/queue/dist/index.js")
+    expect(nitroPlugin).toContain("internal/runtime/vercel-client")
+    expect(nitroPlugin).not.toContain("@vite-hub/queue/")
+    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)")
+    expect(nitroPlugin).not.toContain("createCloudflareQueueRuntimeClient")
+    expect(await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")).not.toContain("runtimeEvent")
   })
 
   it("does not apply Cloudflare name limits to Vercel Nitro queues", async () => {
@@ -175,6 +228,8 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain("const queueConfig = false")
     expect(nitroPlugin).not.toContain("@vercel/queue")
+    expect(nitroPlugin).not.toContain("createCloudflareQueueRuntimeClient")
+    expect(nitroPlugin).not.toContain("createVercelQueueRuntimeClient")
     expect(nitroPlugin).not.toContain("cloudflare:workers")
     expect(nitroPlugin).not.toContain("cloudflare:queue")
     await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
@@ -199,14 +254,15 @@ describe("hubQueue", () => {
     expect(nitroPlugin).not.toContain("const queueConfig = false")
   })
 
-  it("does not load the optional Vercel SDK without definitions", async () => {
+  it("loads the Vercel SDK for direct clients without definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
     const plugin = hubQueue({})
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ queue: {}, root, nitro: { preset: "vercel" } } as never)
     const pluginFile = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     const middlewareFile = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
-    expect(`${pluginFile}\n${middlewareFile}`).not.toContain("@vercel/queue")
+    expect(pluginFile).toContain("@vercel/queue")
+    expect(pluginFile).toContain("globalThis.__vitehubVercelQueue =")
     expect(`${pluginFile}\n${middlewareFile}`).not.toContain("@vercel/functions")
   })
 
@@ -245,6 +301,113 @@ describe("hubQueue", () => {
     expect(disabled.nitro.plugins).toEqual(["server/plugin.ts"])
     expect(disabled.nitro.handlers).toEqual([{ handler: "server/middleware.ts", middleware: true }])
     expect(disabled.nitro).not.toHaveProperty("cloudflare")
+  })
+
+  it.each([
+    { preset: "vercel", reason: "Vercel owns Nitro" },
+    { preset: "cloudflare_module", reason: "the Nitro provider mismatches" },
+  ])("keeps Vercel provider output when $reason", async ({ preset }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nuxt-vercel-"))
+    roots.push(root)
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    const viteRoot = join(root, "app")
+    await mkdir(viteRoot)
+    await writeFile(join(viteRoot, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "vercel" })
+    const config = {
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset },
+      plugins: [],
+      resolve: { alias: [] },
+      root: viteRoot,
+    }
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
+    await plugin.vitehub?.queue?.createNitroConfig({ nitro: config.nitro, projectRoot: root, root: viteRoot })
+    await (plugin.closeBundle as () => Promise<void>)()
+
+    expect(existsSync(join(root, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(true)
+    expect(existsSync(join(viteRoot, ".vercel"))).toBe(false)
+  })
+
+  it("preserves Nitro-owned Vercel output across a sequential Cloudflare build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provider-switch-"))
+    roots.push(root)
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const vercelPlugin = hubQueue({ provider: "vercel" })
+    const vercelConfig = {
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset: "vercel" },
+      plugins: [{ name: "nitro:main" }],
+      queue: { provider: "vercel" },
+      resolve: { alias: [] },
+      root,
+    }
+    ;(vercelPlugin.config as unknown as (config: Record<string, unknown>) => void)(vercelConfig)
+    await (vercelPlugin.configResolved as (config: unknown) => Promise<void>)(vercelConfig as never)
+    await (vercelPlugin.closeBundle as () => Promise<void>)()
+
+    const outputRoot = join(root, ".vercel", "output")
+    const functionsRoot = join(outputRoot, "functions")
+    const serverFunction = join(functionsRoot, "__server.func")
+    const blobFunction = join(functionsRoot, "__blob.func")
+    const queueFunction = join(functionsRoot, "__queue.func")
+    const queueConsumers = join(functionsRoot, "api", "vitehub", "queues", "vercel")
+    const routeLinks = [
+      join(functionsRoot, "api", "images.func"),
+      join(functionsRoot, "api", "stats.func"),
+      join(functionsRoot, "i", "[...].func"),
+    ]
+    const serverContents = "export default { nitro: true }\n"
+    const configContents = `${JSON.stringify({
+      routes: [
+        { dest: "/__server", src: "/api/(.*)" },
+        { dest: "/__server", src: "/i/(.*)" },
+      ],
+      version: 3,
+    }, null, 2)}\n`
+
+    await Promise.all([
+      mkdir(serverFunction, { recursive: true }),
+      mkdir(blobFunction, { recursive: true }),
+      mkdir(join(functionsRoot, "api"), { recursive: true }),
+      mkdir(join(functionsRoot, "i"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(serverFunction, "index.mjs"), serverContents),
+      writeFile(join(blobFunction, "index.mjs"), "export default { blob: true }\n"),
+      writeFile(join(outputRoot, "config.json"), configContents),
+      ...routeLinks.map(link => symlink("../__server.func", link, "dir")),
+    ])
+
+    expect(existsSync(join(queueFunction, "index.mjs"))).toBe(true)
+    expect(existsSync(queueConsumers)).toBe(true)
+
+    const cloudflarePlugin = hubQueue({ provider: "cloudflare" })
+    const cloudflareConfig = {
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      queue: { provider: "cloudflare" },
+      resolve: { alias: [] },
+      root,
+    }
+    ;(cloudflarePlugin.config as unknown as (config: Record<string, unknown>) => void)(cloudflareConfig)
+    await (cloudflarePlugin.configResolved as (config: unknown) => Promise<void>)(cloudflareConfig as never)
+    await (cloudflarePlugin.closeBundle as () => Promise<void>)()
+
+    await expect(readFile(join(serverFunction, "index.mjs"), "utf8")).resolves.toBe(serverContents)
+    await expect(readFile(join(blobFunction, "index.mjs"), "utf8")).resolves.toContain("blob: true")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe(configContents)
+    for (const link of routeLinks) {
+      await expect(readFile(join(link, "index.mjs"), "utf8")).resolves.toBe(serverContents)
+    }
+    expect(existsSync(queueFunction)).toBe(false)
+    expect(existsSync(queueConsumers)).toBe(false)
   })
 
   it("preserves custom bindings and skips Cloudflare Pages consumers", async () => {

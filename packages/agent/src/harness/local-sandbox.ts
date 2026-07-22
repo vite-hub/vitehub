@@ -1,7 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
-import { realpathSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -20,19 +19,9 @@ export interface LocalHarnessSandboxOptions {
   rootDir?: string
 }
 
-export interface TrustedHostHarnessSandboxOptions {
-  env: Record<string, string | undefined>
-  workspaceDir?: string
-}
-
-interface LocalHarnessSandboxProviderOptions extends LocalHarnessSandboxOptions {
-  workspaceDir?: string
-}
-
 interface LocalHarnessSandboxSession extends HarnessV1NetworkSandboxSession {
   readonly cleanup: boolean
   readonly env: Record<string, string>
-  readonly physicalWorkingDirectory: boolean
   readonly processes: Set<LocalProcessOwner>
   readonly rootDir: string
 }
@@ -240,11 +229,10 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
 }) {
   options.abortSignal?.throwIfAborted()
   const cwd = resolvePath(session, options.workingDirectory)
-  const physicalCwd = session.physicalWorkingDirectory ? realpathSync(cwd) : cwd
   const child = spawnChildProcess(options.command, {
-    cwd: physicalCwd,
+    cwd,
     detached: process.platform !== "win32",
-    env: { ...session.env, ...options.env, INIT_CWD: physicalCwd, OLDPWD: physicalCwd, PWD: physicalCwd },
+    env: { ...session.env, ...options.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
     shell: true,
   })
   const owner = new LocalProcessOwner(child)
@@ -267,11 +255,10 @@ async function collect(stream: ReadableStream<Uint8Array>) {
   return new TextDecoder().decode(await bytesFromReadableStream(stream))
 }
 
-async function createSession(options: LocalHarnessSandboxProviderOptions, sessionId: string | undefined): Promise<LocalHarnessSandboxSession> {
+async function createSession(options: LocalHarnessSandboxOptions, sessionId: string | undefined): Promise<LocalHarnessSandboxSession> {
   const cleanup = options.cleanup ?? !options.rootDir
   const rootDir = options.rootDir || await defaultRootDir(sessionId, cleanup)
   await mkdir(rootDir, { recursive: true })
-  if (options.workspaceDir) await bindWorkspace(rootDir, options.workspaceDir)
   const env = { ...stringEnv(options.env || process.env), INIT_CWD: rootDir, OLDPWD: rootDir, PWD: rootDir }
   const session = {
     cleanup,
@@ -280,7 +267,6 @@ async function createSession(options: LocalHarnessSandboxProviderOptions, sessio
     env,
     id: sessionId || randomUUID(),
     ports: options.ports || [0],
-    physicalWorkingDirectory: Boolean(options.workspaceDir),
     processes: new Set<LocalProcessOwner>(),
     rootDir,
     async destroy() {
@@ -343,30 +329,11 @@ async function createSession(options: LocalHarnessSandboxProviderOptions, sessio
   return session
 }
 
-async function bindWorkspace(rootDir: string, workspaceDir: string): Promise<void> {
-  const link = join(rootDir, "workspace")
-  try {
-    await symlink(workspaceDir, link, "dir")
-  }
-  catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error
-    if (await realpath(link) !== await realpath(workspaceDir)) throw error
-  }
-}
-
 export function createLocalHarnessSandbox(options: LocalHarnessSandboxOptions = {}): HarnessV1SandboxProvider {
   return createLocalHarnessSandboxProvider(options)
 }
 
-export function createTrustedHostHarnessSandbox(options: TrustedHostHarnessSandboxOptions): HarnessV1SandboxProvider {
-  return createLocalHarnessSandboxProvider({
-    cleanup: true,
-    env: options.env,
-    workspaceDir: options.workspaceDir,
-  })
-}
-
-function createLocalHarnessSandboxProvider(options: LocalHarnessSandboxProviderOptions): HarnessV1SandboxProvider {
+function createLocalHarnessSandboxProvider(options: LocalHarnessSandboxOptions): HarnessV1SandboxProvider {
   const firstCreates = new Map<string, Promise<void>>()
 
   return {

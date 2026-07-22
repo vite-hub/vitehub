@@ -126,6 +126,24 @@ export default defineAgent({
 
 Create a custom Capability when the event has reusable product behavior, requirements, tools, or policy. Keep one-off app route logic in the app, and keep app-owned reachability on Channels.
 
+## Own webhook delivery execution
+
+A Channel trigger can ask the generated webhook route to claim a provider delivery before starting the Agent Driver. Add a stable provider delivery ID to the trigger result to make repeated deliveries idempotent. Add a concurrency key when only one matching execution may run at a time.
+
+```ts [server/agents/review.ts]
+invoke(context, event: { deliveryId: string, pullRequest: number, head: string }) {
+  return {
+    input: { prompt: `Review pull request #${event.pullRequest}` },
+    webhook: {
+      deliveryId: event.deliveryId,
+      concurrencyKey: `pull-request:${event.pullRequest}:${event.head}`,
+    },
+  }
+}
+```
+
+Delivery claims are durable and do not expire. A duplicate delivery does not start another Agent Invocation. Concurrency leases default to 30 seconds and heartbeat for the lifetime of inline execution, so a dead owner releases work promptly; set `concurrencyTtlMs` when an integration needs a different recovery window. A busy delivery remains unclaimed so the provider can retry it. Webhook ownership requires durable Agent State, and concurrency ownership rejects execution that would be queued to a Workflow because the route cannot retain that lease across the Workflow boundary.
+
 ## Next steps
 
 - Read [Channels](/docs/agents/channels) to keep delivery separate from identity.

@@ -1,5 +1,5 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { isQueueBoundaryIdentity, QueueError, runQueueProviderOperation } from "../errors.ts"
+import { createQueueError, isQueueBoundaryIdentity, runQueueProviderOperation } from "../errors.ts"
 import { getQueueRuntimeEvent } from "../runtime/state.ts"
 
 import type { VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
@@ -51,9 +51,8 @@ function resolveVercelRegion(explicitRegion: string | undefined) {
 }
 
 function invalidVercelSendResponse(cause: unknown): never {
-  throw new QueueError<"QUEUE_PROVIDER_RESPONSE_INVALID">({
+  throw createQueueError("QUEUE_PROVIDER_RESPONSE_INVALID", {
     cause,
-    code: "QUEUE_PROVIDER_RESPONSE_INVALID",
     details: { operation: "send", provider: "vercel" },
   })
 }
@@ -95,9 +94,8 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   }
   catch (error) {
     if (isQueueBoundaryIdentity(error)) throw error
-    throw new QueueError<"VERCEL_QUEUE_SDK_LOAD_FAILED">({
+    throw createQueueError("VERCEL_QUEUE_SDK_LOAD_FAILED", {
       cause: error,
-      code: "VERCEL_QUEUE_SDK_LOAD_FAILED",
       details: { operation: "load-sdk", provider: "vercel" },
     })
   }
@@ -105,8 +103,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   const resolvedRegion = resolveVercelRegion(region)
   if ("QueueClient" in module && typeof module.QueueClient === "function") {
     if (!resolvedRegion) {
-      throw new QueueError<"VERCEL_QUEUE_REGION_REQUIRED">({
-        code: "VERCEL_QUEUE_REGION_REQUIRED",
+      throw createQueueError("VERCEL_QUEUE_REGION_REQUIRED", {
         details: { provider: "vercel" },
       })
     }
@@ -121,8 +118,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     }
   }
 
-  throw new QueueError<"VERCEL_QUEUE_SDK_INVALID">({
-    code: "VERCEL_QUEUE_SDK_INVALID",
+  throw createQueueError("VERCEL_QUEUE_SDK_INVALID", {
     details: { provider: "vercel" },
   })
 }
@@ -130,8 +126,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
 export async function createVercelQueueClient(provider: VercelQueueProviderOptions): Promise<VercelQueueClient> {
   const topic = provider.topic
   if (!topic) {
-    throw new QueueError<"VERCEL_TOPIC_RESOLUTION_REQUIRED">({
-      code: "VERCEL_TOPIC_RESOLUTION_REQUIRED",
+    throw createQueueError("VERCEL_TOPIC_RESOLUTION_REQUIRED", {
       details: { provider: "vercel" },
     })
   }
@@ -144,8 +139,7 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     async send(input) {
       const normalized = normalizeQueueEnqueueInput(input)
       if (normalized.options.contentType !== undefined) {
-        throw new QueueError<"VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS">({
-          code: "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS",
+        throw createQueueError("VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS", {
           details: { provider: "vercel", unsupported: ["contentType"] },
         })
       }

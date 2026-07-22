@@ -1,4 +1,4 @@
-import { markdown as createMarkdownSource } from "@vite-hub/source"
+import { markdown as createMarkdownSource } from "@vite-hub/source/sources/markdown"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 

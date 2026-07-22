@@ -285,6 +285,10 @@ jobs:
         timeout-minutes: 5
         run: vp run queue:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
+      - name: Rate Limit Live E2E (cloudflare)
+        if: matrix.provider == 'cloudflare'
+        run: vp run rate-limit:e2e --mode live --provider cloudflare --url "${{ steps.url.outputs.url }}"
+
       - name: Schedule Live E2E (${{ matrix.provider }})
         timeout-minutes: 7
         run: vp run schedule:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000

@@ -7,10 +7,11 @@ import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { getProviderRuntimeModule, writeProviderDeploymentOutputs, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../src/config.ts"
+import { createBundledVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { generateProviderOutputs, prepareProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
@@ -55,6 +56,8 @@ const vercelBlobMock = vi.hoisted(() => ({
 const filesSdkMock = vi.hoisted(() => ({
   minio: vi.fn((options: unknown) => ({ options, provider: "minio" })),
 }))
+
+vi.mock("@vercel/blob", () => vercelBlobMock)
 
 vi.mock("files-sdk", () => ({
   Files: class {
@@ -125,9 +128,61 @@ afterEach(() => {
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
+  vi.unstubAllGlobals()
 })
 
 describe("Vite provider outputs", () => {
+  it.each([
+    { objectAccess: "private" as const, storeAccess: "public" as const },
+    { objectAccess: "public" as const, storeAccess: "private" as const },
+  ])("reads a $objectAccess Vercel object when per-put access differs from the $storeAccess store default", async ({ objectAccess, storeAccess }) => {
+    const pathname = "images/private.txt"
+    const canonicalUrl = `https://store.${objectAccess}.blob.vercel-storage.com/${pathname}`
+    vercelBlobMock.head.mockResolvedValueOnce({
+      pathname,
+      size: 5,
+      uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+      url: canonicalUrl,
+    })
+    const anonymousFetch = vi.fn(async () => new Response(null, {
+      status: 403,
+      statusText: "Forbidden",
+    }))
+    vi.stubGlobal("fetch", anonymousFetch)
+    const driver = createBundledVercelBlobDriver({
+      access: storeAccess,
+      driver: "vercel-blob",
+      token: "vercel_blob_rw_test",
+    })
+
+    await driver.put(pathname, "value", { access: objectAccess })
+    const value = await driver.getArrayBuffer(pathname)
+    expect(new TextDecoder().decode(value || undefined)).toBe("value")
+    expect(vercelBlobMock.put).toHaveBeenCalledWith(pathname, "value", expect.objectContaining({ access: objectAccess }))
+    expect(vercelBlobMock.get).toHaveBeenCalledWith(canonicalUrl, expect.objectContaining({
+      access: objectAccess,
+      token: "vercel_blob_rw_test",
+    }))
+    expect(anonymousFetch).not.toHaveBeenCalled()
+  })
+
+  it("maps Vercel missing-object errors to Blob misses", async () => {
+    const missing = new Error("Vercel Blob: The requested blob does not exist")
+    missing.name = "BlobNotFoundError"
+    vercelBlobMock.head.mockRejectedValueOnce(missing)
+    const driver = createBundledVercelBlobDriver({
+      access: "private",
+      driver: "vercel-blob",
+      token: "vercel_blob_rw_test",
+    })
+
+    await expect(driver.head("missing.txt")).resolves.toBeNull()
+
+    const missingStore = new Error("Vercel Blob: The requested store does not exist")
+    vercelBlobMock.head.mockRejectedValueOnce(missingStore)
+    await expect(driver.head("missing.txt")).rejects.toBe(missingStore)
+  })
+
   it("rejects malformed resolved Blob config before rendering provider entries", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-invalid-resolved-config-")
 
@@ -273,7 +328,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(outputRoot, "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 
-  it("leaves Cloudflare Worker output to Nitro while retaining Vercel output", { timeout: 45_000 }, async () => {
+  it("leaves provider output to Nitro for Cloudflare builds", { timeout: 45_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-cloudflare-")
     const cloudflareOutput = join(rootDir, "dist", toSafeAppName(rootDir))
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -295,10 +350,11 @@ describe("Vite provider outputs", () => {
       blob: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
       clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
+      providerOutput: { runtimeModuleFilesByProduct: { queue: { vercel: "unused" } } },
       rootDir,
       serverFunctionName: "__blob.func",
     } as const
-    await generateProviderOutputs(options)
+    await generateProviderOutputs({ ...options, serverFunctionName: undefined })
 
     await expect(readFile(join(cloudflareOutput, "index.js"), "utf8")).resolves.toBe("// workflow worker\nexport default {}\n")
     await expect(readFile(join(cloudflareOutput, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual(foreignWrangler)
@@ -318,7 +374,112 @@ describe("Vite provider outputs", () => {
       triggers: { crons: ["0 0 * * *"] },
     })
     expect(existsSync(join(rootDir, ".vercel", "output", "static", toSafeAppName(rootDir), "index.js"))).toBe(false)
-    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(true)
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(false)
+  })
+
+  it("preserves Vercel functions not owned by Blob during Cloudflare builds", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-")
+    const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src/server.ts"), "export default async () => new Response('ok')\n", "utf8")
+    await generateProviderOutputs({ blob: { driver: "vercel-blob" }, clientOutDir: "dist", rootDir })
+    await writeFile(functionFile, "// shared server\n", "utf8")
+
+    await generateProviderOutputs({ blob: { driver: "vercel-blob" }, clientOutDir: "dist", cloudflareOwnedByNitro: true, rootDir })
+
+    await expect(readFile(functionFile, "utf8")).resolves.toBe("// shared server\n")
+  })
+
+  it("does not register Blob Vercel runtime or packages when Nitro owns Cloudflare output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-cloudflare-registry-")
+    const providerOutput: ComposedProviderOutput = {
+      runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } },
+      vercelRuntimePackagesByProduct: { blob: [{ name: "stale-package", resolveFrom: rootDir }] },
+    }
+    const blob = { bucketName: "assets", driver: "cloudflare-r2" as const }
+
+    const artifacts = await prepareProviderOutputs({
+      blob,
+      cloudflareOwnedByNitro: true,
+      providerOutput,
+      rootDir,
+    })
+    expect(providerOutput.vercelRuntimePackagesByProduct?.blob).toBeUndefined()
+    expect(getProviderRuntimeModule(providerOutput, "blob", "cloudflare")).toBeDefined()
+    expect(getProviderRuntimeModule(providerOutput, "blob", "vercel")).toBeUndefined()
+    expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toBe("database-runtime.mjs")
+
+    await generateProviderOutputs({
+      artifacts,
+      blob,
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      providerOutput,
+      rootDir,
+    })
+    expect(providerOutput.vercelRuntimePackagesByProduct?.blob).toBeUndefined()
+  })
+
+  it("does not copy Blob dependencies when Nitro owns Cloudflare output", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-cloudflare-packages-")
+    const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
+    await mkdir(functionDir, { recursive: true })
+    await writeFile(join(functionDir, "index.mjs"), "export default 'sibling'\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: { bucketName: "assets", driver: "cloudflare-r2" },
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
+      rootDir,
+    })
+
+    expect(existsSync(join(functionDir, "node_modules/files-sdk"))).toBe(false)
+    expect(existsSync(join(functionDir, "node_modules/@aws-sdk/client-s3"))).toBe(false)
+  })
+
+  it("copies Blob dependencies for sibling Vercel output", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-runtime-")
+    const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
+    const siblingEntry = join(rootDir, "sibling.mjs")
+    await writeFile(siblingEntry, "export default 'sibling'\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: { bucketName: "assets", driver: "cloudflare-r2" },
+      clientOutDir: "dist",
+      providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
+      rootDir,
+    })
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      rootDir,
+      vercel: { bundleEntry: siblingEntry, bundleOptions: {} },
+    })
+
+    const runtimeProbe = join(functionDir, "runtime-probe.mjs")
+    await writeFile(runtimeProbe, [
+      `await import("files-sdk/r2")`,
+      `await import("@aws-sdk/client-s3")`,
+      `await import("@aws-sdk/lib-storage")`,
+      `await import("@aws-sdk/s3-presigned-post")`,
+      `await import("@aws-sdk/s3-request-presigner")`,
+      "",
+    ].join("\n"), "utf8")
+    await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
+  })
+
+  it("preserves the shared root Vercel output during Cloudflare builds", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-root-vercel-")
+    const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src/server.ts"), "export default async () => new Response('ok')\n", "utf8")
+    await generateProviderOutputs({ blob: { driver: "vercel-blob" }, clientOutDir: "dist", rootDir })
+
+    await generateProviderOutputs({ blob: { driver: "vercel-blob" }, clientOutDir: "dist", cloudflareOwnedByNitro: true, rootDir })
+
+    expect(existsSync(functionFile)).toBe(true)
+    await expect(readFile(functionFile, "utf8")).resolves.toContain("createBlobVercelServer")
   })
 
   it("cleans legacy standalone workers without R2 runtime code when Nitro takes ownership", { timeout: 30_000 }, async () => {
@@ -460,8 +621,8 @@ describe("Vite provider outputs", () => {
     })
 
     const cloudflareWorker = await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")
-    expect(cloudflareWorker).toContain("\"files-sdk\"")
-    expect(cloudflareWorker).toContain("files-sdk/r2")
+    expect(cloudflareWorker).not.toContain("files-sdk")
+    expect(cloudflareWorker).not.toContain("@aws-sdk/")
   })
 
   it("copies Cloudflare R2 runtime packages into isolated Vercel output", { timeout: 15_000 }, async () => {
@@ -497,6 +658,34 @@ describe("Vite provider outputs", () => {
     await generateProviderOutputs({ blob: {}, clientOutDir: "dist/client", rootDir, serverFunctionName: "__blob.func" })
     expect(existsSync(staleFile)).toBe(false)
     await writeFile(runtimeProbe, runtimeProbeSource, "utf8")
+    await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
+  })
+
+  it("copies the private Vercel Blob runtime into isolated Vercel output", { timeout: 15_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-blob-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        access: "private",
+        driver: "vercel-blob",
+        token: "vercel_blob_rw_test",
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+      serverFunctionName: "__blob.func",
+    })
+
+    const runtimeModule = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeModule).toContain("drivers/vercel-bundled")
+
+    const serverEntry = join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs")
+    await expect(import(`${pathToFileURL(serverEntry).href}?t=${Date.now()}`)).resolves.toHaveProperty("default")
+
+    const runtimeProbe = join(dirname(serverEntry), "runtime-probe.mjs")
+    await writeFile(runtimeProbe, `await import("@vercel/blob")\n`, "utf8")
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 
@@ -559,7 +748,7 @@ describe("Vite provider outputs", () => {
     expect(stdout.trim()).toBe("ok")
   })
 
-  it("statically reaches the Cloudflare R2 driver from bundled SSR output", async () => {
+  it("statically reaches only the native Cloudflare R2 driver from bundled SSR output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-bundled-r2-")
     const entryFile = join(rootDir, "entry.ts")
     const bundleFile = join(rootDir, "worker.mjs")
@@ -587,6 +776,8 @@ describe("Vite provider outputs", () => {
     expect(bundled).not.toContain("@vite-hub/blob/drivers/cloudflare")
     expect(bundled).toContain("config.driver === \"cloudflare-r2\"")
     expect(bundled).toContain("R2 binding")
+    expect(bundled).not.toContain("files-sdk")
+    expect(bundled).not.toContain("@aws-sdk/")
   })
 
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {
@@ -700,7 +891,7 @@ describe("Vite provider outputs", () => {
     expect(runtimeContents).toContain("\"name\": \"vitehub-blob\"")
   })
 
-  it("generates MinIO driver reachability for selected stores", async () => {
+  it("generates MinIO driver reachability for selected stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })

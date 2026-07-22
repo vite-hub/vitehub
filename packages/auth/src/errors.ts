@@ -1,8 +1,8 @@
-import { ViteHubError } from "@vite-hub/runtime"
+import { isViteHubError, ViteHubError } from "@vite-hub/runtime"
 
-export type AuthenticationProviderOperation = "get-auth-for-request" | "get-session"
+type AuthenticationProviderOperation = "get-auth-for-request" | "get-session"
 
-export interface AuthenticationProviderErrorOptions extends ErrorOptions {
+interface AuthenticationProviderErrorOptions extends ErrorOptions {
   operation: AuthenticationProviderOperation
 }
 
@@ -10,7 +10,7 @@ export function invalidAuthenticationErrorOptions(): never {
   throw new TypeError("[vitehub] Invalid authentication error options.")
 }
 
-export function readAuthenticationErrorOption(value: unknown, key: PropertyKey): unknown {
+function readAuthenticationErrorOption(value: unknown, key: PropertyKey): unknown {
   if (typeof value !== "object" || value === null) invalidAuthenticationErrorOptions()
   try {
     if (Array.isArray(value)) invalidAuthenticationErrorOptions()
@@ -24,20 +24,14 @@ export function readAuthenticationErrorOption(value: unknown, key: PropertyKey):
   }
 }
 
-export class AuthenticationProviderError extends ViteHubError<
-  "AUTH_PROVIDER_OPERATION_FAILED",
-  { operation: AuthenticationProviderOperation, provider: "better-auth" }
-> {
-  constructor(options: AuthenticationProviderErrorOptions) {
-    const cause = readAuthenticationErrorOption(options, "cause")
-    const operation = readAuthenticationErrorOption(options, "operation")
-    if (operation !== "get-auth-for-request" && operation !== "get-session") invalidAuthenticationErrorOptions()
-    super("AUTH_PROVIDER_OPERATION_FAILED", "[vitehub] Authentication provider operation failed.", {
-      cause,
-      details: { operation, provider: "better-auth" },
-    })
-    this.name = "AuthenticationProviderError"
-  }
+function createAuthenticationProviderError(options: AuthenticationProviderErrorOptions) {
+  const cause = readAuthenticationErrorOption(options, "cause")
+  const operation = readAuthenticationErrorOption(options, "operation")
+  if (operation !== "get-auth-for-request" && operation !== "get-session") invalidAuthenticationErrorOptions()
+  return new ViteHubError("AUTH_PROVIDER_OPERATION_FAILED", "[vitehub] Authentication provider operation failed.", {
+    cause,
+    details: { operation, provider: "better-auth" },
+  })
 }
 
 export function throwAuthenticationProviderError(
@@ -45,16 +39,7 @@ export function throwAuthenticationProviderError(
   operation: AuthenticationProviderOperation,
 ): never {
   if (isViteHubError(cause) || isAuthenticationAbortError(cause)) throw cause
-  throw new AuthenticationProviderError({ cause, operation })
-}
-
-function isViteHubError(error: unknown): error is ViteHubError {
-  try {
-    return error instanceof ViteHubError
-  }
-  catch {
-    return false
-  }
+  throw createAuthenticationProviderError({ cause, operation })
 }
 
 function isAuthenticationAbortError(error: unknown): boolean {

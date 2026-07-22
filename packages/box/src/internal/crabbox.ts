@@ -5,17 +5,17 @@ import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
 
-import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness"
-
 import type {
+  BoxPlan,
   BoxRuntime,
+  BoxRuntimeInput,
   ResolvedBoxCheckout,
   ResolvedBoxFile,
-  ResolvedBoxInput,
   ResolvedBoxPlan,
   ResolvedBoxRequirementInput,
 } from "../index.ts"
 import { materializeGitCheckout } from "./git-checkout.ts"
+import { createBoxSession, type RuntimeSession } from "./session.ts"
 
 export interface CrabboxOptions {
   /** Enables loopback port URLs when the target shares the ViteHub process network namespace. */
@@ -86,63 +86,85 @@ const runtimeEnvironmentKeys = new Set([
 export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
   return {
     name: "crabbox",
-    async resolve(input: ResolvedBoxInput) {
-      const cwd = input.cwd
-      if (!cwd && !input.checkout) throw new Error("[vitehub] crabbox() requires box.cwd or box.checkout.")
-      if (input.plan.state.length && (!options.stateRoot || !posix.isAbsolute(options.stateRoot))) {
-        throw new Error(
-          "[vitehub] crabbox({ stateRoot }) requires an absolute target path when box.home.state is declared.",
-        );
-      }
-      if (
-        input.plan.state.length &&
-        options.stateRoot &&
-        posix.dirname(posix.normalize(options.stateRoot)) === posix.normalize(options.stateRoot)
-      ) {
-        throw new Error(
-          "[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.",
-        );
-      }
-      const requestedWorkspace = cwd ? resolve(cwd) : undefined
-      const workspace = requestedWorkspace
-        ? await realpath(requestedWorkspace).catch(() => requestedWorkspace)
-        : undefined
-      const item = workspace ? await stat(workspace).catch(() => undefined) : undefined
-      if (workspace && !item?.isDirectory()) throw new Error(`[vitehub] Box workspace directory does not exist: ${workspace}`)
-      const requirements = input.requirements;
-      const environment = {} as { env: Readonly<Record<string, string | undefined>> }
-      Object.defineProperty(environment, "env", { enumerable: false, value: Object.freeze({}) })
-      const box = {
+    async prepare(input) {
+      const { workspace } = await resolveCrabboxInput(input, options)
+      return {
         cache: { state: "disposable" },
-        environment,
+        environment: { env: {} },
         identity: input.identity,
         isolation: "none",
-        requirements: requirements.map(({ command, name }) => ({ command, name })),
+        requirements: input.requirements.map(({ command, name }) => ({ command, name })),
         runtime: "crabbox",
-        sandbox: createCrabboxSandbox({
-          ...options,
-          ...(input.checkout ? { checkout: input.checkout } : {}),
-          plan: input.plan,
-          requirements,
-          ...(workspace ? { workspace } : {}),
-        }),
         workspace: workspace
           ? { path: workspace, state: "authoritative" as const, workDir: "workspace" as const }
           : { state: "disposable" as const, workDir: "workspace" as const },
-      } as const
-      Object.defineProperty(box, "sandbox", { enumerable: false, value: box.sandbox })
-      return box
+      } satisfies BoxPlan
+    },
+    async open(input, openOptions) {
+      const { workspace } = await resolveCrabboxInput(input, options)
+      const provider = createCrabboxProvider({
+          ...options,
+          ...(input.checkout ? { checkout: input.checkout } : {}),
+          plan: input.plan,
+          requirements: input.requirements,
+          ...(workspace ? { workspace } : {}),
+        })
+      let initializedSession: ReturnType<typeof createBoxSession> | undefined
+      const runtimeSession = await provider.createSession({
+        abortSignal: openOptions?.signal,
+        ...(openOptions?.initialize
+          ? {
+              async initialize(session: RuntimeSession) {
+                initializedSession = createBoxSession(
+                  session,
+                  openOptions,
+                  posix.join(session.defaultWorkingDirectory, "workspace"),
+                )
+                await openOptions.initialize!(initializedSession, { signal: openOptions.signal })
+              },
+            }
+          : {}),
+        sessionId: openOptions?.id,
+      })
+      return initializedSession ?? createBoxSession(
+        runtimeSession,
+        openOptions,
+        posix.join(runtimeSession.defaultWorkingDirectory, "workspace"),
+      )
     },
   }
 }
 
-function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxProvider {
+async function resolveCrabboxInput(input: BoxRuntimeInput, options: CrabboxOptions) {
+  const cwd = input.cwd
+  if (!cwd && !input.checkout) throw new Error("[vitehub] crabbox() requires box.cwd or box.checkout.")
+  if (input.plan.state.length && (!options.stateRoot || !posix.isAbsolute(options.stateRoot))) {
+    throw new Error(
+      "[vitehub] crabbox({ stateRoot }) requires an absolute target path when box.home.state is declared.",
+    )
+  }
+  if (
+    input.plan.state.length &&
+    options.stateRoot &&
+    posix.dirname(posix.normalize(options.stateRoot)) === posix.normalize(options.stateRoot)
+  ) {
+    throw new Error("[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.")
+  }
+  const requestedWorkspace = cwd ? resolve(cwd) : undefined
+  const workspace = requestedWorkspace
+    ? await realpath(requestedWorkspace).catch(() => requestedWorkspace)
+    : undefined
+  const item = workspace ? await stat(workspace).catch(() => undefined) : undefined
+  if (workspace && !item?.isDirectory())
+    throw new Error(`[vitehub] Box workspace directory does not exist: ${workspace}`)
+  return { workspace }
+}
+
+function createCrabboxProvider(options: CrabboxSandboxOptions) {
   return {
-    providerId: "crabbox",
-    specificationVersion: "harness-sandbox-v1",
     async createSession(createOptions: {
       abortSignal?: AbortSignal
-      onFirstCreate?: (session: HarnessV1NetworkSandboxSession, context: { abortSignal?: AbortSignal }) => Promise<void>
+      initialize?: (session: RuntimeSession) => Promise<void>
       sessionId?: string
     } = {}) {
       const sessionOptions: CrabboxSessionOptions = {
@@ -229,7 +251,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
             command: `rm -- ${shellQuote(posix.join(root, ".vitehub-copy-probe"))}` })
           if (probeCleanup.exitCode !== 0) throw crabboxError("remove Crabbox copy probe", probeCleanup)
           await validateRequirements(session, options.requirements, createOptions.abortSignal)
-          await createOptions.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal })
+          await createOptions.initialize?.(session)
           return session
         }
         catch (error) {
@@ -625,7 +647,7 @@ async function acquireRemoteState(
   };
 }
 
-function createCrabboxSession(state: CrabboxSessionState, sessionId: string | undefined): HarnessV1NetworkSandboxSession {
+function createCrabboxSession(state: CrabboxSessionState, sessionId: string | undefined): RuntimeSession {
   let destroyed = false;
   const session = {
     defaultWorkingDirectory: state.root,
@@ -661,6 +683,60 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       if (state.options.network === "direct") return `${protocol}://127.0.0.1:${port}`
       const tunnel = state.tunnels.get(port) || startTunnel(state, port)
       return `${protocol}://127.0.0.1:${await tunnel.localPort}`
+    },
+    async existsFile({ abortSignal, path }: { abortSignal?: AbortSignal, path: string }) {
+      const target = resolveSessionPath(state.root, path)
+      const result = await this.run({
+        abortSignal: stateAbortSignal(state, abortSignal),
+        command: `test -e ${shellQuote(target)} || test -L ${shellQuote(target)}`,
+      })
+      return result.exitCode === 0
+    },
+    async listFiles({ abortSignal, path, recursive = false }: { abortSignal?: AbortSignal, path: string, recursive?: boolean }) {
+      const target = resolveSessionPath(state.root, path)
+      const command = [
+        "find",
+        shellQuote(target),
+        "-mindepth 1",
+        ...(recursive ? [] : ["-maxdepth 1"]),
+        "-printf '%y\\t%s\\t%p\\0'",
+      ].join(" ")
+      const result = await this.run({ abortSignal: stateAbortSignal(state, abortSignal), command })
+      if (result.exitCode !== 0) throw crabboxError(`list ${path}`, result)
+      return result.stdout
+        .split("\0")
+        .filter(Boolean)
+        .map((line) => {
+          const [kind, size, entryPath] = line.split("\t")
+          if (!entryPath || !kind) throw new Error(`[vitehub] Crabbox returned an invalid file entry for ${path}.`)
+          return {
+            path: entryPath,
+            size: kind === "f" ? Number(size) : undefined,
+            type: kind === "d"
+              ? "directory" as const
+              : kind === "l"
+                ? "symlink" as const
+                : "file" as const,
+          }
+        })
+        .sort((left, right) => left.path.localeCompare(right.path))
+    },
+    async makeDirectory({ abortSignal, path, recursive = false }: { abortSignal?: AbortSignal, path: string, recursive?: boolean }) {
+      const target = resolveSessionPath(state.root, path)
+      const result = await this.run({
+        abortSignal: stateAbortSignal(state, abortSignal),
+        command: `mkdir ${recursive ? "-p " : ""}-- ${shellQuote(target)}`,
+      })
+      if (result.exitCode !== 0) throw crabboxError(`create directory ${path}`, result)
+    },
+    async moveFile({ abortSignal, destination, source }: { abortSignal?: AbortSignal, destination: string, source: string }) {
+      const target = resolveSessionPath(state.root, destination)
+      const sourcePath = resolveSessionPath(state.root, source)
+      const result = await this.run({
+        abortSignal: stateAbortSignal(state, abortSignal),
+        command: `mkdir -p -- ${shellQuote(posix.dirname(target))} && mv -- ${shellQuote(sourcePath)} ${shellQuote(target)}`,
+      })
+      if (result.exitCode !== 0) throw crabboxError(`move ${source}`, result)
     },
     async readBinaryFile({ abortSignal, path }: { abortSignal?: AbortSignal, path: string }) {
       const stateSignal = stateAbortSignal(state, abortSignal);
@@ -706,7 +782,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       return this
     },
     async run(runOptions: CrabboxRunOptions) {
-      const child = await this.spawn(runOptions)
+      const child = spawnCrabboxRun(state, runOptions)
       const [stdout, stderr, { exitCode }] = await Promise.all([
         collect(child.stdout),
         collect(child.stderr),
@@ -726,6 +802,16 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       ])
       state.tunnels.clear()
       state.processes.clear()
+    },
+    async removeFile({ abortSignal, path, recursive = false }: { abortSignal?: AbortSignal, path: string, recursive?: boolean }) {
+      const target = resolveSessionPath(state.root, path)
+      const result = await this.run({
+        abortSignal: stateAbortSignal(state, abortSignal),
+        command: recursive
+          ? `rm -rf -- ${shellQuote(target)}`
+          : `if test -d ${shellQuote(target)} && ! test -L ${shellQuote(target)}; then rmdir -- ${shellQuote(target)}; else rm -f -- ${shellQuote(target)}; fi`,
+      })
+      if (result.exitCode !== 0) throw crabboxError(`remove ${path}`, result)
     },
     async writeBinaryFile({ abortSignal, content, path }: { abortSignal?: AbortSignal, content: Uint8Array, path: string }) {
       const stateSignal = stateAbortSignal(state, abortSignal);
@@ -760,7 +846,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     async writeTextFile({ abortSignal, content, encoding = "utf8", path }: { abortSignal?: AbortSignal, content: string, encoding?: string, path: string }) {
       await this.writeBinaryFile({ abortSignal, content: Buffer.from(content, encoding as BufferEncoding), path })
     },
-  } satisfies HarnessV1NetworkSandboxSession
+  } satisfies RuntimeSession
   return session
 }
 
@@ -881,7 +967,7 @@ function startTunnel(state: CrabboxSessionState, remotePort: number) {
   return tunnel
 }
 
-async function validateRequirements(session: HarnessV1NetworkSandboxSession, requirements: readonly ResolvedBoxRequirementInput[], abortSignal: AbortSignal | undefined) {
+async function validateRequirements(session: RuntimeSession, requirements: readonly ResolvedBoxRequirementInput[], abortSignal: AbortSignal | undefined) {
   for (const requirement of requirements) {
     const command = ["command -v", shellQuote(requirement.command), ">/dev/null"]
     if (requirement.args.length) command.push("&&", shellQuote(requirement.command), ...requirement.args.map(shellQuote))

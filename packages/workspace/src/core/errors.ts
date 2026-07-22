@@ -1,34 +1,25 @@
-import { ViteHubError, type ViteHubErrorShape } from "@vite-hub/runtime"
+import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
-export class WorkspaceError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options)
-    this.name = "WorkspaceError"
-  }
+export type WorkspaceErrorCode = "WORKSPACE_COLLECTION_CURSOR_INVALID" | "WORKSPACE_FAILED" | "WORKSPACE_NOT_FOUND" | "WORKSPACE_PATH_INVALID"
+
+export function workspaceError(message: string, options?: ErrorOptions): ViteHubError {
+  return new ViteHubError("WORKSPACE_FAILED", message, options)
 }
 
-export class WorkspaceNotFoundError extends WorkspaceError {
-  readonly code = "WORKSPACE_NOT_FOUND" as const
-  readonly details: { name: string }
-  readonly retryable: false = false
-  readonly toJSON: () => ViteHubErrorShape<"WORKSPACE_NOT_FOUND", { name: string }> = ViteHubError.prototype.toJSON
-
-  constructor(name: string) {
-    super(`[vitehub] Workspace "${name}" is not registered.`)
-    this.name = "WorkspaceNotFoundError"
-    this.details = { name }
-  }
+export function workspaceNotFoundError(name: string): ViteHubError {
+  return new ViteHubError("WORKSPACE_NOT_FOUND", `[vitehub] Workspace "${name}" is not registered.`, {
+    details: { name },
+  })
 }
 
-export class WorkspacePathError extends WorkspaceError {
-  readonly code = "WORKSPACE_PATH_INVALID" as const
-  readonly details: { path: string }
-  readonly retryable: false = false
-  readonly toJSON: () => ViteHubErrorShape<"WORKSPACE_PATH_INVALID", { path: string }> = ViteHubError.prototype.toJSON
+export function workspacePathError(path: string): ViteHubError {
+  const publicPath = path.slice(0, 4_096)
+  return new ViteHubError("WORKSPACE_PATH_INVALID", `[vitehub] Workspace path escapes the workspace root: ${JSON.stringify(publicPath)}.`, {
+    details: { path: publicPath },
+  })
+}
 
-  constructor(path: string) {
-    super(`[vitehub] Workspace path escapes the workspace root: ${JSON.stringify(path)}.`)
-    this.name = "WorkspacePathError"
-    this.details = { path }
-  }
+export function isWorkspaceError(value: unknown): boolean {
+  const code = getViteHubErrorShape(value)?.code
+  return code === "WORKSPACE_COLLECTION_CURSOR_INVALID" || code === "WORKSPACE_FAILED" || code === "WORKSPACE_NOT_FOUND" || code === "WORKSPACE_PATH_INVALID"
 }

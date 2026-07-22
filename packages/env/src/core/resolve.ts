@@ -5,7 +5,8 @@ import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
 import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.ts"
-import { EnvError, envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
+import { isViteHubError } from "@vite-hub/runtime"
+import { envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
 
 import type {
   EnvBuildConfigOptions,
@@ -354,7 +355,7 @@ async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | 
     return await resolveSource()
   }
   catch (cause) {
-    if (isAbortError(cause) || cause instanceof EnvError) throw cause
+    if (isAbortError(cause) || isViteHubError(cause)) throw cause
     throw envSourceFailed(source, cause)
   }
 }

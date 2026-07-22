@@ -12,9 +12,9 @@
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS='--max-old-space-size=8192' nuxi build",
-    "deploy:cloudflare": "vp run build && vp dlx \"wrangler@4.112.0\" deploy --config .output/server/wrangler.json",
+    "deploy:cloudflare": "test -n \"$CLOUDFLARE_D1_DATABASE_ID\" && vp run test && vp run build && vp dlx \"wrangler@4.112.0\" deploy --config .output/server/wrangler.json",
     "test": "vp test",
-    "typecheck": "nuxi prepare && ! vue-tsc --noEmit 2>&1 | grep 'error TS' | grep -Ev 'node_modules/.pnpm/docus@|docus/(app/pages/\\[\\[lang\\]\\]/\\[\\.\\.\\.slug\\]\\.vue\\(48,15\\): error TS2345|modules/config\\.ts\\(38,5\\): error TS2322)'",
+    "typecheck": "nuxi prepare && node scripts/typecheck.mjs",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
     "preview": "nuxi preview",
     "preview:cloudflare": "vp run build && vp dlx \"wrangler@4.112.0\" dev --config .output/server/wrangler.json"

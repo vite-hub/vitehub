@@ -40,10 +40,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./cloudflare": {
-      "types": "./dist/cloudflare-public.d.ts",
-      "import": "./dist/cloudflare-public.js"
-    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
@@ -64,14 +60,6 @@
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"
     },
-    "./sandbox/providers/cloudflare": {
-      "types": "./dist/sandbox/providers/cloudflare.d.ts",
-      "import": "./dist/sandbox/providers/cloudflare.js"
-    },
-    "./sandbox/providers/vercel": {
-      "types": "./dist/sandbox/providers/vercel.d.ts",
-      "import": "./dist/sandbox/providers/vercel.js"
-    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
@@ -85,6 +73,8 @@
     "test": "vp run -t @vite-hub/sandbox#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/box": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "local-pkg": "catalog:tooling",
@@ -97,8 +87,6 @@
     "unimport": "catalog:unjs"
   },
   "devDependencies": {
-    "@cloudflare/sandbox": "catalog:sandbox",
-    "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

@@ -4,10 +4,10 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
-import { ApplicationWorkflowError, WorkflowError } from "../src/errors.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
@@ -194,7 +194,7 @@ describe("workflow runtime", () => {
     details: { operation: string, provider: string, status?: number },
   ) {
     const error = await request.catch(error => error)
-    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       cause,
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
@@ -205,6 +205,7 @@ describe("workflow runtime", () => {
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       details,
       message: "Workflow provider operation failed.",
+      name: "ViteHubError",
     })
     expect(JSON.stringify(error)).not.toContain("provider-secret")
   }
@@ -215,7 +216,7 @@ describe("workflow runtime", () => {
     field: string,
   ) {
     const error = await request.catch(error => error)
-    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       cause: new TypeError(`Vercel Workflow provider returned an invalid ${field}.`),
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
@@ -775,7 +776,7 @@ describe("workflow runtime", () => {
       expect.objectContaining({ cause: firstCause, code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED" }),
       expect.objectContaining({ cause: secondCause, code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED" }),
     ])
-    expect(failure.errors.every(error => error instanceof WorkflowError)).toBe(true)
+    expect(failure.errors.every(error => error instanceof ViteHubError)).toBe(true)
     expect(firstStop).toHaveBeenCalledOnce()
     expect(secondStop).toHaveBeenCalledOnce()
     expect(thirdStop).toHaveBeenCalledOnce()
@@ -795,7 +796,7 @@ describe("workflow runtime", () => {
     })
 
     const singleFailure = await resetOpenWorkflowRuntime().catch(error => error)
-    expect(singleFailure).toBeInstanceOf(WorkflowError)
+    expect(singleFailure).toBeInstanceOf(ViteHubError)
     expect(singleFailure).toMatchObject({
       cause: singleCause,
       code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED",
@@ -1134,7 +1135,7 @@ describe("workflow runtime", () => {
 
     const error = await runWorkflow("welcome", {}).catch(error => error)
 
-    expect(error).not.toBeInstanceOf(WorkflowError)
+    expect(error).not.toBeInstanceOf(ViteHubError)
     expect(error).toEqual(new Error("OpenWorkflow SQLite storage requires a local SQLite file path, received \"https://provider.example/workflow.db\"."))
   })
 
@@ -1228,7 +1229,7 @@ describe("workflow runtime", () => {
         details: { provider: "openworkflow" },
       }))
     })
-    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(WorkflowError)
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(ViteHubError)
     expect(stop).toHaveBeenCalledOnce()
     expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function))
     expect(processSignals.off).toHaveBeenCalledWith("SIGINT", sigint)
@@ -1732,7 +1733,7 @@ describe("workflow runtime", () => {
   })
 
   it("preserves custom and abort errors from the Vercel runtime loader", async () => {
-    const custom = new ApplicationWorkflowError({ code: "CUSTOM_RUNTIME_LOAD_FAILED", message: "Custom load failure." })
+    const custom = new ViteHubError("CUSTOM_RUNTIME_LOAD_FAILED", "Custom load failure.")
     const abort = new DOMException("cancelled", "AbortError")
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
@@ -1877,6 +1878,7 @@ describe("workflow runtime", () => {
     expect(JSON.parse(JSON.stringify(missing))).toEqual({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
       message: "Workflow definition was not found.",
+      name: "ViteHubError",
     })
 
     setWorkflowRuntimeRegistry({
@@ -1889,6 +1891,7 @@ describe("workflow runtime", () => {
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
       details: { provider: "vercel" },
       message: "Native Vercel workflows assign their own run IDs.",
+      name: "ViteHubError",
     })
   })
 

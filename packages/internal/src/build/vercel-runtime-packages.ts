@@ -7,7 +7,7 @@ import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
 const runtimeExportConditions = new Set(["default", "import", "module", "node", "node-addons", "require"])
 let nodeFileTracePromise: Promise<typeof import("@vercel/nft").nodeFileTrace> | undefined
 
-interface VercelFunctionRuntimePackage {
+export interface VercelFunctionRuntimePackage {
   includePeerDependencies?: boolean
   name: string
   optional?: boolean

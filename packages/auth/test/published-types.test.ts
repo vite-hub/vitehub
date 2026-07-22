@@ -64,7 +64,7 @@ afterAll(async () => {
   if (consumerRoot) await rm(consumerRoot, { force: true, recursive: true })
 })
 
-it("publishes the structured Auth error contract from installed packages", { timeout: 20_000 }, async () => {
+it("uses the shared ViteHubError contract from installed packages", { timeout: 20_000 }, async () => {
   const root = consumerRoot!
   try {
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root], {

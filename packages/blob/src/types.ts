@@ -337,6 +337,7 @@ export type BlobModuleOptions =
   | false
   | BlobStoresConfig
   | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName">>)
+  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<NetlifyBlobsStoreConfig, "name">>)
   | (BlobModuleBaseOptions & BlobStoreConfig)
 
 export interface ResolvedBlobModuleOptions {

@@ -5,14 +5,15 @@ import { Chat, StreamingPlan, convertEmojiPlaceholders } from "chat"
 
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
 import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
+import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
-import { RateLimitRejectedError } from "../capabilities/rate-limit.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
-import { chatTriggerHistoryLimit, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
+import { isAttachmentData } from "../messages.ts"
 import { normalizeAgentInvokerProfiles, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
@@ -37,6 +38,7 @@ import {
   validChatDevtoolsInvokerProfileId,
 } from "../chat/devtools-runtime.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -62,11 +64,12 @@ import type {
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
+  AgentWebhookStateResolver,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentTriggerDefinition,
 } from "../types.ts"
-import type { AudioData, MessagePart } from "../messages.ts"
+import type { AttachmentPart, MessagePart } from "../messages.ts"
 import type {
   ChatDevtoolsConversation,
   ChatDevtoolsMetadata,
@@ -97,6 +100,7 @@ interface AgentRouteRuntimeOptions {
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
+  webhookState?: AgentWebhookStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
 export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOptions {
@@ -522,6 +526,85 @@ async function createAgentWebhookTriggerInput(request: Request, registration: Ag
           },
         }
       : {}),
+  }
+}
+
+const defaultWebhookConcurrencyTtlMs = 30_000
+async function resolveAgentWebhookState(
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+): Promise<{ keyPrefix: string, state: StateAdapter } | undefined> {
+  const stateOption = handlerOptions.webhookState
+  if (!stateOption) return
+  const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
+  const origin = chatRegistrationOrigin(registration)
+  const registrationId = registration.id || registration.path || origin
+  const keyPrefix = `webhook:${agentName}:${origin}:${registrationId}:`
+  const state = await resolveMaybe(stateOption, {
+    ...context,
+    webhook: {
+      agentName,
+      ...(registration.channelId ? { channelId: registration.channelId } : {}),
+      provider: registration.provider,
+      stateKeyPrefix: keyPrefix,
+    },
+  } as never)
+  if (!state) return
+  await state.connect()
+  return { keyPrefix, state }
+}
+
+function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease", value: string): string {
+  return `${prefix}${kind}:${value}`
+}
+
+function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
+  const duration = value ?? fallback
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new TypeError(`[vitehub] Webhook delivery ownership ${name} must be a positive finite number.`)
+  }
+  return duration
+}
+
+async function hasActiveWorkflowRuntime(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+): Promise<boolean> {
+  if (!isRecord(agent) || !isRecord(agent.runtime) || agent.runtime.kind !== "workflow") return false
+  if (agent.runtime.discoveryDefault !== true) return true
+  if (!context.agentIdentity || Object.keys(context.capabilities || {}).length) return false
+  try {
+    return Boolean((await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig())
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND") return false
+    throw error
+  }
+}
+
+function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: number, onLost: () => void): () => void {
+  const intervalMs = Math.max(1, Math.floor(ttlMs / 2))
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const extend = async () => {
+    if (stopped) return
+    try {
+      if (!await state.extendLock(lock, ttlMs)) {
+        stopped = true
+        onLost()
+      }
+    }
+    catch {
+      stopped = true
+      onLost()
+    }
+    if (!stopped) timer = setTimeout(extend, intervalMs)
+  }
+  timer = setTimeout(extend, intervalMs)
+  return () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
   }
 }
 
@@ -1333,14 +1416,6 @@ function chatMessageAuthorEmail(message: ChatSdkMessage): string | undefined {
   )
 }
 
-function audioData(value: unknown): AudioData | undefined {
-  if (typeof value === "string") return value
-  if (value instanceof ArrayBuffer) return value
-  if (value instanceof Blob) return value
-  if (value instanceof Uint8Array) return value
-  return undefined
-}
-
 const chatTextAttachmentMaxBytes = 8 * 1024 * 1024
 const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
 const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
@@ -1453,39 +1528,40 @@ async function textPartFromAttachment(attachment: Attachment, index: number, opt
   }
 }
 
-function audioPartFromAttachment(attachment: Attachment, index: number): MessagePart | undefined {
-  const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("audio/")
+function attachmentPartFromAttachment(attachment: Attachment, index: number): AttachmentPart | undefined {
+  const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType
     ? attachment.mimeType
     : undefined
-  if (attachment.type !== "audio" && !mediaType) return undefined
-  const base = objectWithoutUndefined({
+  const type = mediaType?.startsWith("audio/") || (attachment.type === "audio" && !mediaType)
+    ? "audio"
+    : mediaType?.startsWith("image/")
+      ? "image"
+      : "file"
+  const data = isAttachmentData(attachment.data) ? attachment.data : undefined
+  const fetchData = typeof attachment.fetchData === "function"
+    ? async () => {
+        const value = await attachment.fetchData?.()
+        const resolved = isAttachmentData(value) ? value : undefined
+        if (!resolved) {
+          throw new Error("[vitehub] Chat attachment fetchData() did not return supported attachment data.")
+        }
+        return resolved
+      }
+    : undefined
+  const url = typeof attachment.url === "string" && attachment.url ? attachment.url : undefined
+  if (!data && !fetchData && !url) return undefined
+  const part = objectWithoutUndefined({
+    data,
+    fetchData,
     fetchMetadata: attachment.fetchMetadata,
-    id: `audio-${index + 1}`,
-    mediaType: mediaType ?? "audio/ogg",
+    id: `attachment-${index + 1}`,
+    mediaType: mediaType ?? (type === "audio" ? "audio/ogg" : "application/octet-stream"),
     name: attachment.name,
     size: attachment.size,
-    type: "audio" as const,
+    type,
+    url,
   })
-  if (typeof attachment.fetchData === "function") {
-    return {
-      ...base,
-      fetchData: async () => {
-        const data = audioData(await attachment.fetchData?.())
-        if (!data) {
-          throw new Error("[vitehub] Chat attachment fetchData() did not return supported audio data.")
-        }
-        return data
-      },
-    }
-  }
-  if (typeof attachment.url === "string" && attachment.url) {
-    return { ...base, url: attachment.url }
-  }
-  const data = audioData(attachment.data)
-  if (data) {
-    return { ...base, data }
-  }
-  return undefined
+  return part as AttachmentPart
 }
 
 function attachmentFallbackLabel(attachment: Attachment): string {
@@ -1511,20 +1587,19 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   return `Sent attachments: ${summary}.`
 }
 
-async function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
+async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
   }
   for (const [index, attachment] of message.attachments.entries()) {
-    const part = await textPartFromAttachment(attachment, index, options)
-    if (part) parts.push(part)
-  }
-  if (options.includeAudioAttachments) {
-    for (const [index, attachment] of message.attachments.entries()) {
-      const part = audioPartFromAttachment(attachment, index)
-      if (part) parts.push(part)
+    const textPart = await textPartFromAttachment(attachment, index, options)
+    if (textPart) {
+      parts.push(textPart)
+      continue
     }
+    const attachmentPart = attachmentPartFromAttachment(attachment, index)
+    if (attachmentPart) parts.push(attachmentPart)
   }
   if (!parts.length) {
     const text = attachmentFallbackText(message.attachments)
@@ -1555,13 +1630,24 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
 async function chatSdkMessageToUiMessage(
   message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
-  options?: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean },
+  options?: { rejectOversizedTextAttachments?: boolean },
 ): Promise<UIMessageLike> {
   return {
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
     parts: await chatMessageParts(message, options),
+    role: message.author.isMe ? "assistant" : "user",
+  }
+}
+
+function chatAuthorizationUiMessage(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): UIMessageLike {
+  const metadata = chatMessageMetadata(thread, message, messageContext)
+  return {
+    createdAt: isoDate(message.metadata.dateSent),
+    id: message.id,
+    ...(metadata ? { metadata } : {}),
+    parts: message.text ? [{ id: "text-0", text: message.text, type: "text" }] : [],
     role: message.author.isMe ? "assistant" : "user",
   }
 }
@@ -1592,10 +1678,8 @@ async function chatTriggerMessages(
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
-  messageOptions?: { includeAudioAttachments?: boolean },
 ): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
-    ...messageOptions,
     rejectOversizedTextAttachments: true,
   })
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
@@ -1604,14 +1688,14 @@ async function chatTriggerMessages(
   const fetchedNewestFirst: UIMessageLike[] = []
   try {
     for await (const item of thread.messages) {
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item, undefined, messageOptions))
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
   const durable = await durableChatThreadMessages(thread, limit)
   const messages = [
-    ...(await Promise.all(durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions)))),
+    ...(await Promise.all(durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item)))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -1763,7 +1847,8 @@ async function resolveChatErrorFallbackText(
     return resolved || undefined
   }
   if (typeof fallback === "string") return fallback
-  if (args.error instanceof RateLimitRejectedError) return args.error.message
+  const publicError = toAgentPublicError(args.error, "http")
+  if (publicError.code === "RATE_LIMIT_REJECTED") return publicError.error
   return defaultChatErrorFallbackText
 }
 
@@ -1874,22 +1959,19 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   try {
-    const messageOptions = {
-      includeAudioAttachments: getAgentCapabilities(agent).some((capability) => {
-        const metadata = capability.metadata as { chatAttachments?: { audio?: unknown } } | undefined
-        return capability.chatAttachments?.audio === true || metadata?.chatAttachments?.audio === true
-      }),
-    }
-    const messages = await chatTriggerMessages(thread, message, options, messageContext, messageOptions)
+    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
+    const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
+    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
+    if (!invoker) return
+
+    const messages = await chatTriggerMessages(thread, message, options, messageContext)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
       : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
-    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messages, messageContext, registration.channelId)
+    input = { ...input, messages }
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) return
-    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)
-    if (!invoker) return
 
     const streamsPhasedReplies = options?.stream !== false || options?.commentary !== undefined
     typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
@@ -2686,6 +2768,56 @@ export function createChannelWebhookRouteHandler(
             await context.flushWaitUntil?.()
             return invocation.response
           }
+          if (invocation.webhook?.concurrencyKey !== undefined && await hasActiveWorkflowRuntime(agent, context)) {
+            return createJsonErrorResponse(503, "Webhook concurrency ownership requires inline Agent execution.")
+          }
+          const webhookState = invocation.webhook
+            ? await resolveAgentWebhookState(context, registration, handlerOptions)
+            : undefined
+          if (invocation.webhook && !webhookState) {
+            return createJsonErrorResponse(503, "Durable Agent state is required for webhook delivery ownership.")
+          }
+          let webhookLock: Lock | null = null
+          let deliveryClaimKey: string | undefined
+          let concurrencyTtlMs = defaultWebhookConcurrencyTtlMs
+          if (invocation.webhook && webhookState) {
+            const { concurrencyKey, deliveryId } = invocation.webhook
+            if (!deliveryId.trim()) {
+              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId.")
+            }
+            if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
+              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured.")
+            }
+            concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
+            deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
+            if (await webhookState.state.get(deliveryClaimKey) === true) {
+              return Response.json({ accepted: false, duplicate: true, ok: true })
+            }
+            if (concurrencyKey !== undefined) {
+              webhookLock = await webhookState.state.acquireLock(
+                webhookOwnershipKey(webhookState.keyPrefix, "lease", concurrencyKey),
+                concurrencyTtlMs,
+              )
+              if (!webhookLock) {
+                return Response.json({ accepted: false, busy: true, ok: true }, { status: 503 })
+              }
+            }
+            let claimed: boolean
+            try {
+              claimed = await webhookState.state.setIfNotExists(
+                deliveryClaimKey,
+                true,
+              )
+            }
+            catch (error) {
+              if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              throw error
+            }
+            if (!claimed) {
+              if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              return Response.json({ accepted: false, duplicate: true, ok: true })
+            }
+          }
           const runContext = createRuntimeContext(
             request,
             invocation.run,
@@ -2695,12 +2827,54 @@ export function createChannelWebhookRouteHandler(
             handlerOptions.capabilities,
             routeAgentIdentity(handlerOptions),
           )
-          context.waitUntil(runWithRuntimeCloudflareEnv(runContext, async () => {
-            const result = await runAgent(agent as never, runContext as never, invocation.input as never)
-            if (!isWorkflowRun(result) || result.status !== "queued") {
-              await runContext.flushWaitUntil?.()
-            }
-          }))
+          const ownershipAbort = webhookLock ? new AbortController() : undefined
+          let stopHeartbeat: (() => void) | undefined
+          if (webhookLock && webhookState && ownershipAbort) {
+            stopHeartbeat = startWebhookLockHeartbeat(webhookState.state, webhookLock, concurrencyTtlMs, () => {
+              ownershipAbort.abort(new Error("[vitehub] Webhook concurrency ownership was lost during Agent execution."))
+            })
+          }
+          let dispatch!: (accepted: boolean) => void
+          const dispatchGate = new Promise<boolean>(resolve => {
+            dispatch = resolve
+          })
+          const task = dispatchGate.then(async (accepted) => {
+            if (!accepted) return
+            await runWithRuntimeCloudflareEnv(runContext, async () => {
+              try {
+                const result = await runAgent(agent as never, runContext as never, {
+                  ...invocation.input,
+                  ...(ownershipAbort
+                    ? {
+                        abortSignal: invocation.input.abortSignal
+                          ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal])
+                          : ownershipAbort.signal,
+                      }
+                    : {}),
+                } as never)
+                if (!isWorkflowRun(result) || result.status !== "queued") {
+                  await runContext.flushWaitUntil?.()
+                }
+              }
+              finally {
+                stopHeartbeat?.()
+                if (webhookLock && webhookState) {
+                  await webhookState.state.releaseLock(webhookLock)
+                }
+              }
+            })
+          })
+          try {
+            context.waitUntil(task)
+            dispatch(true)
+          }
+          catch (error) {
+            dispatch(false)
+            stopHeartbeat?.()
+            if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
+            if (deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
+            throw error
+          }
           return Response.json({ accepted: true, ok: true })
         }
         catch (error) {
@@ -2722,7 +2896,8 @@ export function createChannelWebhookRouteHandler(
         const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
         const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions)
         const response = await handler(request, { waitUntil: context.waitUntil })
-        if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
+        if (chatOptions?.commentary !== undefined
+          || (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId))) {
           await context.flushWaitUntil?.()
         }
         return response

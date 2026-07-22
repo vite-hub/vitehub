@@ -72,7 +72,6 @@ describe("workspace types", () => {
 
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
-      runtime: "sandbox",
       sources: {
         docs: markdown({ path: "README.md" }),
         externalDocs: {
@@ -111,12 +110,8 @@ describe("workspace types", () => {
         rules: { "/docs/**": { write: "update" } },
       } satisfies WorkspacePlugin],
     })
-    defineWorkspace({
-      runtime: "trusted-host",
-    })
-    defineWorkspace({
-      runtime: { type: "trusted-host", allowProduction: true },
-    })
+    // @ts-expect-error execution runtime belongs to Box
+    defineWorkspace({ runtime: "trusted-host" })
     file({
       workspacePath: "AGENTS.md",
       content: "# Instructions\n",
@@ -267,11 +262,14 @@ describe("workspace types", () => {
     readonly.startSession()
     // @ts-expect-error read-only facade does not expose Source Sync
     readonly.sync({ sources: ["externalDocs"] })
+    // @ts-expect-error read-only facade does not expose publication
+    readonly.publish()
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools.writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(writable.tools.write().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.startSession).toBeFunction()
+    expectTypeOf(writable.publish).toBeFunction()
     expectTypeOf(await writable.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     // @ts-expect-error workspace.sync requires explicit sources
     await runtimeWorkspace.sync()
@@ -287,7 +285,7 @@ describe("workspace types", () => {
     expectTypeOf(lazyGithubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     const session = null as unknown as Awaited<ReturnType<typeof writable.startSession>>
-    // @ts-expect-error runtime selection belongs in workspace config, not open options
+    // @ts-expect-error runtime selection belongs to Box, not Workspace session options
     await writable.startSession({ runtime: "local" })
     expectTypeOf(session.exec).toBeFunction()
     expectTypeOf(session.mkdir).toBeFunction()

@@ -3,10 +3,10 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-import type { HarnessV1SandboxProvider } from "@ai-sdk/harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveBox, trustedHost } from "../src/index.ts";
+import { boxProvider, type TestSession } from "./helpers.ts";
 
 const roots: string[] = [];
 
@@ -17,8 +17,8 @@ afterEach(async () => {
 describe("trustedHost", () => {
   it("keeps the default workspace separate from runtime-owned paths", async () => {
     const box = await resolveBox({ runtime: trustedHost() }, {});
-    const session = (await (box.sandbox as HarnessV1SandboxProvider).createSession()) as
-      Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> & { root: string };
+    const session = (await boxProvider(box).createSession()) as
+      TestSession & { root: string };
 
     try {
       expect(session.defaultWorkingDirectory).toBe(join(session.root, "workspace"));
@@ -32,6 +32,23 @@ describe("trustedHost", () => {
     }
   });
 
+  it("reports dangling symlinks as existing files", async () => {
+    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const session = await box.open();
+
+    try {
+      await symlink("missing.txt", join(session.cwd, "dangling.txt"));
+
+      await expect(session.files.exists("workspace/dangling.txt")).resolves.toBe(true);
+      await expect(session.files.list("workspace")).resolves.toContainEqual({
+        path: "workspace/dangling.txt",
+        type: "symlink",
+      });
+    } finally {
+      await session.close();
+    }
+  });
+
   it("materializes a relative workspace from the process directory", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");
@@ -42,7 +59,7 @@ describe("trustedHost", () => {
       { cwd: relative(process.cwd(), workspace), runtime: trustedHost() },
       {},
     );
-    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+    const session = await boxProvider(box).createSession();
 
     await expect(session.readTextFile({ path: "workspace/marker.txt" })).resolves.toBe("workspace");
     await session.destroy?.();
@@ -70,7 +87,7 @@ describe("trustedHost", () => {
       }
     })();
 
-    const session = (await (box.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    const session = (await boxProvider(box).createSession()) as typeof sessionWithEnv;
     await expect(readFile(join(session.env.HOME, ".acme", "credential"), "utf8")).resolves.toBe(
       "anchored",
     );
@@ -128,7 +145,7 @@ describe("trustedHost", () => {
         ),
     );
 
-    expect(box).toMatchObject({
+    expect(box.plan).toMatchObject({
       cache: { state: "disposable" },
       environment: {},
       isolation: "none",
@@ -136,13 +153,13 @@ describe("trustedHost", () => {
       runtime: "trusted-host",
       workspace: { path: workspace, state: "authoritative" },
     });
-    expect(box.sandbox).toMatchObject({ providerId: "trusted-host" });
+    expect(box.open).toBeTypeOf("function");
     expect(JSON.stringify(box)).not.toContain("declared");
     expect(JSON.stringify(box)).not.toContain("sandbox");
 
     const session = (await withEnvironment(
       { PATH: bin },
-      async () => await (box.sandbox as HarnessV1SandboxProvider).createSession(),
+      async () => await boxProvider(box).createSession(),
     )) as typeof sessionWithEnv;
     const home = session.env.HOME;
     expect(home).not.toBe(ambientHome);
@@ -189,7 +206,7 @@ describe("trustedHost", () => {
       },
       {},
     );
-    const sandbox = box.sandbox as HarnessV1SandboxProvider;
+    const sandbox = boxProvider(box);
 
     const first = await sandbox.createSession();
     await first.run({
@@ -218,12 +235,12 @@ describe("trustedHost", () => {
     });
 
     const firstBox = await resolveBox(definition(true), {});
-    const first = (await (firstBox.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    const first = (await boxProvider(firstBox).createSession()) as typeof sessionWithEnv;
     await expect(readFile(join(first.env.HOME, ".codex", "config.toml"), "utf8")).resolves.toBe("projected");
     await first.destroy?.();
 
     const secondBox = await resolveBox(definition(false), {});
-    const second = (await (secondBox.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    const second = (await boxProvider(secondBox).createSession()) as typeof sessionWithEnv;
     await expect(stat(join(second.env.HOME, ".codex", "config.toml"))).rejects.toMatchObject({ code: "ENOENT" });
     await second.destroy?.();
   });
@@ -235,7 +252,7 @@ describe("trustedHost", () => {
       home: { state: { ".codex": { key: "portable-box-test/directory-projection" } } },
       runtime: trustedHost({ stateRoot }),
     }, {});
-    const first = (await (withoutProjection.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    const first = (await boxProvider(withoutProjection).createSession()) as typeof sessionWithEnv;
     await mkdir(join(first.env.HOME, ".codex", "config.toml"));
     await first.destroy?.();
 
@@ -246,7 +263,7 @@ describe("trustedHost", () => {
       },
       runtime: trustedHost({ stateRoot }),
     }, {});
-    const second = (await (withProjection.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    const second = (await boxProvider(withProjection).createSession()) as typeof sessionWithEnv;
     await expect(readFile(join(second.env.HOME, ".codex", "config.toml"), "utf8")).resolves.toBe("projected");
     await second.destroy?.();
   });
@@ -270,7 +287,7 @@ describe("trustedHost", () => {
       {},
     );
 
-    await expect((box.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(
+    await expect(boxProvider(box).createSession()).rejects.toThrow(
       "projected path escapes writable state",
     );
     await expect(stat(join(outside, "review", "SKILL.md"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -285,7 +302,7 @@ describe("trustedHost", () => {
       },
       {},
     );
-    const sandbox = box.sandbox as HarnessV1SandboxProvider;
+    const sandbox = boxProvider(box);
     const first = await sandbox.createSession();
     let opened = false;
     const second = sandbox.createSession().then((session) => {
@@ -316,7 +333,7 @@ describe("trustedHost", () => {
       },
       {},
     );
-    const sandbox = box.sandbox as HarnessV1SandboxProvider;
+    const sandbox = boxProvider(box);
     const first = await sandbox.createSession();
     await first.run({
       command: '(sleep 0.2; printf late > "$HOME/.acme/auth.json") >/dev/null 2>&1 &',
@@ -334,7 +351,7 @@ describe("trustedHost", () => {
   it("drops completed command process groups before teardown", async () => {
     if (process.platform === "win32") return;
     const box = await resolveBox({ runtime: trustedHost() }, {});
-    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+    const session = await boxProvider(box).createSession();
     await session.run({ command: "true" });
 
     const kill = vi.spyOn(process, "kill");
@@ -346,15 +363,12 @@ describe("trustedHost", () => {
     }
   });
 
-  it("does not retain completed commands", async () => {
+  it("closes completed command sessions idempotently", async () => {
     const box = await resolveBox({ runtime: trustedHost() }, {});
-    const session = (await (box.sandbox as HarnessV1SandboxProvider).createSession()) as
-      Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> & {
-        processes: Set<unknown>;
-      };
+    const session = await boxProvider(box).createSession();
 
     await session.run({ command: "true" });
-    expect(session.processes.size).toBe(0);
+    await session.destroy?.();
     await session.destroy?.();
   });
 
@@ -362,7 +376,7 @@ describe("trustedHost", () => {
     const root = await temporaryRoot();
     const marker = join(root, "started");
     const box = await resolveBox({ runtime: trustedHost() }, {});
-    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+    const session = await boxProvider(box).createSession();
     const controller = new AbortController();
     controller.abort(new Error("cancelled"));
 
@@ -371,6 +385,38 @@ describe("trustedHost", () => {
     ).rejects.toThrow("cancelled");
     await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
     await session.destroy?.();
+  });
+
+  it("force-kills commands that ignore abort termination", async () => {
+    if (process.platform === "win32") return;
+    const root = await temporaryRoot();
+    const marker = join(root, "ready");
+    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const session = await boxProvider(box).createSession();
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const child = await session.spawn({
+      abortSignal: controller.signal,
+      command: `node -e "require('node:fs').writeFileSync(process.env.READY_MARKER, ''); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"`,
+      env: { READY_MARKER: marker },
+    });
+
+    try {
+      await vi.waitFor(() => expect(stat(marker)).resolves.toMatchObject({}));
+      const settled = child.wait().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      controller.abort(reason);
+
+      await expect(Promise.race([
+        settled,
+        new Promise((resolvePromise) => setTimeout(resolvePromise, 1_500, "still-running")),
+      ])).resolves.toBe(reason);
+      await vi.waitFor(() => expect(() => process.kill(-child.pid!, 0)).toThrow());
+    } finally {
+      await session.destroy?.();
+    }
   });
 
   it("retries seed materialization after a later boot failure", async () => {
@@ -392,7 +438,7 @@ describe("trustedHost", () => {
       },
       {},
     );
-    const sandbox = box.sandbox as HarnessV1SandboxProvider;
+    const sandbox = boxProvider(box);
 
     await expect(
       sandbox.createSession({
@@ -434,10 +480,10 @@ describe("trustedHost", () => {
       {},
     );
 
-    expect(rotated.identity).not.toBe(first.identity);
-    expect(differentState.identity).not.toBe(first.identity);
+    expect(rotated.plan.identity).not.toBe(first.plan.identity);
+    expect(differentState.plan.identity).not.toBe(first.plan.identity);
     expect(JSON.stringify(first)).not.toContain("secret-one");
-    await expect((first.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(
+    await expect(boxProvider(first).createSession()).rejects.toThrow(
       "Box project file is unavailable: credential",
     );
   });
@@ -456,7 +502,7 @@ describe("trustedHost", () => {
       ),
     );
 
-    await expect((box.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(
+    await expect(boxProvider(box).createSession()).rejects.toThrow(
       "Box environment value GH_TOKEN is required",
     );
   });
@@ -480,7 +526,7 @@ describe("trustedHost", () => {
 
     const session = await withEnvironment(
       { PATH: bin },
-      async () => await (box.sandbox as HarnessV1SandboxProvider).createSession(),
+      async () => await boxProvider(box).createSession(),
     );
     await session.destroy?.();
   });
@@ -496,7 +542,7 @@ describe("trustedHost", () => {
     );
     const session = await withEnvironment(
       { PATH: "", Path: bin },
-      async () => await (box.sandbox as HarnessV1SandboxProvider).createSession(),
+      async () => await boxProvider(box).createSession(),
     );
     await session.destroy?.();
   });
@@ -510,7 +556,7 @@ describe("trustedHost", () => {
       {},
     );
 
-    await expect((box.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(
+    await expect(boxProvider(box).createSession()).rejects.toThrow(
       'Box requirement "sh -c test -f package.json" failed',
     );
   });
@@ -529,7 +575,7 @@ describe("trustedHost", () => {
       {},
     );
 
-    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+    const session = await boxProvider(box).createSession();
     await session.destroy?.();
   });
 
@@ -653,7 +699,7 @@ describe("trustedHost", () => {
       },
       {},
     );
-    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+    const session = await boxProvider(box).createSession();
     expect((await stat(stateRoot)).mode & 0o777).toBe(0o755);
     await session.destroy?.();
 
@@ -705,7 +751,7 @@ async function executable(bin: string, name: string, body: string) {
   await chmod(path, 0o755);
 }
 
-const sessionWithEnv = {} as Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> & {
+const sessionWithEnv = {} as TestSession & {
   env: Record<string, string>;
 };
 

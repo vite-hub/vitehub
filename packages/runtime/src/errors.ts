@@ -15,14 +15,13 @@ export interface ViteHubErrorShape<
   code: TCode
   details?: TDetails
   message: string
+  name: "ViteHubError"
   requestId?: string
-  retryable?: boolean
 }
 
 export interface ViteHubErrorOptions<TDetails extends ViteHubErrorDetails = ViteHubErrorDetails> extends ErrorOptions {
   details?: TDetails
   requestId?: string
-  retryable?: boolean
 }
 
 const MAX_DETAIL_DEPTH = 8
@@ -133,8 +132,8 @@ interface NormalizedPublicError {
   code: string
   details?: ViteHubErrorDetails
   message: string
+  name: "ViteHubError"
   requestId?: string
-  retryable?: boolean
   shape: ViteHubErrorShape
 }
 
@@ -146,18 +145,16 @@ function normalizePublicError(code: unknown, message: unknown, options: unknown)
   const cause = readOwnDataProperty(options, "cause")
   const details = clonePublicDetails(readOwnDataProperty(options, "details"))
   const requestId = readOwnDataProperty(options, "requestId")
-  const retryable = readOwnDataProperty(options, "retryable")
   if (requestId !== undefined && (typeof requestId !== "string" || requestId.length === 0 || requestId.length > MAX_REQUEST_ID_LENGTH)) invalidPublicError()
-  if (retryable !== undefined && typeof retryable !== "boolean") invalidPublicError()
 
   const shape = Object.freeze({
     code,
     ...(details === undefined ? {} : { details }),
     message,
+    name: "ViteHubError" as const,
     ...(requestId === undefined ? {} : { requestId }),
-    ...(retryable === undefined ? {} : { retryable }),
   })
-  return { cause, code, details, message, requestId, retryable, shape }
+  return { cause, code, details, message, name: "ViteHubError", requestId, shape }
 }
 
 export class ViteHubError<
@@ -167,7 +164,6 @@ export class ViteHubError<
   readonly code: TCode
   readonly details?: TDetails
   readonly requestId?: string
-  readonly retryable?: boolean
 
   constructor(code: TCode, message: string, options: ViteHubErrorOptions<TDetails> = {}) {
     const normalized = normalizePublicError(code, message, options)
@@ -176,14 +172,13 @@ export class ViteHubError<
     this.code = normalized.code as TCode
     this.details = normalized.details as TDetails | undefined
     this.requestId = normalized.requestId
-    this.retryable = normalized.retryable
     const toJSON = this.toJSON.bind(this)
     Object.defineProperties(this, {
       code: { configurable: true, enumerable: true, value: normalized.code, writable: false },
       details: { configurable: true, enumerable: true, value: normalized.details, writable: false },
       message: { configurable: true, enumerable: false, value: normalized.message, writable: false },
+      name: { configurable: false, enumerable: false, value: normalized.name, writable: false },
       requestId: { configurable: true, enumerable: true, value: normalized.requestId, writable: false },
-      retryable: { configurable: true, enumerable: true, value: normalized.retryable, writable: false },
       toJSON: { configurable: false, enumerable: false, value: toJSON, writable: false },
     })
     publicShapes.set(this, normalized.shape)
@@ -199,10 +194,33 @@ export class ViteHubError<
       {
         details: readOwnDataProperty(this, "details"),
         requestId: readOwnDataProperty(this, "requestId"),
-        retryable: readOwnDataProperty(this, "retryable"),
       },
     )
     publicShapes.set(this, normalized.shape)
     return normalized.shape as ViteHubErrorShape<TCode, TDetails>
   }
+}
+
+export function getViteHubErrorShape(value: unknown): ViteHubErrorShape | undefined {
+  if (typeof value !== "object" || value === null) return
+  try {
+    const existing = publicShapes.get(value)
+    if (existing) return existing
+    if (readOwnDataProperty(value, "name") !== "ViteHubError") return
+    return normalizePublicError(
+      readOwnDataProperty(value, "code"),
+      readOwnDataProperty(value, "message"),
+      {
+        details: readOwnDataProperty(value, "details"),
+        requestId: readOwnDataProperty(value, "requestId"),
+      },
+    ).shape
+  }
+  catch {
+    return
+  }
+}
+
+export function isViteHubError(value: unknown): value is ViteHubErrorShape {
+  return getViteHubErrorShape(value) !== undefined
 }

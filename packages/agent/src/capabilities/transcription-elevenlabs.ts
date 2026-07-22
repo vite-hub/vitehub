@@ -1,4 +1,4 @@
-import { isTranscriptionAbortError, TranscriptionError } from "./transcription.ts"
+import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
 import type {
   TranscriptionDriver,
@@ -81,11 +81,11 @@ function mapWord(value: ElevenLabsWord): TranscriptionWord | undefined {
 
 function mapTranscript(value: unknown): TranscriptionTranscript {
   if (!value || typeof value !== "object") {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
+    throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
   }
   const transcript = value as ElevenLabsTranscript
   if (typeof transcript.text !== "string") {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
+    throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
   }
   const words = Array.isArray(transcript.words)
     ? transcript.words.map(word => mapWord(word as ElevenLabsWord)).filter((word): word is TranscriptionWord => Boolean(word))
@@ -109,11 +109,11 @@ function mapMetadata(value: unknown): TranscriptionMetadata | undefined {
 function receive(payload: unknown): TranscriptionDriverCompletion {
   try {
     if (!payload || typeof payload !== "object") {
-      throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
+      throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
     }
     const event = payload as ElevenLabsWebhookEvent
     if (event.type !== "speech_to_text_transcription" || !nonEmptyString(event.data?.request_id)) {
-      throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
+      throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
     }
     const metadata = mapMetadata(event.data.webhook_metadata)
     if (event.data.transcription) {
@@ -132,12 +132,12 @@ function receive(payload: unknown): TranscriptionDriverCompletion {
     }
   }
   catch (cause) {
-    if (cause instanceof TranscriptionError) throw cause
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { cause, provider: "elevenlabs" })
+    if (isTranscriptionError(cause)) throw cause
+    throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { cause, provider: "elevenlabs" })
   }
 }
 
-function errorCode(status: number): TranscriptionError["code"] {
+function errorCode(status: number): import("./transcription.ts").TranscriptionErrorCode {
   if (status === 401 || status === 403) return "TRANSCRIPTION_AUTHENTICATION_FAILED"
   if (status === 429) return "TRANSCRIPTION_RATE_LIMITED"
   if (status >= 400 && status < 500) return "TRANSCRIPTION_INVALID_REQUEST"
@@ -147,7 +147,7 @@ function errorCode(status: number): TranscriptionError["code"] {
 async function resolveApiKey(value: ElevenLabsScribeOptions["apiKey"]): Promise<string> {
   const apiKey = typeof value === "function" ? await value() : value
   if (!nonEmptyString(apiKey)) {
-    throw new TranscriptionError("TRANSCRIPTION_AUTHENTICATION_FAILED", { provider: "elevenlabs" })
+    throw transcriptionError("TRANSCRIPTION_AUTHENTICATION_FAILED", { provider: "elevenlabs" })
   }
   return apiKey
 }
@@ -168,7 +168,7 @@ export function elevenLabsScribe(options: ElevenLabsScribeOptions): Transcriptio
         if (input.metadata) form.set("webhook_metadata", JSON.stringify(input.metadata))
       }
       catch (cause) {
-        throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause, provider: "elevenlabs" })
+        throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause, provider: "elevenlabs" })
       }
       if (options.diarize !== undefined) form.set("diarize", String(options.diarize))
       if (options.noVerbatim !== undefined) form.set("no_verbatim", String(options.noVerbatim))
@@ -185,22 +185,22 @@ export function elevenLabsScribe(options: ElevenLabsScribeOptions): Transcriptio
         })
       }
       catch (cause) {
-        if (isTranscriptionAbortError(cause) || cause instanceof TranscriptionError) throw cause
-        throw new TranscriptionError("TRANSCRIPTION_NETWORK_FAILED", {
+        if (isTranscriptionAbortError(cause) || isTranscriptionError(cause)) throw cause
+        throw transcriptionError("TRANSCRIPTION_NETWORK_FAILED", {
           cause,
           provider: "elevenlabs",
         })
       }
       const body = await response.json().catch(() => undefined) as { detail?: unknown, request_id?: unknown } | undefined
       if (!response.ok) {
-        throw new TranscriptionError(errorCode(response.status), {
+        throw transcriptionError(errorCode(response.status), {
           cause: body?.detail ?? response.statusText,
           provider: "elevenlabs",
           status: response.status,
         })
       }
       if (!nonEmptyString(body?.request_id)) {
-        throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
+        throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
       }
       return { id: body.request_id }
     },

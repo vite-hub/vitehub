@@ -41,7 +41,6 @@ describe("global Skill Sources", () => {
     const skill = globalSkillBinding(glob({ cwd: "review", include: "**/*" }))
     const workspaceName = `global-skill-directory-${basename(root)}`
     registerWorkspace(workspaceName, defineWorkspace({
-      runtime: { allowProduction: true, type: "trusted-host" },
       sourceRootDir: root,
       sources: { [skill.sourceKey]: skill.source },
       store: { provider: "memory" },
@@ -59,7 +58,6 @@ describe("global Skill Sources", () => {
     const skill = globalSkillBinding({ path: "review/SKILL.md", workspacePath: "SKILL.md" })
     const workspaceName = `global-skill-file-${basename(root)}`
     registerWorkspace(workspaceName, defineWorkspace({
-      runtime: { allowProduction: true, type: "trusted-host" },
       sourceRootDir: root,
       sources: { [skill.sourceKey]: skill.source },
       store: { provider: "memory" },

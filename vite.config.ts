@@ -85,6 +85,11 @@ export default defineConfig({
         command: "node packages/queue/test/e2e-live.mjs",
         dependsOn: ["@vite-hub/queue#build"],
       },
+      "rate-limit:e2e": {
+        cache: false,
+        command: "node packages/rate-limit/test/e2e.mjs",
+        dependsOn: ["@vite-hub/rate-limit#build"],
+      },
       release: {
         cache: false,
         command: 'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',

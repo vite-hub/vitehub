@@ -1,14 +1,16 @@
-import { createError, defineEventHandler, getRouterParam } from "h3"
+import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
 import { lookup } from "mrmime"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 
-import { WorkspaceNotFoundError, WorkspacePathError } from "./core/errors.ts"
+import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
 
 import type { H3Event } from "h3"
+import type { WorkspaceCollectionOptions, WorkspaceCollectionQuery, WorkspaceCollectionSort } from "./collections.ts"
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
-import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionOptions } from "./core/types.ts"
+import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionHost, WorkspaceSessionOptions } from "./core/types.ts"
 
 export const workspaceDevRoute = "/__vitehub/workspace/dev"
 export const workspaceDevHeader = "x-vitehub-workspace-dev"
@@ -49,11 +51,24 @@ export interface WorkspaceFileHandlerOptions<Name extends WorkspaceName = Worksp
   param?: string
 }
 
+export interface WorkspaceCollectionHandlerOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceCollectionOptions<Name> {
+  facets?: string[]
+  filters?: string[]
+  item?: {
+    key: string
+    select?: string[]
+  }
+  searchFields?: string[]
+  select?: string[]
+  sort?: WorkspaceCollectionSort
+}
+
 export interface WorkspaceDevCommandInput<Name extends WorkspaceName = WorkspaceName> {
   abortSignal?: AbortSignal
   args?: string[]
   command: string
   definition?: WorkspaceDefinition
+  host?: WorkspaceSessionHost
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   timeout?: number
@@ -166,10 +181,76 @@ function resolveContentType(path: string, mediaType: string | undefined, content
 }
 
 function isNotFoundError(error: unknown): boolean {
-  return error instanceof WorkspaceNotFoundError
-    || error instanceof WorkspacePathError
+  const code = getViteHubErrorShape(error)?.code
+  return code === "WORKSPACE_NOT_FOUND"
+    || code === "WORKSPACE_PATH_INVALID"
     || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
     || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
+}
+
+class WorkspaceCollectionRequestError extends Error {}
+
+function collectionQueryValue(query: Record<string, string | string[]>, key: string): string | undefined {
+  const value = query[key]
+  if (value === undefined) return
+  if (Array.isArray(value)) throw new WorkspaceCollectionRequestError(`Workspace collection query parameter "${key}" must have one value.`)
+  return value
+}
+
+function collectionLimit(query: Record<string, string | string[]>): number | undefined {
+  const value = collectionQueryValue(query, "limit")
+  if (value === undefined) return
+  if (!/^\d+$/.test(value)) throw new WorkspaceCollectionRequestError("Workspace collection limit must be a positive integer.")
+  const limit = Number(value)
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new WorkspaceCollectionRequestError("Workspace collection limit must be a positive integer.")
+  return limit
+}
+
+function collectionFilters(query: Record<string, string | string[]>, allowed: string[] | undefined): WorkspaceCollectionQuery["filters"] {
+  const filters: NonNullable<WorkspaceCollectionQuery["filters"]> = {}
+  const allowedFields = new Set(allowed || [])
+  for (const [key, value] of Object.entries(query)) {
+    if (!key.startsWith("filter.") && !key.startsWith("empty.")) continue
+    const empty = key.startsWith("empty.")
+    const field = key.slice(empty ? "empty.".length : "filter.".length)
+    if (!allowedFields.has(field)) throw new WorkspaceCollectionRequestError(`Workspace collection filter "${field}" is not allowed.`)
+    if (empty) {
+      if (value !== "true") throw new WorkspaceCollectionRequestError(`Workspace collection empty filter "${field}" must be true.`)
+      filters[field] = workspaceCollectionEmpty
+      continue
+    }
+    const values = (Array.isArray(value) ? value : [value]).map(item => item.trim())
+    filters[field] = values
+  }
+  return filters
+}
+
+function parseWorkspaceCollectionQuery(
+  query: Record<string, string | string[]>,
+  options: WorkspaceCollectionHandlerOptions,
+): { itemValue?: string, page: WorkspaceCollectionQuery } {
+  for (const key of Object.keys(query)) {
+    if (!["cursor", "limit", "search", "value"].includes(key) && !key.startsWith("filter.") && !key.startsWith("empty.")) {
+      throw new WorkspaceCollectionRequestError(`Workspace collection query parameter "${key}" is not allowed.`)
+    }
+  }
+  const itemValue = collectionQueryValue(query, "value")
+  if (itemValue !== undefined && !options.item) throw new WorkspaceCollectionRequestError("Workspace collection item lookup is not enabled.")
+  const search = collectionQueryValue(query, "search")
+  if (search && !options.searchFields?.length) throw new WorkspaceCollectionRequestError("Workspace collection search is not enabled.")
+  return {
+    itemValue,
+    page: {
+      cursor: collectionQueryValue(query, "cursor"),
+      facets: options.facets,
+      filters: collectionFilters(query, options.filters),
+      limit: collectionLimit(query),
+      search,
+      searchFields: options.searchFields,
+      select: options.select,
+      sort: options.sort,
+    },
+  }
 }
 
 function workspaceSessionStarter(input: unknown): WorkspaceSessionStarter | undefined {
@@ -294,14 +375,50 @@ export function defineWorkspaceFileHandler<Name extends WorkspaceName>(
   })
 }
 
+export function defineWorkspaceCollectionHandler<Name extends WorkspaceName>(
+  options: WorkspaceCollectionHandlerOptions<Name>,
+): ReturnType<typeof defineEventHandler> {
+  return defineEventHandler(async (event: H3Event) => {
+    try {
+      const parsed = parseWorkspaceCollectionQuery(getQuery(event), options as WorkspaceCollectionHandlerOptions)
+      if (parsed.itemValue !== undefined && options.item) {
+        return await getWorkspaceCollectionItem({
+          ...options,
+          query: {
+            key: options.item.key,
+            select: options.item.select,
+            value: parsed.itemValue,
+          },
+        })
+      }
+      return await queryWorkspaceCollection({ ...options, query: parsed.page })
+    }
+    catch (error) {
+      if (error instanceof WorkspaceCollectionRequestError) {
+        throw createError({ cause: error, statusCode: 400, statusMessage: error.message })
+      }
+      if (getViteHubErrorShape(error)?.code === "WORKSPACE_COLLECTION_CURSOR_INVALID") {
+        const reason = getViteHubErrorShape(error)?.details?.reason
+        throw createError({
+          cause: error,
+          statusCode: reason === "stale" ? 409 : 400,
+          statusMessage: error instanceof Error ? error.message : "Invalid workspace collection cursor.",
+        })
+      }
+      if (isNotFoundError(error)) {
+        throw createError({ cause: error, statusCode: 404, statusMessage: "Workspace collection not found." })
+      }
+      throw createError({ cause: error, statusCode: 500, statusMessage: "Workspace collection query failed." })
+    }
+  })
+}
+
 export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   input: WorkspaceDevCommandInput<Name>,
 ): Promise<ExecResult> {
   const command = input.command.trim()
   if (!command) throw new Error("Workspace Dev command cannot be empty.")
-  const definition = input.definition && !input.definition.runtime
-    ? { ...input.definition, runtime: "trusted-host" as const }
-    : input.definition
+  const definition = input.definition
   const workspace = typeof input.workspace === "string"
     ? await useWorkspace(input.workspace, definition ? { definition, mode: "write" } as { mode: "write" } : { mode: "write" })
     : input.workspace
@@ -313,7 +430,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     data: { paths: input.paths ?? null },
     id: "workspace.dev.start-session",
     label: "Starting workspace session",
-  }, async () => await startSession(input.paths ? { paths: input.paths } : undefined))
+  }, async () => await startSession({ host: input.host, paths: input.paths }))
   const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
   let result
   try {

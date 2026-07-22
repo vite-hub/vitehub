@@ -9,8 +9,8 @@ import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
 
 expectTypeOf(vitehub).toBeFunction()
-vitehub({ rateLimit: true })
-vitehub({ rateLimit: { provider: "cloudflare" } })
+vitehub({ preset: "node", rateLimit: true })
+vitehub({ preset: "cloudflare", rateLimit: true })
 expectTypeOf(defineAgent).toBeFunction()
 expectTypeOf(email).toBeFunction()
 expectTypeOf(env).toBeFunction()

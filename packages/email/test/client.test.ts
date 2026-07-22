@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createEmail, EmailError } from "../src/index.ts"
+import { ViteHubError } from "@vite-hub/runtime"
+import { createEmail } from "../src/index.ts"
 import { email } from "../src/server.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
@@ -54,8 +55,8 @@ describe("createEmail", () => {
     const client = createEmail({ driver })
 
     await expect(client.send(invalid as unknown as EmailMessage)).rejects.toMatchObject({
-      code: "invalid-message",
-      driver: "fixture",
+      code: "EMAIL_INVALID_MESSAGE",
+      details: { driver: "fixture" },
       message: expect.stringContaining(field),
     })
     expect(driver.send).not.toHaveBeenCalled()
@@ -71,14 +72,14 @@ describe("createEmail", () => {
 
     await expect(client.send(message)).rejects.toMatchObject({
       cause,
-      code: "provider",
-      driver: "fixture",
+      code: "EMAIL_PROVIDER_FAILED",
+      details: { driver: "fixture" },
       message: "[vitehub] Email delivery failed through fixture.",
     })
   })
 
   it("preserves normalized driver errors", async () => {
-    const error = new EmailError("rate-limit", "Try again later.", { driver: "fixture" })
+    const error = new ViteHubError("EMAIL_RATE_LIMITED", "Try again later.", { details: { driver: "fixture" } })
     const client = createEmail({
       driver: fixtureDriver(vi.fn(async () => {
         throw error
@@ -91,7 +92,7 @@ describe("createEmail", () => {
 
 it("reports a missing discovered Email Definition", async () => {
   await expect(email.send(message)).rejects.toMatchObject({
-    code: "not-configured",
+    code: "EMAIL_NOT_CONFIGURED",
     message: "[vitehub] No Email Definition was discovered. Add `server/email.ts` or `server.email.ts`.",
   })
 })

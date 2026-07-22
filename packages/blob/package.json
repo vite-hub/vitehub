@@ -34,6 +34,7 @@
     "./drivers/azure": "./dist/drivers/azure.js",
     "./drivers/box": "./dist/drivers/box.js",
     "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
+    "./drivers/cloudflare-native": "./dist/drivers/cloudflare-native.js",
     "./drivers/digitalocean-spaces": "./dist/drivers/digitalocean-spaces.js",
     "./drivers/dropbox": "./dist/drivers/dropbox.js",
     "./drivers/files": "./dist/drivers/files.js",
@@ -68,6 +69,9 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
+    "@netlify/blobs": "catalog:storage",
+    "@vercel/blob": "catalog:storage",
+    "aws4fetch": "catalog:storage",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",

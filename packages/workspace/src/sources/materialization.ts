@@ -1,6 +1,6 @@
 import { posix } from "node:path"
 
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
@@ -129,7 +129,7 @@ function throwIfAborted(signal: AbortSignal | undefined) {
   if (!signal?.aborted) return
   throw signal.reason instanceof Error
     ? signal.reason
-    : new WorkspaceError("[vitehub] Workspace source materialization aborted.")
+    : workspaceError("[vitehub] Workspace source materialization aborted.")
 }
 
 async function reportMaterializationProgress(
@@ -236,7 +236,7 @@ function createMaterializationEntry(
 function sourceItemContent(item: WorkspaceSourceItem): Pick<MaterializationEntry, "content" | "contentStream"> {
   if (item.contentStream) {
     if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
-      throw new WorkspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
+      throw workspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
     }
     return { contentStream: item.contentStream }
   }
@@ -508,7 +508,7 @@ export async function readResolvedSourceFile<TOptions extends ReadFileOptions | 
   options?: TOptions,
 ): Promise<ReadFileResult<TOptions>> {
   const file = await store.readFile(resolution.workspacePath)
-  if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${resolution.workspacePath}.`)
+  if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${resolution.workspacePath}.`)
   return decodeFile(file.content, options)
 }
 

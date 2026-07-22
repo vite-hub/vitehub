@@ -1,4 +1,4 @@
-import { ApprovalRequiredError } from "@vite-hub/runtime"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
@@ -419,9 +419,17 @@ export function toAgentStreamEvent(
     return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-decision" }
   }
   if (type === "error") {
-    if (value.error instanceof ApprovalRequiredError) {
-      const { request } = value.error
-      return { id: request.id, input: request.input, ...optionalMessageId(messageId), name: request.capability || request.id, reason: request.reason, type: "approval-request" }
+    const approvalRequest = getViteHubErrorShape(value.error)?.code === "APPROVAL_REQUIRED"
+      && value.error instanceof Error
+      && isRecord(value.error.cause)
+      ? value.error.cause
+      : undefined
+    const approvalId = approvalRequest?.id
+    if (approvalRequest && typeof approvalId === "string") {
+      const request = approvalRequest
+      const capability = typeof request.capability === "string" ? request.capability : approvalId
+      const reason = typeof request.reason === "string" ? request.reason : undefined
+      return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
     return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" }
   }
@@ -464,11 +472,12 @@ async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource
 async function* streamChunksToEventsWithTextFallback(
   chunks: AsyncIterable<unknown>,
   usageSource: unknown,
-  textStream: AsyncIterable<unknown>,
+  getTextIterator: () => AsyncIterator<unknown> | undefined,
+  initialTextIterator?: AsyncIterator<unknown>,
 ): AsyncIterable<StreamEvent> {
   let hasText = false
   const terminalEvents: StreamEvent[] = []
-  const textIterator = textStream[Symbol.asyncIterator]()
+  let textIterator = initialTextIterator
   let textIteratorClosed = false
   try {
     for await (const event of streamChunksToEvents(chunks, usageSource)) {
@@ -480,6 +489,11 @@ async function* streamChunksToEventsWithTextFallback(
       yield event
     }
     if (!hasText) {
+      textIterator ??= getTextIterator()
+      if (!textIterator) {
+        yield* terminalEvents
+        return
+      }
       for (;;) {
         const result = await textIterator.next()
         if (result.done) {
@@ -494,11 +508,21 @@ async function* streamChunksToEventsWithTextFallback(
     }
   }
   finally {
-    if (!textIteratorClosed) {
+    if (textIterator && !textIteratorClosed) {
       await textIterator.return?.()
     }
   }
   yield* terminalEvents
+}
+
+function hasPropertyGetter(value: object, key: PropertyKey): boolean {
+  let current: object | null = value
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) return typeof descriptor.get === "function"
+    current = Object.getPrototypeOf(current) as object | null
+  }
+  return false
 }
 
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
@@ -516,20 +540,30 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value && typeof value === "object"
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
-  const textStream = isAsyncIterable(result?.textStream) ? result.textStream : undefined
+  const textStreamIsLazy = !!result && hasPropertyGetter(result, "textStream")
+  let textStreamRead = !textStreamIsLazy
+  let textStreamCandidate = textStreamRead ? result?.textStream : undefined
+  const getTextStream = () => {
+    if (!textStreamRead) {
+      textStreamCandidate = result?.textStream
+      textStreamRead = true
+    }
+    return isAsyncIterable(textStreamCandidate) ? textStreamCandidate : undefined
+  }
+  let textIterator: AsyncIterator<unknown> | undefined
+  const getTextIterator = () => (textIterator ??= getTextStream()?.[Symbol.asyncIterator]())
   if (isAsyncIterable(result?.stream)) {
-    yield* (textStream
-      ? streamChunksToEventsWithTextFallback(result.stream, result, textStream)
-      : streamChunksToEvents(result.stream, result))
+    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
+    yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextIterator, initialTextIterator)
     return
   }
   const fullStream = result?.fullStream
   if (isAsyncIterable(fullStream)) {
-    yield* (textStream
-      ? streamChunksToEventsWithTextFallback(fullStream, result, textStream)
-      : streamChunksToEvents(fullStream, result))
+    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
+    yield* streamChunksToEventsWithTextFallback(fullStream, result, getTextIterator, initialTextIterator)
     return
   }
+  const textStream = getTextStream()
   if (textStream) {
     for await (const text of textStream) {
       if (typeof text === "string" && text) {

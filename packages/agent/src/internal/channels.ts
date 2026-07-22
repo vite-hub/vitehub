@@ -34,6 +34,7 @@ export interface MessageChannelTitleDeliveryAttempt {
   claim?: MessageChannelTitleDeliveryClaim
   deliver: boolean
   error?: unknown
+  persist?: boolean
   reason?: "already-delivered" | "pending"
 }
 
@@ -121,11 +122,19 @@ export async function finishMessageChannelTitleDelivery(
   if (!delivered && !final) return
   attempt.claim.settled = true
   try {
-    if (delivered) await attempt.claim.state.set(attempt.claim.markerKey, true)
+    if (delivered && attempt.persist !== false) await attempt.claim.state.set(attempt.claim.markerKey, true)
   }
   finally {
     await attempt.claim.state.releaseLock(attempt.claim.lock)
   }
+}
+
+export async function resetMessageChannelTitleDelivery(
+  attempt: MessageChannelTitleDeliveryAttempt,
+): Promise<void> {
+  if (!attempt.claim) return
+  attempt.persist = false
+  if (attempt.claim.settled) await attempt.claim.state.delete(attempt.claim.markerKey)
 }
 
 function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(

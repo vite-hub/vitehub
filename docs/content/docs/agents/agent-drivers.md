@@ -174,6 +174,7 @@ Workspace-backed harness execution depends on Harness Workspace Session support 
 
 ## Next steps
 
+- Read [Harness](/docs/agents/harness) for the model, harness, Skill, and environment layers.
 - Read [Instructions](/docs/agents/instructions) for model-backed instruction composition.
 - Read [Boxes](/docs/agents/boxes) for trusted-host harness execution.
 - Read [Invocations](/docs/agents/invocations) for `runAgent` and `streamAgent`.

@@ -28,6 +28,9 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./internal/runtime/cloudflare-client": "./dist/internal/runtime/cloudflare-client.js",
+    "./internal/runtime/vercel-client": "./dist/internal/runtime/vercel-client.js",
+    "./nuxt": "./dist/nuxt.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/state": "./dist/runtime/state.js",
@@ -42,6 +45,8 @@
     "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
+    "@vercel/functions": "catalog:vercel",
+    "@vercel/queue": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
@@ -50,8 +55,8 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
+    "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -59,17 +64,9 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "@vercel/functions": "catalog:vercel",
-    "@vercel/queue": "catalog:vercel",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
-    "@vercel/functions": {
-      "optional": true
-    },
-    "@vercel/queue": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     }

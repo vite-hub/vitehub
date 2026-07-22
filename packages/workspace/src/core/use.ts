@@ -8,12 +8,15 @@ import {
   type WorkspaceWriteToolMap,
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
-import { WorkspaceError, WorkspaceNotFoundError } from "./errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+
+import { workspaceError } from "./errors.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
+import { workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 
 import type { Tool, ToolSet } from "ai"
 import type {
@@ -38,6 +41,7 @@ import type {
   WorkspaceStat,
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
+  WorkspacePublishOptions,
   WorkspaceSnapshot,
   WorkspaceSourceSyncResult,
   WorkspaceSyncOptions,
@@ -118,6 +122,7 @@ export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   fs: WritableWorkspaceFs<Name>
   getMeta?(key: string): Promise<unknown>
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
+  publish(options?: WorkspacePublishOptions): Promise<void>
   setMeta?(key: string, value: unknown): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
@@ -154,7 +159,7 @@ function isGeneratedSourceDescriptorPath(path: string): boolean {
 
 async function materializeWorkspaceSources(workspace: Workspace, options?: WorkspaceMaterializeSourcesOptions) {
   if (!workspace.materializeSources)
-    throw new WorkspaceError("[vitehub] Workspace source materialization is unavailable.")
+    throw workspaceError("[vitehub] Workspace source materialization is unavailable.")
 
   return await workspace.materializeSources(options)
 }
@@ -181,6 +186,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
 
   const workspace = {
     name,
+    async [workspaceStoreTarget]() {
+      const resolved = await resolveWorkspace() as Workspace & { [workspaceStoreTarget]?: () => unknown }
+      return await resolved[workspaceStoreTarget]?.()
+    },
     async sync(options) {
       const resolved = await resolveWorkspace()
       const next = resolved.sync(options)
@@ -221,6 +230,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     },
     async materializeSources(options) {
       return await materializeWorkspaceSources(await resolveSyncedWorkspace(), options)
+    },
+    async publish(options) {
+      if (syncPromise) await syncPromise
+      await (await resolveWorkspace()).publish(options)
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
@@ -296,7 +309,7 @@ function useOptionalWorkspaceAssets<Name extends WorkspaceName>(name: Name): Wor
     return useWorkspaceAssets(name)
   }
   catch (error) {
-    if (error instanceof WorkspaceNotFoundError) return undefined
+    if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
     throw error
   }
 }
@@ -312,7 +325,7 @@ async function ignoreMissingWorkspace<T>(operation: () => Promise<T>): Promise<T
 }
 
 function isMissingWorkspaceRead(error: unknown) {
-  return error instanceof WorkspaceNotFoundError
+  return getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND"
     || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
     || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
 }
@@ -468,16 +481,20 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
     tools.none = emptyTools
     return {
+      [workspaceStoreTarget]: async () => {
+        return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()
+      },
       diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
       getMeta: async key => await workspace.getMeta?.(key),
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),
+      publish: async options => await workspace.publish(options),
       setMeta: async (key, value) => await workspace.setMeta?.(key, value),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
       sync: async options => await workspace.sync(options),
       tools,
-    }
+    } as WritableWorkspaceFacade<Name> & WorkspaceStoreTargetCarrier
   }
 
   const fs = createReadonlyFs(name, createLazyWorkspace(name, options?.definition))

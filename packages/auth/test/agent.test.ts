@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { authenticated, AuthenticationProviderError, AuthenticationRequiredError } from "../src/agent.ts"
+import { ViteHubError } from "@vite-hub/runtime"
+import { authenticated } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
 
@@ -176,8 +177,7 @@ describe("authenticated", () => {
     }))).rejects.toMatchObject({
       code: "AUTHENTICATION_REQUIRED",
       message: "[vitehub] Authentication required.",
-      name: "AuthenticationRequiredError",
-      statusCode: 401,
+      name: "ViteHubError",
     })
   })
 
@@ -190,18 +190,19 @@ describe("authenticated", () => {
 
     const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
 
-    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       code: "AUTH_PROVIDER_OPERATION_FAILED",
       details: { operation: "get-session", provider: "better-auth" },
       message: "[vitehub] Authentication provider operation failed.",
-      name: "AuthenticationProviderError",
+      name: "ViteHubError",
     })
     expect(error.cause).toBe(cause)
     expect(JSON.parse(JSON.stringify(error))).toEqual({
       code: "AUTH_PROVIDER_OPERATION_FAILED",
       details: { operation: "get-session", provider: "better-auth" },
       message: "[vitehub] Authentication provider operation failed.",
+      name: "ViteHubError",
     })
     expect(JSON.stringify(error)).not.toContain("secret")
   })
@@ -217,7 +218,7 @@ describe("authenticated", () => {
 
     const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
 
-    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({ code: "AUTH_PROVIDER_OPERATION_FAILED" })
     expect(error.cause).toBe(cause)
   })
@@ -237,7 +238,7 @@ describe("authenticated", () => {
 
     const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
 
-    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       details: { operation: "get-session", provider: "better-auth" },
     })
@@ -362,7 +363,7 @@ describe("authenticated", () => {
     serverMocks.getSession.mockRejectedValue(abort)
     await expect(resolve(authenticated(), createContext({ request }))).rejects.toBe(abort)
 
-    const providerError = new AuthenticationProviderError({ operation: "get-session" })
+    const providerError = new ViteHubError("AUTH_PROVIDER_OPERATION_FAILED", "Custom provider failure.")
     serverMocks.getSession.mockRejectedValue(providerError)
     await expect(resolve(authenticated(), createContext({ request }))).rejects.toBe(providerError)
 
@@ -406,10 +407,4 @@ describe("authenticated", () => {
     }))).rejects.toThrow("[vitehub] authenticated({ map }) must return an Agent Invoker.")
   })
 
-  it("exposes the auth error class", () => {
-    expect(new AuthenticationRequiredError()).toMatchObject({
-      code: "AUTHENTICATION_REQUIRED",
-      statusCode: 401,
-    })
-  })
 })

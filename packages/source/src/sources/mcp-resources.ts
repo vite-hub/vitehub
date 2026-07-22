@@ -1,7 +1,7 @@
 import { createEffectBoundary } from "@vite-hub/internal/effect"
 import { Effect } from "effect"
 
-import { SourceError } from "../core/errors.ts"
+import { sourceError } from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
@@ -251,7 +251,7 @@ async function createEntries<TKey extends string>(
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
     if (existingUri) {
-      throw new SourceError(`[vitehub] mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
+      throw sourceError(`[vitehub] mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
     }
     seen.set(key, resource.uri)
     entries.push({ contents, key, resource: resolvedResource })
@@ -282,7 +282,7 @@ function createResourceItem<TKey extends string>(
 ) {
   const content = contents.find(item => item.uri === resource.uri) || contents[0]
   if (!content) {
-    throw new SourceError(`[vitehub] mcpResources could not read resource ${JSON.stringify(resource.uri)}.`)
+    throw sourceError(`[vitehub] mcpResources could not read resource ${JSON.stringify(resource.uri)}.`)
   }
   const multipleContents = contents.length > 1
   return {
@@ -357,7 +357,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
       return await withMcpClient(options.server, ctx, options.request, async (client, request) => {
         const entry = (await createEntries(await listAllResources(client, request), { ...options, request }, client)).find(entry => entry.key === key)
         if (!entry) {
-          throw new SourceError(`[vitehub] mcpResources could not find ${JSON.stringify(key)}.`)
+          throw sourceError(`[vitehub] mcpResources could not find ${JSON.stringify(key)}.`)
         }
         const result = entry.contents ?? await readResourceContents(client, entry.resource, request)
         return createResourceItem(key, entry.resource, result)

@@ -1,35 +1,11 @@
-import {
-  AuthenticationProviderError,
-  type AuthenticationProviderErrorOptions,
-  AuthenticationRequiredError,
-  type AuthenticationRequiredErrorOptions,
-} from "@vite-hub/auth/agent"
+import { ViteHubError, type ViteHubErrorShape } from "@vite-hub/runtime"
 
-import type { ViteHubErrorShape } from "@vite-hub/runtime"
+const required = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in required.")
+required.toJSON() satisfies ViteHubErrorShape<"AUTHENTICATION_REQUIRED">
 
-const options = {
-  cause: new Error("protected diagnostic"),
-  message: "Sign in required.",
-} satisfies AuthenticationRequiredErrorOptions
-
-const error = new AuthenticationRequiredError(options)
-error.code satisfies "AUTHENTICATION_REQUIRED"
-error.statusCode satisfies 401
-error.toJSON() satisfies ViteHubErrorShape<"AUTHENTICATION_REQUIRED">
-
-new AuthenticationRequiredError("Sign in required.")
-// @ts-expect-error AuthenticationRequiredError has no public details channel.
-new AuthenticationRequiredError({ details: { surface: "agent-invoker" } })
-
-const providerOptions = {
-  cause: new Error("protected provider diagnostic"),
-  operation: "get-session",
-} satisfies AuthenticationProviderErrorOptions
-const providerError = new AuthenticationProviderError(providerOptions)
-providerError.code satisfies "AUTH_PROVIDER_OPERATION_FAILED"
-providerError.details!.operation satisfies "get-auth-for-request" | "get-session"
-providerError.details!.provider satisfies "better-auth"
-providerError.toJSON() satisfies ViteHubErrorShape<"AUTH_PROVIDER_OPERATION_FAILED">
-
-// @ts-expect-error Provider operations use the closed Auth vocabulary.
-new AuthenticationProviderError({ operation: "refresh-session" })
+const provider = new ViteHubError<"AUTH_PROVIDER_OPERATION_FAILED", { operation: "get-session", provider: "better-auth" }>(
+  "AUTH_PROVIDER_OPERATION_FAILED",
+  "Authentication provider operation failed.",
+  { details: { operation: "get-session", provider: "better-auth" } },
+)
+provider.toJSON() satisfies ViteHubErrorShape<"AUTH_PROVIDER_OPERATION_FAILED", { operation: "get-session", provider: "better-auth" }>

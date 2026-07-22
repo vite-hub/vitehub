@@ -25,7 +25,9 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./cloudflare": "./dist/cloudflare.js",
     "./crabbox": "./dist/crabbox.js",
+    "./vercel": "./dist/vercel.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -35,12 +37,25 @@
     "test": "vp run -t @vite-hub/box#build && vp test"
   },
   "devDependencies": {
-    "@ai-sdk/harness": "catalog:ai",
+    "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
+    "@vercel/sandbox": "catalog:sandbox",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "@vercel/sandbox": "catalog:sandbox"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/sandbox": {
+      "optional": true
+    },
+    "@vercel/sandbox": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=24.0.0"

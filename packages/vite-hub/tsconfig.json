@@ -25,6 +25,8 @@
       "@vite-hub/auth/*": ["packages/auth/src/*"],
       "@vite-hub/blob": ["packages/blob/src/index.ts"],
       "@vite-hub/blob/*": ["packages/blob/src/*"],
+      "@vite-hub/browser": ["packages/browser/src/index.ts"],
+      "@vite-hub/browser/*": ["packages/browser/src/*"],
       "@vite-hub/box": ["packages/box/src/index.ts"],
       "@vite-hub/box/*": ["packages/box/src/*"],
       "@vite-hub/cli": ["packages/cli/src/index.ts"],

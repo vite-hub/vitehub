@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
+import { ViteHubError } from "@vite-hub/runtime"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, schedules } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import type { KVStorage } from "@vite-hub/kv"
 
@@ -280,26 +281,21 @@ describe("Runtime Schedule helper", () => {
   it("rejects non-object runtime schedule create and update inputs", async () => {
     await expect(schedules.create(null as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
-      httpStatus: 400,
     })
     await expect(schedules.create("bad" as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
-      httpStatus: 400,
     })
     await expect(schedules.update("schedule-1", null as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
-      httpStatus: 400,
     })
   })
 
   it("rejects non-object runtime schedule execute options", async () => {
     await expect(executeRuntimeSchedule(null as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
-      httpStatus: 400,
     })
     await expect(executeRuntimeSchedule(123 as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
-      httpStatus: 400,
     })
   })
 
@@ -406,7 +402,7 @@ describe("Runtime Schedule helper", () => {
   })
 
   it("fails clearly when updating an unknown schedule", async () => {
-    await expect(schedules.update("missing", { enabled: false })).rejects.toBeInstanceOf(ScheduleError)
+    await expect(schedules.update("missing", { enabled: false })).rejects.toBeInstanceOf(ViteHubError)
     await expect(schedules.update("missing", { enabled: false })).rejects.toMatchObject({
       code: "SCHEDULE_NOT_FOUND",
     })

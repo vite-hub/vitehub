@@ -1,23 +1,64 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
 const execFileAsync = promisify(execFile)
+const workspaceRoot = resolve(import.meta.dirname, "../../..")
 
 function driverImports(source: string) {
   return source.match(/from\s+["'][^"']+\/drivers\/[^"']+["']/g) || []
 }
 
 describe("hubBlob", () => {
+  it("uses the bundled driver in the Nitro Vercel shared runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-runtime-"))
+    try {
+      const plugin = hubBlob({ access: "private", driver: "vercel-blob" })
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
+        build: { outDir: "dist" },
+        nitro: { preset: "vercel" },
+        plugins: [{ name: "nitro:main" }],
+        root,
+      } as never)
+
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain("/drivers/vercel-bundled")
+      expect(runtime).not.toContain('/drivers/vercel"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses the bundled driver when Vercel is detected from the environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-env-runtime-"))
+    vi.stubEnv("VERCEL", "1")
+    try {
+      const plugin = hubBlob({ access: "private", driver: "vercel-blob" })
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
+        build: { outDir: "dist" },
+        plugins: [{ name: "nitro:main" }],
+        root,
+      } as never)
+
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain("/drivers/vercel-bundled")
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("resolves Blob config from the Vite layer", () => {
     const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
 
@@ -359,6 +400,18 @@ describe("hubBlob", () => {
     expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.observability")
   })
 
+  it("lets a facade declare Nitro ownership without a separate Nitro Vite plugin", () => {
+    const plugin = hubBlob({ bucketName: "vitehub-blob", driver: "cloudflare-r2", nitroOwned: true } as never)
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const userConfig = { nitro: { preset: "cloudflare-module" } }
+
+    config(userConfig, { command: "build" })
+
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
+      { binding: "BLOB", bucket_name: "vitehub-blob" },
+    ])
+  })
+
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-inferred-cloudflare-"))
     const previousBucket = process.env.BLOB_BUCKET_NAME
@@ -385,10 +438,31 @@ describe("hubBlob", () => {
       expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
       expect(middleware).toContain("defineMiddleware((event) =>")
+      expect(middleware).toContain("const target = event as unknown as CloudflareEvent")
       expect(middleware).toContain("setActiveCloudflareEnv(env)")
-      expect(middleware).toContain("event.context?._platform?.cloudflare?.env")
-      expect(middleware).toContain("event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv")
+      expect(middleware).toContain("target.context?._platform?.cloudflare?.env")
+      expect(middleware).toContain("target.node?.req?.runtime?.cloudflare?.env ?? (vitehubEnv as unknown as CloudflareEnv)")
       expect(middleware).not.toContain("next")
+
+      await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "runtime-types.d.ts"), [
+        "declare module 'cloudflare:workers' {",
+        "  export const env: unknown",
+        "}",
+        "",
+      ].join("\n"))
+      await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+        compilerOptions: {
+          module: "Preserve",
+          moduleResolution: "Bundler",
+          noEmit: true,
+          skipLibCheck: true,
+          strict: true,
+          types: [],
+        },
+        files: ["runtime-types.d.ts", ".vitehub/nitro/blob/middleware.ts"],
+      }, null, 2)}\n`)
+      await execFileAsync(process.execPath, [join(workspaceRoot, "node_modules/typescript/bin/tsc"), "-p", root], { cwd: root })
     }
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME

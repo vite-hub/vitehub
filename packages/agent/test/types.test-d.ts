@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -99,10 +99,13 @@ describe("agent public types", () => {
     const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
     const rawResult = runAgentInline(agent, {} as AgentRuntimeContext, {}, { output: "raw" })
     const workflowResult = runAgent(agent, {} as AgentRuntimeContext, {})
+    const controlled = startAgentInvocation(agent, {} as AgentRuntimeContext, {})
 
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
     expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
     expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<{ summary: string, title: string } | undefined>()
+    expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, steer: boolean }>()
+    expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<Response | { summary: string, title: string } | undefined>()
   })
 
   it("accepts literal false as the inline runtime opt-out", () => {
@@ -346,7 +349,7 @@ describe("agent public types", () => {
         browser(),
         browser({ command: "agent-browser", skillContent: "# Browser\n", skillPath: "skills/browser/SKILL.md", sourceKey: "skill.browser" }),
         workspaceShell({ commands: ["agent-browser", "/Users/maxi/quiver/agents/node_modules/.bin/agent-browser"] }),
-        workspaceShell({ commands: "trusted-host", mode: "write" }),
+        workspaceShell({ commands: "all", mode: "write" }),
         workspaceShell({ commands: ["agent-browser"], mode: "read", timeout: 1_000 }),
         workspaceShell({ commands: ["agent-browser"], mode: "write" }),
         inputCommands({
@@ -421,9 +424,10 @@ describe("agent public types", () => {
         title({
           channelDelivery: "once-per-thread",
           model: () => ({}),
-          template({ fallback, maxLength, text, trigger }) {
+          template({ fallback, maxLength, source, text, trigger }) {
             expectTypeOf(fallback).toEqualTypeOf<string>()
             expectTypeOf(maxLength).toEqualTypeOf<number>()
+            expectTypeOf(source).toEqualTypeOf<"input" | "response">()
             expectTypeOf(text).toEqualTypeOf<string>()
             expectTypeOf(trigger).toEqualTypeOf<string | undefined>()
             return text
@@ -930,11 +934,22 @@ describe("agent public types", () => {
     })
 
     expectTypeOf(inventoryRuntime.cli).toMatchTypeOf<AgentCapabilityCliResolver | undefined>()
-    const audioRuntime = defineCapability({
+    const image: ImagePart = {
+      fetchData: () => new Uint8Array([1]),
+      fetchMetadata: { fileId: "provider-file" },
+      mediaType: "image/png",
+      name: "photo.png",
+      size: 1,
+      type: "image",
+      url: "https://example.com/photo.png",
+    }
+    expectTypeOf(image.fetchData).toMatchTypeOf<(() => ArrayBuffer | Blob | string | Uint8Array | Promise<ArrayBuffer | Blob | string | Uint8Array>) | undefined>()
+
+    defineCapability({
+      // @ts-expect-error Attachments are normalized by default rather than enabled by a Capability.
       chatAttachments: { audio: true },
-      id: "audio-runtime",
+      id: "legacy-audio-runtime",
     })
-    expectTypeOf(audioRuntime.chatAttachments).toMatchTypeOf<{ audio?: boolean } | undefined>()
 
     defineCapability({
       id: "legacy-instructions",
@@ -1367,9 +1382,10 @@ describe("agent public types", () => {
       context: { previewUrl: "https://preview.local" },
       message: "Check the product card.",
       options: { mode: "fast" },
-      runId: "review-run:browser",
     }
-    expectTypeOf(browserToolInput.runId).toEqualTypeOf<string | undefined>()
+    // @ts-expect-error Child invocation identity is assigned below the model tool input.
+    const legacyBrowserToolInput: SubagentToolInput = { message: "Check the product card.", runId: "review-run:browser" }
+    expectTypeOf(legacyBrowserToolInput).toMatchTypeOf<SubagentToolInput>()
     subagents({
       agents: {
         browser: {

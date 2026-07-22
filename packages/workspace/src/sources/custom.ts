@@ -1,6 +1,6 @@
 import { lookup } from "mrmime"
 
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 
 import type { MaybePromise, SourceContext, WorkspaceContent, WorkspaceSource, WorkspaceSourceItem } from "../core/types.ts"
@@ -33,7 +33,7 @@ export function custom(source: WorkspaceSource | CustomWorkspaceSourceFiles): Wo
     },
     async getItem(key, context) {
       const file = files.find(file => file.path === key)
-      if (!file) throw new WorkspaceError(`[vitehub] Custom Workspace Source file does not exist: ${key}.`)
+      if (!file) throw workspaceError(`[vitehub] Custom Workspace Source file does not exist: ${key}.`)
       const { content, ...item } = file
       return {
         ...item,

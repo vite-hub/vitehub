@@ -1,10 +1,11 @@
-import { mcpResources as createMcpResourcesSource } from "@vite-hub/source"
+import { mcpResources as createMcpResourcesSource } from "@vite-hub/source/sources/mcp-resources"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
+import { registerMcpResourcesSourceLoader } from "./mcp-resources-loader.ts"
 
 import type { WorkspaceSource } from "../core/types.ts"
-import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
+import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/sources/mcp-resources"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "sync" | "validate">
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
@@ -35,6 +36,8 @@ export function mcpResources<const TKey extends string = string, const TOptions 
   }, livePaths)
 }
 
+registerMcpResourcesSourceLoader(input => mcpResources(input as never))
+
 function resolveMountPath(mount: WorkspaceSource["mount"], ctx: { mountPath?: string, source?: string }) {
   const explicit = typeof mount === "string" ? mount : mount?.path
   return normalizeSafeWorkspacePath(explicit ?? ctx.mountPath ?? ctx.source ?? "", { allowEmpty: true })
@@ -55,4 +58,4 @@ export type {
   McpResourcesClientConfig,
   McpResourcesRequestOptions,
   McpResourcesServer,
-} from "@vite-hub/source"
+} from "@vite-hub/source/sources/mcp-resources"

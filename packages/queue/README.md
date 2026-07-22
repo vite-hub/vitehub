@@ -55,19 +55,16 @@ export default defineConfig({
 })
 ```
 
-Throw `QueueError` when a Queue Definition can classify the failure. Delivery retries by default; set `retryable: false` for a permanent failure such as an invalid payload.
+Throw `ViteHubError` when a Queue Definition needs a stable application error code. Queue retry policy belongs to Queue Delivery and provider callbacks, not the error object.
 
 ```ts
-import { defineQueue, QueueError } from "@vite-hub/queue"
+import { ViteHubError } from "@vite-hub/runtime"
+import { defineQueue } from "@vite-hub/queue"
 
 export default defineQueue<{ email?: string }>(async ({ payload }) => {
   if (!payload.email) {
-    throw new QueueError<"WELCOME_EMAIL_INVALID_PAYLOAD">({
-      code: "WELCOME_EMAIL_INVALID_PAYLOAD",
-      custom: true,
+    throw new ViteHubError("WELCOME_EMAIL_INVALID_PAYLOAD", "Welcome email payload requires an email address.", {
       details: { field: "email" },
-      message: "Welcome email payload requires an email address.",
-      retryable: false,
     })
   }
 
@@ -75,11 +72,19 @@ export default defineQueue<{ email?: string }>(async ({ payload }) => {
 })
 ```
 
-Custom application codes use an explicit generic and `custom: true`, while ViteHub's built-in codes are available as `QueueErrorCode`. The marker makes application-owned messages, details, and retry policy an explicit public contract at runtime; `retryable` is available only on custom errors because ViteHub owns the retry policy for built-in failures. ViteHub reports each failed delivery with safe queue and message identifiers, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
+ViteHub's built-in codes remain available as `QueueErrorCode`. ViteHub reports each failed delivery with safe Queue and message identifiers, attempt count, code, details, and the Queue-owned retry decision before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
 
 ## Vite Integration
 
 Use `hubQueue()` in Vite to discover `server/queues/<name>.ts` and `src/<name>.queue.ts`. The handler name comes from the file path, while provider output maps it to [Cloudflare Queues](https://developers.cloudflare.com/queues/) or [Vercel Queues](https://vercel.com/docs/queues).
+
+In Nuxt, install the Queue module instead. It installs the same Vite integration and merges the generated runtime files and provider bindings into Nitro configuration:
+
+```ts
+export default defineNuxtConfig({
+  modules: [["@vite-hub/queue/nuxt", { provider: "cloudflare" }]],
+})
+```
 
 Run `vite build` to emit Queue Provider Output. Cloudflare output is written under `dist/**/wrangler.json`; Vercel output is written under `.vercel/output/functions/api/vitehub/queues/vercel/**`.
 

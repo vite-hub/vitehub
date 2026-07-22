@@ -7,6 +7,7 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
+const harnessObservation = vi.hoisted(() => ({ before: undefined as string | undefined, command: false, exitCode: undefined as number | undefined, live: undefined as string | undefined }))
 
 vi.mock("@ai-sdk/harness/agent", () => ({
   HarnessAgent: class {
@@ -34,6 +35,17 @@ vi.mock("@ai-sdk/harness/agent", () => ({
     }
 
     async generate({ session }: Record<string, any>) {
+      if (this.settings.tools?.workspace_exec) {
+        await session.host.writeTextFile({ content: "live harness edit", path: join(session.sessionWorkDir, "live.txt") })
+        harnessObservation.before = await session.host.readTextFile({ path: join(session.sessionWorkDir, "live.txt") })
+        const execution = await this.settings.tools.workspace_exec.execute({ args: ["-c", "test -f live.txt && touch command.txt"], command: "sh" })
+        const live = await session.host.readTextFile({ path: join(session.sessionWorkDir, "live.txt") })
+        const command = await session.host.readTextFile({ path: join(session.sessionWorkDir, "command.txt") })
+        harnessObservation.live = live
+        harnessObservation.command = command !== null
+        harnessObservation.exitCode = execution.exitCode
+        return { text: live }
+      }
       const result = await session.host.run({
         command:
           'codex_home="${CODEX_HOME:-$HOME/.codex}"; pwd; printf \'%s\\n\' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/global/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf changed > changed.txt',
@@ -50,10 +62,57 @@ const exec = promisify(execFile)
 
 afterEach(async () => {
   harnessSettings.length = 0
+  harnessObservation.command = false
+  harnessObservation.before = undefined
+  harnessObservation.exitCode = undefined
+  harnessObservation.live = undefined
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
 describe("Agent Box", () => {
+  it("runs workspace commands without rematerializing the live Harness tree", { timeout: 20_000 }, async () => {
+    const root = await temporaryRoot()
+    const stateRoot = join(root, "state")
+    const bin = join(root, "bin")
+    await mkdir(bin)
+    await executable(bin, "codex", "exit 0")
+    const originalPath = process.env.PATH
+    process.env.PATH = [bin, originalPath].filter(Boolean).join(":")
+    try {
+      const { trustedHost } = await import("@vite-hub/box")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { workspaceShell } = await import("../src/capabilities.ts")
+      const { codexDriver } = await import("../src/harness/codex.ts")
+      const workspaceName = `box-live-${Date.now()}`
+      const agent = defineAgent({
+        name: workspaceName,
+        box: { runtime: trustedHost({ stateRoot }) },
+        capabilities: [workspaceShell({ commands: ["sh"], mode: "write" })],
+        driver: codexDriver(),
+        workspace: {
+          commit: "chore: save harness changes",
+          mode: "write",
+          store: { provider: "memory" },
+        },
+      })
+
+      await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, { prompt: "Edit the workspace." })
+
+      expect(harnessObservation.before).toBe("live harness edit")
+      expect(harnessObservation.exitCode).toBe(0)
+      expect(harnessObservation.command).toBe(true)
+      expect(harnessObservation.live).toBe("live harness edit")
+    }
+    finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+  })
+
   it("runs Codex in the authoritative trusted-host workspace with the selected Home", async () => {
     const root = await temporaryRoot()
     const worktree = join(root, "worktree")
@@ -124,7 +183,7 @@ describe("Agent Box", () => {
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
-      expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+      expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
     finally {
       if (originalPath === undefined) delete process.env.PATH
@@ -200,7 +259,7 @@ describe("Agent Box", () => {
 
       expect(reportedCheckout).toMatch(/\/vitehub-box-[^/]+\/workspace$/)
       await expect(stat(join(reportedCheckout, ".."))).rejects.toMatchObject({ code: "ENOENT" })
-      expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "." })
+      expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
     finally {
       if (originalPath === undefined) delete process.env.PATH
@@ -230,7 +289,7 @@ describe("Agent Box", () => {
         cwd: "/workspace",
         runtime: {
           name: "path-only",
-          async resolve({ identity }: { identity: string }) {
+          async prepare({ identity }: { identity: string }) {
             return {
               cache: { state: "disposable" as const },
               environment: { env: {} },
@@ -238,15 +297,11 @@ describe("Agent Box", () => {
               isolation: "none" as const,
               requirements: [],
               runtime: "path-only",
-              sandbox: {
-                providerId: "path-only",
-                specificationVersion: "harness-sandbox-v1" as const,
-                async createSession() {
-                  throw new Error("stop after harness configuration")
-                },
-              },
-              workspace: { path: "/workspace", state: "authoritative" as const },
+              workspace: { path: "/workspace", state: "authoritative" as const, workDir: "workspace" as const },
             }
+          },
+          async open() {
+            throw new Error("stop after harness configuration")
           },
         },
       },
@@ -258,51 +313,30 @@ describe("Agent Box", () => {
       runtime: "unknown",
       waitUntil: vi.fn(),
     }, { prompt: "Repair the project." })).rejects.toThrow("stop after harness configuration")
-    expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+    expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
   })
 
-  it("rejects Box checkout with Agent Workspace materialization", async () => {
-    const { trustedHost } = await import("@vite-hub/box")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { codexDriver } = await import("../src/harness/codex.ts")
-    const agent = defineAgent({
-      box: {
-        checkout: {
-          ref: "refs/heads/main",
-          remote: "https://example.com/repository.git",
-          sha: "0".repeat(40),
-        },
-        runtime: trustedHost(),
-      },
-      driver: codexDriver(),
-      workspace: { mode: "write", store: { provider: "memory" } },
-    })
-
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "Repair the project." })).rejects.toThrow("Box-owned working tree")
-  })
-
-  it("rejects an authoritative Box path with Agent Workspace materialization", async () => {
+  it("rejects Agent Workspace materialization over a Box-owned cwd", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { codexDriver } = await import("../src/harness/codex.ts")
     const agent = defineAgent({
       box: {
         cwd: "/workspace",
         runtime: {
-          name: "path-only",
-          async resolve({ cwd, identity }: { cwd?: string, identity: string }) {
+          name: "workspace-host",
+          async prepare({ identity }: { identity: string }) {
             return {
               cache: { state: "disposable" as const },
               environment: { env: {} },
               identity,
               isolation: "none" as const,
               requirements: [],
-              runtime: "path-only",
-              workspace: { path: cwd, state: "authoritative" as const },
+              runtime: "workspace-host",
+              workspace: { path: "/workspace", state: "authoritative" as const, workDir: "workspace" as const },
             }
+          },
+          async open() {
+            throw new Error("Box opened for Agent Workspace")
           },
         },
       },
@@ -314,7 +348,41 @@ describe("Agent Box", () => {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
-    }, { prompt: "Repair the project." })).rejects.toThrow("Box-owned working tree")
+    }, { prompt: "Repair the project." })).rejects.toThrow("both own the same working tree")
+  })
+
+  it("materializes an Agent Workspace into an empty Box working tree", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const agent = defineAgent({
+      box: {
+        runtime: {
+          name: "workspace-host",
+          async prepare({ identity }: { identity: string }) {
+            return {
+              cache: { state: "disposable" as const },
+              environment: { env: {} },
+              identity,
+              isolation: "microvm" as const,
+              requirements: [],
+              runtime: "workspace-host",
+              workspace: { state: "disposable" as const, workDir: "." as const },
+            }
+          },
+          async open() {
+            throw new Error("Box opened for Agent Workspace")
+          },
+        },
+      },
+      driver: codexDriver(),
+      workspace: { mode: "write", store: { provider: "memory" } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "Repair the project." })).rejects.toThrow("Box opened for Agent Workspace")
   })
 })
 

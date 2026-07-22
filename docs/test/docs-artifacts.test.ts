@@ -46,6 +46,14 @@ describe("writeDocsArtifacts", () => {
         "",
         "KV content.",
       ].join("\n"));
+      writeText(resolve(docsRoot, "content/docs/server-primitives/middle.md"), [
+        "---",
+        "title: Middle",
+        "navigation.order: 1.5",
+        "---",
+        "",
+        "Ordered between the overview and KV.",
+      ].join("\n"));
       writeText(resolve(docsRoot, "content/docs/server-primitives/hidden.md"), [
         "---",
         "title: Hidden",
@@ -64,6 +72,7 @@ describe("writeDocsArtifacts", () => {
       expect(manifest.sections[0]?.order).toBe(30);
       expect(manifest.sections[0]?.pages.map(page => page.path)).toEqual([
         "/docs/server-primitives",
+        "/docs/server-primitives/middle",
         "/docs/server-primitives/kv",
         "/docs/server-primitives/hidden",
       ]);

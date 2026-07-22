@@ -1,6 +1,6 @@
-import type { CloudflareSandboxDefinitionProviderOptions, SandboxDefinitionOptions } from '../../module-types'
+import { resolveCloudflareBox } from '@vite-hub/box/cloudflare'
 import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
-import type { CloudflareSandboxOptions, CloudflareSandboxStub, DurableObjectNamespaceLike } from '../../sandbox/types'
+import type { CloudflareSandboxDefinitionProviderOptions, SandboxDefinitionOptions } from '../../module-types'
 
 type SandboxOptions = {
   local: SandboxDefinitionOptions
@@ -14,36 +14,27 @@ type SandboxEvent = {
   }
 }
 
-async function loadCloudflareSandbox() {
-  try {
-    return (await import('@cloudflare/sandbox')).getSandbox
-  }
-  catch (error) {
-    throw new Error(`@cloudflare/sandbox load failed. The Cloudflare provider requires @cloudflare/sandbox to be installed. Original error: ${error instanceof Error ? error.message : error}`)
-  }
-}
-
-export async function resolveSandboxProvider(options: SandboxOptions, context: { event?: SandboxEvent } = {}) {
+export async function resolveSandboxBox(options: SandboxOptions, context: { event?: SandboxEvent } = {}) {
   const env = getCloudflareEnv(context.event)
   const bindingName = options.provider.binding || 'SANDBOX'
-  const namespace = env?.[bindingName] as DurableObjectNamespaceLike | undefined
+  const namespace = env?.[bindingName]
 
   if (!namespace) {
     throw new Error(`Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare.`)
   }
 
-  const getCloudflareSandbox = await loadCloudflareSandbox()
-
   return {
+    closeAfterRun: options.provider.keepAlive === true,
     provider: 'cloudflare' as const,
-    namespace,
     sandboxId: options.provider.sandboxId,
-    cloudflare: {
-      sleepAfter: options.provider.sleepAfter ?? '5m',
-      keepAlive: options.provider.keepAlive,
-      normalizeId: options.provider.normalizeId,
-    },
-    getSandbox: (ns: DurableObjectNamespaceLike, sandboxId: string, opts?: CloudflareSandboxOptions) =>
-      getCloudflareSandbox(ns as never, sandboxId, opts) as unknown as CloudflareSandboxStub,
+    resolveBox: async (requirements: readonly string[]) => await resolveCloudflareBox({
+      namespace: namespace as Parameters<typeof resolveCloudflareBox>[0]['namespace'],
+      sandboxId: options.provider.sandboxId,
+      cloudflare: {
+        sleepAfter: options.provider.sleepAfter ?? '5m',
+        keepAlive: options.provider.keepAlive,
+        normalizeId: options.provider.normalizeId,
+      },
+    }, requirements),
   }
 }

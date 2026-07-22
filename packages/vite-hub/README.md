@@ -10,28 +10,48 @@ pnpm add vite-hub
 
 ## Configure ViteHub
 
+Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes.
+
 ```ts
 // vite.config.ts
 import { vitehub } from "vite-hub"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [vitehub()],
+  plugins: [vitehub({ preset: "node" })],
 })
 ```
 
-The default preset composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace. Email, KV, Queue, Sandbox, Schedule, and Auth stay opt-in:
+The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
+
+Blob is included when the selected preset has a built-in store. Email, KV, Queue, Rate Limit, Sandbox, Schedule, and Auth remain opt-in:
 
 ```ts
 vitehub({
+  preset: "cloudflare",
   auth: true,
   email: true,
   kv: true,
   queue: true,
+  rateLimit: true,
   sandbox: true,
   schedule: true,
 })
 ```
+
+| Preset | Blob | Queue | Rate Limit | Sandbox | Schedule |
+| --- | --- | --- | --- | --- | --- |
+| `cloudflare` | R2 | Cloudflare Queues | Cloudflare | Cloudflare Containers | Supported |
+| `netlify` | Netlify Blobs | Unsupported | Unsupported | Unsupported | Supported |
+| `vercel` | Vercel Blob | Vercel Queues | Unsupported | Vercel Sandbox | Supported |
+| `deno` | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported |
+| `node` | Local filesystem (single host) | Unsupported | Process memory (single process) | Unsupported | Supported |
+
+Selecting an unsupported opt-in capability fails the build with the preset policy. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
+
+The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
+
+The Deno preset emits `.output/deno.json`, stages emitted runtime packages and installed optional native dependencies under `.output/node_modules`, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` plus `DENO_DEPLOY_APP` or `VITEHUB_DEPLOYMENT_NAME` before deployment. The runner uploads node modules when it creates or updates an app. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
 
 ## Use feature APIs
 

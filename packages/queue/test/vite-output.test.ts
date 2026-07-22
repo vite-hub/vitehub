@@ -1,12 +1,40 @@
 import { existsSync } from "node:fs"
 import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { once } from "node:events"
+import { createServer } from "node:http"
+import { tmpdir } from "node:os"
 import { basename, join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
+import { build } from "vite"
 
+import { hubBlob } from "../../blob/src/vite.ts"
 import { generateProviderOutputs } from "../src/internal/vite-build.ts"
+import { hubQueue } from "../src/vite.ts"
+
+import type { writeProviderDeploymentOutputs as WriteProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+
+type ProviderOutputWriter = typeof WriteProviderDeploymentOutputs
+
+const providerOutputHooks = vi.hoisted(() => ({
+  actualWrite: undefined as ProviderOutputWriter | undefined,
+  beforeWrite: undefined as ((options: Parameters<ProviderOutputWriter>[0]) => Promise<void>) | undefined,
+}))
+
+vi.mock("@vite-hub/internal/build/deployment-output", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>()
+  providerOutputHooks.actualWrite = actual.writeProviderDeploymentOutputs
+  return {
+    ...actual,
+    writeProviderDeploymentOutputs: async (options: Parameters<ProviderOutputWriter>[0]) => {
+      await providerOutputHooks.beforeWrite?.(options)
+      return actual.writeProviderDeploymentOutputs(options)
+    },
+  }
+})
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -88,9 +116,12 @@ describe("Vite provider outputs", () => {
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
     expect(vercelConsumerContents).toContain("__vitehubVercelQueue")
     expect(vercelConsumerContents).toContain("@vercel/queue")
+    expect(vercelConsumerContents).toContain("createVercelQueueRuntimeClient")
+    expect(vercelConsumerContents).not.toContain("createCloudflareQueueRuntimeClient")
     expect(vercelConsumerContents).toContain("reportQueueMarker")
     expect(vercelServerContents).toContain("/api/tests/queue")
     expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).not.toContain("createCloudflareQueueRuntimeClient")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",
@@ -320,7 +351,7 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).toHaveProperty("queues")
   })
 
-  it("does not preload Vercel queue without queue definitions", async () => {
+  it("preloads Vercel queue for direct clients without queue definitions", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-no-definitions-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -333,7 +364,270 @@ describe("Vite provider outputs", () => {
     })
 
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
-    expect(vercelServerContents).not.toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("@vercel/queue")
+  })
+
+  it("dispatches from one generated Vercel callback to another Queue", { timeout: 90_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-nested-dispatch-")
+    const standaloneDir = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-nested-dispatch-standalone-"))
+    tempDirs.push(standaloneDir)
+    const entry = join(rootDir, "src", "server.ts")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
+    await writeFile(entry, "export default async () => new Response('ok')\n", "utf8")
+    await writeFile(join(rootDir, "server", "queues", "source.ts"), [
+      "import { runQueue } from '@vite-hub/queue'",
+      "export default { handler: async () => {",
+      "  await runQueue('target', { nested: true })",
+      "} }",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(rootDir, "server", "queues", "target.ts"), "export default { handler: async () => undefined }\n", "utf8")
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "server.mjs" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      nitro: { preset: "vercel" },
+      plugins: [hubQueue()],
+      queue: { provider: "vercel" },
+      root: rootDir,
+    } as never)
+
+    const callbackFunctionDir = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "source", "source.func")
+    const callbackFunction = join(callbackFunctionDir, "index.mjs")
+    const callbackContents = await readFile(callbackFunction, "utf8")
+    expect(callbackContents).toContain("createVercelQueueRuntimeClient")
+    expect(callbackContents).not.toContain("createCloudflareQueueRuntimeClient")
+
+    await cp(callbackFunctionDir, standaloneDir, { recursive: true })
+    const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
+    ;(globalThis as Record<string, unknown>).__vitehubVercelQueue = {
+      handleCallback: (callback: (payload: unknown, metadata: unknown) => Promise<void>) => async () => {
+        await callback({ source: true }, { deliveryCount: 1, messageId: "source-message" })
+        return new Response("handled")
+      },
+      send: async (topic: string, payload: unknown, options: unknown) => {
+        ;(globalThis as Record<string, unknown>).__vitehubNestedQueueDispatch = { options, payload, topic }
+        return { messageId: "nested-message" }
+      },
+    }
+    const server = createServer(handler)
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    try {
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Missing Queue callback address.")
+      const response = await fetch(`http://127.0.0.1:${address.port}`, { method: "POST" })
+      expect(await response.text()).toBe("handled")
+      expect((globalThis as Record<string, unknown>).__vitehubNestedQueueDispatch).toMatchObject({
+        payload: { nested: true },
+        topic: "topic--746172676574",
+      })
+    }
+    finally {
+      server.close()
+      await once(server, "close")
+      delete (globalThis as Record<string, unknown>).__vitehubNestedQueueDispatch
+      delete (globalThis as Record<string, unknown>).__vitehubVercelQueue
+    }
+  })
+
+  it("composes contributed runtimes into isolated Vercel callbacks", { timeout: 90_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-runtime-contribution-")
+    const standaloneDir = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-runtime-contribution-standalone-"))
+    tempDirs.push(standaloneDir)
+    const runtimeFacade = join(rootDir, "runtime-facade.mjs")
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
+    await writeFile(runtimeFacade, [
+      "export async function runSandbox(name, payload) {",
+      "  return { name, payload, registry: 'contributed' }",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(rootDir, "server", "queues", "sandbox.ts"), [
+      "import { runSandbox } from 'vite-hub/sandbox'",
+      "export default { handler: async () => {",
+      "  globalThis.__vitehubQueueSandboxResult = await runSandbox('image-optimizer', { queued: true })",
+      "} }",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      providerImportAliases: { "vite-hub/sandbox": runtimeFacade },
+      queue: { provider: "vercel" },
+      rootDir,
+    })
+
+    const callbackFunctionDir = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "sandbox", "sandbox.func")
+    const callbackFunction = join(callbackFunctionDir, "index.mjs")
+    await cp(callbackFunctionDir, standaloneDir, { recursive: true })
+    const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
+    ;(globalThis as Record<string, unknown>).__vitehubVercelQueue = {
+      handleCallback: (callback: (payload: unknown, metadata: unknown) => Promise<void>) => async () => {
+        await callback({ queued: true }, { deliveryCount: 1, messageId: "sandbox-message" })
+        return new Response("handled")
+      },
+      send: async () => ({ messageId: "unused" }),
+    }
+    const server = createServer(handler)
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    try {
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Missing Queue callback address.")
+      const response = await fetch(`http://127.0.0.1:${address.port}`, { method: "POST" })
+      expect(await response.text()).toBe("handled")
+      expect((globalThis as Record<string, unknown>).__vitehubQueueSandboxResult).toEqual({
+        name: "image-optimizer",
+        payload: { queued: true },
+        registry: "contributed",
+      })
+      await expect(readFile(callbackFunction, "utf8")).resolves.toContain("registry: \"contributed\"")
+    }
+    finally {
+      server.close()
+      await once(server, "close")
+      delete (globalThis as Record<string, unknown>).__vitehubQueueSandboxResult
+      delete (globalThis as Record<string, unknown>).__vitehubVercelQueue
+    }
+  })
+
+  it("keeps Cloudflare platform modules external in contributed runtimes", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-cloudflare-platform-runtime-")
+    const runtimeFacade = join(rootDir, "runtime-facade.mjs")
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
+    await writeFile(runtimeFacade, [
+      "import { env } from 'cloudflare:workers'",
+      "export function runSandbox(name) {",
+      "  return { hasEnvironment: Boolean(env), name }",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(rootDir, "server", "queues", "sandbox.ts"), [
+      "import { runSandbox } from 'vite-hub/sandbox'",
+      "export default { handler: async () => runSandbox('image-optimizer') }",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      providerImportAliases: { "vite-hub/sandbox": runtimeFacade },
+      queue: { provider: "cloudflare" },
+      rootDir,
+    })
+
+    const output = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    await expect(readFile(output, "utf8")).resolves.toContain("cloudflare:workers")
+  })
+
+  it("closes composed Blob runtimes inside isolated Vercel queue functions", { timeout: 90_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-blob-runtime-")
+    const standaloneDir = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-blob-standalone-"))
+    tempDirs.push(standaloneDir)
+    const entry = join(rootDir, "src", "server.ts")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await mkdir(join(rootDir, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(resolve(import.meta.dirname, "../../blob"), join(rootDir, "node_modules", "@vite-hub", "blob"), "dir")
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
+    await writeFile(entry, "export default async () => new Response('ok')\n", "utf8")
+    await writeFile(join(rootDir, "server", "queues", "blob.ts"), [
+      "import { blob } from '@vite-hub/blob'",
+      "delete process.env.BLOB_READ_WRITE_TOKEN",
+      "try { await blob.get('queued-object') } catch (error) {",
+      "  if (error && typeof error === 'object' && 'code' in error && error.code === 'ERR_MODULE_NOT_FOUND') throw error",
+      "}",
+      "let gcsError",
+      "try { await blob.store('backup').list() } catch (error) {",
+      "  if (error && typeof error === 'object' && 'code' in error && error.code === 'ERR_MODULE_NOT_FOUND') throw error",
+      "  gcsError = error instanceof Error ? error.message : String(error)",
+      "}",
+      "if (!gcsError?.includes('missing bucket')) throw new Error(`Expected the GCS driver to load before validation, received: ${gcsError}`)",
+      "globalThis.__vitehubQueueBlobRuntimeLoaded = true",
+      "export default { handler: async () => undefined }",
+      "",
+    ].join("\n"), "utf8")
+
+    await build({
+      appType: "custom",
+      blob: {
+        stores: {
+          default: { access: "private", driver: "vercel-blob" },
+          archive: {
+            accessKeyId: "test-access-key",
+            accountId: "test-account",
+            bucketName: "test-bucket",
+            driver: "cloudflare-r2",
+            secretAccessKey: "test-secret-key",
+          },
+          backup: { bucket: "", driver: "gcs" },
+        },
+      },
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "server.mjs" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      nitro: { preset: "vercel" },
+      plugins: [hubQueue(), hubBlob()],
+      queue: { provider: "vercel" },
+      root: rootDir,
+    } as never)
+
+    const functionsRoot = join(rootDir, ".vercel", "output", "functions")
+    const queueFunction = join(functionsRoot, "__queue.func", "index.mjs")
+    const callbackFunctionDir = join(functionsRoot, "api", "vitehub", "queues", "vercel", "blob", "blob.func")
+    const callbackFunction = join(callbackFunctionDir, "index.mjs")
+    const [queueContents, callbackContents] = await Promise.all([
+      readFile(queueFunction, "utf8"),
+      readFile(callbackFunction, "utf8"),
+    ])
+    for (const contents of [queueContents, callbackContents]) {
+      expect(contents).toContain("__vitehubQueueBlobRuntimeLoaded")
+      expect(contents).not.toContain("@vite-hub/blob/drivers/")
+    }
+    for (const functionDir of [join(functionsRoot, "__queue.func"), callbackFunctionDir]) {
+      expect(existsSync(join(functionDir, "node_modules", "files-sdk", "package.json"))).toBe(true)
+      expect(existsSync(join(functionDir, "node_modules", "@aws-sdk", "client-s3", "package.json"))).toBe(true)
+      expect(existsSync(join(functionDir, "node_modules", "@google-cloud", "storage", "package.json"))).toBe(true)
+      expect(existsSync(join(functionDir, "node_modules", "@azure", "storage-blob", "package.json"))).toBe(false)
+    }
+
+    await cp(callbackFunctionDir, standaloneDir, { recursive: true })
+    const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
+    const server = createServer(handler)
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    try {
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Missing Queue callback address.")
+      await fetch(`http://127.0.0.1:${address.port}`, { method: "POST" })
+      expect((globalThis as Record<string, unknown>).__vitehubQueueBlobRuntimeLoaded).toBe(true)
+    }
+    finally {
+      server.close()
+      await once(server, "close")
+      delete (globalThis as Record<string, unknown>).__vitehubQueueBlobRuntimeLoaded
+    }
   })
 
   it("does not preload or emit Vercel queue functions when queue config is omitted", async () => {
@@ -356,16 +650,13 @@ describe("Vite provider outputs", () => {
 
   it("does not preload or emit Vercel output for a non-Vercel queue provider", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-cloudflare-provider-")
-    const staleVercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
-    const staleVercelConsumer = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func", "index.mjs")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
-    await mkdir(join(rootDir, ".vercel", "output", "functions", "__server.func"), { recursive: true })
-    await mkdir(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func"), { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
-    await writeFile(staleVercelServer, "import '@vercel/queue'\n", "utf8")
-    await writeFile(staleVercelConsumer, "import '@vercel/queue'\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "vercel" }, rootDir })
+    await rm(join(rootDir, ".vitehub", "queue", "vercel-output.json"))
 
     await generateProviderOutputs({
       clientOutDir: "dist",
@@ -375,6 +666,83 @@ describe("Vite provider outputs", () => {
 
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
+  })
+
+  it("removes only the Vercel function recorded as Queue-owned across output modes", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-ownership-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "vercel" }, rootDir })
+    const functionsRoot = join(rootDir, ".vercel", "output", "functions")
+    expect(existsSync(join(functionsRoot, "__server.func"))).toBe(true)
+
+    const nitroServer = "export default { nitro: true }\n"
+    await writeFile(join(functionsRoot, "__server.func", "index.mjs"), nitroServer, "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      queue: { provider: "vercel" },
+      rootDir,
+      serverFunctionName: "__queue.func",
+    })
+    await expect(readFile(join(functionsRoot, "__server.func", "index.mjs"), "utf8")).resolves.toBe(nitroServer)
+    expect(existsSync(join(functionsRoot, "__queue.func"))).toBe(true)
+
+    await mkdir(join(functionsRoot, "__server.func"), { recursive: true })
+    await writeFile(join(functionsRoot, "__server.func", "index.mjs"), "export default { nitro: true }\n", "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "cloudflare" }, rootDir })
+    expect(existsSync(join(functionsRoot, "__queue.func"))).toBe(false)
+    expect(existsSync(join(functionsRoot, "__server.func", "index.mjs"))).toBe(true)
+  })
+
+  it("verifies Queue ownership after a serialized Vercel writer reuses the function", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-concurrent-ownership-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "vercel" }, rootDir })
+    const foreignEntry = join(rootDir, "foreign-server.mjs")
+    await writeFile(foreignEntry, "export default { foreign: true }\n", "utf8")
+
+    let intercepted = false
+    providerOutputHooks.beforeWrite = async (options) => {
+      if (intercepted || !options.cleanup?.cloudflare) return
+      intercepted = true
+      await providerOutputHooks.actualWrite?.({
+        clientOutDir: "dist",
+        rootDir,
+        vercel: {
+          bundleEntry: foreignEntry,
+          bundleOptions: { format: "esm", platform: "node" },
+        },
+      })
+    }
+    try {
+      await generateProviderOutputs({
+        clientOutDir: "dist",
+        cloudflareOwnedByNitro: true,
+        queue: { provider: "vercel" },
+        rootDir,
+        serverFunctionName: "__queue.func",
+      })
+    }
+    finally {
+      providerOutputHooks.beforeWrite = undefined
+    }
+
+    const functionsRoot = join(rootDir, ".vercel", "output", "functions")
+    await expect(readFile(join(functionsRoot, "__server.func", "index.mjs"), "utf8")).resolves.toContain("foreign")
+    expect(existsSync(join(functionsRoot, "__server.func", ".vitehub-queue-output.json"))).toBe(false)
+    expect(existsSync(join(functionsRoot, "__queue.func", ".vitehub-queue-output.json"))).toBe(true)
+    await expect(readFile(join(rootDir, ".vitehub", "queue", "vercel-output.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      serverFunctionName: "__queue.func",
+    })
   })
 
   it("uses an inferred Cloudflare prefix in standalone bindings and dispatch", async () => {

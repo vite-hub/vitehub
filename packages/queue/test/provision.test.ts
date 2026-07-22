@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createQueueProvisionStep } from "../src/provision.ts"
-import { getCloudflareQueueName } from "../src/integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../src/internal/cloudflare-resource-name.ts"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
@@ -90,6 +90,24 @@ describe("queue provision step", () => {
     expect(actions[0]!.name).toBe(expectedName)
     await actions[0]!.apply()
     expect(posted).toEqual([{ queue_name: expectedName }])
+  })
+
+  it("reuses the legacy readable Queue when the encoded deployment name is too long", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "image-optimization.queue.ts"), "export default null\n", "utf8")
+    const namePrefix = "vitehub-drop-pm-20260719-"
+    const existing = "vitehub-drop-pm-20260719-image-optimization"
+
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (!init || init.method !== "POST") return jsonResponse({ success: true, result: [{ queue_name: existing }] })
+      throw new Error("must not create a replacement queue")
+    }) as unknown as typeof globalThis.fetch
+
+    const actions = await createQueueProvisionStep(() => rootDir, () => namePrefix).plan(provisionContext(fetchImpl))
+    expect(actions).toMatchObject([{ exists: true, name: existing }])
+
+    await actions[0]!.apply()
+    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toBe(false)
   })
 
   it("skips when Cloudflare credentials are missing", async () => {

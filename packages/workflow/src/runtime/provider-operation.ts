@@ -1,4 +1,5 @@
-import { ApplicationWorkflowError, WorkflowError } from "../errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { createWorkflowError } from "../errors.ts"
 
 type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
 
@@ -16,7 +17,7 @@ type WorkflowProviderOperation =
   | "status"
 
 export function isWorkflowBoundaryError(error: unknown): boolean {
-  if (error instanceof WorkflowError || error instanceof ApplicationWorkflowError) return true
+  if (getViteHubErrorShape(error)) return true
   if (typeof error !== "object" || error === null) return false
 
   try {
@@ -57,7 +58,7 @@ export async function runWorkflowProviderOperation<T>(
     if (isWorkflowBoundaryError(error)) throw error
 
     const status = getProviderStatus(error)
-    throw new WorkflowError({
+    throw createWorkflowError({
       cause: error,
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       details: { operation, provider, ...(status === undefined ? {} : { status }) },

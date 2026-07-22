@@ -51,7 +51,7 @@ console.log(publicEnv.appName)
 | Import | Use |
 | --- | --- |
 | `env` from `@vite-hub/env` or `@vite-hub/env/vite` | Declare Env values and Env Sources. |
-| `EnvError` from `@vite-hub/env` | Throw or inspect a structured operational Env failure. |
+| `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect operational Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
 | `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
 | `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
@@ -164,17 +164,18 @@ export async function listIssues() {
 
 ## Structured errors
 
-Env resolution failures use `EnvError` with closed, stable codes and JSON-safe context. The codes distinguish invalid declarations, missing required values, invalid runtime values, and failed built-in sources. Custom source resolvers keep application-owned errors unchanged instead of wrapping them in `EnvError`.
+Env resolution failures use `ViteHubError` with closed, stable codes and JSON-safe context. The codes distinguish invalid declarations, missing required values, invalid runtime values, and failed built-in sources. Custom source resolvers keep application-owned errors unchanged.
 
 ```ts
-import { EnvError } from '@vite-hub/env'
+import { getViteHubErrorShape } from '@vite-hub/runtime'
 
 try {
   await resolveEnv()
 }
 catch (error) {
-  if (error instanceof EnvError && error.code === 'ENV_SOURCE_FAILED') {
-    console.error('Env source failed', error.details?.source)
+  const shape = getViteHubErrorShape(error)
+  if (shape?.code === 'ENV_SOURCE_FAILED') {
+    console.error('Env source failed', shape.details?.source)
   }
   throw error
 }

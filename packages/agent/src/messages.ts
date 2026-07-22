@@ -18,18 +18,31 @@ export interface DataPart {
   type: "data" | `data-${string}`
 }
 
-export type AudioData = ArrayBuffer | Blob | string | Uint8Array
+export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
+export type AudioData = AttachmentData
 
-export interface AudioPart {
-  data?: AudioData
-  fetchData?: () => Promise<AudioData> | AudioData
+export interface AttachmentPart {
+  data?: AttachmentData
+  fetchData?: () => Promise<AttachmentData> | AttachmentData
   fetchMetadata?: Record<string, string>
   id?: string
   mediaType: string
   name?: string
   size?: number
-  type: "audio"
+  type: "audio" | "file" | "image"
   url?: string
+}
+
+export interface AudioPart extends AttachmentPart {
+  type: "audio"
+}
+
+export interface FilePart extends AttachmentPart {
+  type: "file"
+}
+
+export interface ImagePart extends AttachmentPart {
+  type: "image"
 }
 
 export type ToolInvocationState = "approval-required" | "failed" | "proposed" | "running" | "completed"
@@ -97,10 +110,28 @@ export type MessagePart =
   | AudioPart
   | DataPart
   | ErrorPart
+  | FilePart
+  | ImagePart
   | SourcePart
   | TextPart
   | ToolCallPart
   | ToolResultPart
+
+export function isAttachmentData(value: unknown): value is AttachmentData {
+  return typeof value === "string"
+    ? value.length > 0
+    : value instanceof ArrayBuffer
+      ? value.byteLength > 0
+      : value instanceof Blob
+        ? value.size > 0
+        : value instanceof Uint8Array && value.byteLength > 0
+}
+
+export function isAttachmentPart(value: unknown): value is AttachmentPart {
+  if (!value || typeof value !== "object") return false
+  const type = (value as { type?: unknown }).type
+  return type === "audio" || type === "file" || type === "image"
+}
 
 export interface Message {
   createdAt?: string
@@ -264,14 +295,6 @@ function assertSerializable(value: unknown, field: string): void {
   }
 }
 
-function hasAudioData(value: unknown): boolean {
-  if (typeof value === "string") return value.length > 0
-  if (!value || typeof value !== "object") return false
-  if ("byteLength" in value && typeof value.byteLength === "number") return value.byteLength > 0
-  if ("size" in value && typeof value.size === "number") return value.size > 0
-  return false
-}
-
 export function validateMessage(message: Message): void {
   assertString(message.id, "message.id")
   assertSerializable(message.id, "message.id")
@@ -286,7 +309,9 @@ export function validateMessage(message: Message): void {
 
   const openToolCalls = new Map<string, ToolCallPart | ApprovalRequestPart>()
   for (const [index, part] of message.parts.entries()) {
-    if (part.type !== "audio") assertSerializable(part, `message.parts[${index}]`)
+    if (!isAttachmentPart(part)) {
+      assertSerializable(part, `message.parts[${index}]`)
+    }
     switch (part.type) {
       case "text":
         if (typeof part.text !== "string") throw new TypeError("[vitehub:messages] text part requires text.")
@@ -319,19 +344,27 @@ export function validateMessage(message: Message): void {
       case "data":
         if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
         break
-      case "audio": {
+      case "audio":
+      case "file":
+      case "image": {
         const { fetchData: _fetchData, ...serializablePart } = part
         assertSerializable(serializablePart, `message.parts[${index}]`)
-        if (typeof part.mediaType !== "string" || !part.mediaType.startsWith("audio/")) {
+        if (typeof part.mediaType !== "string" || !part.mediaType) {
+          throw new TypeError(`[vitehub:messages] ${part.type} part requires a mediaType.`)
+        }
+        if (part.type === "audio" && !part.mediaType.startsWith("audio/")) {
           throw new TypeError("[vitehub:messages] audio part requires an audio/* mediaType.")
         }
-        const hasData = hasAudioData(part.data)
+        if (part.type === "image" && !part.mediaType.startsWith("image/")) {
+          throw new TypeError("[vitehub:messages] image part requires an image/* mediaType.")
+        }
+        const hasData = isAttachmentData(part.data)
         const hasFetchData = typeof part.fetchData === "function"
         const hasUrl = typeof part.url === "string" && part.url.length > 0
-        if ([hasData, hasFetchData, hasUrl].filter(Boolean).length !== 1) {
-          throw new TypeError("[vitehub:messages] audio part requires exactly one of data, fetchData, or url.")
+        if (!hasData && !hasFetchData && !hasUrl) {
+          throw new TypeError(`[vitehub:messages] ${part.type} part requires data, fetchData, or url.`)
         }
-        if (part.id !== undefined) assertString(part.id, "audio.id")
+        if (part.id !== undefined) assertString(part.id, `${part.type}.id`)
         break
       }
       case "source":
@@ -420,8 +453,11 @@ export function serializeMessages(messages: Message[]): string {
   for (const [messageIndex, message] of messages.entries()) {
     validateMessage(message)
     for (const [partIndex, part] of message.parts.entries()) {
-      if (part.type === "audio" && typeof part.fetchData === "function") {
-        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Provide audio data or a URL before serializing.`)
+      if (isAttachmentPart(part) && typeof part.fetchData === "function") {
+        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Resolve or remove the attachment callback before serializing.`)
+      }
+      if (isAttachmentPart(part) && part.data !== undefined && typeof part.data !== "string") {
+        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize binary data in message[${messageIndex}].parts[${partIndex}]. Resolve it to a string or URL before serializing.`)
       }
     }
   }

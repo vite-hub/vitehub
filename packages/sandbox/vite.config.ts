@@ -16,7 +16,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/cloudflare-public.ts",
       "src/index.ts",
       "src/vite.ts",
       "src/runtime/empty-registry.ts",
@@ -24,14 +23,12 @@ export default defineConfig({
       "src/runtime/providers/cloudflare.ts",
       "src/runtime/providers/vercel.ts",
       "src/runtime/state.ts",
-      "src/sandbox/providers/cloudflare.ts",
-      "src/sandbox/providers/vercel.ts",
     ],
     exports: {
       customExports(exports) {
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
-            const exportKey = key === "./cloudflare-public" ? "./cloudflare" : key;
+            const exportKey = key;
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [exportKey, value];
             }

@@ -1,4 +1,4 @@
-import { createMessage } from "./messages.ts"
+import { createMessage, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import { normalizeAgentInvoker } from "./invoker.ts"
 
 import type {
@@ -11,7 +11,7 @@ import type {
   AgentRunMetadata,
   AgentRuntimeConfig,
 } from "./types.ts"
-import type { AudioData, Message, MessagePart } from "./messages.ts"
+import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
 
 export type UIMessageLike = {
   createdAt?: Date | string
@@ -61,6 +61,27 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
   return run?.origin ? `${run.origin}:${identity}` : identity
 }
 
+export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
+  const userMeta: Record<string, unknown> = {}
+  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
+    const value = firstString(triggerInput?.user?.[key])?.trim()
+    if (value) userMeta[key] = value
+  }
+  const meta = Object.keys(userMeta).length || triggerInput?.meta
+    ? { ...userMeta, ...triggerInput?.meta }
+    : undefined
+  const invokerId = chatIdentity(triggerInput?.user, triggerInput?.run)
+  return triggerInput?.invoker
+    ? normalizeAgentInvoker(triggerInput.invoker, "chat.message input.invoker")
+    : invokerId
+      ? normalizeAgentInvoker({
+          id: invokerId,
+          kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
+          ...(meta ? { meta } : {}),
+        }, "chat.message input.user")
+      : undefined
+}
+
 function uiToolName(part: Record<string, unknown>): string {
   if (part.type === "dynamic-tool") {
     return firstString(part.toolName, part.name) || "tool"
@@ -74,39 +95,36 @@ function uiToolId(part: Record<string, unknown>, name: string, index: number): s
   return firstString(part.toolCallId, part.id) || `${name}-${index + 1}`
 }
 
-function isAudioData(value: unknown): value is AudioData {
-  if (typeof value === "string") return value.length > 0
-  if (!value || typeof value !== "object") return false
-  if ("byteLength" in value && typeof (value as { byteLength?: unknown }).byteLength === "number") return (value as { byteLength: number }).byteLength > 0
-  if ("size" in value && typeof (value as { size?: unknown }).size === "number") return (value as { size: number }).size > 0
-  return false
-}
-
-function uiAudioPartToAgentPart(part: Record<string, unknown>): MessagePart[] {
-  const mediaType = typeof part.mediaType === "string" && part.mediaType.startsWith("audio/")
-    ? part.mediaType
-    : undefined
-  if (!mediaType) return []
+function uiAttachmentPartToAgentPart(part: Record<string, unknown>): MessagePart[] {
+  const mediaType = typeof part.mediaType === "string" && part.mediaType ? part.mediaType : undefined
+  const inputType = isAttachmentPart(part) ? part.type : undefined
+  const type = mediaType?.startsWith("audio/")
+    ? "audio"
+    : mediaType?.startsWith("image/")
+      ? "image"
+      : inputType
+  if (!type || !mediaType) return []
 
   const id = firstString(part.id)
-  const base = {
+  const data = isAttachmentData(part.data) ? part.data : undefined
+  const fetchData = typeof part.fetchData === "function"
+    ? part.fetchData as () => AttachmentData | Promise<AttachmentData>
+    : undefined
+  const name = firstString(part.name, part.filename)
+  const url = typeof part.url === "string" && part.url ? part.url : undefined
+  if (!data && !fetchData && !url) return []
+  const attachment = {
+    ...(data ? { data } : {}),
+    ...(fetchData ? { fetchData } : {}),
     ...(id ? { id } : {}),
-    ...(typeof part.name === "string" ? { name: part.name } : {}),
+    ...(name ? { name } : {}),
     ...(typeof part.size === "number" && Number.isFinite(part.size) ? { size: part.size } : {}),
     ...(typeof part.fetchMetadata === "object" && part.fetchMetadata !== null ? { fetchMetadata: part.fetchMetadata as Record<string, string> } : {}),
     mediaType,
-    type: "audio" as const,
-  }
-  if (typeof part.fetchData === "function") {
-    return [{ ...base, fetchData: part.fetchData as () => AudioData | Promise<AudioData> }]
-  }
-  if (typeof part.url === "string" && part.url) {
-    return [{ ...base, url: part.url }]
-  }
-  if (isAudioData(part.data)) {
-    return [{ ...base, data: part.data }]
-  }
-  return []
+    type,
+    ...(url ? { url } : {}),
+  } satisfies AttachmentPart
+  return [attachment]
 }
 
 function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart | string> {
@@ -122,7 +140,9 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
         type: record.type as "data" | `data-${string}`,
       }]
     }
-    if (record.type === "audio") return uiAudioPartToAgentPart(record)
+    if (record.type === "audio" || record.type === "file" || record.type === "image") {
+      return uiAttachmentPartToAgentPart(record)
+    }
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
       const state = typeof record.state === "string" ? record.state : undefined
       const errorText = typeof record.errorText === "string" ? record.errorText : undefined
@@ -306,24 +326,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
-  const userMeta: Record<string, unknown> = {}
-  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
-    const value = firstString(triggerInput?.user?.[key])?.trim()
-    if (value) userMeta[key] = value
-  }
-  const meta = Object.keys(userMeta).length || triggerInput?.meta
-    ? { ...userMeta, ...triggerInput?.meta }
-    : undefined
-  const invokerId = chatIdentity(triggerInput?.user, triggerInput?.run)
-  const invoker = triggerInput?.invoker
-    ? normalizeAgentInvoker(triggerInput.invoker, "chat.message input.invoker")
-    : invokerId
-      ? normalizeAgentInvoker({
-          id: invokerId,
-          kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
-          ...(meta ? { meta } : {}),
-        }, "chat.message input.user")
-      : undefined
+  const invoker = resolveChatTriggerInvoker(triggerInput)
   return {
     hookArgs,
     input: {

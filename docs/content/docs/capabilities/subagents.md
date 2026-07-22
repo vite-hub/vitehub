@@ -45,7 +45,7 @@ export default defineAgent({
 ## Runtime behavior
 
 `subagents()` validates the configured names and tool names before the Agent runs.
-At invocation time, each subagent tool calls `runAgent()` with the parent runtime context and a child run id derived from the parent run id when available.
+At invocation time, each subagent tool starts a fresh child Agent Invocation with the parent runtime context, then awaits the existing serializable Agent result. The model cannot select or reuse the child invocation id.
 
 ## Requirements
 
@@ -76,6 +76,7 @@ Cover delegation guidance in Agent Driver Instructions with explicit Capability 
 
 Open Agent DevTools and confirm each subagent appears as a tool with the expected name and description.
 Run one delegated task and verify the child invocation id and inherited invoker metadata.
+Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) from trusted code when the caller needs to inspect or cancel the child after start.
 
 ## Reference
 

@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
 import { normalizeSourceItemPath } from "./source-items.ts"
@@ -51,7 +51,7 @@ function countPath(counts: WorkspaceSourceSyncCounts, status: WorkspaceSourceSyn
 async function contentFromItem(item: WorkspaceSourceItem) {
   if (item.contentStream) {
     if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
-      throw new WorkspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
+      throw workspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
     }
     return await contentStreamToBytes(item.contentStream)
   }
@@ -97,7 +97,7 @@ function selectedSyncSources(definition: WorkspaceDefinition, options: Workspace
     const source = sources.find(item => item.key === key)
     if (!source) {
       const defined = normalizeWorkspaceSources(definition.sources).some(item => item.key === key)
-      throw new WorkspaceError(defined
+      throw workspaceError(defined
         ? `[vitehub] Workspace source ${JSON.stringify(key)} is not configured for Source Sync. Add sync: true to the source binding.`
         : `[vitehub] Workspace source ${JSON.stringify(key)} does not exist.`)
     }
@@ -136,7 +136,7 @@ async function planSourceSync(
   for (const item of items) {
     const { path, sourcePath } = normalizeSourceItemPath(source, item, { operation: "Source Sync" })
     if (nextPaths[path]) {
-      throw new WorkspaceError(`[vitehub] Workspace Source Sync produced duplicate path: ${path}.`)
+      throw workspaceError(`[vitehub] Workspace Source Sync produced duplicate path: ${path}.`)
     }
     const content = await contentFromItem(item)
     const digest = await sha256(content)
@@ -333,11 +333,11 @@ export async function syncWorkspaceSources(
   options: WorkspaceSyncOptions,
 ): Promise<WorkspaceSourceSyncResult> {
   if (!options || !options.sources) {
-    throw new WorkspaceError("[vitehub] workspace.sync({ sources }) requires an explicit Source selection.")
+    throw workspaceError("[vitehub] workspace.sync({ sources }) requires an explicit Source selection.")
   }
 
   if (!store.getMeta || !store.setMeta) {
-    throw new WorkspaceError("[vitehub] Workspace Source Sync requires a Workspace Store with metadata support.")
+    throw workspaceError("[vitehub] Workspace Source Sync requires a Workspace Store with metadata support.")
   }
 
   const started = Date.now()

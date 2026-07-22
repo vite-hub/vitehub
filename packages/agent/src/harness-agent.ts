@@ -24,6 +24,7 @@ import {
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
+import { isAttachmentPart } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
@@ -73,7 +74,7 @@ type HarnessFileSandbox = {
 }
 
 type HarnessGlobalSkillsSandbox = {
-  run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string }>
+  run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string, stdout?: string }>
 }
 
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
@@ -311,10 +312,22 @@ function renderHarnessModelMessageContent(content: unknown): string {
   return JSON.stringify(content)
 }
 
+function harnessSerializableMessages(messages: Message[]): Message[] {
+  return messages.map(message => ({
+    ...message,
+    parts: message.parts.flatMap((part) => {
+      if (!isAttachmentPart(part) || (!part.fetchData && !(part.data instanceof Blob))) return [part]
+      const { fetchData: _fetchData, ...reference } = part
+      if (reference.data instanceof Blob) delete reference.data
+      return reference.data || reference.url ? [reference] : []
+    }),
+  }))
+}
+
 function renderHarnessChatPrompt(messages: Message[]): string {
   return [
     "Conversation history:",
-    ...toAiSdkModelMessages(messages).map((message) => {
+    ...toAiSdkModelMessages(harnessSerializableMessages(messages)).map((message) => {
       const role = message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : message.role
       return `${role}: ${renderHarnessModelMessageContent(message.content)}`
     }),
@@ -347,7 +360,7 @@ async function toHarnessCallInput(context: AgentAdapterRunContext, resumesSessio
     }
     return {
       ...base,
-      messages: toAiSdkModelMessages(context.messages),
+      messages: toAiSdkModelMessages(harnessSerializableMessages(context.messages)),
     }
   }
   if (context.prompt) {
@@ -641,7 +654,6 @@ async function resolveHarnessGlobalSkills(
   const { resolveWorkspaceSources } = await import("@vite-hub/workspace/runtime")
   const definition = await resolveWorkspaceSources({
     name: "__vitehub_global_skills",
-    runtime: { allowProduction: true, type: "trusted-host" },
     sources: Object.fromEntries(skills.map(skill => [skill.sourceKey, skill.source])),
     store: { provider: "memory" },
   }, {
@@ -668,7 +680,6 @@ async function resolveHarnessColocatedSkills(context: AgentAdapterRunContext) {
   if (!sources || !Object.keys(sources).length) return
   const definition = {
     name: "__vitehub_agent_skills",
-    runtime: "trusted-host" as const,
     sources,
     store: { provider: "memory" as const },
   }
@@ -748,7 +759,7 @@ async function prepareHarnessGlobalSkills(
     abortSignal,
     paths: resolved.paths,
     session: session as never,
-    sessionWorkDir: stagingDirectory,
+    sessionWorkDir: workingDirectory ? posix.join(workingDirectory, stagingDirectory) : stagingDirectory,
   })
   const install = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
@@ -986,9 +997,9 @@ export function createHarnessAgentAdapter<
       ...(context.box
         ? {
             box: {
-              identity: context.box.identity,
-              runtime: context.box.runtime,
-              workspace: context.box.workspace.path,
+              identity: context.box.plan.identity,
+              runtime: context.box.plan.runtime,
+              workspace: context.box.plan.workspace.path,
             },
           }
         : {}),
@@ -1048,8 +1059,17 @@ export function createHarnessAgentAdapter<
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
     const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
-      const globalSkillsWorkingDirectory =
-        context.box?.runtime === "trusted-host" && !context.box.workspace.path ? "." : undefined
+      let globalSkillsWorkingDirectory: string | undefined
+      if (context.box && isHarnessRelativeDirectory(globalSkillsDirectory)) {
+        const home = await (session as HarnessGlobalSkillsSandbox).run({
+          abortSignal,
+          command: `printf '%s' "$HOME"`,
+        })
+        globalSkillsWorkingDirectory = home.stdout
+        if (home.exitCode !== 0 || !globalSkillsWorkingDirectory || !posix.isAbsolute(globalSkillsWorkingDirectory)) {
+          throw new Error(`[vitehub] Failed to resolve the Box Home directory: ${home.stderr || "sandbox command failed"}`)
+        }
+      }
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {
@@ -1057,7 +1077,7 @@ export function createHarnessAgentAdapter<
           const commitDefinition = context.workspaceDefinition && context.workspaceAutoCommit !== undefined
             ? workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
             : context.workspaceDefinition
-          workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
+          workspaceSession = await prepareHarnessWorkspaceSession(context.workspaceMaterializationSource || context.workspace, {
             abortSignal,
             ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
             ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),

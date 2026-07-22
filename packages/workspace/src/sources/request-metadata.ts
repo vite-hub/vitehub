@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 
 import type {
   WorkspaceSource,
@@ -59,7 +59,7 @@ export function assertWorkspaceSourceRequestDescriptorKey(sourceKey: string): vo
     || normalized === ".vitehub"
     || normalized.endsWith(".json")
   ) {
-    throw new WorkspaceError(`[vitehub] Workspace Source Request descriptor key must be a single safe file stem: ${sourceKey}.`)
+    throw workspaceError(`[vitehub] Workspace Source Request descriptor key must be a single safe file stem: ${sourceKey}.`)
   }
 }
 

@@ -1,9 +1,8 @@
-import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/hosting'
+import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
+import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
+import { readFile } from 'node:fs/promises'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
-import {
-  toTemplateSafeName,
-  type ScannedDefinition,
-} from './internal/shared/feature-definitions'
+import { toTemplateSafeName } from './internal/shared/feature-definitions'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import type { FeatureManifest, FeatureRuntimePlan, GeneratedArtifact } from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
@@ -12,14 +11,13 @@ import {
   defaultCloudflareSandboxClassName,
   defaultCloudflareSandboxMigrationTag,
 } from './cloudflare'
-import {
-  extractCloudflareDockerfileFragment,
-  extractSandboxDefinitionOptions,
-  stripCloudflareDockerfileFragment,
-} from './definition-options'
+import { extractSandboxDefinitionOptions } from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
+import { resolveSandboxProject, type SandboxProject } from './project'
 import { createSandboxTypeTemplateContents } from './type-template'
+import { hasExportedType } from './internal/shared/discovered-definition/ast'
+import type { DiscoveredSandboxDefinition } from './discovery'
 
 export const sandboxRuntimeDependencies = [
   '@cloudflare/sandbox',
@@ -31,13 +29,10 @@ export const sandboxRuntimeDependencyByProvider = {
   vercel: '@vercel/sandbox',
 } as const satisfies Partial<Record<string, string>>
 
-const sandboxClientExportByProvider = {
-  cloudflare: 'createCloudflareSandboxClient',
-  vercel: 'createVercelSandboxClient',
-} as const
+type SandboxProvider = 'cloudflare' | 'vercel'
 
 export function resolveSandboxProviderLoaderTarget(
-  provider: keyof typeof sandboxClientExportByProvider | undefined,
+  provider: SandboxProvider | undefined,
   deps: Record<string, string>,
 ) {
   if (provider)
@@ -52,8 +47,10 @@ export function resolveSandboxProviderLoaderTarget(
   return hasCloudflareSandbox ? 'cloudflare' : 'vercel'
 }
 
-function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sandboxClientExportByProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
-  const keys = ['vitehub-sandbox-provider-loader', '@vite-hub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader']
+export const sandboxProviderLoaderSpecifiers = ['vitehub-sandbox-provider-loader', '@vite-hub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader'] as const
+
+function createSandboxProviderLoaderAliases(defaultProviderName: SandboxProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
+  const keys = sandboxProviderLoaderSpecifiers
 
   if (defaultProviderName)
     return keys.map(key => ({ key, artifactKey: 'sandbox-provider-loader' }))
@@ -72,7 +69,7 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
     alias: '@vite-hub/sandbox',
     aliasPath,
     imports: [
-      { name: 'defineSandbox', from: '@vite-hub/sandbox', meta: { description: 'Define a named sandbox resource.' } },
+      { name: 'defineSandbox', from: '@vite-hub/sandbox', meta: { description: 'Define a free-form sandbox resource.' } },
       { name: 'readValidatedPayload', as: 'readValidatedSandboxPayload', from: '@vite-hub/sandbox', meta: { description: 'Validate sandbox payload input before execution.' } },
       { name: 'runSandbox', from: '@vite-hub/sandbox', meta: { description: 'Run a named sandbox definition.' } },
       { name: 'SandboxDefinition', as: 'SandboxDefinition', from: '@vite-hub/sandbox', type: true },
@@ -84,11 +81,12 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
     },
   }
 }
-
 type SandboxDefinitionMetadata = {
-  cloudflareDockerfileFragment?: string
+  hasPayloadType: boolean
+  kind: DiscoveredSandboxDefinition['kind']
   name: string
   options?: SandboxDefinitionOptions
+  project: SandboxProject
 }
 
 type SandboxDefinitionCompilerOptions = Partial<DiscoveredDefinitionCompilerOptions> & {
@@ -109,12 +107,22 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
   }
 }
 
-async function loadSandboxDefinitionMetadata(definitions: ScannedDefinition[]) {
+async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefinition[], rootDir: string) {
   return await Promise.all(definitions.map(async (definition) => {
+    const project = await resolveSandboxProject(definition.handler, rootDir, {
+      readSandboxOptions: definition.kind === 'package-entry',
+    })
+    const source = definition.kind === 'package-entry'
+      ? await readFile(definition.handler, 'utf8')
+      : undefined
     return {
-      cloudflareDockerfileFragment: await extractCloudflareDockerfileFragment(definition.handler),
+      hasPayloadType: source ? hasExportedType(source, definition.handler, 'SandboxPayload') : false,
+      kind: definition.kind,
       name: definition.name,
-      options: normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
+      options: definition.kind === 'package-entry'
+        ? project.options
+        : normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
+      project,
     } satisfies SandboxDefinitionMetadata
   }))
 }
@@ -132,7 +140,7 @@ function createSandboxRegistryContents(
 }
 
 export function createSandboxProviderLoaderContents(
-  provider: keyof typeof sandboxClientExportByProvider,
+  provider: SandboxProvider,
 ) {
   const providerLoaderPath = resolveFeatureRuntimePath(
     import.meta.url,
@@ -140,24 +148,14 @@ export function createSandboxProviderLoaderContents(
     `./runtime/providers/${provider}`,
     `runtime/providers/${provider}.js`,
   )
-  const clientProviderPath = resolveFeatureRuntimePath(
-    import.meta.url,
-    '@vite-hub/sandbox',
-    `./sandbox/providers/${provider}`,
-    `sandbox/providers/${provider}.js`,
-  )
-  const clientExportName = sandboxClientExportByProvider[provider]
-
   return [
-    `import { resolveSandboxProvider } from ${JSON.stringify(providerLoaderPath)}`,
-    `import { ${clientExportName} } from ${JSON.stringify(clientProviderPath)}`,
+    `import { resolveSandboxBox } from ${JSON.stringify(providerLoaderPath)}`,
     '',
     'export async function loadSandboxRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
     '    throw new Error(`[vitehub] Unsupported sandbox provider for this hosted build: ${selectedProvider}`)',
     '  return {',
-    '    resolveSandboxProvider,',
-    `    createSandboxClient: ${clientExportName},`,
+    '    resolveSandboxBox,',
     '  }',
     '}',
     '',
@@ -177,9 +175,9 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
     } as AgentSandboxConfig
   }
 
-  const unsupportedHostedProvider = getHostingProvider(hosting)
-  if (unsupportedHostedProvider === 'netlify') {
-    throw new TypeError('[vitehub] Sandbox hosting inference does not support Netlify. An explicit `sandbox.provider` is required.')
+  const unsupportedHostedProvider = deploymentPresetFromNitro(hosting)
+  if (unsupportedHostedProvider) {
+    throw new TypeError('[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.')
   }
 
   return config
@@ -187,25 +185,17 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
 
 export async function createSandboxFeaturePlan(
   sandboxConfig: AgentSandboxConfig,
-  definitions: ScannedDefinition[],
+  definitions: DiscoveredSandboxDefinition[],
   paths: {
     aliasPath: string
   },
   deps: Record<string, string>,
   hosting?: string,
   discoveredDefinitionOptions: SandboxDefinitionCompilerOptions = {},
-  deferUnresolvedHostingValidation = false,
 ): Promise<FeatureRuntimePlan> {
-  const configuredProviderName = getSandboxFeatureProvider(sandboxConfig)?.provider
   const resolvedConfig = definitions.length > 0
     ? resolveSandboxFeatureConfig(sandboxConfig, hosting)
     : { ...sandboxConfig }
-  const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions))
-  const {
-    bundleAlias,
-    featureImports = manifest.imports,
-    ...definitionCompilerOptions
-  } = discoveredDefinitionOptions
   const sandboxDefinitions = definitions.map(definition => ({
     ...definition,
     definitionArtifactKey: `sandbox-definition:${definition.name}`,
@@ -219,38 +209,42 @@ export async function createSandboxFeaturePlan(
     }
     definitionFileByName.set(definition.definitionFilename, definition.name)
   }
+  const definitionMetadata = await loadSandboxDefinitionMetadata(
+    definitions,
+    discoveredDefinitionOptions.rootDir || process.cwd(),
+  )
+  const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
+  const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions.map((definition) => {
+    const metadata = metadataByName.get(definition.name)
+    return {
+      handler: definition.handler,
+      hasPayloadType: metadata?.hasPayloadType ?? false,
+      kind: definition.kind,
+      name: definition.name,
+    }
+  })))
+  const {
+    bundleAlias,
+    featureImports = manifest.imports,
+    ...definitionCompilerOptions
+  } = discoveredDefinitionOptions
   const definitionCompiler = await createDiscoveredDefinitionCompiler({
     ...definitionCompilerOptions,
     featureImports,
   })
-  const definitionMetadata = await loadSandboxDefinitionMetadata(definitions)
-  const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
   const defaultProvider = getSandboxFeatureProvider(resolvedConfig)
   const defaultProviderName = defaultProvider?.provider
-  const hostingProvider = getHostingProvider(hosting)
-  const fragmentDefinitions = definitionMetadata.filter(definition => typeof definition.cloudflareDockerfileFragment === 'string')
-  const deferFragmentHostingValidation = deferUnresolvedHostingValidation && typeof hosting === 'undefined'
-  const deferFragmentProviderValidation = deferFragmentHostingValidation && typeof configuredProviderName === 'undefined'
-  if (fragmentDefinitions.length && definitions.length !== 1) {
-    throw new Error('[vitehub] A colocated Cloudflare Dockerfile fragment currently requires exactly one discovered Sandbox Definition because Cloudflare provider output owns one app-level Sandbox image. Configure an application-owned Dockerfile until ViteHub can route definitions to distinct images.')
-  }
-  if (fragmentDefinitions.length
-    && ((!deferFragmentProviderValidation && defaultProviderName !== 'cloudflare')
-      || (!deferFragmentHostingValidation && hostingProvider !== 'cloudflare'))) {
-    throw new Error('[vitehub] A colocated Cloudflare Dockerfile fragment requires Cloudflare hosting and the Cloudflare Sandbox provider. Other hosts use different image build and routing models.')
-  }
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
     key: definition.definitionArtifactKey,
     filename: definition.definitionFilename,
     async getContents() {
-      const source = stripCloudflareDockerfileFragment(
-        await definitionCompiler.readSource(definition._meta.sourcePath),
-        definition._meta.sourcePath,
-      )
+      const source = await definitionCompiler.readSource(definition._meta.sourcePath)
+      const metadata = metadataByName.get(definition.name)
       const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath, {
         alias: bundleAlias,
+        execution: metadata?.kind === 'package-entry' ? 'module' : 'definition',
+        project: metadata?.project,
       })
-      const metadata = metadataByName.get(definition.name)
       return `export default ${JSON.stringify({
         bundle,
         options: metadata?.options,
@@ -264,7 +258,6 @@ export async function createSandboxFeaturePlan(
         className: typeof defaultProvider.className === 'string' ? defaultProvider.className : defaultCloudflareSandboxClassName,
         migrationTag: typeof defaultProvider.migrationTag === 'string' ? defaultProvider.migrationTag : defaultCloudflareSandboxMigrationTag,
         name: typeof defaultProvider.name === 'string' ? defaultProvider.name : undefined,
-        dockerfileFragment: fragmentDefinitions[0]?.cloudflareDockerfileFragment,
       }
     : undefined
 

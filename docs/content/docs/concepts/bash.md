@@ -38,7 +38,7 @@ The tool does not parse its input as a shell script. Pipes, redirects, command s
 
 Bash contributions require an explicit writable Workspace because every call executes against a Workspace Session and can commit changes to the Workspace Store. Workspace rules and the selected Workspace Scope still control which file changes ViteHub can commit.
 
-The Workspace runtime defines where the process runs. Use `runtime: 'sandbox'` for a provider-managed isolated session, or opt into `runtime: 'trusted-host'` when the Agent intentionally runs with the host service account's authority.
+The Agent's Box defines where the process runs. Use a provider Box for isolated execution or `trustedHost()` when the Agent intentionally runs with the host service account's authority. Workspace never selects an execution runtime.
 
 The executable allowlist limits which process the Agent can start. It does not make that process safe or remove its filesystem, network, credential, or child-process authority, so the Workspace runtime and host configuration remain part of the security boundary.
 
@@ -51,7 +51,8 @@ The executable allowlist limits which process the Agent can start. It does not m
 | `workspaceShell()` | Adds a Bash-compatible `shell` inspection tool and structured Workspace mutation tools. Its optional `commands` setting creates `workspace_exec` for app-selected executables rather than contributing to the global `bash` tool. |
 | Shell | Provides server-side Unix-like command runtimes, command analysis, policy boundaries, and observations. The Agent Package assembles the global `bash` tool separately and dispatches it through Workspace Sessions. |
 | Workspace Session | Supplies the executable file-tree session used by a `bash` call and commits successful Workspace changes. |
-| Sandbox | Provides optional isolated execution. It can back a Workspace Session, but it does not define or populate the global `bash` tool. |
+| Box | Provides the execution environment used by Workspace Sessions and Agent harnesses. |
+| Sandbox | Composes a named package project from Workspace and Box; it does not define or populate the global `bash` tool. |
 
 ## Choose the right surface
 

@@ -677,7 +677,6 @@ describe("defineAgent workspace option", () => {
         rules: {
           "**": { commit: "chore(bitacora): update from telegram bot", write: true },
         },
-        runtime: "trusted-host",
       }),
     }))
   })
@@ -791,7 +790,6 @@ describe("defineAgent workspace option", () => {
     await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
     expect(useWorkspace).toHaveBeenCalledWith("__vitehub_global_skills", expect.objectContaining({
       definition: expect.objectContaining({
-        runtime: { allowProduction: true, type: "trusted-host" },
         sources: {
           "skill.code-review": { mount: "code-review", source: codeReviewSource },
           "skill.ponytail": expect.objectContaining({ getKeys: ponytailSource.getKeys, mount: "ponytail" }),
@@ -1430,7 +1428,7 @@ describe("defineAgent workspace option", () => {
     })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
 
     expect(() => defineAgent({
-      capabilities: [workspaceShell({ commands: "trusted-host" })],
+      capabilities: [workspaceShell({ commands: "all" })],
       driver: { model: {} as never },
       workspace: { mode: "read" },
     })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
@@ -1443,6 +1441,17 @@ describe("defineAgent workspace option", () => {
       driver: { model: {} as never },
       workspace: { mode: "read" },
     })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
+  })
+
+  it("requires a Box for configured workspace shell commands", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+
+    expect(() => defineAgent({
+      capabilities: [workspaceShell({ commands: ["agent-browser"], mode: "write" })],
+      driver: { model: {} as never },
+      workspace: { mode: "write" },
+    })).toThrow("workspaceShell({ commands }) requires defineAgent({ box })")
   })
 
   it("requires writable workspace for browser bash commands", async () => {
@@ -2447,7 +2456,6 @@ describe("defineAgent workspace option", () => {
         rules: {
           "**": { commit: "chore: update docs", write: true },
         },
-        runtime: "trusted-host",
       }),
       ignoreWriteBackPaths: [],
       onWriteBack: expect.any(Function),
@@ -2520,7 +2528,6 @@ describe("defineAgent workspace option", () => {
       definition: expect.objectContaining({
         commit: "chore: update named docs",
         name: workspaceName,
-        runtime: "trusted-host",
       }),
       paths: [""],
       session: harnessFileSession,
@@ -4320,19 +4327,21 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("marks unrestricted trusted-host execution in DevTools metadata", async () => {
+  it("marks unrestricted Box execution in DevTools metadata", async () => {
     const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
+    const { trustedHost } = await import("@vite-hub/box")
     const agent = withExplicitWorkspaceName(defineAgent({
-      capabilities: [workspaceShell({ commands: "trusted-host", mode: "write" })],
-      driver: { model: {} as never },
-      workspace: { mode: "write", runtime: "trusted-host" },
+      box: { runtime: trustedHost() },
+      capabilities: [workspaceShell({ commands: "all", mode: "write" })],
+      driver: { harness: {} },
+      workspace: { mode: "write" },
     }), { workspace: "support" })
 
     expect(createAgentDevtoolsMetadata(agent).tools).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        commands: expect.arrayContaining(["workspace_exec (any host executable)"]),
-        description: expect.stringContaining("trusted host service account's authority"),
+        commands: expect.arrayContaining(["workspace_exec (any Box executable)"]),
+        description: expect.stringContaining("any executable in the Box"),
         name: "workspaceShell",
       }),
     ]))

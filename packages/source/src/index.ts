@@ -7,11 +7,7 @@ export {
   useSource,
 } from "./core/registry.ts"
 export type * from "./core/types.ts"
-export {
-  SourceNotFoundError,
-  SourcePathError,
-  SourceError,
-} from "./core/errors.ts"
+export type { SourceErrorCode } from "./core/errors.ts"
 export {
   custom,
   file,

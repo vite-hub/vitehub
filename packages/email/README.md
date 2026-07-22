@@ -62,7 +62,7 @@ const result = await email.send({
 })
 ```
 
-A successful send returns `{ id, driver: "smtp" }`; the provider supplies `id`. Invalid messages and delivery failures throw `EmailError` with a stable `code`. SMTP and core-wrapped provider failures keep the raw failure in `cause` while exposing a safe message. Custom drivers must follow the same rule when they throw `EmailError` directly.
+A successful send returns `{ id, driver: "smtp" }`; the provider supplies `id`. Invalid messages and delivery failures throw `ViteHubError` with a stable `EMAIL_*` code. SMTP and core-wrapped provider failures keep the raw failure in `cause` while exposing a safe message. Custom drivers should use the same shared contract when they classify a failure directly.
 
 ## Grant an Agent permission to send
 

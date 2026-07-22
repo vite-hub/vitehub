@@ -52,6 +52,14 @@
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"
     },
+    "./collections": {
+      "types": "./dist/collections.d.ts",
+      "import": "./dist/collections.js"
+    },
+    "./collections/client": {
+      "types": "./dist/collections/client.d.ts",
+      "import": "./dist/collections/client.js"
+    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js"
@@ -113,6 +121,10 @@
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"
     },
+    "./internal/runtime/workspace": {
+      "types": "./dist/runtime/workspace.d.ts",
+      "import": "./dist/runtime/workspace.js"
+    },
     "./internal/stores/cloudflare-artifacts": {
       "types": "./dist/providers/cloudflare/artifacts-store.d.ts",
       "import": "./dist/providers/cloudflare/artifacts-store.js"
@@ -133,53 +145,53 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/box": "workspace:*",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
-    "effect": "catalog:effect",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
     "minimatch": "catalog:workspace",
-    "mrmime": "catalog:workspace"
+    "mrmime": "catalog:workspace",
+    "ofetch": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
     "ocache": "catalog:unjs",
-    "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
     "@vercel/blob": "catalog:storage",
-    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@vercel/blob": {
-      "optional": true
-    },
-    "@vite-hub/sandbox": {
       "optional": true
     },
     "@vite-hub/shell": {
       "optional": true
     },
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

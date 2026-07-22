@@ -1,7 +1,7 @@
 import { createCloudflareProvisionClient, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
 import { discoverQueueDefinitions } from "./discovery.ts"
-import { getCloudflareQueueName } from "./integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 

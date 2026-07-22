@@ -1,4 +1,4 @@
-import { getMessageText } from "./messages.ts"
+import { getMessageText, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -33,6 +33,7 @@ import type {
   ToolLoopAgentSettings,
   ToolResultPart,
   ToolSet,
+  UserContent,
 } from "ai"
 import type {
   AgentAdapter,
@@ -42,6 +43,7 @@ import type {
   AgentAdapterRunContext,
   AgentAdapterResult,
   AgentCallSettingsInstrumentationContext,
+  AgentAttachmentExecutionOptions,
   AgentModelExecutionInstrumentation,
   AgentModelExecutionOptions,
   AgentModelInstrumentationContext,
@@ -50,7 +52,7 @@ import type {
   AgentToolResolverWithWorkspace,
   MaybePromise,
 } from "./types.ts"
-import type { Message, MessagePart } from "./messages.ts"
+import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 export interface AiSdkAdapterOptions<
@@ -74,10 +76,13 @@ export type AiSdkModelExecutionOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   TCallOptions = unknown,
   TTools extends ToolSet = ToolSet,
-> = Omit<AgentModelExecutionOptions<TRuntimeConfig, TCallOptions>, "callSettings" | "workspaceFallback"> & {
+> = Omit<AgentModelExecutionOptions<TRuntimeConfig, TCallOptions>, "attachments" | "callSettings" | "workspaceFallback"> & {
+  attachments?: AiSdkAttachmentOptions
   callSettings?: AiSdkModelCallSettings<TCallOptions, TTools>
   workspaceFallback?: boolean | AiSdkWorkspaceFallbackOptions
 }
+
+export type AiSdkAttachmentOptions = AgentAttachmentExecutionOptions
 
 export interface AiSdkWorkspaceFallbackOptions {
   enabled?: boolean
@@ -86,6 +91,60 @@ export interface AiSdkWorkspaceFallbackOptions {
 
 function isDataMessagePart(part: MessagePart): part is Extract<MessagePart, { type: "data" | `data-${string}` }> {
   return part.type === "data" || part.type.startsWith("data-")
+}
+
+type UserContentPart = Exclude<UserContent, string>[number]
+
+function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob> | URL | undefined {
+  if (part.data && !(part.data instanceof Blob)) return part.data
+  if (part.url) {
+    try {
+      const url = new URL(part.url)
+      if (url.protocol === "https:") return url
+    }
+    catch {
+      // Invalid URLs are not model input.
+    }
+  }
+  if (part.data instanceof Blob) {
+    throw new TypeError("[vitehub] toAiSdkModelMessages() cannot convert a Blob synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL.")
+  }
+  if (part.fetchData) {
+    throw new TypeError("[vitehub] toAiSdkModelMessages() cannot resolve attachment callbacks synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL.")
+  }
+}
+
+function toAttachmentModelPart(part: AttachmentPart): UserContentPart | undefined {
+  const data = attachmentModelData(part)
+  if (!data) return
+  if (part.type === "image") {
+    return { image: data, mediaType: part.mediaType, type: "image" }
+  }
+  return {
+    data,
+    filename: part.name,
+    mediaType: part.mediaType,
+    type: "file",
+  }
+}
+
+function toUserModelMessageContent(parts: MessagePart[]): UserContent | undefined {
+  const attachments = parts.flatMap(part => isAttachmentPart(part) ? [toAttachmentModelPart(part)] : []).filter((part): part is UserContentPart => !!part)
+  if (!attachments.length) {
+    const text = toTextModelMessageContent(parts)
+    return text || undefined
+  }
+  const content: UserContentPart[] = []
+  for (const part of parts) {
+    if (isAttachmentPart(part)) {
+      const attachment = toAttachmentModelPart(part)
+      if (attachment) content.push(attachment)
+      continue
+    }
+    const text = toTextModelMessageContent([part])
+    if (text) content.push({ text, type: "text" })
+  }
+  return content.length ? content : undefined
 }
 
 function toTextModelMessageContent(parts: MessagePart[]): string {
@@ -230,7 +289,9 @@ export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
           ? [{ content, role: message.role } as ModelMessage]
           : []
       }
-      const content = getMessageText(message) || toTextModelMessageContent(message.parts)
+      const content = message.role === "user"
+        ? toUserModelMessageContent(message.parts)
+        : getMessageText(message) || toTextModelMessageContent(message.parts)
       return hasModelMessageContent(content)
         ? [{ content, role: message.role } as ModelMessage]
         : []
@@ -242,7 +303,94 @@ function hasModelMessageContent(content: unknown): boolean {
   return Array.isArray(content) ? content.length > 0 : content != null
 }
 
-function getCallInput(context: AgentAdapterRunContext) {
+const defaultAiSdkAttachmentMaxBytes = 25 * 1024 * 1024
+
+function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): number {
+  const maxBytes = options?.maxBytes ?? defaultAiSdkAttachmentMaxBytes
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
+    throw new TypeError("[vitehub] aiSdk({ execution: { attachments: { maxBytes } } }) must be a positive finite number.")
+  }
+  return maxBytes
+}
+
+function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
+  if (data instanceof Blob) return data.size
+  if (data instanceof ArrayBuffer) return data.byteLength
+  if (ArrayBuffer.isView(data)) return data.byteLength
+  if (typeof data === "string") return new TextEncoder().encode(data).byteLength
+}
+
+function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | undefined, maxBytes: number): void {
+  if (typeof byteLength === "number" && byteLength > maxBytes) {
+    throw new Error(`[vitehub] ${part.type} attachment is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).`)
+  }
+}
+
+async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part: AttachmentPart }> {
+  assertAttachmentWithinLimit(part, part.size, maxBytes)
+  const resolved = typeof part.fetchData === "function" ? await part.fetchData() : part.data
+  if (typeof part.fetchData === "function" && !isAttachmentData(resolved)) {
+    throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
+  }
+  if (!resolved) return { byteLength: part.size ?? 0, part }
+  const byteLength = attachmentDataByteLength(resolved) ?? 0
+  assertAttachmentWithinLimit(part, byteLength, maxBytes)
+  const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved
+  const { fetchData: _fetchData, ...rest } = part
+  return { byteLength, part: { ...rest, data } }
+}
+
+function channelCurrentMessageId(context: AgentAdapterRunContext): string | null | undefined {
+  const inputContext = context.input.context
+  if (!inputContext || typeof inputContext !== "object") return
+  const channel = "channel" in inputContext && inputContext.channel && typeof inputContext.channel === "object"
+    ? inputContext.channel as Record<string, unknown>
+    : undefined
+  const message = channel?.message && typeof channel.message === "object"
+    ? channel.message as Record<string, unknown>
+    : undefined
+  return typeof message?.id === "string" && message.id ? message.id : null
+}
+
+async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string | null): Promise<Message[]> {
+  const maxBytes = aiSdkAttachmentMaxBytes(options)
+  let remainingBytes = maxBytes
+  const resolvedMessages: Message[] = []
+  const currentMessageIndex = currentMessageId === null
+    ? messages.findLastIndex(message => message.role === "user")
+    : undefined
+  for (const [messageIndex, message] of messages.entries()) {
+    if (message.role !== "user") {
+      resolvedMessages.push(message)
+      continue
+    }
+    const parts: MessagePart[] = []
+    for (const part of message.parts) {
+      if (!isAttachmentPart(part)) {
+        parts.push(part)
+        continue
+      }
+      const isHistoricalChannelMessage = currentMessageId !== undefined
+        && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
+      if (isHistoricalChannelMessage) {
+        const { fetchData: _fetchData, ...reference } = part
+        if (reference.data || reference.url) {
+          const resolved = await resolveModelAttachmentPart(reference, remainingBytes)
+          remainingBytes -= resolved.byteLength
+          parts.push(resolved.part)
+        }
+        continue
+      }
+      const resolved = await resolveModelAttachmentPart(part, remainingBytes)
+      remainingBytes -= resolved.byteLength
+      parts.push(resolved.part)
+    }
+    resolvedMessages.push({ ...message, parts })
+  }
+  return resolvedMessages
+}
+
+async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdkAttachmentOptions) {
   const base = {
     abortSignal: context.input.abortSignal,
     timeout: context.input.timeout,
@@ -252,7 +400,7 @@ function getCallInput(context: AgentAdapterRunContext) {
   if (context.messages.length) {
     return {
       ...base,
-      messages: toAiSdkModelMessages(context.messages),
+      messages: toAiSdkModelMessages(await resolveModelAttachments(context.messages, attachments, channelCurrentMessageId(context))),
     }
   }
   if (context.prompt) {
@@ -890,8 +1038,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     : undefined
   return {
     async generate(context) {
-      const callInput = getCallInput(context) as Record<string, unknown>
       const execution = options.execution
+      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
@@ -951,7 +1099,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
       }
-      const callInput = getCallInput(context) as Record<string, unknown>
+      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
@@ -966,11 +1114,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
 export function fromAiSdkAgent(agent: Agent): AgentAdapter {
   return {
     async generate(context) {
-      return await agent.generate(getCallInput(context) as never)
+      return await agent.generate(await getCallInput(context) as never)
     },
     name: "ai-sdk",
     async stream(context) {
-      return await agent.stream(getCallInput(context) as never)
+      return await agent.stream(await getCallInput(context) as never)
     },
   }
 }

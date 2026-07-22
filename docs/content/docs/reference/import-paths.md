@@ -30,8 +30,11 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
 | `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
+| `vite-hub/browser` | Browser Session lifecycle, feature negotiation, inspection, and live handoff. |
+| `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Raw CDP and Playwright Browser Session controllers. |
+| `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Cloudflare Browser Run and local Chromium providers. |
 | `vite-hub/box` | Box Definitions and trusted-host execution contracts. |
-| `vite-hub/box/crabbox` | Crabbox-backed Box runtime. |
+| `vite-hub/box/cloudflare`, `vite-hub/box/crabbox`, and `vite-hub/box/vercel` | Cloudflare, Crabbox, and Vercel Box runtimes. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email Definitions, runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
@@ -44,7 +47,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
-| `vite-hub/sandbox/cloudflare` | Cloudflare-only build layers for the generated Sandbox image. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static and runtime Schedule APIs. |
 | `vite-hub/schedule/runtime/driver` and `vite-hub/schedule/runtime/process` | Host wake registration and process-backed runtime Schedule controls. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
@@ -54,6 +56,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, runtime facades, and registry APIs. |
 | `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |
+| `vite-hub/workspace/collections` and `vite-hub/workspace/collections/client` | Bounded Workspace Collection queries and optional Vue client composables. |
 | `vite-hub/workspace/loader`, `vite-hub/workspace/publish`, and `vite-hub/workspace/server` | Workspace loader, publisher, and manual server extension APIs. |
 
 ViteHub-owned adapters use canonical `vite-hub/*` imports. Their optional
@@ -80,6 +83,11 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
 | `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
+| `@vite-hub/browser` | Browser Package | Browser Session lifecycle, feature negotiation, inspection, and live handoff. |
+| `@vite-hub/browser/controllers/cdp` and `@vite-hub/browser/controllers/playwright` | Browser Package | Raw CDP and Playwright Browser Session controllers. |
+| `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
+| `@vite-hub/box` | Box Package | Box Definitions, sessions, and trusted-host execution. |
+| `@vite-hub/box/cloudflare`, `@vite-hub/box/crabbox`, and `@vite-hub/box/vercel` | Box Package | Cloudflare, Crabbox, and Vercel Box runtimes. |
 | `@vite-hub/email` | Email Package | Email Definition, explicit clients, portable types, and normalized errors. |
 | `@vite-hub/email/server` | Email Runtime | Server-only discovered `email` Runtime Helper. |
 | `@vite-hub/email/drivers/smtp` | Email Package | Optional Node.js SMTP delivery through Nodemailer. |
@@ -97,7 +105,6 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Rate Limit Package | Direct access to a Cloudflare Rate Limiting binding. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
-| `@vite-hub/sandbox/cloudflare` | Sandbox Package | Cloudflare-only build layers for the generated Sandbox image. |
 | `@vite-hub/schedule/runtime` | Schedule Package | Runtime schedule helpers. |
 | `@vite-hub/schedule/runtime/driver` | Schedule Package | Host integration boundary for reconciling stored Runtime Schedules with native wake registrations. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
@@ -114,6 +121,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |
+| `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Register singleton Email Definition discovery and runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |

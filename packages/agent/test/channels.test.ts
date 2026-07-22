@@ -205,9 +205,19 @@ describe("agent channels", () => {
       expect(typeof resolved.setThreadTitle).toBe("function")
 
       await resolved.setThreadTitle?.("discord:guild:channel:thread-1", "  New   Thread   Title  ")
+      const longTitle = `ERROR: ${"x".repeat(120)}`
+      await resolved.setThreadTitle?.("discord:guild:channel:thread-1", longTitle)
 
-      expect(fetch).toHaveBeenCalledWith("https://discord.test/api/channels/thread-1", {
+      expect(fetch).toHaveBeenNthCalledWith(1, "https://discord.test/api/channels/thread-1", {
         body: JSON.stringify({ name: "New Thread Title" }),
+        headers: {
+          Authorization: "Bot bot-token",
+          "Content-Type": "application/json",
+        },
+        method: "PATCH",
+      })
+      expect(fetch).toHaveBeenNthCalledWith(2, "https://discord.test/api/channels/thread-1", {
+        body: JSON.stringify({ name: longTitle.slice(0, 100) }),
         headers: {
           Authorization: "Bot bot-token",
           "Content-Type": "application/json",

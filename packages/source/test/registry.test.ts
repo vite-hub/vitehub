@@ -6,15 +6,21 @@ import {
   defineSources,
   file,
   registerSources,
-  SourceNotFoundError,
   useSource,
 } from "../src/index.ts"
+import { sourcePathError } from "../src/core/errors.ts"
 
 afterEach(() => {
   clearSources()
 })
 
 describe("@vite-hub/source registry", () => {
+  it("bounds invalid Source paths", () => {
+    const error = sourcePathError(`../${"x".repeat(20_000)}`)
+    expect(error).toMatchObject({ code: "SOURCE_PATH_INVALID" })
+    expect(error.details?.path).toHaveLength(4_096)
+  })
+
   it("registers sources and reads through useSource", async () => {
     registerSources(defineSources({
       docs: file({ content: "# Docs\n", workspacePath: "README.md" }),
@@ -41,7 +47,7 @@ describe("@vite-hub/source registry", () => {
   })
 
   it("throws a source-specific error for missing registrations", () => {
-    expect(() => useSource("missing" as any)).toThrow(SourceNotFoundError)
+    expect(() => useSource("missing" as any)).toThrow(expect.objectContaining({ code: "SOURCE_NOT_FOUND", name: "ViteHubError" }))
   })
 
   it("passes the abort signal to custom Source methods", async () => {

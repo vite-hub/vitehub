@@ -127,15 +127,17 @@ describe("package manifest contracts", () => {
     }
   })
 
-  it("keeps blob adapter SDKs as optional peers", () => {
+  it("keeps the private Vercel Blob runtime owned by the blob package", () => {
     const manifest = readPackageManifest("blob")
+    const frameworkManifest = readPackageManifest("vite-hub")
 
-    for (const name of ["files-sdk"]) {
-      expect(manifest.dependencies?.[name], `${name} should not be installed with @vite-hub/blob by default`).toBeUndefined()
-      expect(manifest.peerDependencies?.[name], `${name} should be declared as an opt-in blob peer`).toEqual(expect.any(String))
-      expect(manifest.peerDependenciesMeta?.[name]?.optional, `${name} should be an optional blob peer`).toBe(true)
-      expect(manifest.devDependencies?.[name], `${name} should remain available for blob development and tests`).toEqual(expect.any(String))
-    }
+    expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
+    expect(manifest.peerDependencies?.["files-sdk"]).toEqual(expect.any(String))
+    expect(manifest.peerDependenciesMeta?.["files-sdk"]?.optional).toBe(true)
+    expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@vercel/blob"]).toEqual(expect.any(String))
+    expect(frameworkManifest.dependencies?.["files-sdk"]).toEqual(expect.any(String))
+    expect(frameworkManifest.dependencies?.["@netlify/blobs"]).toEqual(expect.any(String))
   })
 })
 
@@ -192,6 +194,10 @@ describe("playground import contracts", () => {
       viteE2e.indexOf("function renderWorkspaceRuntimeModule"),
       viteE2e.indexOf("function renderWorkspaceShellRuntimeModule"),
     )
+    const vercelQueueWrapper = viteE2e.slice(
+      viteE2e.indexOf("function renderVercelQueueWrapper"),
+      viteE2e.indexOf("function renderVercelScheduleWrapper"),
+    )
     const sourceExports = [...sourceIndex.matchAll(/^export \{ (\w+) \}/gm)].map(match => match[1]).sort()
     const shimExports = [...workspaceShim.matchAll(/`export (?:\{ (\w+) \}|\* as (\w+)|const (\w+) =)/g)].map(match => match[1] || match[2] || match[3]).sort()
     const sourceShim = workspaceShim.match(/export const source = \{([^`]+)\}/)?.[1] || ""
@@ -199,6 +205,14 @@ describe("playground import contracts", () => {
 
     expect(shimExports).toEqual(["defineWorkspace", "source", "useWorkspace"])
     expect(shimProperties.sort()).toEqual(sourceExports)
+    expect(viteE2e).toContain('alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile')
+    expect(viteE2e).toContain('resolve(queuePackageDir, "src/runtime/create-client.ts")')
+    expect(viteE2e).not.toContain('export { createQueueClient, deferQueue, getQueue, runQueue }')
+    expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
+    expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)")
+    expect(vercelQueueWrapper).toContain("createVercelQueueRuntimeClient")
+    expect(vercelQueueWrapper).toContain("}, createVercelQueueRuntimeClient)`")
+    expect(viteE2e).not.toContain('"setQueueRuntimeConfig(queueConfig)"')
   })
 })
 

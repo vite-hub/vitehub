@@ -195,9 +195,9 @@ Do not copy a general user Home into Box state. It mixes unrelated credentials a
 
 | Primitive | Owns                                                                                                        |
 | --------- | ----------------------------------------------------------------------------------------------------------- |
-| Box       | Process environment, private Home, immutable inputs, writable CLI state, working checkout, and boot checks. |
+| Box       | Provider isolation, process environment, private Home, immutable inputs, writable CLI state, working checkout, and boot checks. |
 | Workspace | Model-visible file context, Sources, rules, snapshots, and writeback.                                       |
-| Sandbox   | Provider isolation for untrusted code.                                                                      |
+| Sandbox   | Named package-project discovery, preparation, invocation, timeout, and lifecycle orchestration.              |
 
 Box `cwd` and `checkout` cannot be combined with Agent Workspace materialization because each owns the working tree. Omit both when an Agent Workspace should be materialized into a disposable Box session.
 

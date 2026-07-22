@@ -26,7 +26,7 @@ export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameter
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
   input?: AgentRunInput<CALL_OPTIONS>
-  run?: AgentRunMetadata
+  run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeName
   runtimeConfig?: AgentRuntimeConfig
 }
@@ -63,11 +63,12 @@ export async function runAgentWorkflowDefinition<
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
     : undefined
+  const runId = context.id || payload.run?.runId
   const runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
     ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
-    ...(payload.run || context.id
-      ? { run: payload.run || { origin: `workflow:${context.provider}`, runId: context.id! } }
+    ...(runId
+      ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } }
       : {}),
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
     runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,

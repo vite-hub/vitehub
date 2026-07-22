@@ -5,8 +5,6 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   authenticated,
-  AuthenticationRequiredError,
-  type AuthenticationRequiredErrorOptions,
   type AuthenticatedOptions,
   type AuthenticatedSessionData,
   type AuthenticatedUser,
@@ -28,8 +26,6 @@ import {
   auth,
   createAuthForRequest,
   handleAuthRequest,
-  AuthenticationProviderError,
-  type AuthenticationProviderErrorOptions,
   requireAuth,
 } from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
@@ -144,23 +140,6 @@ describe("types", () => {
     expectTypeOf(typedInvoker).toMatchTypeOf<AgentInvokerOptions>()
     expectTypeOf({ kind: "authUser" }).toMatchTypeOf<AuthenticatedOptions>()
 
-    const authError = new AuthenticationRequiredError({
-      cause: new Error("protected diagnostic"),
-      message: "Sign in required.",
-    } satisfies AuthenticationRequiredErrorOptions)
-    expectTypeOf(authError.code).toEqualTypeOf<"AUTHENTICATION_REQUIRED">()
-    expectTypeOf(authError.statusCode).toEqualTypeOf<401>()
-
-    const providerError = new AuthenticationProviderError({
-      cause: new Error("protected provider diagnostic"),
-      operation: "get-session",
-    } satisfies AuthenticationProviderErrorOptions)
-    expectTypeOf(providerError.code).toEqualTypeOf<"AUTH_PROVIDER_OPERATION_FAILED">()
-    expectTypeOf(providerError.details!.operation).toEqualTypeOf<"get-auth-for-request" | "get-session">()
-    expectTypeOf(providerError.details!.provider).toEqualTypeOf<"better-auth">()
-
-    // @ts-expect-error AuthenticationRequiredError has no public details channel.
-    new AuthenticationRequiredError({ details: { surface: "agent-invoker" } })
   })
 
   it("exposes resolved database placement metadata", () => {

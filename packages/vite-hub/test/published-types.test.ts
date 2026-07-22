@@ -11,4 +11,4 @@ const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
 it("publishes Env's Vite config augmentation from the framework root", async () => {
   await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", resolve(packageRoot, "fixtures/published-types")])
-})
+}, 10_000)

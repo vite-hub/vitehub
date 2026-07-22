@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { AgentOutputValidationError, defineAgent, runAgentInline, streamAgentInline } from "../src/index.ts"
+import { ViteHubError } from "@vite-hub/runtime"
+import { defineAgent, runAgentInline, streamAgentInline } from "../src/index.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -63,42 +64,24 @@ describe("Agent structured output", () => {
   })
 
   it("reports malformed JSON with a stable ViteHub-owned error", async () => {
-    expect(() => new AgentOutputValidationError("CUSTOM" as never)).toThrow(TypeError)
     const agent = defineAgent({
       driver: { run: () => "not json" },
       output: { schema: summarySchema() },
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as AgentOutputValidationError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as ViteHubError)
     expect(error).toMatchObject({
       code: "AGENT_OUTPUT_INVALID_JSON",
       message: "[vitehub] Agent output is not valid JSON.",
-      name: "AgentOutputValidationError",
-    } satisfies Partial<AgentOutputValidationError>)
+      name: "ViteHubError",
+    } satisfies Partial<ViteHubError>)
     expect(error?.cause).toBeInstanceOf(SyntaxError)
     expect(error?.toJSON()).toEqual({
       code: "AGENT_OUTPUT_INVALID_JSON",
       message: "[vitehub] Agent output is not valid JSON.",
-      retryable: false,
+      name: "ViteHubError",
     })
-  })
-
-  it("handles hostile output-error constructor options", () => {
-    const secret = "https://user:token@example.com/private"
-    const options = new Proxy({}, {
-      get() {
-        throw new Error(secret)
-      },
-    })
-    const error = new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", options as never)
-
-    expect(error.toJSON()).toEqual({
-      code: "AGENT_OUTPUT_INVALID_JSON",
-      message: "[vitehub] Agent output is not valid JSON.",
-      retryable: false,
-    })
-    expect(JSON.stringify(error)).not.toContain(secret)
   })
 
   it("preserves custom schema failures exactly", async () => {
@@ -129,7 +112,7 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as AgentOutputValidationError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as ViteHubError)
     expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_INVALID_JSON" })
     expect(JSON.stringify(error)).not.toContain("private model getter")
   })
@@ -151,7 +134,7 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as AgentOutputValidationError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as ViteHubError)
     expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_SCHEMA_INVALID" })
     expect(JSON.stringify(error)).not.toContain("private issue getter")
   })
@@ -375,13 +358,13 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as AgentOutputValidationError)
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as ViteHubError)
     expect(error).toMatchObject({
       code: "AGENT_OUTPUT_SCHEMA_INVALID",
       message: "[vitehub] Agent output failed schema validation.",
-      name: "AgentOutputValidationError",
-    } satisfies Partial<AgentOutputValidationError>)
-    expect((error as AgentOutputValidationError).cause).toMatchObject({ message: "title: Expected summary and title strings" })
+      name: "ViteHubError",
+    } satisfies Partial<ViteHubError>)
+    expect(error?.cause).toMatchObject({ message: "title: Expected summary and title strings" })
     expect(JSON.stringify(error)).not.toContain("Expected summary")
   })
 

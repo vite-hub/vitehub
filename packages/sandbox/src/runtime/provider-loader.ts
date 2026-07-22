@@ -1,34 +1,35 @@
+import type { Box } from '@vite-hub/box'
 import type { SandboxDefinitionOptions, SandboxDefinitionProviderOptions } from '../module-types'
-import type { SandboxClient, SandboxProvider, SandboxProviderOptions } from '../sandbox/types'
+import type { SandboxProvider } from '../module-types'
+
+export interface ResolvedSandboxBox {
+  closeAfterRun?: boolean
+  provider: SandboxProvider
+  resolveBox: (requirements: readonly string[]) => Promise<Box>
+  sandboxId?: string
+}
 
 export interface SandboxRuntimeProvider {
-  resolveSandboxProvider: (
+  resolveSandboxBox: (
     options: {
       local: SandboxDefinitionOptions
       provider: SandboxDefinitionProviderOptions & { provider: SandboxProvider }
     } | any,
     context?: any,
-  ) => Promise<SandboxProviderOptions>
-  createSandboxClient: (provider: SandboxProviderOptions | any) => Promise<SandboxClient>
+  ) => Promise<ResolvedSandboxBox>
 }
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
 
 export async function loadSandboxRuntimeProvider(provider: SandboxProvider): Promise<SandboxRuntimeProvider> {
   if (provider === 'cloudflare') {
-    const [{ resolveSandboxProvider }, { createCloudflareSandboxClient }] = await Promise.all([
-      dynamicImport<typeof import('./providers/cloudflare')>('./providers/cloudflare.js'),
-      dynamicImport<typeof import('../sandbox/providers/cloudflare')>('../sandbox/providers/cloudflare.js'),
-    ])
-    return { resolveSandboxProvider, createSandboxClient: createCloudflareSandboxClient }
+    const { resolveSandboxBox } = await dynamicImport<typeof import('./providers/cloudflare')>('./providers/cloudflare.js')
+    return { resolveSandboxBox }
   }
 
   if (provider === 'vercel') {
-    const [{ resolveSandboxProvider }, { createVercelSandboxClient }] = await Promise.all([
-      dynamicImport<typeof import('./providers/vercel')>('./providers/vercel.js'),
-      dynamicImport<typeof import('../sandbox/providers/vercel')>('../sandbox/providers/vercel.js'),
-    ])
-    return { resolveSandboxProvider, createSandboxClient: createVercelSandboxClient }
+    const { resolveSandboxBox } = await dynamicImport<typeof import('./providers/vercel')>('./providers/vercel.js')
+    return { resolveSandboxBox }
   }
 
   throw new Error(`[vitehub] Unsupported sandbox provider: ${provider}`)

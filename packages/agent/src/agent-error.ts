@@ -1,11 +1,6 @@
 import {
-  ApprovalRequiredError,
-  CapabilityDeniedError,
-  CapabilityNotFoundError,
+  getViteHubErrorShape,
 } from "@vite-hub/runtime"
-
-import { LlmGateRejectedError } from "./capabilities/llm-gate.ts"
-import { RateLimitRejectedError } from "./capabilities/rate-limit.ts"
 
 interface NormalizedAgentError {
   message: string
@@ -124,9 +119,10 @@ function identifier(value: unknown): string | undefined {
   return /^[A-Za-z0-9@][A-Za-z0-9@._:/-]*$/.test(value) ? value : undefined
 }
 
-function publicDetails(error: object, extra: AgentPublicErrorDetails = {}): AgentPublicErrorDetails | undefined {
+function publicDetails(error: unknown, extra: AgentPublicErrorDetails = {}): AgentPublicErrorDetails | undefined {
   const owned = readAgentErrorProperty(error, "details")
   const capability = identifier(readAgentErrorProperty(error, "capabilityId"))
+    ?? identifier(readAgentErrorProperty(owned, "capabilityId"))
     ?? identifier(readAgentErrorProperty(owned, "capability"))
   const details = { ...(capability ? { capability } : {}), ...extra }
   return Object.keys(details).length ? details : undefined
@@ -142,30 +138,30 @@ function publicError(
 
 export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
   try {
-    if (readAgentErrorProperty(error, "code") === "AUTHENTICATION_REQUIRED"
-      && readAgentErrorProperty(error, "statusCode") === 401) {
+    const viteHubError = getViteHubErrorShape(error)
+    if (viteHubError?.code === "AUTHENTICATION_REQUIRED") {
       return publicError("AUTHENTICATION_REQUIRED", "Authentication required.")
     }
-    if (error instanceof RateLimitRejectedError) {
-      const retryAfter = readAgentErrorProperty(error, "retryAfter")
+    if (viteHubError?.code === "RATE_LIMIT_REJECTED" || viteHubError?.code === "RATE_LIMIT_UNAVAILABLE") {
+      const retryAfter = viteHubError.details?.retryAfter
       const details = publicDetails(error, typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter >= 0
         ? { retryAfter }
         : {})
-      return readAgentErrorProperty(readAgentErrorProperty(error, "decision"), "reason") === "unavailable"
+      return viteHubError.code === "RATE_LIMIT_UNAVAILABLE"
         ? publicError("RATE_LIMIT_UNAVAILABLE", "Rate limiting is unavailable.", details)
         : publicError("RATE_LIMIT_REJECTED", "Rate limit exceeded. Try again later.", details)
     }
-    if (error instanceof LlmGateRejectedError) {
-      const category = identifier(readAgentErrorProperty(readAgentErrorProperty(error, "decision"), "category"))
+    if (viteHubError?.code === "LLM_GATE_REJECTED") {
+      const category = identifier(viteHubError.details?.category)
       return publicError("LLM_GATE_REJECTED", "Agent request was rejected.", publicDetails(error, category ? { category } : {}))
     }
-    if (error instanceof CapabilityNotFoundError) {
+    if (viteHubError?.code === "CAPABILITY_NOT_FOUND") {
       return publicError("CAPABILITY_NOT_FOUND", "Capability was not found.", publicDetails(error))
     }
-    if (error instanceof CapabilityDeniedError) {
+    if (viteHubError?.code === "CAPABILITY_DENIED") {
       return publicError("CAPABILITY_DENIED", "Capability access was denied.", publicDetails(error))
     }
-    if (error instanceof ApprovalRequiredError) {
+    if (viteHubError?.code === "APPROVAL_REQUIRED") {
       const requestId = identifier(readAgentErrorProperty(error, "requestId"))
       return {
         ...publicError("APPROVAL_REQUIRED", "Capability approval is required.", publicDetails(error)),

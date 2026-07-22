@@ -426,7 +426,7 @@ describe("workspace CLI", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("infers trusted-host runtime for Workspace Dev command definitions", async () => {
+  it("requires an explicit Box session host for Workspace Dev commands", async () => {
     const workspace = `workspace-dev-${Math.random().toString(36).slice(2)}`
 
     await expect(runWorkspaceDevCommand({
@@ -439,10 +439,6 @@ describe("workspace CLI", () => {
         store: { provider: "memory" },
       },
       workspace,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stderr: "",
-      stdout: "",
-    })
+    })).rejects.toThrow("requires a Box session host")
   })
 })

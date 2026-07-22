@@ -1,16 +1,19 @@
 declare module 'vitehub-sandbox-provider-loader' {
-  import type { SandboxDefinitionOptions, SandboxDefinitionProviderOptions } from '../module-types'
-  import type { SandboxClient, SandboxProvider, SandboxProviderOptions } from '../sandbox/types'
+  import type { Box } from '@vite-hub/box'
+  import type { SandboxDefinitionOptions, SandboxDefinitionProviderOptions, SandboxProvider } from '../module-types'
 
   export function loadSandboxRuntimeProvider(selectedProvider: string): Promise<{
-    resolveSandboxProvider: (
+    resolveSandboxBox: (
       provider: {
         local: SandboxDefinitionOptions
         provider: SandboxDefinitionProviderOptions & { provider: SandboxProvider }
       },
       context: { event?: unknown },
-    ) => Promise<SandboxProviderOptions>
-    createSandboxClient: (provider: SandboxProviderOptions) => Promise<SandboxClient>
+    ) => Promise<{
+      provider: SandboxProvider
+      resolveBox: (requirements: readonly string[]) => Promise<Box>
+      sandboxId?: string
+    }>
   }>
 }
 

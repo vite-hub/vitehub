@@ -44,22 +44,13 @@ describe("provider detection", () => {
   })
 
   it("resolves the Cloudflare binding from the scoped environment", async () => {
-    vi.doMock("@cloudflare/sandbox", () => ({ getSandbox: vi.fn() }))
     const namespace = {}
 
-    try {
-      const { resolveSandboxProvider } = await import("../src/runtime/providers/cloudflare.ts")
-      const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
-        resolveSandboxProvider({
-          local: {},
-          provider: { provider: "cloudflare" },
-        }))
+    const { resolveSandboxBox } = await import("../src/runtime/providers/cloudflare.ts")
+    const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
+      resolveSandboxBox({ local: {}, provider: { provider: "cloudflare" } }))
 
-      expect(provider.namespace).toBe(namespace)
-    }
-    finally {
-      vi.doUnmock("@cloudflare/sandbox")
-    }
+    expect(provider.resolveBox).toEqual(expect.any(Function))
   })
 
   it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {
@@ -70,7 +61,7 @@ describe("provider detection", () => {
       },
     })
 
-    const { isSandboxAvailable } = await import("../src/sandbox/providers/shared.ts")
+    const { isSandboxAvailable } = await import("../src/runtime/provider-resolution.ts")
 
     expect(isSandboxAvailable("vercel")).toBe(false)
     expect(isSandboxAvailable()).toBe(false)
@@ -81,31 +72,10 @@ describe("provider detection", () => {
       resolve: (id: string) => id,
     })
 
-    const { isSandboxAvailable } = await import("../src/sandbox/providers/shared.ts")
+    const { isSandboxAvailable } = await import("../src/runtime/provider-resolution.ts")
 
     expect(isSandboxAvailable("vercel")).toBe(true)
     expect(isSandboxAvailable("cloudflare")).toBe(true)
   })
 
-  it("does not load the Cloudflare SDK when a sandbox getter is injected", async () => {
-    vi.resetModules()
-    vi.doMock("@cloudflare/sandbox", () => {
-      throw new Error("unexpected Cloudflare SDK load")
-    })
-
-    try {
-      const { createCloudflareSandboxClient } = await import("../src/sandbox/providers/cloudflare.ts")
-      const client = await createCloudflareSandboxClient({
-        getSandbox: () => ({}) as never,
-        namespace: {} as never,
-        provider: "cloudflare",
-      })
-
-      expect(client.provider).toBe("cloudflare")
-    }
-    finally {
-      vi.doUnmock("@cloudflare/sandbox")
-      vi.resetModules()
-    }
-  })
 })

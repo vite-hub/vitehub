@@ -18,7 +18,7 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Workflow | `server/workflows/<path>.ts` or a folder containing `index.ts` or numbered step files | `<path>.workflow.ts` | Normalized relative file or folder path. Agent Definitions contribute their Agent identity by default, `workflow(...)` can override it, and `runtime: false` opts out. |
 | Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
-| Sandbox | `server/sandboxes/<path>.ts` | `<path>.sandbox.ts` outside `server/sandboxes/` | Normalized relative path, without a trailing `.sandbox` segment. |
+| Sandbox | `server/sandboxes/<path>/{package.json,index.ts}` | `<path>.sandbox.ts` outside `server/sandboxes/` | Normalized folder or suffix path, without a trailing `.sandbox` segment. |
 | Workspace | `server/workspaces/<path>.ts`, `server/workspaces/<name>/config.ts`, or `server/agents/<name>/agent.ts` when the Agent declares a Workspace | `<path>.workspace.ts` | Normalized relative path or the colocated Agent name. |
 
 The table uses `.ts` for brevity. Directory and suffix patterns accept JavaScript and TypeScript module variants where the owning package permits them. `src/database.ts` is the exact default Database suffix-mode file.
@@ -27,7 +27,9 @@ Rate Limit deliberately has no file convention. Call `requireRateLimit(event, id
 
 ## Export shape
 
-First-class discovered definition files default-export the package-owned Definition Boundary Helper. This keeps Build-Extracted Definition Options limited to the direct discovered default export.
+Most discovered Definition files default-export the package-owned Definition Boundary Helper. This keeps Build-Extracted Definition Options limited to the direct discovered default export.
+
+Canonical Sandbox package projects are the exception: `server/sandboxes/<path>/index.ts` default-exports an async `(payload, context) => result` function. The adjacent `package.json` must set `"type": "module"`. Local TypeScript uses explicit relative ESM imports, while bare dependencies must expose runtime-ready JavaScript; CommonJS source and package-local import aliases are not compiled. The folder supplies the Definition identity, and optional static wall-clock policy comes from `vitehub.sandbox.timeout`. Free-form `<path>.sandbox.ts` files still default-export `defineSandbox(...)`.
 
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from '@vite-hub/queue'

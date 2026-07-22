@@ -32,9 +32,9 @@ export function resolveFeatureRuntimePath(
   if ((!importerUsesDist || !targetsSourceTree) && resolvedSourcePath)
     return resolvedSourcePath
 
-  const resolvedPackageJson = tryResolveModule(`${packageId}/package.json`)
-  if (resolvedPackageJson.ok) {
-    const packageRoot = dirname(resolvedPackageJson.path)
+  const [packageJsonError, packageJsonPath] = tryResolveModule(`${packageId}/package.json`)
+  if (!packageJsonError) {
+    const packageRoot = dirname(packageJsonPath)
     const packageSourcePath = join(
       packageRoot,
       'src',
@@ -45,12 +45,12 @@ export function resolveFeatureRuntimePath(
     const resolvedPackageSourcePath = resolveExistingModulePath(packageSourcePath)
     if ((!importerUsesDist || !targetsSourceTree) && resolvedPackageSourcePath)
       return resolvedPackageSourcePath
-    return join(dirname(resolvedPackageJson.path), 'dist', distRelativePath)
+    return join(dirname(packageJsonPath), 'dist', distRelativePath)
   }
 
-  const resolvedPackage = tryResolveModule(packageId)
-  if (resolvedPackage.ok)
-    return join(dirname(resolvedPackage.path), distRelativePath)
+  const [packageError, packagePath] = tryResolveModule(packageId)
+  if (!packageError)
+    return join(dirname(packagePath), distRelativePath)
 
   return sourcePath
 }

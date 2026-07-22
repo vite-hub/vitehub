@@ -9,14 +9,16 @@ export type ReleaseNotesResult = {
   items: string[]
 }
 
-export default defineSandbox(async (payload: ReleaseNotesPayload = {}): Promise<ReleaseNotesResult> => {
-  const items = (payload.notes || "")
-    .split("\n")
-    .map(note => note.replace(/^[-*]\s*/, "").trim())
-    .filter(Boolean)
+export default defineSandbox({
+  async run(payload: ReleaseNotesPayload = {}): Promise<ReleaseNotesResult> {
+    const items = (payload.notes || "")
+      .split("\n")
+      .map(note => note.replace(/^[-*]\s*/, "").trim())
+      .filter(Boolean)
 
-  return {
-    summary: items[0] || "",
-    items,
-  }
+    return {
+      summary: items[0] || "",
+      items,
+    }
+  },
 })

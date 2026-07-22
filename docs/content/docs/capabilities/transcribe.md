@@ -42,7 +42,7 @@ export default defineAgent({
 ## Runtime behavior
 
 `transcribe()` runs before model execution.
-It enforces the configured maximum audio size, resolves audio data from direct data, `fetchData`, or URL, and appends transcript text to the user message.
+It enforces the configured maximum audio size, resolves audio data from direct data, `fetchData`, or URL, and replaces the consumed audio parts with transcript text in the user message.
 
 When artifacts are enabled, it writes sanitized transcript and optional audio files to the Agent's writable Workspace and exposes results as a finish extension.
 
@@ -98,7 +98,7 @@ Use a signed HTTPS URL for private Blob objects, with an expiry long enough for 
 The caller still owns callback authentication before `receive()`, durable operation state, duplicate-delivery handling, timeouts, and workflow resumption.
 Compose those concerns with the Workflow primitive; correlation metadata is untrusted until it matches the stored workflow attempt.
 Provider callback payloads and SDK types do not cross the transcription client interface.
-Failed completions contain a `TranscriptionError` with a fixed `TRANSCRIPTION_*` code and message. Raw provider diagnostics stay behind the in-memory `cause` and are omitted when the completion is serialized.
+Failed completions contain a `ViteHubError` with a fixed `TRANSCRIPTION_*` code and message. Raw provider diagnostics stay behind the in-memory `cause` and are omitted when the completion is serialized.
 
 ## Requirements
 

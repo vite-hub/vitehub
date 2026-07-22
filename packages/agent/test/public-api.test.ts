@@ -45,24 +45,15 @@ it("keeps Effect out of published Agent declarations", async () => {
 
   const output = declarations.join("\n")
   expect(containsForbiddenPublicReference(output)).toBe(false)
-  expect(output).toContain("class AgentOutputValidationError extends ViteHubError")
-  expect(output).toContain("class TranscriptionError extends ViteHubError")
+  expect(output).not.toContain("class AgentOutputValidationError")
+  expect(output).not.toContain("class TranscriptionError")
 })
 
-it("keeps built Agent error constructors safe for hostile options", async () => {
-  const { AgentOutputValidationError } = await import("../dist/index.js")
-  const { TranscriptionError } = await import("../dist/capabilities.js")
-  const secret = "https://user:token@example.com/private"
-  const options = new Proxy({}, {
-    get() {
-      throw new Error(secret)
-    },
-  })
-
-  const transcription = new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", options)
-  const output = new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", options)
-  expect(JSON.stringify(transcription)).not.toContain(secret)
-  expect(JSON.stringify(output)).not.toContain(secret)
+it("does not publish Agent-specific error constructors", async () => {
+  const agent = await import("../dist/index.js")
+  const capabilities = await import("../dist/capabilities.js")
+  expect(agent).not.toHaveProperty("AgentOutputValidationError")
+  expect(capabilities).not.toHaveProperty("TranscriptionError")
 })
 
 it("pins Effect to the Agent implementation dependency without leaking runtime failures", async () => {

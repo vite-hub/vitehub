@@ -1,15 +1,15 @@
 import { execFile } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 
-import type { HarnessV1SandboxProvider } from "@ai-sdk/harness"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { resolveBox } from "../src/index.ts"
 import { crabbox } from "../src/crabbox.ts"
 import { pruneWorkspaceForArchive, rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
+import { boxProvider } from "./helpers.ts"
 
 const roots: string[] = []
 const execFileAsync = promisify(execFile)
@@ -35,7 +35,7 @@ describe("crabbox", () => {
       },
     );
 
-    expect(box).toMatchObject({
+    expect(box.plan).toMatchObject({
       cache: { state: "disposable" },
       environment: {},
       isolation: "none",
@@ -47,7 +47,7 @@ describe("crabbox", () => {
       ],
       workspace: { path: await realpath(workspace), state: "authoritative" },
     })
-    expect(box.sandbox).toMatchObject({ providerId: "crabbox" })
+    expect(box.open).toBeTypeOf("function")
     expect(JSON.stringify(box)).not.toContain("sandbox")
   })
 
@@ -75,9 +75,9 @@ describe("crabbox", () => {
           checkout: { ref: "refs/heads/main", remote: repository, sha },
           runtime: crabbox({ profile: "babysitter" }),
         }, {})
-        expect(box.workspace).toEqual({ state: "disposable", workDir: "workspace" })
-        const session = await (box.sandbox as HarnessV1SandboxProvider).createSession()
-        const sessionRoot = session.defaultWorkingDirectory
+        expect(box.plan.workspace).toEqual({ state: "disposable", workDir: "workspace" })
+        const session = await boxProvider(box).createSession()
+        const sessionRoot = dirname(session.defaultWorkingDirectory)
         await expect(session.run({
           command: "git rev-parse HEAD",
           workingDirectory: join(sessionRoot, "workspace"),
@@ -138,7 +138,7 @@ describe("crabbox", () => {
         }, {})
 
         await expect(
-          (box.sandbox as HarnessV1SandboxProvider).createSession(),
+          boxProvider(box).createSession(),
         ).rejects.toThrow("checkout revision mismatch")
         const cleanup = (await readFile(log, "utf8"))
           .trim()
@@ -207,7 +207,7 @@ describe("crabbox", () => {
           },
           {},
         );
-        const sandbox = box.sandbox as HarnessV1SandboxProvider;
+        const sandbox = boxProvider(box);
         const first = await sandbox.createSession();
         await expect(
           first.run({ command: 'printf "%s|" "$ACME_TOKEN"; cat "$HOME/.acme/auth.json"' }),
@@ -239,7 +239,7 @@ describe("crabbox", () => {
           },
           {},
         );
-        const third = await (withoutProjection.sandbox as HarnessV1SandboxProvider).createSession();
+        const third = await boxProvider(withoutProjection).createSession();
         await expect(
           third.run({ command: 'test ! -e "$HOME/.acme/config.toml" && cat "$HOME/.acme/auth.json"' }),
         ).resolves.toMatchObject({ stdout: "refreshed" });
@@ -279,7 +279,7 @@ describe("crabbox", () => {
         },
         {},
       );
-      const sandbox = box.sandbox as HarnessV1SandboxProvider;
+      const sandbox = boxProvider(box);
 
       await expect(
         sandbox.createSession({
@@ -316,7 +316,7 @@ describe("crabbox", () => {
             },
             {},
           );
-          return box.sandbox as HarnessV1SandboxProvider;
+          return boxProvider(box);
         }),
       );
       const first = await sandboxes[0].createSession();
@@ -350,7 +350,7 @@ describe("crabbox", () => {
         },
         {},
       );
-      const sandbox = box.sandbox as HarnessV1SandboxProvider;
+      const sandbox = boxProvider(box);
       const first = await sandbox.createSession();
       await first.destroy?.();
       const entries = await readdir(stateRoot, { withFileTypes: true });
@@ -388,7 +388,7 @@ describe("crabbox", () => {
           },
           {},
         );
-        const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+        const session = await boxProvider(box).createSession();
         const holderPid = Number(await readFile(holder, "utf8"));
         process.kill(holderPid, "SIGKILL");
 
@@ -417,7 +417,7 @@ describe("crabbox", () => {
 
     const box = await resolveBox({ runtime: crabbox(), cwd: linkedWorkspace }, {})
 
-    expect(box.workspace.path).toBe(await realpath(workspace))
+    expect(box.plan.workspace.path).toBe(await realpath(workspace))
   })
 
   it("rejects archive entries beneath local symlinks", async () => {
@@ -547,9 +547,9 @@ describe("crabbox", () => {
         cwd: workspace,
       }, {},
         );
-        const sandbox = box.sandbox as { createSession(): Promise<any> }
+        const sandbox = boxProvider(box)
       const session = await sandbox.createSession()
-      const cacheRoot = session.defaultWorkingDirectory
+      const cacheRoot = dirname(session.defaultWorkingDirectory)
 
       await session.writeTextFile({ content: "cache", path: "cache.txt" })
       await session.writeTextFile({ content: "CACHE", path: "cache.txt" })
@@ -609,7 +609,7 @@ describe("crabbox", () => {
       PATH: `${bin}:${process.env.PATH || ""}`,
     }, async () => {
       const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
-      const sandbox = box.sandbox as { createSession(): Promise<any> }
+      const sandbox = boxProvider(box)
       const session = await sandbox.createSession()
 
       const httpUrl = await session.getPortUrl({ port: 3000 })
@@ -646,7 +646,7 @@ describe("crabbox", () => {
           runtime: crabbox({ profile: "babysitter", reclaim: true }),
           cwd: workspace,
         }, {})
-        return await (box.sandbox as { createSession(): Promise<any> }).createSession()
+        return await boxProvider(box).createSession()
       }))
 
       await Promise.all(sessions.map(session => session.destroy()))
@@ -669,7 +669,7 @@ describe("crabbox", () => {
 
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
-      const sandbox = box.sandbox as { createSession(): Promise<any> }
+      const sandbox = boxProvider(box)
       const first = await sandbox.createSession()
       let created = false
       const second = sandbox.createSession().then((session) => {
@@ -693,7 +693,7 @@ describe("crabbox", () => {
 
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
-      const sandbox = box.sandbox as HarnessV1SandboxProvider
+      const sandbox = boxProvider(box)
       const first = await sandbox.createSession()
       const controller = new AbortController()
       const second = sandbox.createSession({ abortSignal: controller.signal })
@@ -715,7 +715,7 @@ describe("crabbox", () => {
 
     await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
-      const session = await (box.sandbox as HarnessV1SandboxProvider).createSession()
+      const session = await boxProvider(box).createSession()
 
       await expect(
         withEnvironment({ CRABBOX_TEST_FAIL_SYNC: "1" }, async () => await session.destroy?.()),
@@ -747,7 +747,7 @@ describe("crabbox", () => {
           runtime: crabbox({ profile: "babysitter", reclaim: true }),
           cwd: workspace,
         }, {})
-        return await (box.sandbox as HarnessV1SandboxProvider).createSession({
+        return await boxProvider(box).createSession({
           async onFirstCreate(session) {
             await session.writeTextFile({ content: `bootstrap-${index}`, path: "bootstrap.txt" })
           },
@@ -781,7 +781,7 @@ describe("crabbox", () => {
         requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }],
             cwd: workspace,
       }, {})
-      const sandbox = box.sandbox as { createSession(): Promise<unknown> }
+      const sandbox = boxProvider(box)
       await expect(sandbox.createSession()).rejects.toThrow(
           'Box requirement "GitHub CLI" failed',
         );

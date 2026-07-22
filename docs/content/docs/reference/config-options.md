@@ -8,16 +8,20 @@ icon: i-lucide-sliders-horizontal
 Integration Options configure ViteHub package integrations.
 Provider Selection belongs in Integration Options when it changes generated output, bindings, imports, or deployment behavior.
 
-## Preset options
+## Built-in deployment preset
+
+`vitehub()` requires exactly one built-in `preset`: `cloudflare`, `netlify`, `vercel`, `deno`, or `node`. The selection is the single source for host identity, runtime, Nitro output, packaging, and built-in Blob, Queue, Rate Limit, and Sandbox adapters. Conflicting Nitro or hosting environment selections fail configuration.
 
 | Import | Public type | Placement | Defaults |
 | --- | --- | --- | --- |
-| `vite-hub` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`. Auth, Email, KV, Queue, Rate Limit, Sandbox, and Schedule are enabled with `true` for inferred defaults or with their integration options. Application APIs use intentional `vite-hub/*` feature subpaths. |
+| `vite-hub` | `ViteHubOptions` | `vitehub({ preset })` in Vite `plugins` | Composes Agent, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`; includes Blob when the preset supplies a built-in store. Auth, Email, KV, Queue, Rate Limit, Sandbox, and Schedule are enabled with `true`. |
+
+Unsupported requested capabilities fail before a production build can silently select a weaker provider. The `node` preset intentionally exposes its filesystem Blob store as single-host and its memory Rate Limiter as single-process. The `deno` preset rejects Schedule and `agent.runtime: "deno"` because those generated servers are not part of its deployed Nitro entrypoint. Deno output includes runtime package staging, a validated deployment manifest, and a non-interactive create-or-update runner.
 
 Direct `hubX()` integration functions remain available from their independent
 `@vite-hub/*/vite` owner-package paths.
 
-Email, KV, Queue, Rate Limit, Sandbox, and Schedule are opt-in with `true` for inferred defaults or with their integration options. Auth follows the same opt-in shape but currently has no plugin option bag.
+The root `vitehub()` facade enables Email, KV, Queue, Rate Limit, Sandbox, and Schedule with `true`; direct owner-package integrations retain their detailed option types. Auth follows the same opt-in shape but currently has no plugin option bag.
 
 ## Vite Integration options
 
@@ -60,6 +64,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
+      preset: "node",
       agent: {
         eval: {
           cache: true,
@@ -84,7 +89,7 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ env: { diagnostics: 'summary' } })],
+  plugins: [vitehub({ preset: "node", env: { diagnostics: 'summary' } })],
   env: {
     public: {
       appName: env({ default: 'Acme' }),

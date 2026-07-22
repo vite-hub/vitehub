@@ -209,6 +209,7 @@ body {
   position: fixed !important;
   top: 248px !important;
   left: 50vw !important;
+  translate: -50% 0 !important;
   width: min(640px, calc(100vw - 1rem)) !important;
   margin: 0 !important;
   overflow: hidden;

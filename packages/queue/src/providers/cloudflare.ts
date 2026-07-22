@@ -1,5 +1,5 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { QueueError, runQueueProviderOperation } from "../errors.ts"
+import { cloudflareUnsupportedEnqueueOptions, createQueueError, runQueueProviderOperation } from "../errors.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 
@@ -10,14 +10,10 @@ function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueB
 }
 
 function toSendOptions(options: QueueEnqueueOptions = {}) {
-  const unsupported = [
-    options.idempotencyKey !== undefined ? "idempotencyKey" as const : undefined,
-    options.retentionSeconds !== undefined ? "retentionSeconds" as const : undefined,
-  ].filter((option): option is "idempotencyKey" | "retentionSeconds" => typeof option === "string")
+  const unsupported = cloudflareUnsupportedEnqueueOptions.filter(option => options[option] !== undefined)
 
   if (unsupported.length) {
-    throw new QueueError<"CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS">({
-      code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
+    throw createQueueError("CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS", {
       details: { provider: "cloudflare", unsupported },
     })
   }
@@ -87,15 +83,13 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
 
 export function createCloudflareQueueClient(provider: CloudflareQueueProviderOptions): CloudflareQueueClient {
   if (typeof provider.binding === "undefined" || typeof provider.binding === "string") {
-    throw new QueueError<"CLOUDFLARE_BINDING_RESOLUTION_REQUIRED">({
-      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
+    throw createQueueError("CLOUDFLARE_BINDING_RESOLUTION_REQUIRED", {
       details: { provider: "cloudflare" },
     })
   }
 
   if (!isCloudflareQueueBinding(provider.binding)) {
-    throw new QueueError<"CLOUDFLARE_BINDING_INVALID">({
-      code: "CLOUDFLARE_BINDING_INVALID",
+    throw createQueueError("CLOUDFLARE_BINDING_INVALID", {
       details: { provider: "cloudflare" },
     })
   }

@@ -1,6 +1,6 @@
 import { lookup } from "mrmime"
 
-import { SourceError, SourcePathError } from "../core/errors.ts"
+import { sourceError, sourcePathError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContent, SourceContext } from "../core/types.ts"
@@ -55,7 +55,7 @@ async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {
   const rel = relative(root, target)
 
   if (rel === ".." || rel.startsWith(`..${sep}`)) {
-    throw new SourcePathError(path)
+    throw sourcePathError(path)
   }
 
   return target
@@ -81,7 +81,7 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
     },
     async getItem(requestedKey: TKey, ctx: SourceContext) {
       if (requestedKey !== key) {
-        throw new SourceError(`[vitehub] file could not find ${JSON.stringify(requestedKey)}.`)
+        throw sourceError(`[vitehub] file could not find ${JSON.stringify(requestedKey)}.`)
       }
       const content = typeof options.content === "undefined"
         ? await readSourceFile(options, ctx)

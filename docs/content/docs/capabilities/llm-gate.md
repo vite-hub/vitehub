@@ -18,7 +18,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 The Capability asks a model to choose one configured allow or reject category.
-It records the decision as an Agent Invocation Context Value, exposes it as a finish extension, and throws `LlmGateRejectedError` when the selected category is rejected.
+It records the decision as an Agent Invocation Context Value, exposes it as a finish extension, and throws `ViteHubError` with code `LLM_GATE_REJECTED` when the selected category is rejected.
 
 ## Configuration
 
@@ -49,7 +49,7 @@ export default defineAgent({
 `llmGate()` runs during the input phase.
 It resolves a model, renders a classifier prompt from the latest user text and configured categories, validates the structured output, and stores the decision in invocation context.
 
-When the decision rejects the request, ViteHub throws `LlmGateRejectedError` with status code `403`.
+When the decision rejects the request, ViteHub throws `ViteHubError` with code `LLM_GATE_REJECTED`; the HTTP boundary maps that code to `403`.
 
 ## Requirements
 
@@ -69,7 +69,7 @@ The Capability requires either an explicit model option or an Agent model resolv
 ## Inspect and verify
 
 Run one allowed and one rejected invocation.
-Inspect the context value for `llm-gate` or your custom id, then verify rejected requests stop with `LlmGateRejectedError`.
+Inspect the context value for `llm-gate` or your custom id, then verify rejected requests stop with code `LLM_GATE_REJECTED`.
 
 Check that the gate does not attach, remove, or grant Capabilities.
 It records a decision; later behavior must read that decision explicitly.
