@@ -644,6 +644,7 @@ describe("agent chat capability discovery", () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         defineCapability({
           cli: {
@@ -693,6 +694,7 @@ describe("agent chat capability discovery", () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         defineCapability({
           cli: {

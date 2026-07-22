@@ -98,6 +98,7 @@ async function createLifecycleProbe(
   })
   driver.execute.mockImplementation(() => scenario.execute?.(events))
   const agent = defineAgent({
+    authorizeExecution: () => true,
     capabilities: [defineCapability({
       close,
       id: "lifecycle",

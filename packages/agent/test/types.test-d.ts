@@ -11,6 +11,7 @@ import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import type { ExecutionAuthority } from "@vite-hub/runtime"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
 
@@ -448,6 +449,12 @@ describe("agent public types", () => {
     })
 
     defineAgent({
+      authorizeExecution({ executionAuthority, input, invoker }) {
+        expectTypeOf(executionAuthority).toEqualTypeOf<ExecutionAuthority>()
+        expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
+        expectTypeOf(invoker).toEqualTypeOf<AgentInvoker>()
+        return true
+      },
       driver: {
         harness: { provider: "codex" },
         sandbox: ({ input }) => {

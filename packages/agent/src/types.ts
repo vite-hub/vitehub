@@ -434,6 +434,20 @@ export interface AgentRunCallbackContext<
   run?: AgentRunMetadata
 }
 
+export interface AgentExecutionAuthorizationContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+> extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues> {
+  executionAuthority: ExecutionAuthority
+}
+
+export type AgentExecutionAuthorizer<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+> = (context: AgentExecutionAuthorizationContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<boolean>
+
 export interface AgentRunResult {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   finishReason?: unknown
@@ -1066,6 +1080,7 @@ type AgentSharedSettings<
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
 > = {
+  authorizeExecution?: AgentExecutionAuthorizer<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
@@ -1100,6 +1115,7 @@ export interface AgentDefinition<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
+  authorizeExecution?: AgentExecutionAuthorizer<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>

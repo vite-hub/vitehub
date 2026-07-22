@@ -86,6 +86,7 @@ describe("Agent Box", () => {
       const { codexDriver } = await import("../src/harness/codex.ts")
       const workspaceName = `box-live-${Date.now()}`
       const agent = defineAgent({
+        authorizeExecution: () => true,
         name: workspaceName,
         box: { runtime: trustedHost({ stateRoot }) },
         capabilities: [workspaceShell({ commands: ["sh"], mode: "write" })],
@@ -139,6 +140,7 @@ describe("Agent Box", () => {
       const { skills } = await import("../src/capabilities.ts")
       const { codexDriver } = await import("../src/harness/codex.ts")
       const agent = defineAgent<any, { worktreePath: string }>({
+        authorizeExecution: () => true,
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
           env: { GH_TOKEN: "box-token" },
@@ -223,6 +225,7 @@ describe("Agent Box", () => {
       const { skills } = await import("../src/capabilities.ts")
       const { codexDriver } = await import("../src/harness/codex.ts")
       const agent = defineAgent({
+        authorizeExecution: () => true,
         box: {
           checkout: { ref: "refs/heads/main", remote: repository, sha },
           home: {
@@ -286,6 +289,7 @@ describe("Agent Box", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { codexDriver } = await import("../src/harness/codex.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       box: {
         cwd: "/workspace",
         runtime: {
@@ -356,6 +360,7 @@ describe("Agent Box", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { codexDriver } = await import("../src/harness/codex.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       box: {
         runtime: {
           name: "workspace-host",

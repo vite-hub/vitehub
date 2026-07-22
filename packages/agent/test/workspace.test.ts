@@ -323,6 +323,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValue(true)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
       driver: {
         harness: { provider: "codex" },
@@ -387,6 +388,7 @@ describe("defineAgent workspace option", () => {
     })
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [blob({ mode: "write" })],
       driver: {
         harness: { provider: "codex" },
@@ -488,6 +490,7 @@ describe("defineAgent workspace option", () => {
     ))
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         blob({ assetPaths: ["artifacts"], mode: "write", policy: "deny" }),
         defineCapability({
@@ -574,6 +577,7 @@ describe("defineAgent workspace option", () => {
     } as unknown as WritableWorkspaceFacade)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -631,6 +635,7 @@ describe("defineAgent workspace option", () => {
     } as never)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -658,6 +663,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -689,6 +695,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -781,6 +788,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValue(true)
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         skills({ path: "skills/ponytail", scope: "global", source: { resolve: resolvePonytail } as never }),
         skills({ path: "skills/code-review", scope: "global", source: codeReviewSource }),
@@ -820,6 +828,7 @@ describe("defineAgent workspace option", () => {
       .mockResolvedValueOnce({ exitCode: 1, stderr: "copy failed", stdout: "" })
       .mockRejectedValueOnce(new Error("cleanup failed"))
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
@@ -847,6 +856,7 @@ describe("defineAgent workspace option", () => {
       .mockResolvedValueOnce({ close: workspaceClose })
       .mockResolvedValueOnce({ close: profileClose })
     const agent = Object.assign(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: {
           provider: "codex",
@@ -901,7 +911,7 @@ describe("defineAgent workspace option", () => {
 
   it("does not install caller-provided colocated skills", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
+    const agent = defineAgent({ authorizeExecution: () => true, driver: { harness: { provider: "codex" } } })
 
     await expect(runAgent(agent, context(), {
       context: {
@@ -924,6 +934,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: { harness: { provider: "custom" } },
     })
@@ -932,6 +943,7 @@ describe("defineAgent workspace option", () => {
     expect(harnessCreateSession).not.toHaveBeenCalled()
 
     const unsafeAgent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
@@ -948,6 +960,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
@@ -964,6 +977,7 @@ describe("defineAgent workspace option", () => {
   it("preserves unmanaged Skills when no global Skills are configured", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: {
           provider: "codex",
@@ -988,6 +1002,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValue(true)
     prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close })
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
@@ -1547,6 +1562,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValue(true)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1596,6 +1612,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [{
         id: "support-tools",
         tools: {
@@ -1632,6 +1649,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1672,6 +1690,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValue(true)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1706,6 +1725,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce(document)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1750,6 +1770,7 @@ describe("defineAgent workspace option", () => {
     harnessFileSession.writeBinaryFile.mockRejectedValueOnce(error)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1768,6 +1789,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1811,6 +1833,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1863,6 +1886,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1892,6 +1916,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1937,6 +1962,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -1980,6 +2006,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2029,6 +2056,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2066,6 +2094,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2106,6 +2135,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -2154,6 +2184,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -2199,6 +2230,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -2246,6 +2278,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -2294,6 +2327,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -2344,6 +2378,7 @@ describe("defineAgent workspace option", () => {
     exists.mockImplementation(async path => path === "README.md")
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         {
           id: "workspace-scope",
@@ -2394,6 +2429,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -2436,6 +2472,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2472,6 +2509,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2514,6 +2552,7 @@ describe("defineAgent workspace option", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -4334,6 +4373,7 @@ describe("defineAgent workspace option", () => {
     const { workspaceShell } = await import("../src/capabilities.ts")
     const { trustedHost } = await import("@vite-hub/box")
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       box: { runtime: trustedHost() },
       capabilities: [workspaceShell({ commands: "all", mode: "write" })],
       driver: { harness: {} },
@@ -4425,6 +4465,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValue(true)
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
       driver: {
         harness: { provider: "codex" },
@@ -4449,6 +4490,7 @@ describe("defineAgent workspace option", () => {
   it("includes explicit driver.sandbox in harness Agent inspection metadata", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sandbox: { providerId: "local-test", specificationVersion: "harness-sandbox-v1" },
@@ -4467,7 +4509,7 @@ describe("defineAgent workspace option", () => {
 
   it("reports the resolved default local harness authority", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
-    const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
+    const agent = defineAgent({ authorizeExecution: () => true, driver: { harness: { provider: "codex" } } })
 
     expect((await resolveAgentInspectionMetadata(agent, {
       runtime: { runtime: "vite" },
@@ -4787,6 +4829,7 @@ describe("defineAgent workspace option", () => {
     const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = withExplicitWorkspaceName(defineAgent({
+      authorizeExecution: () => true,
       workspace: {},
       driver: {
         harness: { provider: "codex" },

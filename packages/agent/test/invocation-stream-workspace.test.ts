@@ -388,6 +388,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: { run: () => "unused" },
       workspace: {
         mode: "write",
@@ -454,7 +455,9 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const authorizeExecution = vi.fn(() => true)
     const agent = defineAgent({
+      authorizeExecution,
       capabilities: [{
         id: "support-files",
         workspaceSources: {
@@ -509,6 +512,16 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(workspaceSessionDiff).toHaveBeenCalled()
     expect(workspaceSessionCommit).toHaveBeenCalledWith({ message: "workspace dev command" })
     expect(workspaceSessionClose).toHaveBeenCalled()
+    expect(authorizeExecution).toHaveBeenCalledWith(expect.objectContaining({
+      executionAuthority: {
+        credentials: "unknown",
+        environment: "selected",
+        filesystem: { access: "read-write", scope: "host" },
+        isolation: "none",
+        network: "unrestricted",
+        processes: "arbitrary",
+      },
+    }))
   })
 
   it("installs hosted workspace runtime before hosted Agent Workspace commands", async () => {
@@ -520,6 +533,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: { run: () => "unused" },
       workspace: {
         mode: "write",
@@ -558,6 +572,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: { run: () => "unused" },
       workspace: { mode: "write" },
     })
@@ -626,6 +641,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: { run: () => "unused" },
       workspace: { mode: "write", name: "shared" },
     })
@@ -697,6 +713,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       order.push("agent-finish")
     })
     const agent = defineAgent({
+      authorizeExecution: () => true,
       channels: {
         github: defineChannel("github", {
           effects: {},
@@ -807,6 +824,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -890,6 +908,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       channels: {
         web: defineChannel("web-chat", {}),
       },
@@ -962,6 +981,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       channels: {
         github: defineChannel("github", {
           effects: {},
@@ -1029,6 +1049,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgentTrigger } = await import("../src/index.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [chat()],
       driver: {
         harness: { provider: "codex" },

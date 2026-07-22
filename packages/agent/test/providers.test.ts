@@ -6077,6 +6077,7 @@ describe("server helpers", () => {
       version: "agent-v1",
     }
     const agent = {
+      authorizeExecution: () => true,
       capabilities: [
         defineChatCapability({
           platforms: {
@@ -6512,6 +6513,7 @@ describe("server helpers", () => {
       version: "agent-v1",
     }
     const agent = {
+      authorizeExecution: () => true,
       capabilities: [
         defineChatCapability({
           platforms: {
@@ -6587,6 +6589,7 @@ describe("server helpers", () => {
       version: "agent-v1",
     }
     const agent = {
+      authorizeExecution: () => true,
       capabilities: [
         defineChatCapability({
           platforms: {

@@ -21,6 +21,7 @@ export interface QuiverPortalRuntimeConfig {
 }
 
 const agent: AgentDefinition<QuiverPortalRuntimeConfig> = {
+  authorizeExecution: () => true,
   name: "quiver-sku-runtime",
   async resolve(runtime) {
     const portal = runtime.runtimeConfig?.portal

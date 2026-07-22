@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
-import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
 import { chat, title, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
@@ -103,6 +103,104 @@ async function failedTitleInvocation(options: {
 }
 
 describe("agent message protocol", () => {
+  it("keeps no-authority Agent Drivers anonymously invocable", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const run = vi.fn(() => "public")
+    const agent = defineAgent({ driver: { run } })
+
+    await expect(runAgentInline(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("public")
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it("rejects unresolved execution authority before Agent-controlled work", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const capabilityResolver = vi.fn(() => [defineCapability({ id: "unsafe", prepare: vi.fn() })])
+    const inputHook = vi.fn()
+    const sandbox = vi.fn(() => ({ executionAuthority: unknownExecutionAuthority, providerId: "unsafe" }))
+    const agent = defineAgent({
+      capabilities: capabilityResolver,
+      driver: { harness: { harnessId: "fixture" }, sandbox },
+      hooks: { "agent:input": inputHook },
+      name: "public-shell",
+    })
+
+    await expect(runAgentInline(agent, {
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, {
+      context: { authorizeExecution: true },
+    })).rejects.toThrow('Agent "public-shell" requires execution authorization')
+    expect(sandbox).toHaveBeenCalledOnce()
+    expect(capabilityResolver).not.toHaveBeenCalled()
+    expect(inputHook).not.toHaveBeenCalled()
+    expect(harnessGenerate).not.toHaveBeenCalled()
+  })
+
+  it("authorizes and reuses the exact resolved execution surface", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const provider = { executionAuthority: unknownExecutionAuthority, providerId: "authorized" }
+    const sandbox = vi.fn(() => provider)
+    const authorizeExecution = vi.fn(() => true)
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValue({ text: "authorized" })
+    const agent = defineAgent({
+      authorizeExecution,
+      driver: { harness: { harnessId: "fixture" }, sandbox },
+      name: "private-shell",
+    })
+
+    await expect(runAgentInline(agent, {
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, {}, { output: "raw" })).resolves.toEqual({ text: "authorized" })
+    expect(sandbox).toHaveBeenCalledOnce()
+    expect(authorizeExecution).toHaveBeenCalledWith(expect.objectContaining({
+      executionAuthority: unknownExecutionAuthority,
+      input: {},
+    }))
+    expect(harnessAgentSettings.at(-1)?.sandbox).toBe(provider)
+  })
+
+  it("rejects harness adapters that change the authorized execution authority", async () => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const provider = { executionAuthority: unknownExecutionAuthority, providerId: "unsafe" }
+    const adaptSandbox = vi.fn(() => ({ ...provider, executionAuthority: noExecutionAuthority }))
+    const agent = defineAgent({
+      authorizeExecution: () => true,
+      driver: {
+        harness: { [Symbol.for("vitehub.harnessSandboxAdapter")]: adaptSandbox, harnessId: "fixture" },
+        sandbox: provider,
+      },
+    })
+
+    await expect(runAgentInline(agent, {
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("Harness sandbox adapters must preserve the executionAuthority")
+    expect(adaptSandbox).toHaveBeenCalledWith(provider, { box: false, defaultSandbox: false })
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
+  it("rejects opaque Agent resolution until unknown authority is authorized", async () => {
+    const { runAgentInline } = await import("../src/index.ts")
+    const resolve = vi.fn(async () => ({ generate: vi.fn(), name: "opaque" }))
+    const agent = { name: "opaque", resolve }
+
+    await expect(runAgentInline(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow('Agent "opaque" requires execution authorization')
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
   it("normalizes undefined tool output to JSON null", () => {
     expect(toJsonCompatibleValue(undefined)).toBeNull()
   })
@@ -201,6 +299,7 @@ describe("agent message protocol", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
     const harnessAgent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: context => context.driver.kind === "harness" ? [selected] : [],
       driver: { harness: { provider: "codex" } },
     })
@@ -1339,6 +1438,7 @@ describe("agent message protocol", () => {
   it("runs subagent tools with the resolved parent runtime context", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const browserAgent = {
+      authorizeExecution: () => true,
       async resolve(context) {
         return {
           async generate({ invoker, runtime }) {
@@ -1405,6 +1505,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness,
       },
@@ -1448,6 +1549,7 @@ describe("agent message protocol", () => {
       },
     }
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: { harness: { provider: "codex" } },
       output: { schema },
       runtime: false,
@@ -1463,6 +1565,7 @@ describe("agent message protocol", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValueOnce({ text: "hello" })
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: { harness: { provider: "codex" } },
       output: {
         schema: {
@@ -1481,7 +1584,7 @@ describe("agent message protocol", () => {
 
   it("requires explicit harness sandboxes on runtimes without local processes", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
+    const agent = defineAgent({ authorizeExecution: () => true, driver: { harness: { provider: "codex" } } })
 
     await expect(runAgent(agent, {
       memo: vi.fn(),
@@ -1490,6 +1593,7 @@ describe("agent message protocol", () => {
     }, { prompt: "hello" })).rejects.toThrow("require a process-capable driver.sandbox provider")
 
     const configuredAgent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sandbox: { providerId: "local" },
@@ -1509,7 +1613,7 @@ describe("agent message protocol", () => {
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
-    const agent = defineAgent({ driver: { harness } })
+    const agent = defineAgent({ authorizeExecution: () => true, driver: { harness } })
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
 
     expect(harnessAgentSettings.at(-1)?.sandbox).toMatchObject({ providerId: "local" })
@@ -1521,7 +1625,7 @@ describe("agent message protocol", () => {
     }, { prompt: "hello" })).rejects.toThrow("require a process-capable driver.sandbox provider")
 
     const provider = { providerId: "remote" }
-    const configuredAgent = defineAgent({ driver: { harness, sandbox: provider } })
+    const configuredAgent = defineAgent({ authorizeExecution: () => true, driver: { harness, sandbox: provider } })
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
     await expect(runAgent(configuredAgent, {
@@ -1537,7 +1641,7 @@ describe("agent message protocol", () => {
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
-    const agent = defineAgent({ driver: { harness: { builtinTools: {}, harnessId: "codex" } } })
+    const agent = defineAgent({ authorizeExecution: () => true, driver: { harness: { builtinTools: {}, harnessId: "codex" } } })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
 
@@ -1563,6 +1667,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = indexA.defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         access({
           workspace: {
@@ -1604,6 +1709,7 @@ describe("agent message protocol", () => {
       harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
       const agent = defineAgent({
+        authorizeExecution: () => true,
         driver: {
           harness,
         },
@@ -1629,6 +1735,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness,
         sandbox: provider,
@@ -1656,8 +1763,8 @@ describe("agent message protocol", () => {
       .mockResolvedValueOnce({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValue({ text: "ok" })
 
-    const defaultAgent = defineAgent({ driver: { harness } })
-    const configuredAgent = defineAgent({ driver: { harness, sandbox: provider } })
+    const defaultAgent = defineAgent({ authorizeExecution: () => true, driver: { harness } })
+    const configuredAgent = defineAgent({ authorizeExecution: () => true, driver: { harness, sandbox: provider } })
 
     await runAgent(defaultAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "default" })
     await runAgent(configuredAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "configured" })
@@ -1675,6 +1782,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sandbox,
@@ -1702,6 +1810,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sandbox,
@@ -1734,6 +1843,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sandbox: provider,
@@ -1796,6 +1906,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness,
         sessionKey,
@@ -1836,6 +1947,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValue({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         instructions,
@@ -1894,6 +2006,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         instructions: "Review the exact pull request head.",
@@ -1919,6 +2032,7 @@ describe("agent message protocol", () => {
 
     for (const workDir of ["", "   ", "../repo", "repo/../../tmp", "/tmp/repo", "repo\\nested", () => 42] as const) {
       const agent = defineAgent({
+        authorizeExecution: () => true,
         driver: {
           harness: { provider: "codex" },
           workDir: workDir as never,
@@ -1935,6 +2049,7 @@ describe("agent message protocol", () => {
   it("rejects non-string harness instructions before creating a session", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         instructions: (() => 42) as never,
@@ -1959,6 +2074,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         credentials: { label: "local Codex", source: "ambient" },
         harness: { provider: "codex" },
@@ -1995,6 +2111,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         inputCommands({
           commands: {
@@ -2042,6 +2159,7 @@ describe("agent message protocol", () => {
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: { harness: { provider: "codex" } },
     })
 
@@ -2068,6 +2186,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2095,6 +2214,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2140,6 +2260,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2206,6 +2327,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2253,6 +2375,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sandbox: { provider: "sandbox" },
@@ -2290,6 +2413,7 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
       },
@@ -2317,6 +2441,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         defineCapability({
           id: "model-tools",
@@ -2354,6 +2479,7 @@ describe("agent message protocol", () => {
     }))
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [
         defineCapability({
           id: "model-tools",
@@ -2376,6 +2502,7 @@ describe("agent message protocol", () => {
     const { webSearch } = await import("../src/capabilities.ts")
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       capabilities: [webSearch({ mode: "model" })],
       driver: {
         harness: { provider: "codex" },
@@ -2408,6 +2535,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValue({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sessionKey: "thread-1",
@@ -2465,6 +2593,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValue({ text: "ok" })
 
     const agent = defineAgent<any, { workspace: string }>({
+      authorizeExecution: () => true,
       box: {
         cwd: ({ input }) => input.options?.workspace,
         runtime: {
@@ -2516,6 +2645,7 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValue({ text: "ok" })
 
     const agent = defineAgent({
+      authorizeExecution: () => true,
       driver: {
         harness: { provider: "codex" },
         sandbox: { provider: "sandbox" },
@@ -2569,6 +2699,7 @@ describe("agent message protocol", () => {
     } as never)).toThrow("driver.credentials.value")
 
     expect(() => defineAgent({
+      authorizeExecution: () => true,
       driver: { harness: { provider: "codex" }, instructions: "used" },
     })).not.toThrow()
 
@@ -9178,6 +9309,7 @@ describe("agent message protocol", () => {
   it("resolves static subagent tools with the resolved runtime context", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const browserAgent = {
+      authorizeExecution: () => true,
       async resolve(context) {
         expect(context.agentIdentity).toEqual({ name: "reviewer" })
         return {
@@ -9444,6 +9576,35 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("recomputes execution authorization inside queued Workflow Runs", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const authorizeExecution = vi.fn(() => false)
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({
+        authorizeExecution,
+        driver: {
+          harness: { harnessId: "fixture" },
+          sandbox: { executionAuthority: unknownExecutionAuthority, providerId: "workflow-unsafe" },
+        },
+      })
+
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "private-workflow-agent" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      expect(authorizeExecution).not.toHaveBeenCalled()
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("private-workflow-agent", run.id)).resolves.toMatchObject({ status: "failed" })
+      expect(authorizeExecution).toHaveBeenCalledOnce()
+      expect(harnessCreateSession).not.toHaveBeenCalled()
+    })
+
     it("does not serialize abort signals into Agent Workflow payloads", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -9669,6 +9830,24 @@ describe("agent message protocol", () => {
         runtime: "vercel",
         waitUntil: vi.fn(),
       }, {})).resolves.toBe("child")
+    })
+
+    it("authorizes manually composed child Agents independently", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const resolve = vi.fn(async () => ({ generate: vi.fn(), name: "opaque-child" }))
+      const child = { name: "opaque-child", resolve }
+      const parent = defineAgent({
+        runtime: false,
+        driver: { run: context => runAgent(child, context, {}) },
+      })
+
+      await expect(runAgent(parent, {
+        agentIdentity: { name: "parent" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).rejects.toThrow('Agent "opaque-child" requires execution authorization')
+      expect(resolve).not.toHaveBeenCalled()
     })
 
     it("does not persist discovered identity ownership on caller contexts", async () => {
@@ -9967,6 +10146,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = {
+        authorizeExecution: () => true,
         runtime: workflow("configured-agent"),
         async resolve(context) {
           return {

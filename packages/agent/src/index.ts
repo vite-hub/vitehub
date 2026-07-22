@@ -10,7 +10,15 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
+import {
+  createTraceEventLog,
+  isExecutionAuthority,
+  noExecutionAuthority,
+  normalizeExecutionAuthority,
+  resolveRuntimeContext,
+  unknownExecutionAuthority,
+  type ExecutionAuthority,
+} from "@vite-hub/runtime"
 import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
@@ -111,6 +119,8 @@ import type {
   AgentChannelDeliveryFinishEffectResult,
   AgentChannelDeliveryFinishEffectContext,
   AgentDefinition,
+  AgentExecutionAuthorizationContext,
+  AgentExecutionAuthorizer,
   AgentDriverContribution,
   AgentDriverKind,
   AgentFinishEvent,
@@ -127,6 +137,7 @@ import type {
   AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
+  AgentRunCallbackContext,
   AgentRunContext,
   AgentRunInput,
   AgentRunMetadata,
@@ -156,8 +167,9 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
-import type { Box, BoxRequirement } from "@vite-hub/box"
+import type { Box } from "@vite-hub/box"
 import { isHarnessBoxActive, shareBoxSessions } from "./harness/shared-box.ts"
+import { createDefaultHarnessSandbox, resolveHarnessSandboxProvider } from "./harness-agent.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -253,6 +265,8 @@ export type {
   AgentDriverContributionKind,
   AgentDriverKind,
   AgentExecution,
+  AgentExecutionAuthorizationContext,
+  AgentExecutionAuthorizer,
   AgentFinishEvent,
   AgentFinishExtensions,
   AgentFinishExtensionValues,
@@ -405,7 +419,6 @@ const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
-const baseAgentBoxRequirements = Symbol.for("vitehub.baseAgentBoxRequirements")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
 type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
@@ -545,7 +558,6 @@ type AgentDefinitionWithBaseResolve<
   CALL_OPTIONS = unknown,
   TOutput = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput> & {
-  [baseAgentBoxRequirements]?: readonly BoxRequirement[]
   [baseAgentCapabilitiesResolver]?: AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
   [baseAgentDriverKind]?: AgentDriverKind
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
@@ -945,7 +957,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, messages, name, output, runtime = defaultAgentWorkflowRuntime(), runEvents, version, workspace } = options
+  const { authorizeExecution, box, capabilities, cli, description, hooks, messages, name, output, runtime = defaultAgentWorkflowRuntime(), runEvents, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   if (box && driver.kind !== "harness") {
     throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
@@ -990,11 +1002,11 @@ function defineBaseAgent<
   }
 
   const definition = {
-    ...(driver.kind === "harness" && driver.requires?.length ? { [baseAgentBoxRequirements]: driver.requires } : {}),
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
     ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
+    authorizeExecution,
     box,
     channels,
     chat,
@@ -1431,6 +1443,108 @@ async function registerResolvedAgentWorkspaceDefinition(name: string, definition
   registerWorkspace(name, workspace)
 }
 
+interface ResolvedAgentExecutionSurface {
+  executionAuthority: ExecutionAuthority
+  box?: Box
+  harnessSandboxProvider?: object
+}
+
+function settingsFromAgentDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined): AgentSettings<TRuntimeConfig, CALL_OPTIONS> | undefined {
+  return (definition as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
+    __vitehubAgentSettings?: AgentSettings<TRuntimeConfig, CALL_OPTIONS>
+  } | undefined)?.__vitehubAgentSettings
+}
+
+function declaredExecutionAuthority(provider: object): ExecutionAuthority {
+  const authority = (provider as { executionAuthority?: unknown }).executionAuthority
+  return isExecutionAuthority(authority)
+    ? normalizeExecutionAuthority(authority)
+    : unknownExecutionAuthority
+}
+
+async function resolveAgentExecutionSurface<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>> | undefined,
+  driverKind: AgentDriverKind | undefined,
+  context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
+  runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+): Promise<ResolvedAgentExecutionSurface> {
+  if (definition?.box) {
+    const box = shareBoxSessions(await (await import("@vite-hub/box")).resolveBox(definition.box, context, {
+      requires: driverKind === "harness" && driver?.kind === "harness" ? driver.requires : undefined,
+    }))
+    return {
+      box,
+      executionAuthority: box.plan.executionAuthority,
+      harnessSandboxProvider: (await import("./harness/box-sandbox.ts")).createBoxHarnessSandbox(box),
+    }
+  }
+  if (driverKind === "run") return { executionAuthority: noExecutionAuthority }
+  if (!driver) {
+    return {
+      executionAuthority: driverKind === "model"
+        ? noExecutionAuthority
+        : unknownExecutionAuthority,
+    }
+  }
+  if (driver.kind !== "harness") return { executionAuthority: noExecutionAuthority }
+
+  const configuredHarnessSandbox = await resolveHarnessSandboxProvider(driver.sandbox, context)
+  const harnessSandboxProvider = configuredHarnessSandbox
+    ?? await createDefaultHarnessSandbox({ runtime: runtimeContext })
+  return {
+    executionAuthority: declaredExecutionAuthority(harnessSandboxProvider),
+    harnessSandboxProvider,
+  }
+}
+
+function isNoExecutionAuthority(authority: ExecutionAuthority): boolean {
+  const matches = {
+    credentials: authority.credentials === noExecutionAuthority.credentials,
+    environment: authority.environment === noExecutionAuthority.environment,
+    filesystem: authority.filesystem.access === noExecutionAuthority.filesystem.access
+      && authority.filesystem.scope === noExecutionAuthority.filesystem.scope,
+    isolation: authority.isolation === noExecutionAuthority.isolation,
+    network: authority.network === noExecutionAuthority.network,
+    processes: authority.processes === noExecutionAuthority.processes,
+  } satisfies Record<keyof ExecutionAuthority, boolean>
+  return Object.values(matches).every(Boolean)
+}
+
+function executionAuthoritySummary(authority: ExecutionAuthority): string {
+  return [
+    `filesystem=${authority.filesystem.scope}:${authority.filesystem.access}`,
+    `network=${authority.network}`,
+    `environment=${authority.environment}`,
+    `credentials=${authority.credentials}`,
+    `processes=${authority.processes}`,
+    `isolation=${authority.isolation}`,
+  ].join(", ")
+}
+
+async function authorizeAgentExecution<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  executionAuthority: ExecutionAuthority,
+  context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<void> {
+  if (isNoExecutionAuthority(executionAuthority)) return
+  const authorizationContext = { ...context, executionAuthority } satisfies AgentExecutionAuthorizationContext<TRuntimeConfig, CALL_OPTIONS>
+  if (await definition?.authorizeExecution?.(authorizationContext) === true) return
+
+  const name = definition?.name || context.agentIdentity?.name
+  const target = name ? `Agent "${name}"` : "Agent"
+  throw new Error(`[vitehub] ${target} requires execution authorization for its resolved authority (${executionAuthoritySummary(executionAuthority)}). Add defineAgent({ authorizeExecution }) and return true only when this invocation may exercise that authority.`)
+}
+
 async function createAgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1471,18 +1585,33 @@ async function createAgentInvocationContext<
     const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
-    const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
+    const settings = settingsFromAgentDefinition(definition)
+    const driver = settings ? normalizeAgentDriver(settings) : undefined
+    const declaredDriverKind = internalDefinition?.[baseAgentDriverKind] || driver?.kind
+    const driverKind = declaredDriverKind || "model"
+    const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
+    const boxDefinition = definition?.box
+    if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
+      throw new Error("[vitehub] defineAgent({ box, workspace }) cannot combine a Workspace with Box cwd or checkout because both own the same working tree. Remove cwd/checkout and let Workspace materialize into the Box.")
+    }
+    const runCallbackContext = {
+      ...agentInvocationCallbackContextValues(invocationContext),
+      ...callbackContext,
+      actor: invoker,
+      context: invocationContext,
+      input,
+      invoker,
+      run: context.run,
+    } satisfies AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>
+    const executionSurface = await resolveAgentExecutionSurface(definition, driver, declaredDriverKind, runCallbackContext, runtimeContext)
+    await authorizeAgentExecution(definition, executionSurface.executionAuthority, runCallbackContext)
+    const { box, harnessSandboxProvider } = executionSurface
+    if (box) invocationContext.set("agent.execution.box", box, { overwrite: true })
     const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
-          ...agentInvocationCallbackContextValues(invocationContext),
-          ...callbackContext,
-          actor: invoker,
-          context: invocationContext,
+          ...runCallbackContext,
           driver: { kind: driverKind },
-          input,
-          invoker,
-          run: context.run,
         })
       : []
     const channelCapabilities = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel.capabilities || []
@@ -1491,31 +1620,11 @@ async function createAgentInvocationContext<
       ...(definition?.capabilities || []),
       ...channelCapabilities,
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
-    const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
       hasBox: Boolean(definition?.box),
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
-    const boxDefinition = definition?.box
-    if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
-      throw new Error("[vitehub] defineAgent({ box, workspace }) cannot combine a Workspace with Box cwd or checkout because both own the same working tree. Remove cwd/checkout and let Workspace materialize into the Box.")
-    }
-    const box = boxDefinition
-      ? shareBoxSessions(await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
-          ...callbackContext,
-          actor: invoker,
-          context: invocationContext,
-          input,
-          invoker,
-          run: context.run,
-        }, {
-          requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
-        }))
-      : undefined
-    const harnessSandboxProvider = box
-      ? (await import("./harness/box-sandbox.ts")).createBoxHarnessSandbox(box)
-      : undefined
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
       : undefined
@@ -2320,7 +2429,6 @@ async function executeAgentInvocation<
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
-  const adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
@@ -2337,8 +2445,10 @@ async function executeAgentInvocation<
   }
 
   const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
+  let adapter: AgentAdapter<CALL_OPTIONS> | undefined
   let result: unknown
   try {
+    if (!customRun) adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
     if (customRun) {
       result = await agent.run(invocation)
     }

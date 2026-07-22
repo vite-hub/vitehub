@@ -22,6 +22,7 @@ import {
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
+import type { Box } from "@vite-hub/box"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { AgentDevLoopDiscoveryResponse, AgentInvocationStreamEvent } from "../invocation-stream.ts"
 import type {
@@ -40,6 +41,7 @@ import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const workspaceRegistryId = "#vitehub-workspace-registry"
 
 interface AgentInvocationStreamBody {
@@ -489,6 +491,7 @@ function exposesCapabilityCli(agent: AgentInput): boolean {
 function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCapabilityCliExecutionInput): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  Object.defineProperty(clone, baseAgentDriverKind, { configurable: true, value: "run" })
   if (exposesCapabilityCli(agent)) Object.defineProperty(clone, capabilityCliRunSurface, { value: true })
   clone.run = async (context) => {
     const tool = context.tools?.[cli]
@@ -500,13 +503,17 @@ function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCa
   return clone
 }
 
-function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: AbortSignal, args?: string[], command: string, timeout?: number }): AgentInput {
+async function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: AbortSignal, args?: string[], command: string, timeout?: number }): Promise<AgentInput> {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  const { trustedHost } = await import("@vite-hub/box")
+  Object.defineProperty(clone, baseAgentDriverKind, { configurable: true, value: "run" })
+  clone.box = { runtime: trustedHost() }
   clone.run = async (context) => {
     if (!context.workspace) throw new Error("[vitehub] Agent Dev Loop command requires an Agent with a Workspace.")
-    const { resolveBox, trustedHost } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
-    const host = await (await resolveBox({ runtime: trustedHost() }, {})).open({ signal: command.abortSignal })
+    const box = context.context.get<Box>("agent.execution.box")
+    if (!box) throw new Error("[vitehub] Agent Dev Loop command requires its authorized Box execution surface.")
+    const host = await box.open({ signal: command.abortSignal })
     try {
       return await runWorkspaceDevCommand({
         abortSignal: command.abortSignal,
@@ -634,7 +641,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       : timeout
     const commandAbort = createWorkspaceCommandAbortSignal(req, abortSignal)
     try {
-      const result = await runAgentInline(withWorkspaceCommandRun(entry.agent, {
+      const result = await runAgentInline(await withWorkspaceCommandRun(entry.agent, {
         abortSignal: commandAbort.signal,
         ...(args ? { args } : {}),
         command: body.workspaceCommand.command,

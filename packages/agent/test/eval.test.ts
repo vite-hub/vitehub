@@ -442,6 +442,7 @@ describe("agent eval", () => {
 
     defineEval({
       agent: defineAgent({
+        authorizeExecution: () => true,
         driver: {
           harness: { provider: "codex" },
         },

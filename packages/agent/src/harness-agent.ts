@@ -1,4 +1,5 @@
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
+import { isExecutionAuthority, normalizeExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import {
   createHarnessUsageMetadata,
@@ -79,6 +80,7 @@ type HarnessGlobalSkillsSandbox = {
 
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
 const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
+const defaultHarnessSandboxes = new WeakSet<object>()
 const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 const harnessAgentPackage = "@ai-sdk/harness/agent"
@@ -470,7 +472,7 @@ async function resolveHarnessWorkDir<
   return resolved
 }
 
-function isProcesslessHarnessRuntime(context: AgentAdapterRunContext): boolean {
+function isProcesslessHarnessRuntime(context: Pick<AgentAdapterRunContext, "runtime">): boolean {
   return context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno"
 }
 
@@ -488,12 +490,31 @@ function defaultHarnessEnv(): Record<string, string> {
     .filter((entry): entry is [string, string] => entry[1] !== undefined))
 }
 
-async function createDefaultHarnessSandbox(context: AgentAdapterRunContext): Promise<object> {
+export async function createDefaultHarnessSandbox(context: Pick<AgentAdapterRunContext, "runtime">): Promise<object> {
   if (isProcesslessHarnessRuntime(context)) {
     throw new Error(`[vitehub] Harness Agent Drivers on ${context.runtime.runtime} require a process-capable driver.sandbox provider.`)
   }
   const { createLocalHarnessSandbox } = await import("./harness/local-sandbox.ts")
-  return createLocalHarnessSandbox({ env: defaultHarnessEnv() })
+  const sandbox = createLocalHarnessSandbox({ env: defaultHarnessEnv() })
+  defaultHarnessSandboxes.add(sandbox)
+  return sandbox
+}
+
+function sandboxExecutionAuthority(sandbox: object) {
+  const authority = (sandbox as { executionAuthority?: unknown }).executionAuthority
+  return isExecutionAuthority(authority) ? normalizeExecutionAuthority(authority) : unknownExecutionAuthority
+}
+
+function sameExecutionAuthority(left: ReturnType<typeof sandboxExecutionAuthority>, right: ReturnType<typeof sandboxExecutionAuthority>): boolean {
+  const matches = {
+    credentials: left.credentials === right.credentials,
+    environment: left.environment === right.environment,
+    filesystem: left.filesystem.access === right.filesystem.access && left.filesystem.scope === right.filesystem.scope,
+    isolation: left.isolation === right.isolation,
+    network: left.network === right.network,
+    processes: left.processes === right.processes,
+  } satisfies Record<keyof typeof left, boolean>
+  return Object.values(matches).every(Boolean)
 }
 
 function hasHarnessInstructionDocument(context: AgentAdapterRunContext): boolean {
@@ -554,15 +575,15 @@ function resolveHarnessGlobalSkillsDirectory(
     : directory
 }
 
-async function resolveHarnessSandboxProvider<
+export async function resolveHarnessSandboxProvider<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
   sandbox: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
-  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+  context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<object | undefined> {
   const provider = typeof sandbox === "function"
-    ? await sandbox(toRunCallbackContext(context))
+    ? await sandbox(context)
     : sandbox
   if (provider !== undefined && (!provider || typeof provider !== "object")) {
     throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must return a harness sandbox provider object.")
@@ -594,10 +615,10 @@ async function createHarnessAgent<
   }
   const globalSkillsWorkspace = await resolveHarnessGlobalSkills(context)
   const driverSandbox = context.harnessSandboxProvider === undefined
-    ? await resolveHarnessSandboxProvider(options.sandbox, context)
+    ? await resolveHarnessSandboxProvider(options.sandbox, toRunCallbackContext(context))
     : undefined
-  const defaultSandbox = context.harnessSandboxProvider === undefined && driverSandbox === undefined
   const baseSandbox = context.harnessSandboxProvider ?? driverSandbox ?? await createDefaultHarnessSandbox(context)
+  const defaultSandbox = defaultHarnessSandboxes.has(baseSandbox)
   assertHarnessSandboxRuntime(baseSandbox, context)
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
   let sandbox = baseSandbox
@@ -617,6 +638,9 @@ async function createHarnessAgent<
       const { adaptLocalHarnessSandbox } = await import("./internal/local-sandbox.ts")
       sandbox = adaptLocalHarnessSandbox(baseSandbox, bootstrap.bootstrapDir)!
     }
+  }
+  if (!sameExecutionAuthority(sandboxExecutionAuthority(baseSandbox), sandboxExecutionAuthority(sandbox))) {
+    throw new Error("[vitehub] Harness sandbox adapters must preserve the executionAuthority authorized for this invocation.")
   }
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
   const workDir = await resolveHarnessWorkDir(options.workDir, context) ?? context.harnessWorkDir
