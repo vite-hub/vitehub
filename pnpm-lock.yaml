@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@ai-sdk/harness':
-        specifier: 1.0.0
-        version: 1.0.0(ws@8.21.0)(zod@4.4.3)
+        specifier: 1.0.39
+        version: 1.0.39(ws@8.21.0)(zod@4.4.3)
       '@ai-sdk/harness-codex':
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.0.41
+        version: 1.0.41(zod@4.4.3)
       '@vite-hub/agent':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@1bdf7300c9bc954c19020aa05a6629ea9533474f
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@1bdf7300c9bc954c19020aa05a6629ea9533474f(cd67c8c01f2176e0eba5bfe820d07497)
@@ -69,24 +69,11 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/harness-codex@1.0.0':
-    resolution: {integrity: sha512-nQ1LbFVq8FKiRTqecimmYobFPW9fEY3qcwCuduavBRZ60jtaPaICjJ3Abemf3X7hJgXR02beTs3CAeomBv/Avw==}
-    engines: {node: '>=22'}
-
   '@ai-sdk/harness-codex@1.0.41':
     resolution: {integrity: sha512-RCKFXneDT+gSaFpe8Nq5Td7XS7qAD6VSX1m5oVdVmMdgIY5ubLksnSb8m7vC7e3tbrJ70kiFW1DlP9dY0sUKKw==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/harness@1.0.0':
-    resolution: {integrity: sha512-XNAnCdw0nFt2qCzzdpDCDCMJStbTbQWUrpv1iy0MCrvZVBCRg7xrXNXEurakVaKuykac8JyxBzUS/s3QDIJP+g==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      ws: ^8.21.0
-    peerDependenciesMeta:
-      ws:
-        optional: true
 
   '@ai-sdk/harness@1.0.39':
     resolution: {integrity: sha512-W9QJ00W83JKMZliZ3C08TC5MkiwOCnurRKqCWzm91kKiVBFWOoRKHg3FoVPUXw3ML++qZLLfvyINUeTyAT9nVA==}
@@ -2222,7 +2209,7 @@ packages:
         optional: true
 
   '@vite-hub/auth@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/auth@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-0g3zZfVpuqwly0GfrwaMMmECd0r4wqlezBTyJIWPMi32rP/LeuevKOYVXqR3vLskjG3BWVJAKTu7JHAtT9qO5A==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/auth@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/auth@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2235,7 +2222,7 @@ packages:
         optional: true
 
   '@vite-hub/blob@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/blob@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-tEI9gRlon3bLCNIJ/ZMYD2ZRzigG/pAZIq/9dqM4wiA98WXT00bnfZ9vv266P9s1z4odgHPm8FrXLUq8THkupQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/blob@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/blob@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2260,7 +2247,7 @@ packages:
         optional: true
 
   '@vite-hub/box@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-ApPEj1i2gg1Vli1CgbiPWYIxLHpM/gRnsSiU0Z6KmQj7JMXw4sp1Q1KpEkr0m0Csn9Y1UjaMBLM1LS1znZXb3Q==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2273,7 +2260,7 @@ packages:
         optional: true
 
   '@vite-hub/browser@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/browser@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-DaH61zGYfgvo+SNZNga+2oxq2lKAQZBBFwqUesd/hwEnqfU0NKYdv6DGjtoX1HtPhwETAx7oeWg2fNbkdNTfsA==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/browser@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/browser@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -2289,7 +2276,7 @@ packages:
         optional: true
 
   '@vite-hub/cli@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/cli@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-29GW6/A+KtEc3Qd2x9uL8j3hzGWQU+oypjy+XJemmuacUgYucsyhXujcRKoFep6UjN95SHMPlfGhfxNnPhfcAg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/cli@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/cli@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     hasBin: true
@@ -2297,7 +2284,7 @@ packages:
       vite: '>=8.0.0'
 
   '@vite-hub/database@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-7cdybllAB6whGpitHx7xCGwxBeO7kh76ckNSi02vLqyKLIi6s43Fq8WFDCB9FVJgYK+5jzJAMu7jguNqWQwC5w==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2309,7 +2296,7 @@ packages:
         optional: true
 
   '@vite-hub/devtools@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/devtools@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-n1iuP2OdUFJPoli1k4iFIOp/CKOjzEMfsjUXLQn4hLV9szBIGYd89I2NYEmI2TkSFwCqeMLeOiDLhEaK6hf7fA==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/devtools@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/devtools@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2320,7 +2307,7 @@ packages:
         optional: true
 
   '@vite-hub/email@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/email@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-vffRJGHhc59XFVftz03xQA0QMuG+NEc1UnWnk8Sv1eieo7/+WSx0slbys9iGLv4zMk5GOLa9NL+oxIuRHjFSFQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/email@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/email@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2333,7 +2320,7 @@ packages:
         optional: true
 
   '@vite-hub/env@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-yQHrulWDH7uwD7NBz+fkik239dlCmXvtr1jX3tz561JxGZmzOd1BPIi3dlYVA7QSBQd99w2dwYJRaiVhw1CiDw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2343,7 +2330,7 @@ packages:
         optional: true
 
   '@vite-hub/kv@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-yx9lMGzDHj2oVWeETJ6TbYsQPBSuBPvAgHGrEFF3YfnrTC6xNKeb2I19REEDuMzbsuz+2GYopGxWANB4CI7pyg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2366,7 +2353,7 @@ packages:
         optional: true
 
   '@vite-hub/queue@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/queue@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-Xxe6yipKVHa2qZ4eg41qHHFZonnSXChcADReWJp2I5+I55LvkJw9qf0rLlKAGURYsAMdjiVeIDAQyndQ4M4V3Q==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/queue@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/queue@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2376,7 +2363,7 @@ packages:
         optional: true
 
   '@vite-hub/rate-limit@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/rate-limit@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-S8GlNee0HdPmFoygzUGBRqXVsQa84A6Cr1Kl0UklTOV76jbtmoN1uLtK+lw7m/NAL2ukqaWiAZXVcANBnH1OQw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/rate-limit@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/rate-limit@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2386,12 +2373,12 @@ packages:
         optional: true
 
   '@vite-hub/runtime@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-bChx4UBl73jeu2V6IrEr+GRP78tB5rkdA6qKK0V8hTsN41Gnw62vZzy4sbB/5radUn9hak4YzDNkKNL0EEisGg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
   '@vite-hub/sandbox@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-ubZUK225XP2WZJicpjcQpvRdSL0mseWcUdFTsE4DtIVdN8y+upeAHcpen8gPcCuYy2N0SsWvOECrt1k41vOP8w==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2407,7 +2394,7 @@ packages:
         optional: true
 
   '@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-swZ1k12w+o+s74UtF5zAKrT5SHsrMYqB+/soJjcMdv3cZXN4+NzVX1KsqlHgwHv8/tVlGeHz0bXlvPBwDgYJXQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -2417,17 +2404,17 @@ packages:
         optional: true
 
   '@vite-hub/shell@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/shell@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-+Mr2nDNvSQyorNypZpcROM2ggdNuwoUqPwddBU8dBg3Ia4bEPWDkWrjpCB4w01eZmRGIUgM/j9etYstRvuRMag==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/shell@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/shell@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
   '@vite-hub/source@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/source@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-YzZaqbF3usfI8oxgMqH+Ij8VsUNF9YbgiEdsbk1bKqr7S+qRkoGzKEfCpkkQxgF4gCVkQOZXwISnRpUoKMBu1A==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/source@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/source@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
   '@vite-hub/workflow@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-EriyEA8/9ScNFnmO4BPzUhjJkTLlhV1l7gc+lSO3oOmYtSd7orfvx6AkG+n6BeHNuL31R2JjgTyulBuUqX/wfg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2449,7 +2436,7 @@ packages:
         optional: true
 
   '@vite-hub/workspace@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@1bdf7300c9bc954c19020aa05a6629ea9533474f':
-    resolution: {integrity: sha512-gwoFh2+NyfPCJS3okIFXLO0xWn7FqqzwqEcg/cuFX1ON927LvPJrWJ29vDHRXrbOlxRdbScsFazU21rBkqFDDw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@1bdf7300c9bc954c19020aa05a6629ea9533474f}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@1bdf7300c9bc954c19020aa05a6629ea9533474f}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -6280,9 +6267,6 @@ packages:
   zod@3.24.4:
     resolution: {integrity: sha512-OdqJE9UDRPwWsrHjLN2F8bPxvwJBK22EHLWtanu0LSYr5YqzsaaW3RMgmjwr8Rypg5k+meEJdSPXJZXE/yqOMg==}
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.1.11:
     resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
 
@@ -6303,13 +6287,6 @@ snapshots:
       '@ai-sdk/provider-utils': 4.0.39(zod@4.4.3)
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
-
-  '@ai-sdk/gateway@4.0.0(zod@3.25.76)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.0
-      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
-      '@vercel/oidc': 3.2.0
-      zod: 3.25.76
 
   '@ai-sdk/gateway@4.0.0(zod@4.4.3)':
     dependencies:
@@ -6332,16 +6309,6 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/harness-codex@1.0.0':
-    dependencies:
-      '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@3.25.76)
-      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
-      ws: 8.21.0
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
   '@ai-sdk/harness-codex@1.0.41(zod@4.4.3)':
     dependencies:
       '@ai-sdk/harness': 1.0.39(ws@8.21.0)(zod@4.4.3)
@@ -6351,26 +6318,6 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
-
-  '@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@3.25.76)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.0
-      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
-      ai: 7.0.0(zod@3.25.76)
-    optionalDependencies:
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - zod
-
-  '@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.0
-      '@ai-sdk/provider-utils': 5.0.0(zod@4.4.3)
-      ai: 7.0.0(zod@4.4.3)
-    optionalDependencies:
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - zod
 
   '@ai-sdk/harness@1.0.39(ws@8.21.0)(zod@4.4.3)':
     dependencies:
@@ -6387,14 +6334,6 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.0
       zod: 4.4.3
-
-  '@ai-sdk/provider-utils@5.0.0(zod@3.25.76)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.0
-      '@standard-schema/spec': 1.1.0
-      '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.0
-      zod: 3.25.76
 
   '@ai-sdk/provider-utils@5.0.0(zod@4.4.3)':
     dependencies:
@@ -9224,13 +9163,6 @@ snapshots:
       '@ai-sdk/provider-utils': 4.0.39(zod@4.4.3)
       '@opentelemetry/api': 1.9.1
       zod: 4.4.3
-
-  ai@7.0.0(zod@3.25.76):
-    dependencies:
-      '@ai-sdk/gateway': 4.0.0(zod@3.25.76)
-      '@ai-sdk/provider': 4.0.0
-      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
-      zod: 3.25.76
 
   ai@7.0.0(zod@4.4.3):
     dependencies:
@@ -13055,8 +12987,6 @@ snapshots:
       zod: 4.4.3
 
   zod@3.24.4: {}
-
-  zod@3.25.76: {}
 
   zod@4.1.11: {}
 

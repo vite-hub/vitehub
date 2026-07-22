@@ -14,8 +14,8 @@
     "typecheck": "vite build --app && tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/harness": "1.0.0",
-    "@ai-sdk/harness-codex": "1.0.0",
+    "@ai-sdk/harness": "1.0.39",
+    "@ai-sdk/harness-codex": "1.0.41",
     "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@1bdf7300c9bc954c19020aa05a6629ea9533474f",
     "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1bdf7300c9bc954c19020aa05a6629ea9533474f",
     "ai": "7.0.0",
