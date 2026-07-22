@@ -28,7 +28,6 @@ vi.mock("@vite-hub/auth/vite", () => ({ hubAuth: integrationMocks.hubAuth }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
-vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
 vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
 vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
 vi.mock("@vite-hub/kv/vite", () => ({
@@ -84,7 +83,6 @@ describe("vitehub", () => {
       "@vite-hub/kv/optional-peers",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
-      "@vite-hub/devtools",
     ])
 
     expect(pluginNames(vitehub({ preset: "cloudflare", auth: true, email: true, kv: true, rateLimit: true, sandbox: true, schedule: true }))).toEqual([
@@ -104,7 +102,6 @@ describe("vitehub", () => {
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
-      "@vite-hub/devtools",
     ])
     expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
 

@@ -71,7 +71,7 @@ The client must expose `read()`, and write mode also requires `write()` before t
 
 ## Inspect and verify
 
-Inspect the Agent tool list in DevTools.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 Read one repository or Change Request through `repository_host_read`, then verify read mode exposes no write tool. When using an explicit approval policy, verify that posting comments or reactions requests approval.
 
 ## Reference

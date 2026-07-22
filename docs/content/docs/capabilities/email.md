@@ -166,7 +166,7 @@ Do not pass unrestricted model output into a trusted HTML fragment.
 
 ## Inspect and verify
 
-Open the Agent in DevTools and confirm its tool list contains only `email_send` for this Capability.
+Run `vitehub agent info --agent <name> --json` and confirm its tool list contains only `email_send` for this Capability.
 The Capability should report write mode and an `email` primitive requirement.
 
 For the first delivery, use an approved test recipient and a test or sandbox provider account.

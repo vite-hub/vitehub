@@ -18,7 +18,6 @@ export default defineConfig({
     preset: "node",
     blob: false,
     database: false,
-    devtools: false,
     env: false,
     workflow: false,
     workspace: false,

@@ -29,7 +29,6 @@ Host support remains package-specific. A host can support one primitive without 
 | Discover Definitions | File conventions produce Discovered Definitions and Discovery Identity. |
 | Generate Runtime Registries | App code uses Stable ViteHub Import Paths instead of generated files. |
 | Resolve Integration Options | Provider Selection and build-time options become Runtime Config or Provider Output. |
-| Register DevTools Features | Package integrations register DevTools Features and DevTools Bridges. |
 | Write Provider Output | A package generates host artifacts only for the providers it supports. |
 
 ## Compose integrations

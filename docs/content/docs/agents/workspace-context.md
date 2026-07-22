@@ -95,7 +95,7 @@ Use the docs Source for published product behavior. Say when the docs do not ans
 ::
 ```
 
-ViteHub warns in DevTools metadata when a configured Source lacks explicit instruction coverage. The warning clears only when Agent Driver Instructions, or a deterministic imported instruction file, contains a `::source{key="..."}` block for that Source.
+ViteHub warns in Agent inspection metadata when a configured Source lacks explicit instruction coverage. The warning clears only when Agent Driver Instructions, or a deterministic imported instruction file, contains a `::source{key="..."}` block for that Source.
 
 Explicit `driver.instructions` still wins when the Agent needs custom prompt composition. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
 

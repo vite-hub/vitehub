@@ -57,23 +57,23 @@ describe("agent CLI", () => {
   it("prints concise resolved Agent information from the running Vite server", async () => {
     const stdout = stream()
     const fetchAgentInfo = vi.fn(async () => Response.json({
-      chats: [{ messages: [], name: "support" }],
-      config: { driver: { kind: "model", model: { id: "openai/gpt-5" } } },
-      files: [
-        {
-          children: [{ kind: "file", path: "docs/AGENTS.md", source: "docs" }],
-          kind: "directory",
-          path: "docs",
-          source: "docs",
-        },
-      ],
-      instructions: ["docs/AGENTS.md"],
-      invokerProfiles: [{ id: "technical" }],
-      metadataStatus: "ready",
+      inspection: {
+        config: { driver: { kind: "model", model: { id: "openai/gpt-5" } } },
+        files: [
+          {
+            children: [{ kind: "file", path: "docs/AGENTS.md", source: "docs" }],
+            kind: "directory",
+            path: "docs",
+            source: "docs",
+          },
+        ],
+        instructions: ["docs/AGENTS.md"],
+        invokerProfiles: [{ id: "technical" }],
+        name: "support",
+        tools: [{ name: "search" }, { name: "shell" }],
+        warnings: [],
+      },
       root: "/repo",
-      selected: "support",
-      tools: [{ name: "search" }, { name: "shell" }],
-      warnings: [],
     }))
 
     const exitCode = await runAgentInfoCli([], {
@@ -96,26 +96,26 @@ describe("agent CLI", () => {
       "Warnings: 0 warnings",
       "",
     ].join("\n"))
-    expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/chat/devtools", expect.objectContaining({
-      body: JSON.stringify({ action: "get-state" }),
-      method: "POST",
+    expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/invocation-stream?inspect=1", expect.objectContaining({
+      headers: expect.objectContaining({
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      }),
     }))
   })
 
   it("prints the existing Agent inspection contract as JSON", async () => {
     const stdout = stream()
     const fetchAgentInfo = vi.fn(async () => Response.json({
-      chats: [{ messages: [], name: "support" }],
-      config: { driver: { kind: "run" } },
-      files: [],
-      instructions: [],
-      invokerProfiles: [],
-      metadataStatus: "ready",
-      selected: "support",
-      tools: [{ name: "shell" }],
-      uiMessages: [{ id: "private-history", parts: [], role: "user" }],
-      version: "1",
-      warnings: [],
+      inspection: {
+        config: { driver: { kind: "run" } },
+        files: [],
+        instructions: [],
+        invokerProfiles: [],
+        name: "support",
+        tools: [{ name: "shell" }],
+        version: "1",
+        warnings: [],
+      },
     }))
 
     const exitCode = await runAgentInfoCli(["--agent", "support", "--json"], {
@@ -137,19 +137,12 @@ describe("agent CLI", () => {
       version: "1",
       warnings: [],
     })
-    expect(JSON.parse(stdout.output())).not.toHaveProperty("uiMessages")
+    expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/invocation-stream?inspect=1&agent=support", expect.anything())
   })
 
   it("requires an Agent target when multiple chat-capable Agents are discovered", async () => {
     const stderr = stream()
-    const fetchAgentInfo = vi.fn(async () => Response.json({
-      chats: [
-        { messages: [], name: "review" },
-        { messages: [], name: "support" },
-      ],
-      metadataStatus: "ready",
-      selected: "review",
-    }))
+    const fetchAgentInfo = vi.fn(async () => new Response("Multiple Agents discovered. Pass --agent review|support.", { status: 400 }))
 
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
@@ -177,6 +170,27 @@ describe("agent CLI", () => {
     expect(stderr.output()).toBe("Agent inspection returned an invalid response from http://localhost:5173.\n")
   })
 
+  it("bounds Agent inspection requests", async () => {
+    const stderr = stream()
+    const fetchAgentInfo = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      await new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+      })
+      return Response.json({})
+    })
+
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentInfo as never, timeout: 1 })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toBe("Agent inspection request timed out after 1ms.\n")
+  })
+
   it("rejects an Agent inspection server for a different project root", async () => {
     const stderr = stream()
     const exitCode = await runAgentInfoCli([], {
@@ -185,7 +199,7 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       stderr,
       stdout: stream(),
-    }, { fetch: vi.fn(async () => Response.json({ root: "/other-repo" })) as never })
+    }, { fetch: vi.fn(async () => Response.json({ inspection: { name: "support" }, root: "/other-repo" })) as never })
 
     expect(exitCode).toBe(1)
     expect(stderr.output()).toBe("Compatible Vite Development Server root mismatch: /other-repo\n")

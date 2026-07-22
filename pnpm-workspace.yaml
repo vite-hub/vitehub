@@ -38,8 +38,6 @@ catalogs:
   email:
     "@types/nodemailer": ^8.0.1
     nodemailer: ^9.0.3
-  devtools-compat:
-    "@vitejs/devtools-kit": ">=0.2.0"
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:
@@ -123,8 +121,6 @@ catalogs:
     "@vercel/nft": ^1.10.2
     "@vercel/queue": ^0.0.0-alpha.40
   vite:
-    "@vitejs/devtools": ^0.2.0
-    "@vitejs/devtools-kit": ^0.2.0
     vite: ^8.0.8
   vite-compat:
     vite: ">=8.0.0"

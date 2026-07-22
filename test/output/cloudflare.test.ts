@@ -21,8 +21,7 @@ describe.runIf(providerEnabled("cloudflare"))("cloudflare provider output", () =
     expect(importsOf(bundle(), "@cloudflare/sandbox")).toBe(false)
   })
 
-  it("bundle excludes Vite and DevTools runtime code", () => {
-    expect(bundle().includes("@vitejs/devtools")).toBe(false)
+  it("bundle excludes Vite runtime code", () => {
     expect(/import\(["']vite["']\)/.test(bundle())).toBe(false)
   })
 

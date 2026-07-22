@@ -41,12 +41,6 @@
       "@vite-hub/agent/*": [
         "packages/agent/src/*"
       ],
-      "@vite-hub/devtools": [
-        "packages/devtools/src/index.ts"
-      ],
-      "@vite-hub/devtools/*": [
-        "packages/devtools/src/*.ts"
-      ],
       "@vite-hub/runtime": [
         "packages/runtime/src/index.ts"
       ],

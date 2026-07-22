@@ -66,7 +66,7 @@ Return only invocation-scoped behavior from the callback. Capabilities that cont
 | Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger surface. |
 | Input behavior | Pre-invocation input transforms, transcription, decisions, gates, and rate limits. |
 | Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
-| Metadata | Inspectable configuration for runtime diagnostics and DevTools. |
+| Metadata | Inspectable configuration for runtime diagnostics and CLI inspection. |
 
 Use `defineCapability({ finish })` for metadata that evals, finish hooks, or channel delivery code should read after an invocation.
 Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.

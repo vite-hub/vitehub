@@ -11,7 +11,7 @@ Tools belong to Capability Definitions. They are not top-level Agent Definition 
 
 ## Why it exists
 
-Raw tools make validation, policy, DevTools metadata, and driver support hard to inspect. A Capability keeps the ability, requirements, tool contracts, and runtime behavior together.
+Raw tools make validation, policy, Agent inspection metadata, and driver support hard to inspect. A Capability keeps the ability, requirements, tool contracts, and runtime behavior together.
 
 Capabilities also keep primitive access explicit. Installing KV does not let every Agent read KV; attaching `kv()` decides whether the selected Agent Driver receives KV read or edit tools.
 
@@ -53,7 +53,7 @@ The Agent Package root stays focused on Agent Definition, invocation, message, a
 | Trigger behavior | Product events that start Agent Invocations. |
 | Policy | Approval and safety decisions for tool actions. |
 | Invocation context values | Typed data that later Agent and Capability callbacks can read. |
-| Metadata | Inspectable configuration for runtime and DevTools surfaces. |
+| Metadata | Inspectable configuration for runtime and CLI inspection surfaces. |
 
 ## Invocation-resolved composition
 
@@ -76,7 +76,7 @@ ViteHub resolves the Agent Invoker first, then calls the callback once before it
 
 The callback can inspect the Agent Actor, Agent Invoker, input, run metadata, Agent Invocation Context, runtime handles, and `driver.kind`. It cannot select behavior that ViteHub must register before an invocation exists. Capabilities that contribute Agent Triggers, chat admission or attachments, or static Workspace Sources must stay in a static array. Use the invocation-scoped `workspace` contribution when a selected Capability needs to add Workspace context.
 
-Async DevTools metadata resolution evaluates the callback with its inspection input. Synchronous definition metadata reports only definition-stable configuration because it has no invocation context.
+Async Agent inspection metadata resolution evaluates the callback with its inspection input. Synchronous definition metadata reports only definition-stable configuration because it has no invocation context.
 
 Capabilities run in resolved array order. A Capability can include nested default Capabilities, but an explicitly returned Capability keeps its top-level position. Capability selection does not change after the invocation starts.
 

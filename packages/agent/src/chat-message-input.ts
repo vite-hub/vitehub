@@ -76,7 +76,7 @@ export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerI
     : invokerId
       ? normalizeAgentInvoker({
           id: invokerId,
-          kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
+          kind: "chat",
           ...(meta ? { meta } : {}),
         }, "chat.message input.user")
       : undefined

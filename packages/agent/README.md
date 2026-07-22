@@ -154,9 +154,9 @@ export default defineConfig({
 });
 ```
 
-## DevTools inspection
+## CLI inspection
 
-With `hubAgent()` and Agent DevTools active, start the Vite Development Server and run `vitehub agent info --agent <name>`.
+With `hubAgent()` active, start the Vite Development Server and run `vitehub agent info --agent <name>`.
 The command reads the resolved Agent Definition metadata without invoking the Agent Driver, so use it to verify the selected Driver, tools, Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status before debugging model output.
 Pass `--json` for the structured inspection contract.
 

@@ -8814,208 +8814,6 @@ describe("agent message protocol", () => {
     ])
   })
 
-  it("creates a new DevTools assistant placeholder for each turn", async () => {
-    const { createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
-    const adapter = createDevtoolsAdapter()
-    const first = adapter.createDevtoolsMessage("first")
-
-    await adapter.startTyping(first.threadId, "thinking")
-    await adapter.postMessage(first.threadId, "first response")
-    const second = adapter.createDevtoolsMessage("second")
-    await adapter.startTyping(second.threadId, "thinking again")
-
-    expect(adapter.getDevtoolsState().chats[0]?.messages.map(message => ({
-      loading: message.loading,
-      role: message.role,
-      text: message.text,
-    }))).toEqual([
-      { loading: undefined, role: "user", text: "first" },
-      { loading: false, role: "assistant", text: "first response" },
-      { loading: undefined, role: "user", text: "second" },
-      { loading: true, role: "assistant", text: "thinking again" },
-    ])
-  })
-
-  it("attaches late DevTools tool updates to the assistant response", async () => {
-    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
-    const adapter = createDevtoolsAdapter()
-    const message = adapter.createDevtoolsMessage("list files")
-
-    await adapter.startTyping(message.threadId, "thinking")
-    await adapter.postMessage(message.threadId, "I checked the workspace.")
-    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
-      id: "tool-1",
-      input: { command: "ls" },
-      name: "shell",
-      output: "README.md",
-      status: "completed",
-    }))
-
-    expect(adapter.getDevtoolsState().chats[0]?.messages).toMatchObject([
-      { role: "user", text: "list files" },
-      {
-        loading: false,
-        role: "assistant",
-        text: "I checked the workspace.",
-        tools: [
-          {
-            id: "tool-1",
-            input: { command: "ls" },
-            name: "shell",
-            output: "README.md",
-            status: "completed",
-          },
-        ],
-      },
-    ])
-  })
-
-  it("keeps DevTools fallback text while tools stream", async () => {
-    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
-    const adapter = createDevtoolsAdapter()
-    const message = adapter.createDevtoolsMessage("list users")
-
-    await adapter.startTyping(message.threadId, "Looking through the workspace...")
-    await adapter.startTyping(message.threadId, "...")
-    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
-      id: "tool-1",
-      input: { command: "find . -maxdepth 3 -name \"*user*\"" },
-      name: "shell",
-      status: "running",
-    }))
-
-    expect(adapter.getDevtoolsState().chats[0]?.messages).toMatchObject([
-      { role: "user", text: "list users" },
-      {
-        loading: true,
-        role: "assistant",
-        text: "Looking through the workspace...",
-        tools: [
-          {
-            id: "tool-1",
-            name: "shell",
-            status: "running",
-          },
-        ],
-      },
-    ])
-
-    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
-      id: "tool-1",
-      name: "shell",
-      output: "users.ts",
-      status: "completed",
-    }))
-
-    expect(adapter.getDevtoolsState().chats[0]?.messages[1]).toMatchObject({
-      loading: true,
-      role: "assistant",
-      text: "Looking through the workspace...",
-      tools: [
-        {
-          id: "tool-1",
-          input: { command: "find . -maxdepth 3 -name \"*user*\"" },
-          name: "shell",
-          output: "users.ts",
-          status: "completed",
-        },
-      ],
-    })
-
-    await adapter.postMessage(message.threadId, "I found the user tables.")
-
-    expect(adapter.getDevtoolsState().chats[0]?.messages[1]).toMatchObject({
-      loading: false,
-      role: "assistant",
-      text: "I found the user tables.",
-      tools: [
-        {
-          id: "tool-1",
-          name: "shell",
-          status: "completed",
-        },
-      ],
-    })
-  })
-
-  it("keeps separate no-input DevTools tool calls", async () => {
-    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
-    const adapter = createDevtoolsAdapter()
-    const message = adapter.createDevtoolsMessage("run checks")
-
-    await adapter.startTyping(message.threadId, "thinking")
-    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
-      id: "tool-1",
-      name: "check",
-      output: "first",
-      status: "completed",
-    }))
-    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
-      id: "tool-2",
-      name: "check",
-      output: "second",
-      status: "completed",
-    }))
-
-    expect(adapter.getDevtoolsState().chats[0]?.messages[1]?.tools).toMatchObject([
-      { id: "tool-1", name: "check", output: "first" },
-      { id: "tool-2", name: "check", output: "second" },
-    ])
-  })
-
-  it("creates a fresh assistant entry for tool-first DevTools turns", async () => {
-    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
-    const adapter = createDevtoolsAdapter()
-    const first = adapter.createDevtoolsMessage("first")
-
-    await adapter.startTyping(first.threadId, "thinking")
-    await adapter.postMessage(first.threadId, "first response")
-    const second = adapter.createDevtoolsMessage("second")
-    await adapter.startTyping(second.threadId, createChatDevtoolsToolStatus({
-      id: "tool-1",
-      name: "lookup",
-      status: "running",
-    }))
-
-    const messages = adapter.getDevtoolsState().chats[0]?.messages
-    expect(messages).toMatchObject([
-      { role: "user", text: "first" },
-      { role: "assistant", text: "first response" },
-      { role: "user", text: "second" },
-      {
-        loading: true,
-        role: "assistant",
-        tools: [{ id: "tool-1", name: "lookup", status: "running" }],
-      },
-    ])
-    expect(messages?.[1]?.tools).toBeUndefined()
-  })
-
-  it("registers the Chat DevTools feature metadata", async () => {
-    const registerViteHubDevtoolsFeature = vi.fn()
-    vi.resetModules()
-    vi.doMock("@vite-hub/devtools", () => ({ registerViteHubDevtoolsFeature }))
-    const { chatDevToolsPanel } = await import("../src/chat/devtools.ts")
-
-    chatDevToolsPanel().devtools!.setup({
-      messages: {
-        add: vi.fn(),
-      },
-      rpc: {
-        register: vi.fn(),
-      },
-    } as never)
-
-    expect(registerViteHubDevtoolsFeature).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      bridge: "/__vitehub/agent/chat/devtools",
-      id: "agent.chat",
-      packageName: "@vite-hub/agent",
-      title: "Chat",
-    }))
-    vi.doUnmock("@vite-hub/devtools")
-    vi.resetModules()
-  })
-
   it("selects chat history from the current idle-timeout session", async () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
@@ -9579,7 +9377,7 @@ describe("agent message protocol", () => {
       resetWorkflowRuntime()
     })
 
-    it("streams workflow-backed chat triggers inline for DevTools", async () => {
+    it("streams workflow-backed chat triggers inline", async () => {
       const { createUIMessageStream, readUIMessageStream } = await import("ai")
       const { defineAgent, streamAgentTrigger, workflow } = await import("../src/index.ts")
 
@@ -10101,14 +9899,14 @@ describe("agent message protocol", () => {
     })
 
     it("preserves Agent Definition metadata for explicitly named definitions", async () => {
-      const { createAgentDevtoolsMetadata, defineAgent, workflow } = await import("../src/index.ts")
+      const { createAgentInspectionMetadata, defineAgent, workflow } = await import("../src/index.ts")
       const agent = defineAgent({
         driver: { model: { id: "test-model" } as never },
         name: "browser",
         runtime: workflow(),
       })
 
-      expect(createAgentDevtoolsMetadata(agent)).toMatchObject({
+      expect(createAgentInspectionMetadata(agent)).toMatchObject({
         config: {
           driver: {
             kind: "model",

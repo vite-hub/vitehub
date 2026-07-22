@@ -1,4 +1,7 @@
-import { chatDevtoolsBridgeRoute, type ChatDevtoolsMetadata, type ChatDevtoolsStateResult } from "../chat/devtools-shared.ts"
+import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
+
+import type { AgentInspectionMetadata } from "../types.ts"
+import type { AgentDevLoopDiscoveryResponse } from "../invocation-stream.ts"
 
 interface AgentInfoCliContext {
   env: NodeJS.ProcessEnv
@@ -9,6 +12,7 @@ interface AgentInfoCliContext {
 
 interface AgentInfoCliOptions {
   fetch?: typeof fetch
+  timeout?: number
 }
 
 interface ParsedInfoArgs {
@@ -85,7 +89,7 @@ function plural(count: number, singular: string, pluralLabel = `${singular}s`): 
   return `${count} ${count === 1 ? singular : pluralLabel}`
 }
 
-function countAgentInfoFiles(files: NonNullable<ChatDevtoolsStateResult["files"]>): { directories: number, files: number, sources: number } {
+function countAgentInfoFiles(files: NonNullable<AgentInspectionMetadata["files"]>): { directories: number, files: number, sources: number } {
   const sources = new Set<string>()
   let fileCount = 0
   let directoryCount = 0
@@ -100,7 +104,7 @@ function countAgentInfoFiles(files: NonNullable<ChatDevtoolsStateResult["files"]
   return { directories: directoryCount, files: fileCount, sources: sources.size }
 }
 
-function agentInfoDriver(config: ChatDevtoolsStateResult["config"]): string {
+function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   const driver = config?.driver
   if (!driver) return "unavailable"
   if (driver.kind === "model") return driver.model?.id ? `Model-backed Agent Driver (${driver.model.id})` : "Model-backed Agent Driver"
@@ -114,45 +118,41 @@ function agentInfoNames(values: Array<{ name: string }>, fallback: string): stri
   return values.length > names.length ? `${names.join(", ")}, +${values.length - names.length} more` : names.join(", ")
 }
 
-function writeAgentInfo(context: AgentInfoCliContext, state: ChatDevtoolsStateResult): void {
-  const files = countAgentInfoFiles(state.files || [])
-  const metadata = state.metadataError
-    ? `${state.metadataStatus || "error"} (${state.metadataError})`
-    : state.metadataStatus || "ready"
+function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionMetadata): void {
+  const files = countAgentInfoFiles(metadata.files || [])
   context.stdout.write([
-    `Agent: ${state.selected || "unknown"}`,
-    `Metadata: ${metadata}`,
-    `Driver: ${agentInfoDriver(state.config)}`,
-    `Tools: ${plural(state.tools?.length || 0, "tool")} (${agentInfoNames(state.tools || [], "none")})`,
+    `Agent: ${metadata.name || "unknown"}`,
+    "Metadata: ready",
+    `Driver: ${agentInfoDriver(metadata.config)}`,
+    `Tools: ${plural(metadata.tools?.length || 0, "tool")} (${agentInfoNames(metadata.tools || [], "none")})`,
     `Workspace files: ${plural(files.files, "file")}, ${plural(files.directories, "directory", "directories")}, ${plural(files.sources, "source")}`,
-    `Instructions: ${plural(state.instructions?.length || 0, "document")}`,
-    `Invoker profiles: ${plural(state.invokerProfiles?.length || 0, "profile")}`,
-    `Warnings: ${plural(state.warnings?.length || 0, "warning")}`,
+    `Instructions: ${plural(metadata.instructions?.length || 0, "document")}`,
+    `Invoker profiles: ${plural(metadata.invokerProfiles?.length || 0, "profile")}`,
+    `Warnings: ${plural(metadata.warnings?.length || 0, "warning")}`,
     "",
   ].join("\n"))
 }
 
-function agentInfoMetadata(state: ChatDevtoolsStateResult): ChatDevtoolsMetadata {
+function agentInfoMetadata(metadata: AgentInspectionMetadata): AgentInspectionMetadata {
   return {
-    ...(state.config ? { config: state.config } : {}),
-    files: state.files || [],
-    instructions: state.instructions || [],
-    invokerProfiles: state.invokerProfiles || [],
-    name: state.selected,
-    tools: state.tools || [],
-    ...(state.version ? { version: state.version } : {}),
-    warnings: state.warnings || [],
+    ...(metadata.config ? { config: metadata.config } : {}),
+    files: metadata.files || [],
+    instructions: metadata.instructions || [],
+    invokerProfiles: metadata.invokerProfiles || [],
+    name: metadata.name,
+    tools: metadata.tools || [],
+    ...(metadata.version ? { version: metadata.version } : {}),
+    warnings: metadata.warnings || [],
   }
 }
 
-async function fetchAgentInfoState(url: string, agent: string | undefined, fetchImpl: typeof fetch): Promise<Response> {
+async function fetchAgentInfo(url: string, fetchImpl: typeof fetch, timeout: number): Promise<Response> {
   return await fetchImpl(url, {
-    body: JSON.stringify({ action: "get-state", ...(agent ? { chat: agent } : {}) }),
     headers: {
       accept: "application/json",
-      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
     },
-    method: "POST",
+    signal: AbortSignal.timeout(timeout),
   })
 }
 
@@ -177,7 +177,10 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
 
   let url: string
   try {
-    url = new URL(chatDevtoolsBridgeRoute, parsed.url.endsWith("/") ? parsed.url : `${parsed.url}/`).href
+    const endpoint = new URL(agentInvocationStreamRoute, parsed.url.endsWith("/") ? parsed.url : `${parsed.url}/`)
+    endpoint.searchParams.set("inspect", "1")
+    if (parsed.agent) endpoint.searchParams.set("agent", parsed.agent)
+    url = endpoint.href
   }
   catch {
     context.stderr.write(`Invalid Vite Development Server URL: ${parsed.url}\n`)
@@ -185,55 +188,43 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
   }
 
   const fetchImpl = options.fetch || globalThis.fetch
-  let state: ChatDevtoolsStateResult
-  const startedAt = Date.now()
-  for (;;) {
-    let response: Response
-    try {
-      response = await fetchAgentInfoState(url, parsed.agent, fetchImpl)
-    }
-    catch {
-      context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)
+  const timeout = options.timeout ?? 30_000
+  let response: Response
+  try {
+    response = await fetchAgentInfo(url, fetchImpl, timeout)
+  }
+  catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      context.stderr.write(`Agent inspection request timed out after ${timeout}ms.\n`)
       return 1
     }
-    if (!response.ok) {
-      context.stderr.write(`Agent inspection is unavailable at ${parsed.url}. Start the Vite Development Server with Agent DevTools enabled.\n`)
-      return 1
-    }
-    try {
-      state = await response.json() as ChatDevtoolsStateResult
-    }
-    catch {
-      context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
-      return 1
-    }
-    if (typeof state.root === "string" && state.root !== context.rootDir) {
-      context.stderr.write(`Compatible Vite Development Server root mismatch: ${state.root}\n`)
-      return 1
-    }
-
-    const agents = state.chats?.map(chat => chat.name) || []
-    if (!agents.length) {
-      context.stderr.write("No chat-capable Agents discovered.\n")
-      return 1
-    }
-    if (parsed.agent && !agents.includes(parsed.agent)) {
-      context.stderr.write(`Unknown Agent inspection target: ${parsed.agent}\n`)
-      return 1
-    }
-    if (!parsed.agent && agents.length > 1) {
-      context.stderr.write(`Multiple Agents discovered. Pass --agent ${agents.join("|")}.\n`)
-      return 1
-    }
-    if (state.metadataStatus !== "loading") break
-    if (Date.now() - startedAt >= 30_000) {
-      context.stderr.write(`Agent metadata is still loading for ${state.selected}.\n`)
-      return 1
-    }
-    await new Promise(resolve => setTimeout(resolve, 50))
+    context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)
+    return 1
+  }
+  if (!response.ok) {
+    const message = (await response.text()).trim()
+    context.stderr.write(`${message || `Agent inspection is unavailable at ${parsed.url}.`}\n`)
+    return 1
   }
 
-  if (parsed.json) context.stdout.write(`${JSON.stringify(agentInfoMetadata(state), null, 2)}\n`)
-  else writeAgentInfo(context, state)
-  return state.metadataError ? 1 : 0
+  let result: AgentDevLoopDiscoveryResponse
+  try {
+    result = await response.json() as AgentDevLoopDiscoveryResponse
+  }
+  catch {
+    context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
+    return 1
+  }
+  if (typeof result.root === "string" && result.root !== context.rootDir) {
+    context.stderr.write(`Compatible Vite Development Server root mismatch: ${result.root}\n`)
+    return 1
+  }
+  if (!result.inspection) {
+    context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
+    return 1
+  }
+
+  if (parsed.json) context.stdout.write(`${JSON.stringify(agentInfoMetadata(result.inspection), null, 2)}\n`)
+  else writeAgentInfo(context, result.inspection)
+  return 0
 }

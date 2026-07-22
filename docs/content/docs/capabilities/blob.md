@@ -65,7 +65,7 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 
 ## Inspect and verify
 
-Inspect the Agent tool list in DevTools.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 Read mode should show only `blob_read`; write mode should also show `blob_edit` with the configured policy.
 
 Run one invocation against a missing Blob primitive during development.

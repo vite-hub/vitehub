@@ -44,7 +44,7 @@ Errors built on `ViteHubError` snapshot their public `code`, `message`, `details
 | CLI exit code and stderr | Command parsing, provisioning, and Agent Eval failures. |
 | Env diagnostics | Missing, defaulted, valid, and masked Env Declaration status. |
 | Generated files | Discovery, Runtime Registry, and Provider Output inspection. |
-| DevTools Bridge responses | Interactive Agent and Workspace inspection failures. |
+| Agent Dev Loop responses | Local Agent inspection and invocation failures. |
 | Trace Events | Runtime policy, approval, capability, lifecycle, and error records. |
 | Package tests | Contract failures owned by the primitive package. |
 

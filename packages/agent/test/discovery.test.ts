@@ -5,7 +5,6 @@ import { Readable } from "node:stream"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { listViteHubDevtoolsFeatures } from "@vite-hub/devtools"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 import { getMessageText } from "../src/messages.ts"
 
@@ -15,13 +14,6 @@ import type { AgentRunInput } from "../src/index.ts"
 
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
-}
-
-function textFromUiMessage(message: { parts?: Array<Record<string, unknown>> } | undefined) {
-  return (message?.parts || [])
-    .filter(part => part.type === "text" && typeof part.text === "string")
-    .map(part => part.text)
-    .join("")
 }
 
 function responseChunkText(chunk: unknown) {
@@ -64,7 +56,7 @@ async function configurePluginServer(plugin: { configureServer?: unknown }, serv
 async function invokeMiddleware(
   handler: Connect.NextHandleFunction,
   body: Record<string, unknown>,
-  url = "/__vitehub/agent/chat/devtools",
+  url = "/__vitehub/agent/invocation-stream",
   headers: IncomingMessage["headers"] = { "content-type": "text/plain" },
   method = "POST",
   options: { onResponse?: (res: ServerResponse) => void } = {},
@@ -119,24 +111,6 @@ async function invokeMiddleware(
   })
 
   return result
-}
-
-async function invokeState(handler: Connect.NextHandleFunction, body: Record<string, unknown>) {
-  return JSON.parse((await invokeMiddleware(handler, body)).body) as Record<string, unknown>
-}
-
-async function waitForMetadataState(
-  handler: Connect.NextHandleFunction,
-  body: Record<string, unknown>,
-  status: "error" | "loading" | "ready" = "ready",
-) {
-  let latest: Record<string, unknown> | undefined
-  for (let attempt = 0; attempt < 50; attempt++) {
-    latest = await invokeState(handler, body)
-    if (latest.metadataStatus === status) return latest
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
-  throw new Error(`Expected chat devtools metadata status ${status}, received ${String(latest?.metadataStatus)}`)
 }
 
 describe("agent discovery", () => {
@@ -440,216 +414,6 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
-  it("registers the chat devtools feature through hubAgent by default", async () => {
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-    const ctx = {
-      messages: {
-        add: vi.fn(),
-      },
-      rpc: {
-        register: vi.fn(),
-      },
-    }
-
-    await plugin.devtools?.setup?.(ctx as never)
-
-    expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([
-      {
-        bridge: "/__vitehub/agent/chat/devtools",
-        icon: "ph:chat-circle-duotone",
-        id: "agent.chat",
-        packageName: "@vite-hub/agent",
-        title: "Chat",
-      },
-    ])
-    expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
-  })
-
-  it("serves chat devtools state and send requests from the Vite bridge", async () => {
-    const root = await createTempRoot("vitehub-agent-devtools-bridge-")
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-
-    const { access, chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const devtoolsMeta = { email: "maximo@quiver.dk" }
-    const technicalEmails = new Set(["maximo@quiver.dk"])
-    const observedMetadataChannel = vi.fn()
-    const agent = defineAgent({
-      invoker: {
-        profiles: [
-          { id: "support-customer", kind: "customer", label: "Customer", meta: { audience: "customer", scope: "customer" } },
-          { id: "support-technical", kind: "technical", label: "Technical", meta: { audience: "technical", scope: "support" } },
-        ],
-      },
-      capabilities: [
-        access({
-          workspace: {
-            resolve({ channel, invoker, run }) {
-              if (run?.runId.endsWith(":metadata")) observedMetadataChannel(channel)
-              const email = typeof invoker.meta?.email === "string" ? invoker.meta.email.toLowerCase() : undefined
-              return run?.origin === "devtools" && (invoker.meta?.scope === "support" || (email && technicalEmails.has(email)))
-                ? { role: "admin", scope: "support" }
-                : { role: "viewer", scope: "customer" }
-            },
-            scopes: {
-              customer: { paths: ["customers/acme"] },
-              support: { all: true },
-            },
-          },
-        }),
-        chat(),
-      ],
-      name: "support",
-      driver: {
-        run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
-          const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
-          return `answered as ${context.invoker.kind}${email} with ${context.workspace ? "workspace" : "no workspace"}`
-        },
-      },
-      workspace: {},
-    })
-    const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-
-    await configurePluginServer(plugin, server)
-    expect(server.middlewares.use).toHaveBeenCalledTimes(2)
-
-    const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
-    expect(state).toMatchObject({
-      chats: [{ name: "support", uiMessages: [] }],
-      instructions: [],
-      metadataStatus: "ready",
-      invokerProfileId: "support-technical",
-      invokerProfiles: [
-        { id: "support-customer", kind: "customer", label: "Customer" },
-        { id: "support-technical", kind: "technical", label: "Technical" },
-      ],
-      selected: "support",
-      title: "support",
-    })
-
-    const sendResponse = await invokeMiddleware(handlers[0]!, {
-      action: "send",
-      chat: "support",
-      invokerProfileId: "support-technical",
-      stream: true,
-      text: "hello",
-    })
-    const events = sendResponse.body
-      .trim()
-      .split("\n")
-      .map(line => JSON.parse(line))
-    const finalState = events.filter(event => event.type === "state").at(-1)?.state
-
-    expect(events.at(-1)).toEqual({ type: "done" })
-    expect(finalState.selected).toBe("support")
-    expect(finalState.uiMessages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"])
-    expect(finalState.invokerProfileId).toBe("support-technical")
-    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("answered as technical with workspace")
-
-    const clearedTechnicalResponse = await invokeMiddleware(handlers[0]!, {
-      action: "clear",
-      chat: "support",
-      invokerProfileId: "support-technical",
-    })
-    const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
-    expect(clearedTechnicalState).toMatchObject({
-      instructions: [],
-      invokerProfileId: "support-technical",
-      selected: "support",
-      uiMessages: [],
-    })
-
-    const clearedFallbackResponse = await invokeMiddleware(handlers[0]!, {
-      action: "clear",
-      chat: "support",
-      invokerFallback: true,
-      meta: devtoolsMeta,
-    })
-    const clearedFallbackState = JSON.parse(clearedFallbackResponse.body)
-    expect(clearedFallbackState).toMatchObject({
-      invokerFallback: true,
-      metadataStatus: "loading",
-      selected: "support",
-      uiMessages: [],
-    })
-    expect(clearedFallbackState.invokerProfileId).toBeUndefined()
-    const resolvedFallbackState = await waitForMetadataState(handlers[0]!, {
-      action: "get-state",
-      chat: "support",
-      invokerFallback: true,
-      meta: devtoolsMeta,
-    })
-    expect(resolvedFallbackState).toMatchObject({
-      instructions: [],
-      invokerFallback: true,
-      metadataStatus: "ready",
-      selected: "support",
-    })
-    expect(observedMetadataChannel).toHaveBeenCalledWith(expect.objectContaining({
-      meta: devtoolsMeta,
-      run: expect.objectContaining({
-        origin: "devtools",
-        runId: "devtools:support:metadata",
-      }),
-    }))
-    expect(resolvedFallbackState.invokerProfileId).toBeUndefined()
-
-    const fallbackSendResponse = await invokeMiddleware(handlers[0]!, {
-      action: "send",
-      chat: "support",
-      invokerFallback: true,
-      meta: devtoolsMeta,
-      stream: true,
-      text: "hello fallback",
-    })
-    const fallbackEvents = fallbackSendResponse.body
-      .trim()
-      .split("\n")
-      .map(line => JSON.parse(line))
-    const fallbackFinalState = fallbackEvents.filter(event => event.type === "state").at(-1)?.state
-
-    expect(fallbackEvents.at(-1)).toEqual({ type: "done" })
-    expect(fallbackFinalState.invokerFallback).toBe(true)
-    expect(fallbackFinalState.invokerProfileId).toBeUndefined()
-    expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools:maximo@quiver.dk with workspace")
-  })
-
-  it("forwards double-slash input through the normal Agent input path", async () => {
-    const root = await createTempRoot("vitehub-agent-devtools-double-slash-")
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-
-    const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const run = vi.fn(({ messages }) => `received ${getMessageText(messages.at(-1))}`)
-    const agent = defineAgent({
-      capabilities: [chat()],
-      driver: { run },
-    })
-    const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-
-    await configurePluginServer(plugin, server)
-
-    const response = await invokeMiddleware(handlers[0]!, {
-      action: "send",
-      chat: "support",
-      stream: true,
-      text: "//inspect",
-    })
-    const events = response.body
-      .trim()
-      .split("\n")
-      .map(line => JSON.parse(line))
-    const finalState = events.filter(event => event.type === "state").at(-1)?.state
-
-    expect(events.at(-1)).toEqual({ type: "done" })
-    expect(run).toHaveBeenCalledOnce()
-    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("received //inspect")
-  })
-
   it("serves Agent Invocation Stream events from the Vite endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -667,7 +431,7 @@ describe("agent chat capability discovery", () => {
         } },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -710,7 +474,7 @@ describe("agent chat capability discovery", () => {
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -782,7 +546,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -847,7 +611,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -897,7 +661,7 @@ describe("agent chat capability discovery", () => {
       driver: { harness: {} as never },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -947,7 +711,7 @@ describe("agent chat capability discovery", () => {
       driver: { harness: {} as never },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1000,7 +764,7 @@ describe("agent chat capability discovery", () => {
         driver: { model: {} as never },
       })
       const { handlers, server } = createFakeServer(root, { default: agent })
-      const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+      const plugin = (await import("../src/vite.ts")).hubAgent()
 
       await configurePluginServer(plugin, server)
 
@@ -1065,7 +829,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1124,7 +888,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1175,7 +939,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1230,7 +994,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1281,7 +1045,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1324,7 +1088,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1361,7 +1125,7 @@ describe("agent chat capability discovery", () => {
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1408,7 +1172,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: ({ context, invoker, messages }) => `payload ${context.get<{ meta?: { audience?: string } }>("chat")?.meta?.audience} ${invoker.id} ${getMessageText(messages[0]!)}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1465,7 +1229,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: ({ messages }) => `nuxt ${getMessageText(messages[0]!)}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1526,7 +1290,7 @@ describe("agent chat capability discovery", () => {
       driver: { run: ({ context, input }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${input.prompt}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1581,7 +1345,7 @@ describe("agent chat capability discovery", () => {
         } },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1641,7 +1405,7 @@ describe("agent chat capability discovery", () => {
       workspace: {},
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1704,7 +1468,7 @@ describe("agent chat capability discovery", () => {
     server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => String(args[0] || "").includes("/summary.ts")
       ? { default: exactAgent }
       : { default: aliasAgent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1782,7 +1546,7 @@ describe("agent chat capability discovery", () => {
     replyEffect.mockClear()
 
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1830,7 +1594,7 @@ describe("agent chat capability discovery", () => {
         } },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1873,7 +1637,7 @@ describe("agent chat capability discovery", () => {
         driver: { run: () => "unused" },
       }),
     })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1902,7 +1666,7 @@ describe("agent chat capability discovery", () => {
         driver: { run: () => "unused" },
       }),
     })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1911,6 +1675,43 @@ describe("agent chat capability discovery", () => {
     expect(response.statusCode).toBe(403)
     expect(server.ssrLoadModule).not.toHaveBeenCalled()
   })
+
+  it("serves Agent inspection through the guarded Agent Dev Loop endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-inspection-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const { handlers, server } = createFakeServer(root, {
+      default: defineAgent({
+        capabilities: [chat()],
+        name: "support",
+        driver: { run: () => "ok" },
+      }),
+    })
+
+    await configurePluginServer((await import("../src/vite.ts")).hubAgent(), server)
+
+    const response = await invokeMiddleware(
+      handlers[0]!,
+      {},
+      `${agentInvocationStreamRoute}?inspect=1&agent=support`,
+      { [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue },
+      "GET",
+    )
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      inspection: {
+        config: { driver: { kind: "run" } },
+        name: "support",
+      },
+      root,
+    })
+  })
+
 
   it("consumes Response outputs from the Agent Invocation Stream endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-response-")
@@ -1928,7 +1729,7 @@ describe("agent chat capability discovery", () => {
         driver: { run: () => new Response("hello from response") },
       }),
     })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -1956,344 +1757,5 @@ describe("agent chat capability discovery", () => {
     expect(finish).toHaveBeenCalledTimes(1)
   })
 
-  it("serves initial chat devtools state while workspace metadata resolves", async () => {
-    const root = await createTempRoot("vitehub-agent-devtools-metadata-")
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-
-    const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    let resolveInstructions!: (value: string) => void
-    const instructionsReady = new Promise<string>((resolve) => {
-      resolveInstructions = resolve
-    })
-    const readInstructions = vi.fn(async () => await instructionsReady)
-    const agent = defineAgent({
-      capabilities: [chat()],
-      driver: {
-        instructions: readInstructions,
-        model: {} as never,
-      },
-      name: "support",
-      workspace: {
-        sources: {
-          docs: { name: "docs" } as never,
-        },
-      },
-    })
-    const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-
-    await configurePluginServer(plugin, server)
-
-    const firstState = await invokeState(handlers[0]!, { action: "get-state" })
-    expect(firstState).toMatchObject({
-      files: [expect.objectContaining({ path: "docs" })],
-      instructions: ["Dynamic system instructions resolver configured."],
-      metadataStatus: "loading",
-      selected: "support",
-    })
-
-    resolveInstructions("Resolved workspace instructions")
-    const resolvedState = await waitForMetadataState(handlers[0]!, { action: "get-state" })
-    expect(resolvedState).toMatchObject({
-      instructions: ["Resolved workspace instructions"],
-      metadataStatus: "ready",
-      selected: "support",
-    })
-
-    await invokeState(handlers[0]!, { action: "get-state" })
-    expect(readInstructions).toHaveBeenCalledTimes(1)
-  })
-
-  it("refreshes chat devtools workspace metadata after source materialization", async () => {
-    const root = await createTempRoot("vitehub-agent-devtools-materialized-source-")
-    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
-
-    const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const { custom } = await import("@vite-hub/workspace")
-    const { registerWorkspace } = await import("@vite-hub/workspace/test")
-    const agent = defineAgent({
-      capabilities: [chat()],
-      driver: {
-        async run({ workspace }) {
-          const fs = workspace?.fs as { materializeSources?: (options: { sources: string[] }) => Promise<unknown> } | undefined
-          await fs?.materializeSources?.({ sources: ["ingestion"] })
-          return "materialized ingestion"
-        }
-      },
-      name: "support",
-      workspace: {
-        store: { provider: "memory" },
-        sources: {
-          ingestion: custom({
-            cache: { maxAge: 60 },
-            materialize: "lazy",
-            mount: "ingestion",
-            async getKeys() {
-              return ["customers/acme.csv"]
-            },
-            async getItem(key) {
-              return { content: "sku,demand\nA,4\n", key }
-            },
-          }),
-        },
-      },
-    })
-    registerWorkspace("support", agent as never)
-    const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-
-    await configurePluginServer(plugin, server)
-    const initialState = await waitForMetadataState(handlers[0]!, { action: "get-state", chat: "support" })
-    expect(initialState.files).toEqual([
-      expect.objectContaining({
-        materialized: false,
-        path: "ingestion",
-        source: "ingestion",
-        status: "lazy",
-      }),
-    ])
-
-    const sendResponse = await invokeMiddleware(handlers[0]!, {
-      action: "send",
-      chat: "support",
-      stream: true,
-      text: "load ingestion",
-    })
-    const events = sendResponse.body
-      .trim()
-      .split("\n")
-      .map(line => JSON.parse(line))
-    const finalState = events.filter(event => event.type === "state").at(-1)?.state
-
-    expect(finalState.files).toEqual([
-      expect.objectContaining({
-        children: [
-          expect.objectContaining({
-            children: [
-              expect.objectContaining({
-                kind: "file",
-                path: "ingestion/customers/acme.csv",
-                source: "ingestion",
-              }),
-            ],
-            kind: "directory",
-            path: "ingestion/customers",
-            source: "ingestion",
-          }),
-        ],
-        materialized: true,
-        path: "ingestion",
-        source: "ingestion",
-        status: "ready",
-      }),
-    ])
-    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("materialized ingestion")
-  })
-
-  it("materializes resolver-backed lazy sources from the chat devtools file tree", async () => {
-    const root = await createTempRoot("vitehub-agent-devtools-click-source-")
-    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
-
-    const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const { custom } = await import("@vite-hub/workspace")
-    const { registerWorkspace } = await import("@vite-hub/workspace/test")
-    const agent = defineAgent({
-      capabilities: [chat()],
-      driver: {
-        run: () => "ok"
-      },
-      name: "support",
-      workspace: {
-        store: { provider: "memory" },
-        sources: {
-          ingestion: custom({
-            fingerprint: { source: "resolved-ingestion" },
-            materialize: "lazy",
-            async getKeys() {
-              return []
-            },
-            async getItem(key) {
-              throw new Error(`unresolved source read: ${key}`)
-            },
-            async resolve() {
-              return custom({
-                cache: { maxAge: 60 },
-                fingerprint: { source: "resolved-ingestion" },
-                materialize: "lazy",
-                mount: "ingestion",
-                async getKeys() {
-                  return ["customers/acme.csv"]
-                },
-                async getItem(key) {
-                  return { content: "sku,demand\nA,4\n", key }
-                },
-              })
-            },
-          }),
-          portal: custom({
-            cache: { maxAge: 60 },
-            fingerprint: { source: "portal" },
-            materialize: "lazy",
-            mount: "portal",
-            async getKeys() {
-              return ["package.json"]
-            },
-            async getItem(key) {
-              return { content: "{\"name\":\"portal\"}\n", key }
-            },
-          }),
-        },
-      },
-    })
-    registerWorkspace("support", agent as never)
-    const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-
-    await configurePluginServer(plugin, server)
-    const initialState = await waitForMetadataState(handlers[0]!, { action: "get-state", chat: "support" })
-    expect(initialState.files).toEqual([
-      expect.objectContaining({
-        materialized: false,
-        path: "ingestion",
-        source: "ingestion",
-        status: "lazy",
-      }),
-      expect.objectContaining({
-        materialized: false,
-        path: "portal",
-        source: "portal",
-        status: "lazy",
-      }),
-    ])
-
-    const materializedState = await invokeState(handlers[0]!, {
-      action: "materialize-source",
-      chat: "support",
-      path: "ingestion",
-      source: "ingestion",
-    })
-
-    expect(materializedState.title).toBe("support")
-    expect(materializedState.files).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        children: [
-          expect.objectContaining({
-            children: [
-              expect.objectContaining({
-                kind: "file",
-                path: "ingestion/customers/acme.csv",
-                source: "ingestion",
-              }),
-            ],
-            kind: "directory",
-            path: "ingestion/customers",
-            source: "ingestion",
-          }),
-        ],
-        materialized: true,
-        path: "ingestion",
-        source: "ingestion",
-        status: "ready",
-      }),
-    ]))
-
-    const nextState = await invokeState(handlers[0]!, {
-      action: "materialize-source",
-      chat: "support",
-      path: "portal",
-      source: "portal",
-    })
-
-    expect(nextState.title).toBe("support")
-    expect(nextState.files).toEqual([
-      expect.objectContaining({
-        children: [
-          expect.objectContaining({
-            children: [
-              expect.objectContaining({
-                kind: "file",
-                path: "ingestion/customers/acme.csv",
-                source: "ingestion",
-              }),
-            ],
-            kind: "directory",
-            path: "ingestion/customers",
-            source: "ingestion",
-          }),
-        ],
-        materialized: true,
-        path: "ingestion",
-        source: "ingestion",
-        status: "ready",
-      }),
-      expect.objectContaining({
-        children: [
-          expect.objectContaining({
-            kind: "file",
-            path: "portal/package.json",
-            source: "portal",
-          }),
-        ],
-        materialized: true,
-        path: "portal",
-        source: "portal",
-        status: "ready",
-      }),
-    ])
-  })
-
-  it("omits unfinished tool-call assistant messages from devtools prompt history", async () => {
-    const { createChatDevtoolsPromptHistory } = await import("../src/chat/vite/devtools-bridge.ts")
-    const history = createChatDevtoolsPromptHistory([
-      {
-        id: "user-1",
-        parts: [{ text: "first", type: "text" }],
-        role: "user",
-      },
-      {
-        id: "assistant-partial",
-        parts: [{ input: { command: "rg forecast" }, state: "input-available", toolCallId: "call-1", type: "tool-shell" }],
-        role: "assistant",
-      },
-      {
-        id: "assistant-complete",
-        metadata: { completedAt: "2026-06-03T08:00:00.000Z" },
-        parts: [
-          { input: { command: "rg forecast" }, output: { stdout: "ok" }, state: "output-available", toolCallId: "call-2", type: "tool-shell" },
-          { text: "done", type: "text" },
-        ],
-        role: "assistant",
-      },
-    ])
-
-    expect(history.map(message => message.id)).toEqual(["user-1", "assistant-complete"])
-  })
-
-  it("skips chat devtools feature and bridge when package-local devtools are disabled", async () => {
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
-    const ctx = {
-      messages: {
-        add: vi.fn(),
-      },
-      rpc: {
-        register: vi.fn(),
-      },
-    }
-
-    await plugin.devtools?.setup?.(ctx as never)
-
-    expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([])
-    expect(ctx.rpc.register).not.toHaveBeenCalled()
-
-    const { server } = createFakeServer(await createTempRoot("vitehub-agent-devtools-disabled-"), {})
-    await configurePluginServer(plugin, server)
-    expect(server.middlewares.use).toHaveBeenCalledTimes(1)
-  })
 
 })

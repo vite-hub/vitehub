@@ -93,7 +93,7 @@ pnpm vitehub agent info --agent support --json
 The default output summarizes the selected Driver, tools, visible Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status.
 Use `--json` for the structured inspection contract and `--url` when Vite is not listening on `http://localhost:5173`.
 When multiple chat-capable Agents are discovered, `--agent` is required.
-Agent DevTools must be enabled because `agent info` reads resolved runtime metadata from its running Vite bridge.
+`agent info` reads resolved runtime metadata from the guarded Agent Dev Loop endpoint exposed by `hubAgent()`.
 
 ## Talk to an Agent during development
 
