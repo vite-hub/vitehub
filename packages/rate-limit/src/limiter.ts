@@ -86,19 +86,16 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
       if (!input || typeof input.key !== "string" || input.key.length === 0) {
         throw new TypeError("[vitehub] Rate Limiter consume() requires a non-empty key.")
       }
-      const result = await options.driver.consume({
+      const [error, result] = await options.driver.consume({
         key: input.key,
         limit: policy.limit,
         name: options.name,
         windowMs: policy.windowMs,
       })
-      if ("unavailable" in result) {
-        if (result.unavailable !== true) {
-          throw new TypeError("[vitehub] Rate Limit driver unavailable outcome must set unavailable to true.")
-        }
+      if (error) {
         return {
           allowed: policy.failure === "allow",
-          cause: result.cause,
+          cause: error.cause ?? error,
           limit: policy.limit,
           reason: "unavailable",
           windowMs: policy.windowMs,

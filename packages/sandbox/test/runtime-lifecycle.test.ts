@@ -86,7 +86,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result.isOk()).toBe(true)
+    expect(result[0]).toBeNull()
     expect(runtimeMocks.resolveProviderBox).toHaveBeenCalledWith(["node"])
     expect(runtimeMocks.open).toHaveBeenCalledWith({
       id: expect.stringMatching(/^vitehub-example-[a-z0-9]+-definition$/),
@@ -105,7 +105,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result.isErr()).toBe(true)
+    expect(result[0]).toBeInstanceOf(Error)
     expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
   })
 
@@ -149,7 +149,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result.isErr()).toBe(true)
+    expect(result[0]).toBeInstanceOf(Error)
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -160,7 +160,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result.isOk()).toBe(true)
+    expect(result[0]).toBeNull()
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -211,7 +211,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result.isOk()).toBe(true)
+    expect(result[0]).toBeNull()
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledWith(
       expect.anything(),
       "example",

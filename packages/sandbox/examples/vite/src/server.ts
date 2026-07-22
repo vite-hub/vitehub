@@ -6,13 +6,13 @@ const app = new H3()
 
 app.post("/api/release-notes", async (event) => {
   const payload = await readRequestPayload<ReleaseNotesPayload>(event, { notes: "" }) as ReleaseNotesPayload
-  const result = await runSandbox("release-notes", payload)
+  const [error, result] = await runSandbox("release-notes", payload)
 
-  if (result.isErr()) {
-    throw createError({ statusCode: 500, statusMessage: result.error.message })
+  if (error) {
+    throw createError({ statusCode: 500, statusMessage: error.message })
   }
 
-  return { result: result.value }
+  return { result }
 })
 
 export default app

@@ -65,20 +65,20 @@ describe("Rate Limit core", () => {
 
   it("validates driver guarantees before consumption", () => {
     expect(() => createRateLimiter({
-      driver: { capabilities: { ...strictCapabilities, enforcement: "best-effort" }, consume: () => ({ allowed: true }), name: "edge" },
+      driver: { capabilities: { ...strictCapabilities, enforcement: "best-effort" }, consume: () => [null, { allowed: true }], name: "edge" },
       enforcement: "strict",
       limit: 1,
       window: "1m",
     })).toThrow("requires strict enforcement")
 
     expect(() => createRateLimiter({
-      driver: { capabilities: { ...strictCapabilities, windows: [10_000] }, consume: () => ({ allowed: true }), name: "narrow" },
+      driver: { capabilities: { ...strictCapabilities, windows: [10_000] }, consume: () => [null, { allowed: true }], name: "narrow" },
       limit: 1,
       window: "1m",
     })).toThrow("does not support")
 
     expect(() => createRateLimiter({
-      driver: { capabilities: {} as never, consume: () => ({ allowed: true }), name: "opaque" },
+      driver: { capabilities: {} as never, consume: () => [null, { allowed: true }], name: "opaque" },
       limit: 1,
       window: "1m",
     })).toThrow("valid enforcement")
@@ -95,7 +95,7 @@ describe("Rate Limit core", () => {
 
   it("applies explicit failure policy", async () => {
     const cause = new Error("offline")
-    const consume = vi.fn(() => ({ cause, unavailable: true } as const))
+    const consume = vi.fn((): import("../src/index.ts").RateLimitDriverOutcome => [cause, undefined])
     const driver = { capabilities: strictCapabilities, consume, name: "offline" }
     const allow = createRateLimiter({ driver, failure: "allow", limit: 1, window: "1m" })
     const deny = createRateLimiter({ driver, failure: "deny", limit: 1, window: "1m" })

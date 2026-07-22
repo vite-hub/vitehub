@@ -1,15 +1,9 @@
 import { resolveModule } from 'local-pkg'
 import { resolvePathSync } from 'mlly'
 
-export interface ResolvedModuleResult {
-  ok: true
-  path: string
-}
-
-export interface MissingModuleResult {
-  ok: false
-  error: string
-}
+export type ModuleResolveResult =
+  | [error: null, path: string]
+  | [error: Error, path: undefined]
 
 function normalizePaths(paths?: string[]) {
   if (paths?.length)
@@ -34,34 +28,33 @@ function tryResolveFromRuntime(id: string): string | false | undefined {
   }
 }
 
-export function tryResolveModule(id: string, options: { paths?: string[] } = {}): ResolvedModuleResult | MissingModuleResult {
+export function tryResolveModule(id: string, options: { paths?: string[] } = {}): ModuleResolveResult {
   const paths = normalizePaths(options.paths)
 
   const runtimeResolved = tryResolveFromRuntime(id)
   if (runtimeResolved === false)
-    return { ok: false, error: `Unable to resolve module "${id}" using the active runtime resolver` }
+    return [new Error(`Unable to resolve module "${id}" using the active runtime resolver`), undefined]
   if (runtimeResolved)
-    return { ok: true, path: runtimeResolved }
+    return [null, runtimeResolved]
 
   const resolved = resolveModule(id, { paths })
   if (resolved)
-    return { ok: true, path: resolved }
+    return [null, resolved]
 
   for (const url of paths) {
     try {
-      return { ok: true, path: resolvePathSync(id, { url }) }
+      return [null, resolvePathSync(id, { url })]
     }
     catch {
       continue
     }
   }
 
-  return {
-    ok: false,
-    error: paths.length > 0
+  return [new Error(
+    paths.length > 0
       ? `Unable to resolve module "${id}" from ${paths.join(', ')}`
       : `Unable to resolve module "${id}" without explicit resolution paths`,
-  }
+  ), undefined]
 }
 
 const resolveCache = new Map<string, boolean>()
@@ -71,9 +64,10 @@ export function canResolveModule(moduleName: string, options?: { paths?: string[
   const cached = resolveCache.get(key)
   if (cached !== undefined)
     return cached
-  const result = tryResolveModule(moduleName, options).ok
-  resolveCache.set(key, result)
-  return result
+  const [error] = tryResolveModule(moduleName, options)
+  const resolved = error === null
+  resolveCache.set(key, resolved)
+  return resolved
 }
 
 export function clearResolveCache(): void {

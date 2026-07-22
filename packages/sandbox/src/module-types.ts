@@ -90,21 +90,9 @@ export type SandboxDefinitionFromHandler<THandler extends (...args: any[]) => an
     run: THandler
   }
 
-export interface SandboxOkResult<TResult = unknown> {
-  isOk: () => true
-  isErr: () => false
-  value: TResult
-  error?: never
-}
-
-export interface SandboxErrResult {
-  isOk: () => false
-  isErr: () => true
-  value?: never
-  error: SandboxError
-}
-
-export type SandboxRunResult<TResult = unknown> = SandboxOkResult<TResult> | SandboxErrResult
+export type SandboxRunResult<TResult = unknown> =
+  | [error: null, value: TResult]
+  | [error: SandboxError, value: undefined]
 
 export type {
   SandboxError,

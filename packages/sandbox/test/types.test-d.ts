@@ -37,7 +37,7 @@ describe("types", () => {
     expectTypeOf(config.sandbox).toMatchTypeOf<AgentSandboxConfig | false | undefined>()
   })
 
-  it("types sandbox definitions and run results", () => {
+  it("types sandbox definitions and run results", async () => {
     const definition = defineSandbox({
       run: async (payload?: { value: string }) => ({ value: payload?.value || "" }),
     })
@@ -46,6 +46,10 @@ describe("types", () => {
     expectTypeOf(runSandbox("release-notes", { value: "ok" })).resolves.toMatchTypeOf<SandboxRunResult>()
     expectTypeOf(runSandbox("package-entry", { value: "ok" })).resolves.toEqualTypeOf<SandboxRunResult<{ length: number }>>()
     expectTypeOf(runSandbox("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxRunResult<string>>()
+
+    const [error, result] = await runSandbox("package-entry", { value: "ok" })
+    if (error) throw error
+    expectTypeOf(result).toEqualTypeOf<{ length: number }>()
   })
 
   it("returns a Vite plugin", () => {

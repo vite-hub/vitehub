@@ -42,7 +42,8 @@ Use `<path>.sandbox.ts` with `defineSandbox()` for free-form Definitions outside
 ```ts
 import { runSandbox } from "@vite-hub/sandbox"
 
-const result = await runSandbox("release-notes", { notes: "ship it" })
+const [error, result] = await runSandbox("release-notes", { notes: "ship it" })
+if (error) throw error
 ```
 
 Add `hubSandbox()` to Vite for discovery, typed registry generation, package preparation plans, and host output. Provider images and full Dockerfile overrides belong to the selected Box adapter or host configuration; Sandbox Definitions stay portable.

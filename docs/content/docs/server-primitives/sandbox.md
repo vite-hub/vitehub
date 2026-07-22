@@ -56,7 +56,9 @@ export default { text: payload?.notes?.toUpperCase() || 'No notes' }
 import { runSandbox } from '@vite-hub/sandbox'
 
 export default defineEventHandler(async () => {
-  return runSandbox('release-notes', { notes: 'ship it' })
+  const [error, result] = await runSandbox('release-notes', { notes: 'ship it' })
+  if (error) throw error
+  return result
 })
 ```
 

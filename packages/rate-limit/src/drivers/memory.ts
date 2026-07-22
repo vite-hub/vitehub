@@ -51,22 +51,22 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
       }
       const entry = current && current.resetAt > timestamp ? current : { count: 0, resetAt }
       if (entry.count >= input.limit) {
-        return {
+        return [null, {
           allowed: false,
           remaining: 0,
           resetAt: entry.resetAt,
           retryAfter: Math.max(1, Math.ceil((entry.resetAt - timestamp) / 1_000)),
           used: entry.count,
-        }
+        }]
       }
       entry.count += 1
       entries.set(key, entry)
-      return {
+      return [null, {
         allowed: true,
         remaining: input.limit - entry.count,
         resetAt: entry.resetAt,
         used: entry.count,
-      }
+      }]
     },
     name: "memory",
     size() {

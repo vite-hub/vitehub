@@ -22,14 +22,11 @@ describe("sandbox public api", () => {
     })
   })
 
-  it("returns a result wrapper instead of throwing", async () => {
-    const result = await runSandbox("missing")
+  it("returns an error-first tuple instead of throwing", async () => {
+    const [error, value] = await runSandbox("missing")
 
-    expect(result.isErr()).toBe(true)
-    expect(result.isOk()).toBe(false)
-    if (result.isErr()) {
-      expect(result.error!.message).toContain("missing")
-    }
+    expect(error?.message).toContain("missing")
+    expect(value).toBeUndefined()
   })
 
   it("emits extensioned provider loader imports for published ESM", async () => {
