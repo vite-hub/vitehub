@@ -170,6 +170,7 @@ function vercelExecutionAuthority(
 function allowsAllNetworkDestinations(
   networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
 ): boolean {
+  if (networkPolicy.subnets?.deny?.length) return false;
   const allow = networkPolicy.allow;
   return Array.isArray(allow) ? allow.includes("*") : Boolean(allow && "*" in allow);
 }

@@ -109,6 +109,7 @@ describe("remote Box providers", () => {
     [{ allow: ["api.example.com"] }, "restricted"],
     [{ allow: ["*"] }, "unrestricted"],
     [{ allow: { "*": [] } }, "unrestricted"],
+    [{ allow: ["*"], subnets: { deny: ["10.0.0.0/8"] } }, "restricted"],
     [{}, "unknown"],
     [{ allow: [] }, "unknown"],
     [{ subnets: {} }, "unknown"],
