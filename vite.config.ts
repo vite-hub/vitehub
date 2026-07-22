@@ -15,6 +15,7 @@ export default defineConfig({
   },
   plugins: [
     vitehub({
+      preset: 'node',
       agent: { providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } } },
       blob: false,
       database: false,

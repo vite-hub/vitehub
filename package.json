@@ -16,13 +16,13 @@
   "dependencies": {
     "@ai-sdk/harness": "1.0.0",
     "@ai-sdk/harness-codex": "1.0.0",
-    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@932bdc75b61f9da845ea8caf8c85ff6514f9a7a4",
-    "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@932bdc75b61f9da845ea8caf8c85ff6514f9a7a4",
+    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@0fa23d743da3ea8afdcdef97c8cbe221f1a26b6d",
+    "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@0fa23d743da3ea8afdcdef97c8cbe221f1a26b6d",
     "ai": "7.0.0",
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
     "vite": "^8.0.11",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@932bdc75b61f9da845ea8caf8c85ff6514f9a7a4"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@0fa23d743da3ea8afdcdef97c8cbe221f1a26b6d"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
