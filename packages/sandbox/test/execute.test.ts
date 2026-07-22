@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { posix } from "node:path"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
+import { createHandlerError } from "../src/runtime/output-recovery.ts"
 import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 import type { ViteHubError } from "@vite-hub/runtime"
 import type { SandboxExecutionBox } from "../src/runtime/execution-box.ts"
@@ -168,6 +169,19 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxDefinition", () => {
+  it("bounds handler diagnostics before constructing the public error", () => {
+    const error = createHandlerError("Sandbox definition failed.", "vercel", {
+      ignored: { private: true },
+      stderr: "x".repeat(20_000),
+    })
+
+    expect(error).toMatchObject({
+      code: "SANDBOX_HANDLER_ERROR",
+      details: { provider: "vercel", stderr: "x".repeat(16_384) },
+    })
+    expect(error.details).not.toHaveProperty("ignored")
+  })
+
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
     let finishSetup: (() => void) | undefined

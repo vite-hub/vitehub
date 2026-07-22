@@ -6179,7 +6179,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("posts default and configured rate-limit messages to chat", async () => {
+  it("posts the sanitized rate-limit message to chat", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { ViteHubError } = await import("@vite-hub/runtime")
@@ -6213,7 +6213,7 @@ describe("server helpers", () => {
 
         expect(adapter.postMessage).toHaveBeenLastCalledWith(
           "telegram:456",
-          message ?? "Rate limit exceeded. Try again later.",
+          "Rate limit exceeded. Try again later.",
         )
       }
     }

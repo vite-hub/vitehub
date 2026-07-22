@@ -11,6 +11,7 @@ const DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 60_000
 const MAX_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 120_000
 const EXEC_OUTPUT_RECOVERY_POLL_MS = 1_000
 const EXEC_OUTPUT_PREVIEW_LENGTH = 500
+const HANDLER_DIAGNOSTIC_LENGTH = 16_384
 
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
 
@@ -48,10 +49,15 @@ function isRecoverableCloudflareExecError(error: unknown) {
 }
 
 export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
+  const publicDetails: Record<string, string | number | boolean | null> = {}
+  for (const [key, value] of Object.entries(details || {})) {
+    if (typeof value === 'string') publicDetails[key] = value.slice(0, HANDLER_DIAGNOSTIC_LENGTH)
+    else if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) publicDetails[key] = value
+  }
   return sandboxError(message, {
     code: 'SANDBOX_HANDLER_ERROR',
     provider,
-    details,
+    details: Object.keys(publicDetails).length ? publicDetails : undefined,
   })
 }
 

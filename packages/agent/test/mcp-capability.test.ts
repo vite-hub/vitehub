@@ -236,6 +236,22 @@ describe("mcp capability", () => {
     await resolved.close()
   })
 
+  it("bounds large tool drift diagnostics", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const tools = Object.fromEntries(Array.from({ length: 140 }, (_, index) => [`tool-${index}-${"x".repeat(300)}`, "New tool."]))
+    const client = createClient(await createTools(tools))
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [mcp({ integrity: { docs: {} }, servers: { docs: client } })],
+    }, runtime(), {})).rejects.toMatchObject({
+      code: "MCP_TOOL_DEFINITION_DRIFT",
+      details: { added: expect.arrayContaining([expect.any(String)]), server: "docs" },
+      message: expect.stringContaining("and 115 more"),
+    })
+    expect(client.close).toHaveBeenCalledTimes(1)
+  })
+
   it("rejects integrity baselines for unknown servers", async () => {
     const { mcp } = await import("../src/capabilities.ts")
     expect(() => mcp({

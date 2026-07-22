@@ -1699,7 +1699,8 @@ async function resolveChatErrorFallbackText(
     return resolved || undefined
   }
   if (typeof fallback === "string") return fallback
-  if (toAgentPublicError(args.error, "http").code === "RATE_LIMIT_REJECTED") return args.error instanceof Error ? args.error.message : defaultChatErrorFallbackText
+  const publicError = toAgentPublicError(args.error, "http")
+  if (publicError.code === "RATE_LIMIT_REJECTED") return publicError.error
   return defaultChatErrorFallbackText
 }
 

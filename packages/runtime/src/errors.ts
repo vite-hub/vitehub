@@ -204,6 +204,8 @@ export class ViteHubError<
 export function getViteHubErrorShape(value: unknown): ViteHubErrorShape | undefined {
   if (typeof value !== "object" || value === null) return
   try {
+    const existing = publicShapes.get(value)
+    if (existing) return existing
     if (readOwnDataProperty(value, "name") !== "ViteHubError") return
     return normalizePublicError(
       readOwnDataProperty(value, "code"),

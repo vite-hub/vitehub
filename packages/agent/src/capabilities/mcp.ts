@@ -21,9 +21,18 @@ interface McpToolDrift {
 }
 
 function mcpToolDefinitionDriftError(server: string, drift: McpToolDrift) {
-  const format = (names: string[]) => names.length ? names.map(name => JSON.stringify(name)).join(", ") : "none"
-  return new ViteHubError("MCP_TOOL_DEFINITION_DRIFT", `[vitehub] MCP tool-definition drift for server "${server}". Added: ${format(drift.added)}. Changed: ${format(drift.changed)}. Removed: ${format(drift.removed)}. Review the server tools before updating mcp({ integrity }).`, {
-    details: { server, ...drift },
+  const summarize = (names: string[]) => names.slice(0, 25).map(name => name.slice(0, 256))
+  const publicDrift = {
+    added: summarize(drift.added),
+    changed: summarize(drift.changed),
+    removed: summarize(drift.removed),
+  }
+  const format = (names: string[], total: number) => names.length
+    ? `${names.map(name => JSON.stringify(name)).join(", ")}${total > names.length ? `, and ${total - names.length} more` : ""}`
+    : "none"
+  const publicServer = server.slice(0, 256)
+  return new ViteHubError("MCP_TOOL_DEFINITION_DRIFT", `[vitehub] MCP tool-definition drift for server "${publicServer}". Added: ${format(publicDrift.added, drift.added.length)}. Changed: ${format(publicDrift.changed, drift.changed.length)}. Removed: ${format(publicDrift.removed, drift.removed.length)}. Review the server tools before updating mcp({ integrity }).`, {
+    details: { server: publicServer, ...publicDrift },
   })
 }
 

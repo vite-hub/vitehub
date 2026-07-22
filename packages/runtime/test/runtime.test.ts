@@ -7,6 +7,7 @@ import {
   defineCapability,
   emitTraceEvent,
   getCapability,
+  getViteHubErrorShape,
   hasCapability,
   resolveCapabilityPolicy,
   resolveRuntimeValue,
@@ -122,6 +123,7 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(error)).not.toContain("mutated-secret")
     expect(JSON.stringify(error)).not.toContain("provider token: secret")
     expect(error.cause).toBe(cause)
+    expect(getViteHubErrorShape(error)).toEqual(error.toJSON())
   })
 
   it("rejects hostile public details without invoking accessors or echoing values", () => {
