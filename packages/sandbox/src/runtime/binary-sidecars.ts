@@ -44,7 +44,7 @@ export async function encodeSandboxValue(
 ) {
   const state: { directory?: Promise<void>, nextId: number } = { nextId: 0 }
 
-  async function encode(entry: unknown, ancestors: ReadonlySet<object>): Promise<unknown> {
+  async function encode(entry: unknown, ancestors: ReadonlySet<object>, key = '', applyToJSON = true): Promise<unknown> {
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
     if (blob || entry instanceof Uint8Array) {
       const id = state.nextId++
@@ -66,15 +66,19 @@ export async function encodeSandboxValue(
       if (ancestors.has(entry))
         throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
       const nextAncestors = new Set(ancestors).add(entry)
-      return await Promise.all(entry.map(item => encode(item, nextAncestors)))
+      return await Promise.all(entry.map((item, index) => encode(item, nextAncestors, String(index))))
     }
 
     if (!isPlainObject(entry)) return entry
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 
+    if (applyToJSON && typeof entry.toJSON === 'function')
+      return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false)
+
     const nextAncestors = new Set(ancestors).add(entry)
-    const entries = await Promise.all(Object.entries(entry).map(async ([key, item]) => [key, await encode(item, nextAncestors)] as [string, unknown]))
+    const sourceEntries = Object.entries(entry).filter(([entryKey, item]) => applyToJSON || entryKey !== 'toJSON' || typeof item !== 'function')
+    const entries = await Promise.all(sourceEntries.map(async ([entryKey, item]) => [entryKey, await encode(item, nextAncestors, entryKey)] as [string, unknown]))
     return hasMarker(entry) ? tagged({ entries, tag: 'object' }) : Object.fromEntries(entries)
   }
 

@@ -136,6 +136,43 @@ describe("package entry result transport", () => {
     expect(execution.output).toEqual({ ok: true, result: escaped })
   })
 
+  it("applies result toJSON before staging nested binary values", async () => {
+    const execution = await executePackageEntry([
+      `export default async function () {`,
+      `  return {`,
+      `    bytes: new Uint8Array([1, 2, 3]),`,
+      `    toJSON() { return { length: this.bytes.byteLength } },`,
+      `  }`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { length: 3 } })
+  })
+
+  it("applies result toJSON only once with the JSON property key", async () => {
+    const execution = await executePackageEntry([
+      `let calls = 0`,
+      `export default async function () {`,
+      `  return [{`,
+      `    bytes: new Uint8Array([1, 2, 3]),`,
+      `    toJSON(key) {`,
+      `      if (key !== '0' || ++calls > 1) throw new TypeError('invalid toJSON call')`,
+      `      return this`,
+      `    },`,
+      `  }]`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toMatchObject({
+      ok: true,
+      result: [{ bytes: { [SANDBOX_VALUE_MARKER]: { kind: "uint8array", tag: "binary" } } }],
+    })
+  })
+
   it.each([
     ["path-like", `"../../etc/passwd"`],
     ["negative-zero", "-0"],

@@ -299,6 +299,41 @@ describe("executeSandboxDefinition", () => {
     expect(result.markerObject).toEqual(markerObject)
   })
 
+  it("applies payload toJSON before staging nested binary values", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        expect(JSON.parse(new TextDecoder().decode(read(inputPath)!))).toEqual({
+          context: {},
+          payload: { length: 3 },
+        })
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    const payload = {
+      bytes: Uint8Array.from([1, 2, 3]),
+      toJSON() {
+        return { length: this.bytes.byteLength }
+      },
+    }
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "json-semantics",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      payload,
+      {},
+    )).resolves.toBe(true)
+  })
+
   it.each([
     ["invalid", -1, undefined, true],
     ["negative-zero", 0, "-0", true],
