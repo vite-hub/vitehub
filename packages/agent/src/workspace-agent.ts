@@ -507,13 +507,24 @@ async function resolvedDriverExecutionAuthority<
   if (driver.kind === "model") return noExecutionAuthority
   if (driver.kind !== "harness") return unknownExecutionAuthority
   if (box) {
-    const { resolveBox } = await import("@vite-hub/box")
-    const resolvedBox = await resolveBox(box, context, { requires: driver.requires })
-    return resolvedBox.plan.executionAuthority
+    try {
+      const { resolveBox } = await import("@vite-hub/box")
+      const resolvedBox = await resolveBox(box, context, { requires: driver.requires })
+      return resolvedBox.plan.executionAuthority
+    }
+    catch {
+      return unknownExecutionAuthority
+    }
   }
-  const provider = typeof driver.sandbox === "function"
-    ? await driver.sandbox(context)
-    : driver.sandbox
+  let provider
+  try {
+    provider = typeof driver.sandbox === "function"
+      ? await driver.sandbox(context)
+      : driver.sandbox
+  }
+  catch {
+    return unknownExecutionAuthority
+  }
   if (provider !== undefined) {
     return declaredExecutionAuthority(provider) ?? unknownExecutionAuthority
   }
