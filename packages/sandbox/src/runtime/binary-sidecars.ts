@@ -25,6 +25,13 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object'
 }
 
+function isBoxedJsonPrimitive(value: object) {
+  return value instanceof Boolean
+    || value instanceof Number
+    || value instanceof String
+    || Object.getPrototypeOf(value) === BigInt.prototype
+}
+
 function hasMarker(value: Record<string, unknown>) {
   return Object.prototype.hasOwnProperty.call(value, SANDBOX_VALUE_MARKER)
 }
@@ -77,6 +84,7 @@ export async function encodeSandboxValue(
     }
 
     if (!isObjectRecord(entry)) return entry
+    if (isBoxedJsonPrimitive(entry)) return await encode(entry.valueOf(), ancestors, key, false)
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 

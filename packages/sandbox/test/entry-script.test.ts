@@ -204,6 +204,18 @@ describe("package entry result transport", () => {
     expect(execution.output).toEqual({ ok: true, result: { length: 1 } })
   })
 
+  it("preserves boxed primitive result semantics", async () => {
+    const execution = await executePackageEntry(
+      `export default async function () { return { boolean: new Boolean(true), number: new Number(5), string: new String('ready') } }\n`,
+    )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { boolean: true, number: 5, string: "ready" },
+    })
+  })
+
   it.each([
     ["path-like", `"../../etc/passwd"`],
     ["negative-zero", "-0"],
@@ -227,6 +239,7 @@ describe("package entry result transport", () => {
     ["missing default export", "export const value = true\n", "must default-export a result"],
     ["symbol result", "export default Symbol('result')\n", "unsupported symbol"],
     ["nested undefined", "export default { value: undefined }\n", "unsupported undefined"],
+    ["boxed bigint", "export default Object(1n)\n", "unsupported bigint"],
     ["bigint result", "export default 1n\n", "unsupported bigint"],
     [
       "cyclic result",

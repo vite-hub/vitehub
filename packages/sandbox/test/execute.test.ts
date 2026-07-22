@@ -403,6 +403,34 @@ describe("executeSandboxDefinition", () => {
     )).resolves.toBe(true)
   })
 
+  it("preserves boxed primitive payload semantics", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        expect(JSON.parse(new TextDecoder().decode(read(inputPath)!))).toEqual({
+          context: {},
+          payload: { boolean: true, number: 5, string: "ready" },
+        })
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "boxed-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { boolean: Object(true), number: Object(5), string: Object("ready") },
+      {},
+    )).resolves.toBe(true)
+  })
+
   it.each([
     ["invalid", -1, undefined, true],
     ["negative-zero", 0, "-0", true],
