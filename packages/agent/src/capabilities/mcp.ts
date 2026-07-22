@@ -21,7 +21,7 @@ interface McpToolDrift {
 }
 
 function mcpToolDefinitionDriftError(server: string, drift: McpToolDrift) {
-  const summarize = (names: string[]) => names.slice(0, 25).map(name => name.slice(0, 256))
+  const summarize = (names: string[]) => names.slice(0, 12).map(name => name.slice(0, 128))
   const publicDrift = {
     added: summarize(drift.added),
     changed: summarize(drift.changed),

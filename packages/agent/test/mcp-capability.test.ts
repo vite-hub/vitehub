@@ -247,7 +247,7 @@ describe("mcp capability", () => {
     }, runtime(), {})).rejects.toMatchObject({
       code: "MCP_TOOL_DEFINITION_DRIFT",
       details: { added: expect.arrayContaining([expect.any(String)]), server: "docs" },
-      message: expect.stringContaining("and 115 more"),
+      message: expect.stringContaining("and 128 more"),
     })
     expect(client.close).toHaveBeenCalledTimes(1)
   })

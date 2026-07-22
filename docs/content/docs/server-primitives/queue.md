@@ -162,7 +162,7 @@ Handler return values belong to Queue Delivery. `runQueue()` does not return the
 Throw `ViteHubError` when the Queue Definition needs a stable application failure code. Queue retry policy belongs to Queue Delivery and provider callbacks, not the error object.
 
 ```ts [server/queues/image-expiry.ts]
-import { ViteHubError } from '@vite-hub/runtime'
+import { getViteHubErrorShape, ViteHubError } from '@vite-hub/runtime'
 import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ key?: string }>(async ({ payload }) => {
@@ -181,6 +181,13 @@ export default defineQueue<{ key?: string }>(async ({ payload }) => {
       details: { key: payload.key },
     })
   }
+}, {
+  onError: error => getViteHubErrorShape(error)?.code === 'EXPIRY_INVALID_PAYLOAD' ? 'ack' : undefined,
+  callbackOptions: {
+    retry: error => getViteHubErrorShape(error)?.code === 'EXPIRY_INVALID_PAYLOAD'
+      ? { acknowledge: true }
+      : undefined,
+  },
 })
 ```
 

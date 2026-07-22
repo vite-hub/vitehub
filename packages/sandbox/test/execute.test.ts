@@ -200,6 +200,13 @@ describe("executeSandboxDefinition", () => {
     })
   })
 
+  it("normalizes empty provider error messages", () => {
+    expect(toSandboxError(new Error())).toMatchObject({
+      code: "SANDBOX_RUNTIME_ERROR",
+      message: "Sandbox execution failed.",
+    })
+  })
+
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
     let finishSetup: (() => void) | undefined

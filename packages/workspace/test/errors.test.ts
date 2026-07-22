@@ -25,4 +25,10 @@ describe("Workspace public errors", () => {
       name: "ViteHubError",
     })
   })
+
+  it("bounds invalid Workspace paths", () => {
+    const error = workspacePathError(`../${"x".repeat(20_000)}`)
+    expect(error.code).toBe("WORKSPACE_PATH_INVALID")
+    expect(error.details?.path).toHaveLength(4_096)
+  })
 })

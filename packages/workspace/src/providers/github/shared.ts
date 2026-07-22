@@ -225,10 +225,12 @@ export async function requestGitHubJson<T>(
   });
 
   if (!response.ok) {
-    throw new GitHubRequestError(
+    const cause = new GitHubRequestError(
       `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
       response.status,
     );
+    if (response.status === 404) throw cause;
+    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
   return (await response.json()) as T;
 }

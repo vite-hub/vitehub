@@ -190,7 +190,10 @@ describe("GitHub workspace publisher", () => {
     })
 
     await workspace.writeFile("inbox/first.md", "first")
-    await expect(workspace.snapshot()).rejects.toThrow("500 Internal Server Error")
+    await expect(workspace.snapshot()).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+      message: "[vitehub] GitHub workspace request failed.",
+    })
     expect(requests.map(request => request.path)).toEqual([
       "/repos/onmax/repo/git/ref/heads/mirror",
     ])

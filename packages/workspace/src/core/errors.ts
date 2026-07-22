@@ -13,8 +13,9 @@ export function workspaceNotFoundError(name: string): ViteHubError {
 }
 
 export function workspacePathError(path: string): ViteHubError {
-  return new ViteHubError("WORKSPACE_PATH_INVALID", `[vitehub] Workspace path escapes the workspace root: ${JSON.stringify(path)}.`, {
-    details: { path },
+  const publicPath = path.slice(0, 4_096)
+  return new ViteHubError("WORKSPACE_PATH_INVALID", `[vitehub] Workspace path escapes the workspace root: ${JSON.stringify(publicPath)}.`, {
+    details: { path: publicPath },
   })
 }
 

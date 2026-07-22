@@ -31,7 +31,7 @@ export function toSandboxError(error: unknown) {
 
   const metadata = readSandboxErrorMetadata(error)
   if (error instanceof Error) {
-    return sandboxError(error.message, {
+    return sandboxError(error.message || "Sandbox execution failed.", {
       code: sandboxCode(metadata?.code),
       provider: metadata?.provider,
       details: metadata?.details,
@@ -39,7 +39,7 @@ export function toSandboxError(error: unknown) {
     })
   }
 
-  return sandboxError(String(error), {
+  return sandboxError(String(error) || "Sandbox execution failed.", {
     code: sandboxCode(metadata?.code),
     provider: metadata?.provider,
     details: metadata?.details,
