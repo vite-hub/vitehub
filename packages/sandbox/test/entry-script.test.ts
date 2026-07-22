@@ -79,6 +79,24 @@ describe("package entry result transport", () => {
     })
   })
 
+  it("stages binary fields returned in a class with a run method", async () => {
+    const execution = await executePackageEntry([
+      `class Result {`,
+      `  constructor() { this.bytes = new Uint8Array([1, 2, 3]) }`,
+      `  run() { return 'application method' }`,
+      `}`,
+      `export default async function () { return new Result() }`,
+      ``,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toMatchObject({
+      ok: true,
+      result: { bytes: { [SANDBOX_VALUE_MARKER]: { kind: "uint8array", tag: "binary" } } },
+    })
+    expect(Uint8Array.from(await execution.readOutputFile(0))).toEqual(Uint8Array.from([1, 2, 3]))
+  })
+
   it("revives and extracts nested binary sidecars", async () => {
     const binary = (id: number, kind: "blob" | "uint8array", type?: string) => ({
       [SANDBOX_VALUE_MARKER]: { id, kind, ...(type ? { type } : {}), tag: "binary" },

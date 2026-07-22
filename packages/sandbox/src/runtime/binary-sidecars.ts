@@ -21,6 +21,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object'
+}
+
 function hasMarker(value: Record<string, unknown>) {
   return Object.prototype.hasOwnProperty.call(value, SANDBOX_VALUE_MARKER)
 }
@@ -69,7 +73,7 @@ export async function encodeSandboxValue(
       return await Promise.all(entry.map((item, index) => encode(item, nextAncestors, String(index))))
     }
 
-    if (!isPlainObject(entry)) return entry
+    if (!isObjectRecord(entry)) return entry
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 

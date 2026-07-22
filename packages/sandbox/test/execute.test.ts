@@ -229,7 +229,8 @@ describe("executeSandboxDefinition", () => {
 
     const launch = execCalls.find(call => call.cmd === "node")!
     const entry = await sandbox.readFile(launch.args[2]!)
-    expect(entry).toContain("typeof exported === 'function' ? await exported(input.payload, input.context) : exported")
+    expect(entry).toContain("const callable = typeof exported === 'function'")
+    expect(entry).toContain("const result = callable ? await exported(input.payload, input.context) : exported")
     expect(entry).not.toContain("definition.run")
   })
 
@@ -330,6 +331,40 @@ describe("executeSandboxDefinition", () => {
         modules: { "definition.mjs": "export default async () => true" },
       },
       payload,
+      {},
+    )).resolves.toBe(true)
+  })
+
+  it("stages binary fields from JSON-visible class payloads", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)!))
+        expect(input.payload.bytes[SANDBOX_VALUE_MARKER]).toMatchObject({
+          kind: "uint8array",
+          tag: "binary",
+        })
+        expect(read(`${inputPath}.files/0`)).toEqual(Uint8Array.from([1, 2, 3]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    class Payload {
+      bytes = Uint8Array.from([1, 2, 3])
+    }
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "class-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      new Payload(),
       {},
     )).resolves.toBe(true)
   })
