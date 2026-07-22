@@ -620,6 +620,7 @@ async function createHarnessAgent<
   const baseSandbox = context.harnessSandboxProvider ?? driverSandbox ?? await createDefaultHarnessSandbox(context)
   const defaultSandbox = defaultHarnessSandboxes.has(baseSandbox)
   assertHarnessSandboxRuntime(baseSandbox, context)
+  const authorizedExecutionAuthority = sandboxExecutionAuthority(baseSandbox)
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
   let sandbox = baseSandbox
   if (typeof adaptSandbox === "function") {
@@ -639,7 +640,7 @@ async function createHarnessAgent<
       sandbox = adaptLocalHarnessSandbox(baseSandbox, bootstrap.bootstrapDir)!
     }
   }
-  if (!sameExecutionAuthority(sandboxExecutionAuthority(baseSandbox), sandboxExecutionAuthority(sandbox))) {
+  if (!sameExecutionAuthority(authorizedExecutionAuthority, sandboxExecutionAuthority(sandbox))) {
     throw new Error("[vitehub] Harness sandbox adapters must preserve the executionAuthority authorized for this invocation.")
   }
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
