@@ -134,6 +134,8 @@
     "test": "vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
+    "@ai-sdk/harness": "catalog:ai",
+    "@ai-sdk/harness-codex": "catalog:ai",
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
@@ -145,15 +147,14 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
+    "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:ui",
     "esbuild": "catalog:esbuild-v27",
     "effect": "catalog:effect"
   },
   "devDependencies": {
-    "@ai-sdk/harness": "catalog:ai",
     "@ai-sdk/harness-claude-code": "catalog:ai",
-    "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@types/node": "catalog:tooling",
@@ -161,7 +162,6 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "ai": "catalog:ai",
     "askweb": "catalog:ai",
     "evalite": "catalog:ai",
     "publint": "catalog:tooling",
@@ -171,9 +171,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "@ai-sdk/harness": "catalog:ai-compat",
     "@ai-sdk/harness-claude-code": "catalog:ai",
-    "@ai-sdk/harness-codex": "catalog:ai-compat",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
@@ -181,19 +179,12 @@
     "@vite-hub/email": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "ai": "catalog:ai-compat",
     "askweb": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling"
   },
   "peerDependenciesMeta": {
-    "@ai-sdk/harness": {
-      "optional": true
-    },
     "@ai-sdk/harness-claude-code": {
-      "optional": true
-    },
-    "@ai-sdk/harness-codex": {
       "optional": true
     },
     "@ai-sdk/mcp": {
@@ -215,9 +206,6 @@
       "optional": true
     },
     "@vite-hub/workflow": {
-      "optional": true
-    },
-    "ai": {
       "optional": true
     },
     "askweb": {

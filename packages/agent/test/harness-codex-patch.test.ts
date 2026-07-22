@@ -26,9 +26,10 @@ describe("ViteHub Codex harness", () => {
       command: "if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; then :; else pnpm --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; fi",
     })
     expect(JSON.parse(bridgePackage!.content)).toMatchObject({
-      dependencies: { "@openai/codex-sdk": "0.144.1" },
+      dependencies: { "@openai/codex-sdk": "0.144.5" },
     })
-    expect(bridge!.content).not.toContain("codex item error")
+    expect(bootstrap.files.map(file => file.path)).not.toContain("/tmp/harness/codex/host-tool-mcp.mjs")
+    expect(bridge!.content).not.toContain("mcp_servers")
   })
 
   it("loads bridge assets after the adapter is bundled into another directory", async () => {

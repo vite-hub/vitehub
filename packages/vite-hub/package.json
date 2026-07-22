@@ -164,6 +164,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "@workflow/builders": "catalog:workflow",
+    "ai": "catalog:ai-v6",
     "box-typescript-sdk-gen": "catalog:storage",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
