@@ -66,12 +66,6 @@ export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority 
   if (!isExecutionAuthority(value)) {
     throw new TypeError("[vitehub] Invalid execution authority descriptor.")
   }
-  if (
-    Object.isFrozen(value)
-    && Object.isFrozen(value.filesystem)
-    && Object.keys(value).length === 6
-    && Object.keys(value.filesystem).length === 2
-  ) return value
   return Object.freeze({
     credentials: value.credentials,
     environment: value.environment,

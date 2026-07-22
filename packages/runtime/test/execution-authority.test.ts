@@ -54,7 +54,7 @@ describe("execution authority", () => {
     expect(authority).not.toBe(declaration)
     expect(Object.isFrozen(authority)).toBe(true)
     expect(Object.isFrozen(authority.filesystem)).toBe(true)
-    expect(normalizeExecutionAuthority(authority)).toBe(authority)
+    expect(normalizeExecutionAuthority(authority)).toEqual(authority)
   })
 
   it("removes provider-specific fields from normalized snapshots", () => {
@@ -72,5 +72,19 @@ describe("execution authority", () => {
     expect(Object.keys(authority.filesystem)).toHaveLength(2)
     expect(Object.isFrozen(authority)).toBe(true)
     expect(Object.isFrozen(authority.filesystem)).toBe(true)
+  })
+
+  it("snapshots frozen descriptors with hidden provider fields", () => {
+    const declaration = Object.freeze(Object.defineProperty({
+      ...unknownExecutionAuthority,
+      filesystem: unknownExecutionAuthority.filesystem,
+    }, "providerMetadata", {
+      get: () => ({ mutable: true }),
+    }))
+
+    const authority = normalizeExecutionAuthority(declaration)
+
+    expect(authority).toEqual(unknownExecutionAuthority)
+    expect(Reflect.ownKeys(authority)).toHaveLength(6)
   })
 })
