@@ -4,7 +4,7 @@ import {
   resolveCloudflareArtifactsStore,
   resolveGitHubWorkspaceStore,
 } from "./config.ts"
-import { WorkspaceError } from "./core/errors.ts"
+import { workspaceError } from "./core/errors.ts"
 import { createCloudflareArtifactsWorkspaceStore } from "./providers/cloudflare/artifacts-store.ts"
 import { createGitHubWorkspaceStore } from "./providers/github/store.ts"
 import { setWorkspaceRuntimeConfig } from "./runtime/config.ts"
@@ -37,7 +37,7 @@ export function installHostedWorkspaceRuntime(): void {
     }
     if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
     if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
-    throw new WorkspaceError("[vitehub] Hosted workspace runtime cannot load unsupported hosted store.")
+    throw workspaceError("[vitehub] Hosted workspace runtime cannot load unsupported hosted store.")
   })
 }
 
@@ -49,7 +49,7 @@ export function configureHostedWorkspaceRuntime(options: HostedWorkspaceRuntimeO
       ? undefined
       : resolveCloudflareArtifactsStore(options.store, options.env)
   if (!store) {
-    throw new WorkspaceError("[vitehub] Vercel Blob hosted workspace runtime must use @vite-hub/workspace/internal/runtime/hosted-vercel-blob.")
+    throw workspaceError("[vitehub] Vercel Blob hosted workspace runtime must use @vite-hub/workspace/internal/runtime/hosted-vercel-blob.")
   }
   const config: ResolvedWorkspaceModuleOptions = {
     assets: options.assets,

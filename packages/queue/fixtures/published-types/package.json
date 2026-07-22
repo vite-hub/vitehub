@@ -1,6 +1,7 @@
 {
   "dependencies": {
-    "@vite-hub/queue": "0.0.1"
+    "@vite-hub/queue": "0.0.1",
+    "@vite-hub/runtime": "0.0.1"
   },
   "private": true,
   "type": "module"

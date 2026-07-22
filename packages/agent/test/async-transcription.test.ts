@@ -1,15 +1,20 @@
 import { describe, expect, it, vi } from "vitest"
+import { ViteHubError } from "@vite-hub/runtime"
 
 import {
   createTranscription,
   elevenLabsScribe,
-  TranscriptionError,
 } from "../src/capabilities.ts"
+import { transcriptionError } from "../src/capabilities/transcription.ts"
 
 import type {
   TranscriptionDriver,
+  TranscriptionErrorCode,
+  TranscriptionErrorDetails,
   TranscriptionSubmitInput,
 } from "../src/capabilities.ts"
+
+type TranscriptionFailure = ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails>
 
 function fixtureDriver(overrides: Partial<TranscriptionDriver> = {}): TranscriptionDriver {
   return {
@@ -55,14 +60,14 @@ describe("createTranscription", () => {
     const driver = fixtureDriver()
     const client = createTranscription({ driver })
 
-    const error = await client.submit(input as TranscriptionSubmitInput).then(() => undefined, cause => cause as TranscriptionError)
+    const error = await client.submit(input as TranscriptionSubmitInput).then(() => undefined, cause => cause as TranscriptionFailure)
     expect(error).toMatchObject({
       code,
       message: code === "TRANSCRIPTION_INVALID_REQUEST"
         ? "[vitehub] Transcription request is invalid."
         : "[vitehub] Transcription provider returned an invalid payload.",
     })
-    expect((error as TranscriptionError).cause).toMatchObject({ message: expect.stringContaining(diagnostic) })
+    expect(error?.cause).toMatchObject({ message: expect.stringContaining(diagnostic) })
     expect(JSON.stringify(error)).not.toContain(diagnostic)
     expect(driver.submit).not.toHaveBeenCalled()
   })
@@ -79,7 +84,7 @@ describe("createTranscription", () => {
     const submission = Object.defineProperty({}, "id", { get: () => { throw cause } })
     const client = createTranscription({ driver: fixtureDriver({ submit: vi.fn(async () => submission as never) }) })
 
-    const error = await client.submit({ source: { url: "https://example.com/audio.mp3" } }).then(() => undefined, error => error as TranscriptionError)
+    const error = await client.submit({ source: { url: "https://example.com/audio.mp3" } }).then(() => undefined, error => error as TranscriptionFailure)
     expect(error).toMatchObject({ cause, code: "TRANSCRIPTION_INVALID_PAYLOAD" })
     expect(JSON.stringify(error)).not.toContain("secret submission getter")
   })
@@ -93,7 +98,7 @@ describe("createTranscription", () => {
     if (field !== "transcript") Object.defineProperty(completion, field, { get: () => { throw cause } })
     const client = createTranscription({ driver: fixtureDriver({ receive: vi.fn(async () => completion as never) }) })
 
-    const error = await client.receive({}).then(() => undefined, error => error as TranscriptionError)
+    const error = await client.receive({}).then(() => undefined, error => error as TranscriptionFailure)
     expect(error).toMatchObject({ cause, code: "TRANSCRIPTION_INVALID_PAYLOAD" })
     expect(JSON.stringify(error)).not.toContain(`secret ${field} getter`)
   })
@@ -114,12 +119,13 @@ describe("createTranscription", () => {
 
   it("rejects hostile provider identifiers before they reach public details", () => {
     expect(() => createTranscription({ driver: fixtureDriver({ name: "https://user:token@example.com" }) })).toThrow(TypeError)
-    expect(() => new TranscriptionError("CUSTOM" as never)).toThrow(TypeError)
-    expect(new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
+    expect(() => transcriptionError("CUSTOM" as never)).toThrow(TypeError)
+    expect(transcriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
       provider: "https://user:token@example.com",
     }).toJSON()).toEqual({
       code: "TRANSCRIPTION_PROVIDER_FAILED",
       message: "[vitehub] Transcription provider failed.",
+      name: "ViteHubError",
     })
   })
 
@@ -130,28 +136,29 @@ describe("createTranscription", () => {
         throw new Error(secret)
       },
     })
-    const error = new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", options as never)
+    const error = transcriptionError("TRANSCRIPTION_PROVIDER_FAILED", options as never)
 
     expect(error.toJSON()).toEqual({
       code: "TRANSCRIPTION_PROVIDER_FAILED",
       message: "[vitehub] Transcription provider failed.",
+      name: "ViteHubError",
     })
     expect(JSON.stringify(error)).not.toContain(secret)
   })
 
   it.each([
-    ["TRANSCRIPTION_AUTHENTICATION_FAILED", false],
-    ["TRANSCRIPTION_INVALID_PAYLOAD", false],
-    ["TRANSCRIPTION_INVALID_REQUEST", false],
-    ["TRANSCRIPTION_NETWORK_FAILED", true],
-    ["TRANSCRIPTION_PROVIDER_FAILED", undefined],
-    ["TRANSCRIPTION_RATE_LIMITED", true],
-  ] as const)("serializes truthful retryability for %s", (code, retryable) => {
-    const error = new TranscriptionError(code)
+    "TRANSCRIPTION_AUTHENTICATION_FAILED",
+    "TRANSCRIPTION_INVALID_PAYLOAD",
+    "TRANSCRIPTION_INVALID_REQUEST",
+    "TRANSCRIPTION_NETWORK_FAILED",
+    "TRANSCRIPTION_PROVIDER_FAILED",
+    "TRANSCRIPTION_RATE_LIMITED",
+  ] as const)("serializes code %s", (code) => {
+    const error = transcriptionError(code)
     expect(error.toJSON()).toEqual({
       code,
       message: error.message,
-      ...(retryable === undefined ? {} : { retryable }),
+      name: "ViteHubError",
     })
   })
 })
@@ -250,6 +257,7 @@ describe("elevenLabsScribe", () => {
       code: "TRANSCRIPTION_PROVIDER_FAILED",
       details: { provider: "elevenlabs" },
       message: "[vitehub] Transcription provider failed.",
+      name: "ViteHubError",
     })
     expect(completion.status === "failed" && (completion.error.cause as Error).message).toBe("Unsupported audio")
     expect(JSON.stringify(completion)).not.toContain("Unsupported audio")
@@ -298,7 +306,7 @@ describe("elevenLabsScribe", () => {
     const error = await client.submit({
       metadata,
       source: { url: "https://example.com/audio.mp3" },
-    }).then(() => undefined, cause => cause as TranscriptionError)
+    }).then(() => undefined, cause => cause as TranscriptionFailure)
 
     expect(error).toMatchObject({
       code: "TRANSCRIPTION_INVALID_REQUEST",
@@ -322,11 +330,11 @@ describe("elevenLabsScribe", () => {
   })
 
   it.each([
-    [401, "TRANSCRIPTION_AUTHENTICATION_FAILED", false],
-    [422, "TRANSCRIPTION_INVALID_REQUEST", false],
-    [429, "TRANSCRIPTION_RATE_LIMITED", true],
-    [503, "TRANSCRIPTION_PROVIDER_FAILED", undefined],
-  ] as const)("maps HTTP %s to a stable %s error", async (status, code, retryable) => {
+    [401, "TRANSCRIPTION_AUTHENTICATION_FAILED"],
+    [422, "TRANSCRIPTION_INVALID_REQUEST"],
+    [429, "TRANSCRIPTION_RATE_LIMITED"],
+    [503, "TRANSCRIPTION_PROVIDER_FAILED"],
+  ] as const)("maps HTTP %s to a stable %s error", async (status, code) => {
     const client = createTranscription({
       driver: elevenLabsScribe({
         apiKey: "secret",
@@ -335,12 +343,12 @@ describe("elevenLabsScribe", () => {
       }),
     })
 
-    const error = await client.submit({ source: { url: "https://example.com/audio.mp3" } }).then(() => undefined, cause => cause as TranscriptionError)
+    const error = await client.submit({ source: { url: "https://example.com/audio.mp3" } }).then(() => undefined, cause => cause as TranscriptionFailure)
     expect(error?.toJSON()).toEqual({
       code,
       details: { provider: "elevenlabs", status },
       message: error?.message,
-      ...(retryable === undefined ? {} : { retryable }),
+      name: "ViteHubError",
     })
   })
 
@@ -366,7 +374,7 @@ describe("elevenLabsScribe", () => {
     })
     await expect(aborted.submit({ source: { url: "https://example.com/audio.mp3" } })).rejects.toBe(abort)
 
-    const existing = new TranscriptionError("TRANSCRIPTION_AUTHENTICATION_FAILED", { provider: "elevenlabs" })
+    const existing = new ViteHubError("TRANSCRIPTION_AUTHENTICATION_FAILED", "Custom authentication failure.", { details: { provider: "elevenlabs" } })
     const preserved = createTranscription({
       driver: elevenLabsScribe({ apiKey: () => Promise.reject(existing), fetch: vi.fn(), webhookId: "webhook-1" }),
     })

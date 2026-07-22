@@ -1,24 +1,17 @@
 import { describe, expect, it } from "vitest"
+import { ViteHubError } from "@vite-hub/runtime"
 
-import { LlmGateRejectedError } from "../src/capabilities/llm-gate.ts"
-import { RateLimitRejectedError } from "../src/capabilities/rate-limit.ts"
 import { toHttpErrorResponse } from "../src/http-error.ts"
 import { toAgentPublicError } from "../src/agent-error.ts"
 
 describe("Agent public error seams", () => {
   it("preserves allowed retry and category details without a capability identifier", () => {
-    expect(toAgentPublicError(new RateLimitRejectedError("", {
-      retryAfter: 30,
-    } as never, "private limiter response"), "http")).toEqual({
+    expect(toAgentPublicError(new ViteHubError("RATE_LIMIT_REJECTED", "private limiter response", { details: { retryAfter: 30 } }), "http")).toEqual({
       code: "RATE_LIMIT_REJECTED",
       details: { retryAfter: 30 },
       error: "Rate limit exceeded. Try again later.",
     })
-    expect(toAgentPublicError(new LlmGateRejectedError("", {
-      allowed: false,
-      category: "unsafe",
-      reason: "private model reasoning",
-    }, "private classifier response"), "invocation")).toEqual({
+    expect(toAgentPublicError(new ViteHubError("LLM_GATE_REJECTED", "private classifier response", { details: { category: "unsafe" } }), "invocation")).toEqual({
       code: "LLM_GATE_REJECTED",
       details: { category: "unsafe" },
       error: "Agent request was rejected.",
@@ -26,7 +19,7 @@ describe("Agent public error seams", () => {
   })
 
   it("preserves the stable authentication failure contract", () => {
-    expect(toAgentPublicError({ code: "AUTHENTICATION_REQUIRED", statusCode: 401 }, "http")).toEqual({
+    expect(toAgentPublicError(new ViteHubError("AUTHENTICATION_REQUIRED", "Authentication required."), "http")).toEqual({
       code: "AUTHENTICATION_REQUIRED",
       error: "Authentication required.",
     })

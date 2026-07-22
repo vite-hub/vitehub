@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer"
 import { defineCachedFunction } from "ocache"
 
-import { SourceError } from "../../core/errors.ts"
+import { isSourceError, sourceError } from "../../core/errors.ts"
 import { matchesAny, normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
@@ -99,7 +99,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   function shouldResolveMainFallback(error: unknown) {
-    return error instanceof SourceError && error.message.includes(" request failed with 403 ")
+    return isSourceError(error) && error instanceof Error && error.message.includes(" request failed with 403 ")
   }
 
   const resolvedRefs = new Map<string, Promise<string>>()
@@ -245,13 +245,13 @@ export function github<const TKey extends string = string>(options: GitHubSource
       )
 
   function isGitHubAccessError(error: unknown) {
-    return error instanceof SourceError && error.message.includes(" could not access the repository or ref ")
+    return isSourceError(error) && error instanceof Error && error.message.includes(" could not access the repository or ref ")
   }
 
   async function loadFile(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey>> {
     const normalizedKey = normalizeSourcePath(key) as TKey
     if (!normalizedKey || !shouldInclude(normalizedKey)) {
-      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
+      throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
     const ref = await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
@@ -263,10 +263,10 @@ export function github<const TKey extends string = string>(options: GitHubSource
       url: contentsUrl(repoPath, ref),
     })
     if (Array.isArray(file) || file.type === "dir") {
-      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) expected ${JSON.stringify(key)} to be a file, but it is a directory.`)
+      throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) expected ${JSON.stringify(key)} to be a file, but it is a directory.`)
     }
     if (file.encoding !== "base64" || typeof file.content !== "string") {
-      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include file content for ${JSON.stringify(key)}.`)
+      throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include file content for ${JSON.stringify(key)}.`)
     }
     return {
       content: new Uint8Array(Buffer.from(file.content.replace(/\s/g, ""), "base64")),
@@ -281,14 +281,14 @@ export function github<const TKey extends string = string>(options: GitHubSource
     if (ctx?.abortSignal) return await loadFile(key, token, ctx.abortSignal)
     const file = (await getFiles(token)).find(file => file.key === key)
     if (!file) {
-      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
+      throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
     return file
   }
 
   function fetchContent(key: TKey, file: GitHubFile<TKey>) {
     if (file.content) return Promise.resolve(file.content)
-    throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
+    throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
   }
 
   function cacheKey(kind: string, token: string, key = "") {

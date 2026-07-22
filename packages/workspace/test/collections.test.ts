@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { getWorkspaceCollectionItem, queryWorkspaceCollection, WorkspaceCollectionCursorError, workspaceCollectionEmpty } from "../src/collections.ts"
+import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "../src/collections.ts"
 import { defineWorkspace, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -126,24 +126,24 @@ describe("Workspace Collections", () => {
       path: "data/items.json",
       query: { cursor: "not-a-cursor", limit: 1, sort: { field: "slug" } },
       workspace: "collection-cursors",
-    })).rejects.toMatchObject({ reason: "malformed" })
+    })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "malformed" } })
     await expect(queryWorkspaceCollection({
       path: "data/items.json",
       query: { cursor: first.nextCursor!, limit: 1, search: "alpha", searchFields: ["title"], sort: { field: "slug" } },
       workspace: "collection-cursors",
-    })).rejects.toMatchObject({ reason: "stale" })
+    })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "stale" } })
     await expect(queryWorkspaceCollection({
       path: "data/items.json",
       query: { cursor: first.nextCursor!, limit: 2, sort: { field: "slug" } },
       workspace: "collection-cursors",
-    })).rejects.toMatchObject({ reason: "stale" })
+    })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "stale" } })
 
     await workspace.fs.writeFile("data/items.json", JSON.stringify([...records, { id: 5, slug: "zeta", title: "Zeta" }]))
     await expect(queryWorkspaceCollection({
       path: "data/items.json",
       query: { cursor: first.nextCursor!, limit: 1, sort: { field: "slug" } },
       workspace: "collection-cursors",
-    })).rejects.toBeInstanceOf(WorkspaceCollectionCursorError)
+    })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "stale" } })
   })
 
   it("accepts cursors across semantically equivalent query forms", async () => {
@@ -177,7 +177,7 @@ describe("Workspace Collections", () => {
       path: "data/items.json",
       query: { cursor: first.nextCursor!, filters: { category: workspaceCollectionEmpty }, limit: 1 },
       workspace: "collection-empty-cursors",
-    })).rejects.toMatchObject({ reason: "stale" })
+    })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "stale" } })
   })
 
   it("computes a content digest when Workspace stat has none", async () => {
@@ -200,6 +200,6 @@ describe("Workspace Collections", () => {
       path: "items.json",
       query: { cursor: first.nextCursor!, limit: 1 },
       workspace: workspace as never,
-    })).rejects.toMatchObject({ reason: "stale" })
+    })).rejects.toMatchObject({ code: "WORKSPACE_COLLECTION_CURSOR_INVALID", details: { reason: "stale" } })
   })
 })

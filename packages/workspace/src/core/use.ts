@@ -8,7 +8,9 @@ import {
   type WorkspaceWriteToolMap,
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
-import { WorkspaceError, WorkspaceNotFoundError } from "./errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+
+import { workspaceError } from "./errors.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
@@ -157,7 +159,7 @@ function isGeneratedSourceDescriptorPath(path: string): boolean {
 
 async function materializeWorkspaceSources(workspace: Workspace, options?: WorkspaceMaterializeSourcesOptions) {
   if (!workspace.materializeSources)
-    throw new WorkspaceError("[vitehub] Workspace source materialization is unavailable.")
+    throw workspaceError("[vitehub] Workspace source materialization is unavailable.")
 
   return await workspace.materializeSources(options)
 }
@@ -307,7 +309,7 @@ function useOptionalWorkspaceAssets<Name extends WorkspaceName>(name: Name): Wor
     return useWorkspaceAssets(name)
   }
   catch (error) {
-    if (error instanceof WorkspaceNotFoundError) return undefined
+    if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
     throw error
   }
 }
@@ -323,7 +325,7 @@ async function ignoreMissingWorkspace<T>(operation: () => Promise<T>): Promise<T
 }
 
 function isMissingWorkspaceRead(error: unknown) {
-  return error instanceof WorkspaceNotFoundError
+  return getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND"
     || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
     || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
 }

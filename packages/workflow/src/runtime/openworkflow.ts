@@ -1,5 +1,5 @@
 import { runWorkflowHandler } from "./execute.ts"
-import { WorkflowError } from "../errors.ts"
+import { createWorkflowError } from "../errors.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -167,7 +167,7 @@ export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): P
   }
   const resolved = await runtime
   if (cache !== runtimes) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "OPENWORKFLOW_RUNTIME_RESET",
       details: { provider: "openworkflow" },
     })
@@ -318,7 +318,7 @@ export async function resetOpenWorkflowRuntime(): Promise<void> {
     : [])
   const stopped = await Promise.allSettled(fulfilled.map(runtime => Promise.resolve().then(() => runtime.backend.stop())))
   const failures = stopped.flatMap(entry => entry.status === "rejected"
-    ? [new WorkflowError({
+    ? [createWorkflowError({
         cause: entry.reason,
         code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED",
         details: { provider: "openworkflow" },

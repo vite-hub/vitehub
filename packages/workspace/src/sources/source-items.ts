@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
 
@@ -12,13 +12,13 @@ export function normalizeWorkspaceSourceItemPath(
   const sourcePath = normalizeSafeWorkspacePath(rawSourcePath, { allowEmpty: false, allowReserved: true })
   const label = options.operation ? `${options.operation} item path` : "source item path"
   if (sourcePath.split("/").some(part => part === ".git" || part === ".vitehub")) {
-    throw new WorkspaceError(`[vitehub] Workspace ${label} is reserved: ${rawSourcePath}.`)
+    throw workspaceError(`[vitehub] Workspace ${label} is reserved: ${rawSourcePath}.`)
   }
 
   const mountedPath = source.mountPath ? `${source.mountPath}/${sourcePath}` : sourcePath
   const path = normalizeSafeWorkspacePath(mountedPath, { allowEmpty: false })
   if (source.mountPath && !sourceMountContainsPath(source, path)) {
-    throw new WorkspaceError(`[vitehub] Workspace ${label} escapes source mount: ${rawSourcePath}.`)
+    throw workspaceError(`[vitehub] Workspace ${label} escapes source mount: ${rawSourcePath}.`)
   }
 
   return { path, sourcePath }

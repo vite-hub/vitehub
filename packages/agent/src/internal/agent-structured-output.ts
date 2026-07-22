@@ -1,4 +1,4 @@
-import { ViteHubError } from "@vite-hub/runtime"
+import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 import { toAgentRunResult } from "../agent-output.ts"
 
@@ -10,17 +10,18 @@ const agentOutputErrorMessages = {
   AGENT_OUTPUT_SCHEMA_INVALID: "[vitehub] Agent output failed schema validation.",
 } as const
 
-export type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
-export type AgentOutputValidationErrorOptions = ErrorOptions
+type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 
-export class AgentOutputValidationError extends ViteHubError<AgentOutputValidationErrorCode> {
-  constructor(code: AgentOutputValidationErrorCode, options?: AgentOutputValidationErrorOptions) {
-    if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
-      throw new TypeError("[vitehub] AgentOutputValidationError requires a known agent output error code.")
-    }
-    super(code, agentOutputErrorMessages[code], { cause: readErrorCause(options), retryable: false })
-    this.name = "AgentOutputValidationError"
+function agentOutputValidationError(code: AgentOutputValidationErrorCode, options?: ErrorOptions) {
+  if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
+    throw new TypeError("[vitehub] Agent output errors require a known code.")
   }
+  return new ViteHubError(code, agentOutputErrorMessages[code], { cause: readErrorCause(options) })
+}
+
+function isAgentOutputValidationError(value: unknown): boolean {
+  const code = getViteHubErrorShape(value)?.code
+  return code === "AGENT_OUTPUT_INVALID_JSON" || code === "AGENT_OUTPUT_SCHEMA_INVALID"
 }
 
 function readErrorCause(options: unknown): unknown {
@@ -47,7 +48,7 @@ function jsonValueFromResult(result: unknown): unknown {
     text = typeof directText === "string" && directText ? directText : toAgentRunResult(result).text
   }
   catch (cause) {
-    throw new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", { cause })
+    throw agentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", { cause })
   }
   if (text === undefined) return result
 
@@ -55,7 +56,7 @@ function jsonValueFromResult(result: unknown): unknown {
     return JSON.parse(stripJsonFence(text))
   }
   catch (cause) {
-    throw new AgentOutputValidationError(
+    throw agentOutputValidationError(
       "AGENT_OUTPUT_INVALID_JSON",
       { cause },
     )
@@ -84,15 +85,15 @@ function inspectValidation<T>(
       if (!Array.isArray(issues)) throw new TypeError("[vitehub] Standard Schema returned invalid issues.")
       if (issues.length > 0) {
         if (allowIssues) return
-        throw new AgentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause: new Error(formatIssues(issues)) })
+        throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause: new Error(formatIssues(issues)) })
       }
     }
     if (!("value" in validation)) throw new TypeError("[vitehub] Standard Schema returned no value.")
     return { value: validation.value }
   }
   catch (cause) {
-    if (cause instanceof AgentOutputValidationError) throw cause
-    throw new AgentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause })
+    if (isAgentOutputValidationError(cause)) throw cause
+    throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause })
   }
 }
 
@@ -103,7 +104,7 @@ function isMaterializedObject(result: unknown): boolean {
     return prototype === Object.prototype || prototype === null
   }
   catch (cause) {
-    throw new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", { cause })
+    throw agentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", { cause })
   }
 }
 
@@ -118,7 +119,7 @@ export async function validateAgentOutput<TOutput>(
   }
   const value = jsonValueFromResult(result)
   const validation = inspectValidation(await output.schema["~standard"].validate(value))
-  if (!validation) throw new AgentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID")
+  if (!validation) throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID")
   return validation.value
 }
 

@@ -1,21 +1,21 @@
 import { posix } from "node:path"
 
-import { WorkspaceError } from "./core/errors.ts"
+import { isWorkspaceError, workspaceError } from "./core/errors.ts"
 
 import type { Workspace } from "./core/types.ts"
 
 export async function ensureMissingOrReplaceable(workspace: Workspace, path: string, overwrite = false): Promise<void> {
   if (!await workspace.exists(path)) return
-  if (!overwrite) throw new WorkspaceError(`[vitehub] Workspace path already exists: ${path}.`)
+  if (!overwrite) throw workspaceError(`[vitehub] Workspace path already exists: ${path}.`)
   await workspace.rm(path, { recursive: true, force: true })
 }
 
 export async function copyWorkspacePath(workspace: Workspace, from: string, to: string, overwrite = false): Promise<void> {
-  if (from === to) throw new WorkspaceError("[vitehub] Source and destination must be different.")
+  if (from === to) throw workspaceError("[vitehub] Source and destination must be different.")
 
   const source = await workspace.stat(from)
   if (source.type === "directory" && to.startsWith(`${from}/`)) {
-    throw new WorkspaceError("[vitehub] Destination cannot be nested inside the source directory.")
+    throw workspaceError("[vitehub] Destination cannot be nested inside the source directory.")
   }
 
   await ensureMissingOrReplaceable(workspace, to, overwrite)
@@ -46,7 +46,7 @@ export async function appendWorkspaceFile(workspace: Workspace, path: string, co
     current = String(await workspace.readFile(path))
   }
   catch (error) {
-    if (!(error instanceof WorkspaceError)) throw error
+    if (!isWorkspaceError(error)) throw error
   }
   await workspace.writeFile(path, `${current}${content}`)
 }

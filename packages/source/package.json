@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
+    "@vite-hub/runtime": "workspace:*",
     "effect": "catalog:effect",
     "mrmime": "catalog:workspace",
     "ocache": "catalog:unjs",

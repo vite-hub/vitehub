@@ -87,14 +87,40 @@ describe("LLM decision capabilities", () => {
       await expect(runAgent(agent, runtime(), {
         messages: [createMessage({ role: "user", text: "Do something unsafe." })],
       })).rejects.toMatchObject({
-        decision: {
-          allowed: false,
+        code: "LLM_GATE_REJECTED",
+        details: {
+          capabilityId: "support-scope",
           category: "unsafe",
           reason: "The request is unsafe.",
         },
         message: "Rejected: unsafe",
-        name: "LlmGateRejectedError",
-        statusCode: 403,
+        name: "ViteHubError",
+      })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("bounds the public rejection reason", async () => {
+    mockAiDecision({ allowed: false, category: "unsafe", reason: "x".repeat(20_000) })
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({
+        capabilities: [llmGate({
+          allow: { support: "Safe support question." },
+          model: "gate-model" as never,
+          reject: { unsafe: "Unsafe request." },
+        })],
+        driver: { async run() { return "should not run" } },
+      })
+
+      await expect(runAgent(agent, runtime(), {
+        messages: [createMessage({ role: "user", text: "Do something unsafe." })],
+      })).rejects.toMatchObject({
+        code: "LLM_GATE_REJECTED",
+        details: { reason: "x".repeat(16_384) },
       })
     }
     finally {

@@ -1,4 +1,4 @@
-import { assertRuntimeScheduleId, ScheduleError } from "../errors.ts"
+import { assertRuntimeScheduleId, createScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
 
@@ -141,7 +141,7 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
     create(record) {
       assertRuntimeScheduleId(record.id)
       if (records.has(record.id)) {
-        throw new ScheduleError("SCHEDULE_ALREADY_EXISTS")
+        throw createScheduleError("SCHEDULE_ALREADY_EXISTS")
       }
       records.set(record.id, cloneRuntimeSchedule(record))
       return cloneRuntimeSchedule(record)
@@ -187,7 +187,7 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
       const key = runtimeScheduleKey(prefix, record.id)
       return await withKVKeyLock(key, async () => {
         if (await store.has(key)) {
-          throw new ScheduleError("SCHEDULE_ALREADY_EXISTS")
+          throw createScheduleError("SCHEDULE_ALREADY_EXISTS")
         }
         await store.set(key, serializeRuntimeSchedule(record))
         return cloneRuntimeSchedule(record)

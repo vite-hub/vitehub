@@ -1,8 +1,6 @@
 import { getAuthForRequest } from "./server.ts"
 import {
-  AuthenticationProviderError,
   invalidAuthenticationErrorOptions,
-  readAuthenticationErrorOption,
   throwAuthenticationProviderError,
 } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
@@ -16,17 +14,7 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "@vite-hub/agent"
-import type {
-  AuthenticationProviderErrorOptions,
-  AuthenticationProviderOperation,
-} from "./errors.ts"
 import type { AuthenticationSessionSnapshot } from "./session.ts"
-
-export { AuthenticationProviderError }
-export type {
-  AuthenticationProviderErrorOptions,
-  AuthenticationProviderOperation,
-}
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -102,37 +90,9 @@ export interface AuthenticatedOptions<
   source?: AuthenticatedSource<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>
 }
 
-export interface AuthenticationRequiredErrorOptions extends ErrorOptions {
-  message?: string
-}
-
-export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_REQUIRED"> {
-  declare readonly statusCode: 401
-
-  constructor(options?: AuthenticationRequiredErrorOptions)
-  constructor(message?: string)
-  constructor(messageOrOptions: AuthenticationRequiredErrorOptions | string = {}) {
-    if (typeof messageOrOptions === "string") {
-      if (messageOrOptions.length === 0 || messageOrOptions.length > 16_384) invalidAuthenticationErrorOptions()
-    }
-    const cause = typeof messageOrOptions === "string"
-      ? undefined
-      : readAuthenticationErrorOption(messageOrOptions, "cause")
-    const optionMessage = typeof messageOrOptions === "string"
-      ? messageOrOptions
-      : readAuthenticationErrorOption(messageOrOptions, "message")
-    if (optionMessage !== undefined && (typeof optionMessage !== "string" || optionMessage.length === 0 || optionMessage.length > 16_384)) {
-      invalidAuthenticationErrorOptions()
-    }
-    const message = optionMessage ?? "[vitehub] Authentication required."
-
-    super("AUTHENTICATION_REQUIRED", message, cause === undefined ? {} : { cause })
-    this.name = "AuthenticationRequiredError"
-    Object.defineProperty(this, "statusCode", {
-      enumerable: true,
-      value: 401,
-    })
-  }
+function authenticationRequired(message = "[vitehub] Authentication required.") {
+  if (!message || message.length > 16_384) invalidAuthenticationErrorOptions()
+  return new ViteHubError("AUTHENTICATION_REQUIRED", message)
 }
 
 export function authenticated<
@@ -158,7 +118,7 @@ export function authenticated<
 
       if (!auth) {
         if (options.required === false) return undefined
-        throw new AuthenticationRequiredError(options.message)
+        throw authenticationRequired(options.message)
       }
 
       const authenticatedContext = {
@@ -213,7 +173,7 @@ async function createDefaultInvoker<
   providerFields?: AuthenticationSessionSnapshot,
 ): Promise<AgentInvoker> {
   const userId = await resolveAuthenticatedValue(options.id, context) ?? providerFields?.userId ?? readString(context.user.id)
-  if (!userId) throw new AuthenticationRequiredError("[vitehub] Authenticated user is missing an id.")
+  if (!userId) throw authenticationRequired("[vitehub] Authenticated user is missing an id.")
 
   const kind = await resolveAuthenticatedValue(options.kind, context) ?? "authUser"
   const label = await resolveAuthenticatedValue(options.label, context)

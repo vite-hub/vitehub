@@ -1,12 +1,14 @@
 import { expectTypeOf, it } from "vitest"
+import type { ViteHubError } from "@vite-hub/runtime"
 
 import {
   createTranscription,
   elevenLabsScribe,
-  type TranscriptionError,
   type TranscriptionClient,
   type TranscriptionCompletion,
   type TranscriptionDriver,
+  type TranscriptionErrorCode,
+  type TranscriptionErrorDetails,
   type TranscriptionSubmission,
   type TranscriptionSubmitInput,
 } from "../src/capabilities.ts"
@@ -14,7 +16,8 @@ import {
 declare const driver: TranscriptionDriver
 declare const payload: unknown
 declare const submitInput: TranscriptionSubmitInput
-declare const transcriptionError: TranscriptionError
+type TranscriptionFailure = ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails>
+declare const transcriptionError: TranscriptionFailure
 
 it("exports the asynchronous transcription contract", () => {
   expectTypeOf(createTranscription({ driver })).toEqualTypeOf<TranscriptionClient>()
@@ -35,6 +38,6 @@ it("keeps provider completion handling exhaustive", async () => {
     expectTypeOf(completion.transcript.text).toEqualTypeOf<string>()
   }
   else {
-    expectTypeOf(completion.error).toEqualTypeOf<TranscriptionError>()
+    expectTypeOf(completion.error).toEqualTypeOf<TranscriptionFailure>()
   }
 })

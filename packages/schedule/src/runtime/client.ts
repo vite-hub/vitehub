@@ -1,7 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
-import { assertRuntimeScheduleId, invalidScheduleValueDetails, ScheduleError } from "../errors.ts"
+import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
 import { executeRuntimeSchedule } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
@@ -69,14 +69,14 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
 
 export function validateRuntimeScheduleCron(cron: unknown): void {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
-    throw new ScheduleError("SCHEDULE_INVALID_CRON", {
+    throw createScheduleError("SCHEDULE_INVALID_CRON", {
       details: invalidScheduleValueDetails("cron", cron),
     })
   }
 
   const fields = cron.split(/\s+/)
   if (fields.length !== 5) {
-    throw new ScheduleError("SCHEDULE_INVALID_CRON", {
+    throw createScheduleError("SCHEDULE_INVALID_CRON", {
       details: invalidScheduleValueDetails("cron", cron),
     })
   }
@@ -92,7 +92,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
     })
   }
   catch {
-    throw new ScheduleError("SCHEDULE_INVALID_CRON", {
+    throw createScheduleError("SCHEDULE_INVALID_CRON", {
       details: invalidScheduleValueDetails("cron", cron),
     })
   }
@@ -100,7 +100,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
 
 function validateRuntimeScheduleTimeZone(timeZone: unknown): void {
   if (!isIanaTimeZone(timeZone)) {
-    throw new ScheduleError("SCHEDULE_INVALID_TIME_ZONE", {
+    throw createScheduleError("SCHEDULE_INVALID_TIME_ZONE", {
       details: invalidScheduleValueDetails("timeZone", timeZone),
     })
   }
@@ -108,24 +108,24 @@ function validateRuntimeScheduleTimeZone(timeZone: unknown): void {
 
 async function assertRuntimeTarget(target: unknown): Promise<void> {
   if (typeof target !== "string" || !target.trim()) {
-    throw new ScheduleError("SCHEDULE_INVALID_TARGET", {
+    throw createScheduleError("SCHEDULE_INVALID_TARGET", {
       details: invalidScheduleValueDetails("target", target),
     })
   }
 
   const definition = await loadScheduleDefinition(target)
   if (!definition) {
-    throw new ScheduleError("SCHEDULE_TARGET_NOT_FOUND")
+    throw createScheduleError("SCHEDULE_TARGET_NOT_FOUND")
   }
 
   if (definition.options?.allowRuntimeSchedules !== true) {
-    throw new ScheduleError("SCHEDULE_TARGET_NOT_ELIGIBLE")
+    throw createScheduleError("SCHEDULE_TARGET_NOT_ELIGIBLE")
   }
 }
 
 function assertRuntimeScheduleInputObject(input: unknown): asserts input is Record<string, unknown> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
-    throw new ScheduleError("SCHEDULE_INVALID_INPUT", {
+    throw createScheduleError("SCHEDULE_INVALID_INPUT", {
       details: invalidScheduleValueDetails("input", input),
     })
   }
@@ -134,7 +134,7 @@ function assertRuntimeScheduleInputObject(input: unknown): asserts input is Reco
 function assertRuntimeScheduleInputKeys(input: Record<string, unknown>, allowed: Set<string>): void {
   const unknownKey = Object.keys(input).find(key => !allowed.has(key))
   if (unknownKey) {
-    throw new ScheduleError("SCHEDULE_INVALID_INPUT", {
+    throw createScheduleError("SCHEDULE_INVALID_INPUT", {
       details: invalidScheduleValueDetails("input", input),
     })
   }
@@ -149,7 +149,7 @@ async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<v
     assertRuntimeScheduleId(input.id)
   }
   if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
-    throw new ScheduleError("SCHEDULE_INVALID_ENABLED", {
+    throw createScheduleError("SCHEDULE_INVALID_ENABLED", {
       details: invalidScheduleValueDetails("enabled", input.enabled),
     })
   }
@@ -168,7 +168,7 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
     validateRuntimeScheduleCron(input.cron)
   }
   if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
-    throw new ScheduleError("SCHEDULE_INVALID_ENABLED", {
+    throw createScheduleError("SCHEDULE_INVALID_ENABLED", {
       details: invalidScheduleValueDetails("enabled", input.enabled),
     })
   }
@@ -185,7 +185,7 @@ async function updateRuntimeSchedule<TTarget extends ScheduleTargetName, TInput>
     updatedAt: new Date(),
   })
   if (!updated) {
-    throw new ScheduleError("SCHEDULE_NOT_FOUND")
+    throw createScheduleError("SCHEDULE_NOT_FOUND")
   }
   return updated as RuntimeScheduleRecord<TInput>
 }

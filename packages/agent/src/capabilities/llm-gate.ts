@@ -1,4 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { ViteHubError } from "@vite-hub/runtime"
 import {
   confidence,
   decisionPrompt,
@@ -46,20 +47,15 @@ export interface LlmGateOptions<
   reject: TReject
 }
 
-export class LlmGateRejectedError extends Error {
-  capabilityId: string
-  decision: Extract<LlmGateDecision, { allowed: false }>
-
-  constructor(capabilityId: string, decision: Extract<LlmGateDecision, { allowed: false }>, message?: string) {
-    super(message || `[vitehub] ${capabilityId} rejected the request.`)
-    this.capabilityId = capabilityId
-    this.decision = decision
-    this.name = "LlmGateRejectedError"
-    Object.defineProperty(this, "statusCode", {
-      enumerable: true,
-      value: 403,
-    })
-  }
+function llmGateRejectedError(capabilityId: string, decision: Extract<LlmGateDecision, { allowed: false }>, message?: string) {
+  return new ViteHubError("LLM_GATE_REJECTED", message || `[vitehub] ${capabilityId} rejected the request.`, {
+    details: {
+      capabilityId,
+      category: decision.category,
+      confidence: decision.confidence,
+      reason: decision.reason?.slice(0, 16_384),
+    },
+  })
 }
 
 export function llmGate<
@@ -132,7 +128,7 @@ export function llmGate<
         const message = typeof options.message === "function"
           ? options.message(output as Extract<LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>, { allowed: false }>)
           : options.message
-        throw new LlmGateRejectedError(id, output, message)
+        throw llmGateRejectedError(id, output, message)
       }
     },
   })

@@ -1,7 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 
 import { normalizeWorkflowOptions } from "../config.ts"
-import { WorkflowError } from "../errors.ts"
+import { createWorkflowError } from "../errors.ts"
 
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
 import { safeWorkflowName } from "./provider-operation.ts"
@@ -21,7 +21,7 @@ function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
 async function loadRequiredWorkflowDefinition(name: string) {
   const definition = await loadWorkflowDefinition(name)
   if (!definition) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
       details: safeWorkflowName(name) ? { name } : undefined,
     })
@@ -167,7 +167,7 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "WORKFLOW_DISABLED",
     })
   }
@@ -187,7 +187,7 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "WORKFLOW_DISABLED",
     })
   }
@@ -202,7 +202,7 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
 export async function cancelWorkflow<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "WORKFLOW_DISABLED",
     })
   }
@@ -221,7 +221,7 @@ export async function resumeWorkflowSignal<TPayload = unknown>(token: string, pa
   }
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError({
+    throw createWorkflowError({
       code: "WORKFLOW_DISABLED",
     })
   }

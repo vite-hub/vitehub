@@ -364,7 +364,10 @@ describe("GitHub workspace store", () => {
       "docs",
     );
 
-    await expect(store.list()).rejects.toThrow("403 Forbidden");
+    await expect(store.list()).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+      message: "[vitehub] GitHub workspace request failed.",
+    });
     expect(requests.map(request => request.path)).toEqual([
       "/repos/onmax/repo/git/ref/heads/mirror",
     ]);

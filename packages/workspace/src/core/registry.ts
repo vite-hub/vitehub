@@ -1,4 +1,4 @@
-import { WorkspaceNotFoundError } from "./errors.ts"
+import { workspaceNotFoundError } from "./errors.ts"
 import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import runtimeRegistry from "#vitehub-workspace-registry"
@@ -48,7 +48,7 @@ function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<strin
 }
 
 export function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
-  if (!definition) throw new WorkspaceNotFoundError(name)
+  if (!definition) throw workspaceNotFoundError(name)
   const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: string | WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
   if (workspaceAgentOptions?.workspace) {
     const injectedWorkspace = pickWorkspaceFields(definition)
@@ -102,7 +102,7 @@ async function resolveWorkspaceDefinition(name: string): Promise<WorkspaceDefini
   if (existing) return existing
 
   const load = state.loaders[name]
-  if (!load) throw new WorkspaceNotFoundError(name)
+  if (!load) throw workspaceNotFoundError(name)
   const mod = await load()
   const definition = normalizeWorkspaceDefinition(name, mod.default)
   state.loadedDefinitions.set(name, definition)

@@ -1,7 +1,7 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
-import { QueueError } from "../errors.ts"
+import { createQueueError } from "../errors.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 
 import { getQueue } from "./client.ts"
@@ -67,8 +67,7 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
 export async function handleHostedVercelQueueCallback(event: { method?: string, request?: Request }, name: string, definition: QueueDefinition): Promise<unknown> {
   const queue = await getQueue(name)
   if (queue.provider !== "vercel") {
-    throw new QueueError<"VERCEL_PROVIDER_EXPECTED">({
-      code: "VERCEL_PROVIDER_EXPECTED",
+    throw createQueueError("VERCEL_PROVIDER_EXPECTED", {
       details: { provider: queue.provider },
     })
   }

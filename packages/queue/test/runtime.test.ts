@@ -2,9 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { QueueError } from "../src/errors.ts"
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
@@ -153,20 +153,15 @@ describe("cloudflare queue runtime", () => {
     expect(report).toHaveBeenCalledTimes(1)
   })
 
-  it("acks permanent failures unless onError returns an explicit directive", async () => {
+  it("honors explicit Cloudflare delivery directives", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const first = { ack: vi.fn(), retry: vi.fn() }
     const second = { ack: vi.fn(), retry: vi.fn() }
-    const onError = vi.fn((_error: unknown, message: { body: string }) => message.body === "override" ? "retry" as const : undefined)
+    const onError = vi.fn((_error: unknown, message: { body: string }) => message.body === "override" ? "retry" as const : "ack" as const)
     const batchHandler = createCloudflareQueueBatchHandler<string>({
       onError,
       onMessage: async () => {
-        throw new QueueError<"INVALID_PAYLOAD">({
-          code: "INVALID_PAYLOAD",
-          custom: true,
-          message: "Invalid payload.",
-          retryable: false,
-        })
+        throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.")
       },
     })
 
@@ -186,7 +181,7 @@ describe("cloudflare queue runtime", () => {
     expect(second.retry).toHaveBeenCalledTimes(1)
     expect(onError).toHaveBeenCalledTimes(2)
     expect(report).toHaveBeenCalledTimes(2)
-    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: false })
+    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: true })
   })
 
   it("maps Cloudflare send failures without exposing provider payloads", async () => {
@@ -217,11 +212,7 @@ describe("cloudflare queue runtime", () => {
 
   it("preserves abort and custom Queue errors from Cloudflare send", async () => {
     const abort = Object.assign(new Error("caller stopped queue send"), { name: "AbortError" })
-    const custom = new QueueError<"WELCOME_EMAIL_REJECTED">({
-      code: "WELCOME_EMAIL_REJECTED",
-      custom: true,
-      message: "Welcome email was rejected.",
-    })
+    const custom = new ViteHubError("WELCOME_EMAIL_REJECTED", "Welcome email was rejected.")
     const send = vi.fn()
       .mockRejectedValueOnce(abort)
       .mockRejectedValueOnce(custom)
@@ -689,18 +680,12 @@ describe("vercel provider", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
-  it("acknowledges permanent failures when the retry callback returns undefined", async () => {
+  it("preserves Vercel behavior when the retry callback returns undefined", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const retry = vi.fn(() => undefined)
     const definition = {
       handler: async () => {
-        throw new QueueError<"INVALID_PAYLOAD">({
-          cause: new Error("private provider detail"),
-          code: "INVALID_PAYLOAD",
-          custom: true,
-          message: "Invalid payload.",
-          retryable: false,
-        })
+        throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.", { cause: new Error("private provider detail") })
       },
       options: { callbackOptions: { retry } },
     }
@@ -718,7 +703,7 @@ describe("vercel provider", () => {
 
     const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
 
-    expect(result).toEqual({ acknowledge: true })
+    expect(result).toBeUndefined()
     expect(retry).toHaveBeenCalledTimes(1)
     expect(report).toHaveBeenCalledTimes(1)
     expect(report.mock.calls[0]?.[1]).toMatchObject({
@@ -726,17 +711,17 @@ describe("vercel provider", () => {
       id: "message-3",
       provider: "vercel",
       queue: "welcome",
-      retryable: false,
+      retryable: true,
     })
     expect(JSON.stringify(report.mock.calls[0]?.[1])).not.toContain("private provider detail")
   })
 
-  it("preserves an explicit Vercel retry directive for permanent failures", async () => {
+  it("preserves an explicit Vercel retry directive", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const retry = vi.fn(() => ({ afterSeconds: 30 } as const))
     const definition = {
       handler: async () => {
-        throw new QueueError<"INVALID_PAYLOAD">({ code: "INVALID_PAYLOAD", custom: true, message: "Invalid payload.", retryable: false })
+        throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.")
       },
       options: { callbackOptions: { retry } },
     }

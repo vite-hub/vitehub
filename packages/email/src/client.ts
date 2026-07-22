@@ -1,5 +1,5 @@
 import { assertEmailDriver } from "./definition.ts"
-import { EmailError } from "./errors.ts"
+import { emailError, isEmailError } from "./errors.ts"
 
 import type {
   EmailAddress,
@@ -44,40 +44,40 @@ function validHeaders(value: unknown): value is Readonly<Record<string, string>>
 
 function assertEmailMessage(message: EmailMessage, driver: string): void {
   if (!message || typeof message !== "object") {
-    throw new EmailError("invalid-message", "[vitehub] Email message must be an object.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message must be an object.", { driver })
   }
   const input = message as unknown as Record<string, unknown>
   if (!validAddress(input.from)) {
-    throw new EmailError("invalid-message", "[vitehub] Email message from must contain an address.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message from must contain an address.", { driver })
   }
   if (!validAddressList(input.to)) {
-    throw new EmailError("invalid-message", "[vitehub] Email message to must contain at least one address.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message to must contain at least one address.", { driver })
   }
   if (typeof input.subject !== "string" || input.subject.trim().length === 0) {
-    throw new EmailError("invalid-message", "[vitehub] Email message subject must be a non-empty string.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message subject must be a non-empty string.", { driver })
   }
   if (input.html !== undefined && typeof input.html !== "string") {
-    throw new EmailError("invalid-message", "[vitehub] Email message html must be a string.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message html must be a string.", { driver })
   }
   if (input.text !== undefined && typeof input.text !== "string") {
-    throw new EmailError("invalid-message", "[vitehub] Email message text must be a string.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message text must be a string.", { driver })
   }
   if (
     (typeof input.html !== "string" || input.html.trim().length === 0)
     && (typeof input.text !== "string" || input.text.trim().length === 0)
   ) {
-    throw new EmailError("invalid-message", "[vitehub] Email message must include non-empty html or text.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message must include non-empty html or text.", { driver })
   }
   for (const [field, value] of [["cc", input.cc], ["bcc", input.bcc], ["replyTo", input.replyTo]] as const) {
     if (value !== undefined && !validAddressList(value)) {
-      throw new EmailError("invalid-message", `[vitehub] Email message ${field} must contain at least one address.`, { driver })
+      throw emailError("EMAIL_INVALID_MESSAGE", `[vitehub] Email message ${field} must contain at least one address.`, { driver })
     }
   }
   if (input.headers !== undefined && !validHeaders(input.headers)) {
-    throw new EmailError("invalid-message", "[vitehub] Email message headers must contain string values.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email message headers must contain string values.", { driver })
   }
   if (input.attachments !== undefined && (!Array.isArray(input.attachments) || !Array.from(input.attachments).every(validAttachment))) {
-    throw new EmailError("invalid-message", "[vitehub] Email attachments require a filename and in-memory content.", { driver })
+    throw emailError("EMAIL_INVALID_MESSAGE", "[vitehub] Email attachments require a filename and in-memory content.", { driver })
   }
 }
 
@@ -95,13 +95,13 @@ export function createEmail(options: EmailDefinition): EmailClient {
       try {
         const result = await driver.send(message)
         if (!validDriverResult(result)) {
-          throw new EmailError("provider", `[vitehub] Email driver ${driver.name} returned an invalid message id.`, { driver: driver.name })
+          throw emailError("EMAIL_PROVIDER_FAILED", `[vitehub] Email driver ${driver.name} returned an invalid message id.`, { driver: driver.name })
         }
         return { driver: driver.name, id: result.id }
       }
       catch (error) {
-        if (error instanceof EmailError) throw error
-        throw new EmailError("provider", `[vitehub] Email delivery failed through ${driver.name}.`, {
+        if (isEmailError(error)) throw error
+        throw emailError("EMAIL_PROVIDER_FAILED", `[vitehub] Email delivery failed through ${driver.name}.`, {
           cause: error,
           driver: driver.name,
         })

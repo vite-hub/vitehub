@@ -2,7 +2,7 @@ import { relative, resolve, sep } from "node:path"
 import { createHash } from "node:crypto"
 import { minimatch } from "minimatch"
 
-import { WorkspacePathError } from "./errors.ts"
+import { workspacePathError } from "./errors.ts"
 
 import type { ReadFileOptions, ReadFileResult, WorkspaceContent, WorkspaceContentStream } from "./types.ts"
 
@@ -21,9 +21,9 @@ export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePath
   const normalized = normalizeWorkspacePath(path)
   const parts = normalized.split("/").filter(Boolean)
 
-  if (!options.allowEmpty && !normalized) throw new WorkspacePathError(path)
-  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) throw new WorkspacePathError(path)
-  if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw new WorkspacePathError(path)
+  if (!options.allowEmpty && !normalized) throw workspacePathError(path)
+  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) throw workspacePathError(path)
+  if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw workspacePathError(path)
 
   return normalized
 }
@@ -39,7 +39,7 @@ export function resolveInside(root: string, path = ""): string {
 
   if (rel.startsWith("..") || rel === ".." || rel.includes(`..${sep}`) || rel === "") {
     if (rel === "") return resolved
-    throw new WorkspacePathError(path)
+    throw workspacePathError(path)
   }
 
   return resolved

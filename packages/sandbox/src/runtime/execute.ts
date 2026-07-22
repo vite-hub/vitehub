@@ -1,5 +1,6 @@
-import { SandboxError } from '../sandbox/errors'
 import { decodeSandboxValue, encodeSandboxValue } from './binary-sidecars'
+import { sandboxError } from '../sandbox/errors'
+import { readSandboxErrorMetadata } from './error-normalization'
 import { createEntrySource } from './entry-script'
 import {
   createExecutionFiles,
@@ -28,8 +29,8 @@ function toJson(value: unknown, label: string) {
     return JSON.stringify(value)
   }
   catch (error) {
-    throw new SandboxError(`Sandbox ${label} must be JSON-serializable.`, {
-      code: 'SERIALIZATION_ERROR',
+    throw sandboxError(`Sandbox ${label} must be JSON-serializable.`, {
+      code: 'SANDBOX_SERIALIZATION_ERROR',
       details: { label },
       cause: error,
     })
@@ -109,8 +110,8 @@ async function prepareSandboxProjectAtomically(
       },
     )
     if (!result.ok) {
-      throw new SandboxError('Sandbox package preparation failed.', {
-        code: 'EXECUTION_ERROR',
+      throw sandboxError('Sandbox package preparation failed.', {
+        code: 'SANDBOX_EXECUTION_ERROR',
         details: {
           command: bundle.project.install.command,
           exitCode: result.code,
@@ -127,8 +128,8 @@ async function prepareSandboxProjectAtomically(
       projectDir,
     ], { signal: options.signal })
     if (!published.ok && !await sandbox.exists(marker)) {
-      throw new SandboxError('Sandbox package preparation could not publish its project.', {
-        code: 'EXECUTION_ERROR',
+      throw sandboxError('Sandbox package preparation could not publish its project.', {
+        code: 'SANDBOX_EXECUTION_ERROR',
         details: { exitCode: published.code, stderr: published.stderr },
       })
     }
@@ -223,7 +224,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
       outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
     }
     catch (error) {
-      if (error instanceof SandboxError && error.details?.operation === 'createSession')
+      if (readSandboxErrorMetadata(error)?.details?.operation === 'createSession')
         throw error
 
       if (execution) {

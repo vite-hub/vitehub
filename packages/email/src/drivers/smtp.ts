@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer"
 
-import { EmailError } from "../errors.ts"
+import { emailError, isEmailError } from "../errors.ts"
 
 import type Mail from "nodemailer/lib/mailer/index.js"
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js"
@@ -25,11 +25,11 @@ function smtpAddresses(addresses: EmailAddressList): Array<string | Mail.Address
 }
 
 function smtpErrorCode(error: SMTPError): EmailErrorCode {
-  if (error.code === "EAUTH" || error.responseCode === 535) return "authentication"
-  if (error.code === "ETIMEDOUT") return "timeout"
-  if (["ECONNECTION", "EDNS", "ESOCKET"].includes(error.code ?? "")) return "network"
-  if (/rate.?limit|throttl|too many/i.test(`${error.message ?? ""} ${error.response ?? ""}`)) return "rate-limit"
-  return "provider"
+  if (error.code === "EAUTH" || error.responseCode === 535) return "EMAIL_AUTHENTICATION"
+  if (error.code === "ETIMEDOUT") return "EMAIL_TIMEOUT"
+  if (["ECONNECTION", "EDNS", "ESOCKET"].includes(error.code ?? "")) return "EMAIL_NETWORK"
+  if (/rate.?limit|throttl|too many/i.test(`${error.message ?? ""} ${error.response ?? ""}`)) return "EMAIL_RATE_LIMITED"
+  return "EMAIL_PROVIDER_FAILED"
 }
 
 function smtpMessage(message: EmailMessage): Mail.Options {
@@ -65,14 +65,14 @@ export function smtp(transport: string | SMTPTransport.Options): EmailDriver {
       try {
         const result = await transporter.sendMail(smtpMessage(message))
         if (typeof result.messageId !== "string" || result.messageId.trim().length === 0) {
-          throw new EmailError("provider", "[vitehub] SMTP provider returned an invalid message id.", { driver: "smtp" })
+          throw emailError("EMAIL_PROVIDER_FAILED", "[vitehub] SMTP provider returned an invalid message id.", { driver: "smtp" })
         }
         return { id: result.messageId }
       }
       catch (error) {
-        if (error instanceof EmailError) throw error
+        if (isEmailError(error)) throw error
         const smtpError = error as SMTPError
-        throw new EmailError(smtpErrorCode(smtpError), "[vitehub] SMTP delivery failed.", {
+        throw emailError(smtpErrorCode(smtpError), "[vitehub] SMTP delivery failed.", {
           cause: error,
           driver: "smtp",
         })

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { LlmGateRejectedError } from "../src/capabilities/llm-gate.ts"
-import { RateLimitRejectedError } from "../src/capabilities/rate-limit.ts"
+import { ViteHubError } from "@vite-hub/runtime"
 import { createAgentInvocationStreamResponse, readAgentInvocationStream } from "../src/invocation-stream.ts"
 import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
 
@@ -138,16 +137,12 @@ describe("Agent Invocation Stream", () => {
 
   it("preserves allowlisted stream details without requiring capability metadata", async () => {
     const failures = [
-      [new RateLimitRejectedError("", { retryAfter: 15 } as never, "private limiter response"), {
+      [new ViteHubError("RATE_LIMIT_REJECTED", "private limiter response", { details: { retryAfter: 15 } }), {
         code: "RATE_LIMIT_REJECTED",
         details: { retryAfter: 15 },
         error: "Rate limit exceeded. Try again later.",
       }],
-      [new LlmGateRejectedError("", {
-        allowed: false,
-        category: "unsafe",
-        reason: "private model reasoning",
-      }, "private classifier response"), {
+      [new ViteHubError("LLM_GATE_REJECTED", "private classifier response", { details: { category: "unsafe" } }), {
         code: "LLM_GATE_REJECTED",
         details: { category: "unsafe" },
         error: "Agent request was rejected.",

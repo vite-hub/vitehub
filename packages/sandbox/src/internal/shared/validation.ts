@@ -1,4 +1,4 @@
-import { VitehubError } from './errors'
+import { sandboxError } from '../../sandbox/errors'
 
 export const VALIDATION_FAILED = 'Validation failed'
 
@@ -122,40 +122,25 @@ function readData(value: unknown, issues: readonly ValidationIssue[] | undefined
   return { ...base, message, ...(issues ? { issues } : {}) } as ValidationErrorData
 }
 
-export class VitehubValidationError extends VitehubError {
-  readonly status: number
-  readonly statusCode: number
-  readonly statusText: string
-  readonly statusMessage: string
-  readonly data: ValidationErrorData
-
-  constructor(cause?: unknown) {
-    const statusCode = readStatusCode(cause)
-    const statusText = readStatusText(cause)
-    const message = readMessage(cause)
-    const issues = readIssues(cause)
-    const data = readData(cause, issues)
-
-    super(message, {
-      cause,
-      code: 'VALIDATION_ERROR',
-      details: data,
-      httpStatus: statusCode,
-    })
-    this.name = 'VitehubValidationError'
-    this.status = statusCode
-    this.statusCode = statusCode
-    this.statusText = statusText
-    this.statusMessage = statusText
-    this.data = data
-  }
-}
-
 export function createValidationError(cause?: unknown): Error {
   if (isErrorWithHttpMetadata(cause))
     return cause
 
-  return new VitehubValidationError(cause)
+  const statusCode = readStatusCode(cause)
+  const statusText = readStatusText(cause)
+  const data = readData(cause, readIssues(cause))
+  return Object.assign(sandboxError(readMessage(cause), {
+    cause,
+    code: 'SANDBOX_VALIDATION_ERROR',
+    details: data,
+    httpStatus: statusCode,
+  }), {
+    status: statusCode,
+    statusCode,
+    statusText,
+    statusMessage: statusText,
+    data,
+  })
 }
 
 export async function readValidatedPayload<TInput, TOutput>(

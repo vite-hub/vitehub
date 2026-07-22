@@ -2,7 +2,7 @@ import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
-import { AgentOutputValidationError, validateAgentOutput } from "./internal/agent-structured-output.ts"
+import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import {
@@ -14,7 +14,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
+import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from "@vite-hub/runtime"
 import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
@@ -375,9 +375,6 @@ export type {
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
-
-export { AgentOutputValidationError }
-export type { AgentOutputValidationErrorCode, AgentOutputValidationErrorOptions } from "./internal/agent-structured-output.ts"
 
 export {
   createAgentDevtoolsMetadata,
@@ -1361,7 +1358,7 @@ async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<
     return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
   }
   catch (error) {
-    if (error instanceof Error && error.name === "WorkspaceNotFoundError") return undefined
+    if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
     throw error
   }
 }

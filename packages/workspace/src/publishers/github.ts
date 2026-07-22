@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
 import {
   commitGitHubChanges,
@@ -61,7 +61,7 @@ async function readFiles(ctx: PublishContext, root: string): Promise<GitHubPubli
   const entries = await ctx.store.list("", { recursive: true })
   return await Promise.all(entries.filter(isWorkspaceFileEntry).map(async (entry) => {
     const file = await ctx.store.readFile(entry.path)
-    if (!file) throw new WorkspaceError(`[vitehub] Workspace file disappeared before GitHub publish: ${entry.path}.`)
+    if (!file) throw workspaceError(`[vitehub] Workspace file disappeared before GitHub publish: ${entry.path}.`)
     const update = await createGitHubFileUpdate(entry.path, root, file.content)
     return {
       ...file,
@@ -81,7 +81,7 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
       const token = requireGitHubOption("publisher", "a token", resolveGitHubTokenOption(options))
       const storeTarget = await resolveActiveGitHubStoreTarget(ctx)
       if (!ctx.durable && storeTarget?.repository === repository && storeTarget.branch === branch) {
-        throw new WorkspaceError(
+        throw workspaceError(
           `[vitehub] GitHub publisher cannot publish to ${repository}@${branch} while it backs the active GitHub Workspace Store. Use workspace.snapshot() for that branch or configure the publisher to use a different repository or branch.`,
         )
       }

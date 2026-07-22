@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 import { posix } from "node:path"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
+import { createHandlerError } from "../src/runtime/output-recovery.ts"
+import { toSandboxError } from "../src/runtime/error-normalization.ts"
 import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
-import type { SandboxError } from "../src/sandbox/errors.ts"
+import type { ViteHubError } from "@vite-hub/runtime"
 import type { SandboxExecutionBox } from "../src/runtime/execution-box.ts"
 
 type SandboxExecResult = Awaited<ReturnType<SandboxExecutionBox["exec"]>>
@@ -12,6 +14,12 @@ type SandboxExecHook = (execution: {
   read: (path: string) => Uint8Array | undefined
   write: (path: string, contents: Uint8Array) => void
 }) => Promise<SandboxExecResult | undefined>
+
+it("bounds provider error messages while preserving the sandbox error", () => {
+  const error = toSandboxError(new Error("x".repeat(20_000)))
+  expect(error).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR" })
+  expect(error.message).toHaveLength(16_384)
+})
 
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
@@ -168,6 +176,44 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxDefinition", () => {
+  it("bounds handler diagnostics before constructing the public error", () => {
+    const error = createHandlerError("Sandbox definition failed." + "!".repeat(20_000), "vercel", {
+      ignored: { private: true },
+      stderr: "x".repeat(20_000),
+    })
+
+    expect(error).toMatchObject({
+      code: "SANDBOX_HANDLER_ERROR",
+      details: { provider: "vercel", stderr: "x".repeat(16_384) },
+      message: ("Sandbox definition failed." + "!".repeat(20_000)).slice(0, 16_384),
+    })
+    expect(error.details).not.toHaveProperty("ignored")
+  })
+
+  it("sanitizes arbitrary provider details during normalization", () => {
+    const providerError = Object.assign(new Error("Provider failed."), {
+      code: "PROVIDER_FAILED",
+      details: {
+        cyclic: undefined as unknown,
+        date: new Date(),
+        stderr: "x".repeat(20_000),
+      },
+    })
+    providerError.details.cyclic = providerError.details
+
+    expect(toSandboxError(providerError)).toMatchObject({
+      code: "SANDBOX_RUNTIME_ERROR",
+      details: { stderr: "x".repeat(16_384) },
+    })
+  })
+
+  it("normalizes empty provider error messages", () => {
+    expect(toSandboxError(new Error())).toMatchObject({
+      code: "SANDBOX_RUNTIME_ERROR",
+      message: "Sandbox execution failed.",
+    })
+  })
+
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
     let finishSetup: (() => void) | undefined
@@ -186,9 +232,9 @@ describe("executeSandboxDefinition", () => {
         },
       },
     )).rejects.toMatchObject({
-      code: "TIMEOUT",
-      provider: "cloudflare",
-    } satisfies Partial<SandboxError>)
+      code: "SANDBOX_TIMEOUT",
+      details: { provider: "cloudflare", timeout: 10 },
+    } satisfies Partial<ViteHubError>)
 
     finishSetup?.()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -392,7 +438,7 @@ describe("executeSandboxDefinition", () => {
       { toJSON() { throw new Error("broken JSON hook") } },
       {},
     )).rejects.toMatchObject({
-      code: "SERIALIZATION_ERROR",
+      code: "SANDBOX_SERIALIZATION_ERROR",
       cause: expect.objectContaining({ message: "broken JSON hook" }),
     })
   })
@@ -416,7 +462,7 @@ describe("executeSandboxDefinition", () => {
       payload,
       {},
     )).rejects.toMatchObject({
-      code: "SERIALIZATION_ERROR",
+      code: "SANDBOX_SERIALIZATION_ERROR",
       cause: expect.objectContaining({ message: "broken payload getter" }),
     })
   })
@@ -546,7 +592,7 @@ describe("executeSandboxDefinition", () => {
         execution: "module",
         modules: { "definition.mjs": "export default async () => true" },
       },
-    )).rejects.toMatchObject({ code: "SERIALIZATION_ERROR" })
+    )).rejects.toMatchObject({ code: "SANDBOX_SERIALIZATION_ERROR" })
   })
 
   it("enforces timeout during executable module evaluation", async () => {
@@ -564,9 +610,9 @@ describe("executeSandboxDefinition", () => {
         },
       },
     )).rejects.toMatchObject({
-      code: "TIMEOUT",
-      provider: "cloudflare",
-    } satisfies Partial<SandboxError>)
+      code: "SANDBOX_TIMEOUT",
+      details: { provider: "cloudflare", timeout: 10 },
+    } satisfies Partial<ViteHubError>)
 
     expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(true)
   })
@@ -586,9 +632,9 @@ describe("executeSandboxDefinition", () => {
       Uint8Array.from([1, 2, 3]),
       {},
     )).rejects.toMatchObject({
-      code: "TIMEOUT",
-      name: "SandboxError",
-      provider: "vercel",
+      code: "SANDBOX_TIMEOUT",
+      details: { provider: "vercel" },
+      name: "ViteHubError",
     })
 
     expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
@@ -621,7 +667,7 @@ describe("executeSandboxDefinition", () => {
       },
       payload,
       {},
-    )).rejects.toMatchObject({ code: "SERIALIZATION_ERROR" })
+    )).rejects.toMatchObject({ code: "SANDBOX_SERIALIZATION_ERROR" })
 
     expect(execCalls.some(call => call.cmd === "pnpm")).toBe(false)
   })
@@ -813,14 +859,14 @@ describe("executeSandboxDefinition", () => {
         },
       },
     )).rejects.toMatchObject({
-      name: "SandboxError",
+      name: "ViteHubError",
       code: "SANDBOX_HANDLER_ERROR",
-      provider: "vercel",
       details: {
         exitCode: 127,
+        provider: "vercel",
         stderrPreview: "runtime command failed",
         stdoutPreview: "booted",
       },
-    } satisfies Partial<SandboxError>)
+    } satisfies Partial<ViteHubError>)
   })
 })

@@ -1,3 +1,5 @@
+import { ViteHubError } from "@vite-hub/runtime"
+
 import { useWorkspace } from "./core/use.ts"
 
 import type { ReadonlyWorkspaceFacade } from "./core/use.ts"
@@ -66,14 +68,10 @@ export interface WorkspaceCollectionItem<T = Record<string, unknown>> {
   item: T | null
 }
 
-export class WorkspaceCollectionCursorError extends Error {
-  readonly reason: "malformed" | "stale"
-
-  constructor(reason: "malformed" | "stale") {
-    super(reason === "stale" ? "Workspace collection cursor is stale." : "Workspace collection cursor is malformed.")
-    this.name = "WorkspaceCollectionCursorError"
-    this.reason = reason
-  }
+function workspaceCollectionCursorError(reason: "malformed" | "stale") {
+  return new ViteHubError("WORKSPACE_COLLECTION_CURSOR_INVALID", reason === "stale" ? "Workspace collection cursor is stale." : "Workspace collection cursor is malformed.", {
+    details: { reason },
+  })
 }
 
 interface LoadedCollection {
@@ -179,13 +177,13 @@ function decodeCursor(cursor: string | undefined, expected: Omit<CollectionCurso
     parsed = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")))
   }
   catch {
-    throw new WorkspaceCollectionCursorError("malformed")
+    throw workspaceCollectionCursorError("malformed")
   }
   if (!isRecord(parsed) || !Number.isSafeInteger(parsed.offset) || Number(parsed.offset) < 0 || typeof parsed.digest !== "string" || typeof parsed.query !== "string") {
-    throw new WorkspaceCollectionCursorError("malformed")
+    throw workspaceCollectionCursorError("malformed")
   }
   if (parsed.digest !== expected.digest || parsed.query !== expected.query) {
-    throw new WorkspaceCollectionCursorError("stale")
+    throw workspaceCollectionCursorError("stale")
   }
   return Number(parsed.offset)
 }
@@ -245,7 +243,7 @@ export async function queryWorkspaceCollection<T = Record<string, unknown>, Name
   const limit = resolveLimit(query, options)
   const signature = await queryDigest(query, limit)
   const offset = decodeCursor(query.cursor, { digest: collection.digest, query: signature })
-  if (offset > filtered.length) throw new WorkspaceCollectionCursorError("malformed")
+  if (offset > filtered.length) throw workspaceCollectionCursorError("malformed")
   const items = filtered.slice(offset, offset + limit).map(item => project<T>(item, query.select))
   const nextOffset = offset + items.length
   return {

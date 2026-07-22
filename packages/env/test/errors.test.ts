@@ -1,18 +1,15 @@
 import { ViteHubError } from "@vite-hub/runtime"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import { env, EnvError, resolveServerEnv } from "../src/index.ts"
+import { env, resolveServerEnv } from "../src/index.ts"
+import { envSourceFailed } from "../src/core/errors.ts"
 import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
 
-describe("EnvError", () => {
+describe("Env errors", () => {
   it("publishes a closed code, message, and details contract", () => {
     const cause = new Error("secret provider failure")
-    const error = new EnvError({
-      cause,
-      code: "ENV_SOURCE_FAILED",
-      details: { source: "custom" },
-    })
+    const error = envSourceFailed("custom", cause)
 
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error.cause).toBe(cause)
@@ -20,31 +17,9 @@ describe("EnvError", () => {
       code: "ENV_SOURCE_FAILED",
       details: { source: "custom" },
       message: "[vitehub] Env source resolution failed.",
+      name: "ViteHubError",
     })
     expect(JSON.stringify(error)).not.toContain("secret provider failure")
-    expect(() => new EnvError({ code: "ENV_CUSTOM_FAILED" } as never)).toThrow(TypeError)
-  })
-
-  it("rejects hostile constructor accessors and proxies with a fixed Env failure", () => {
-    const getter = vi.fn(() => "private-accessor-secret")
-    const accessorOptions = Object.defineProperty({}, "code", { enumerable: true, get: getter })
-    const accessorDetails = Object.defineProperty({}, "source", { enumerable: true, get: getter })
-    const hostileDetails = new Proxy({}, {
-      getOwnPropertyDescriptor() {
-        throw new Error("private-proxy-secret")
-      },
-    })
-
-    for (const options of [
-      accessorOptions,
-      { code: "ENV_SOURCE_FAILED", details: accessorDetails },
-      { code: "ENV_SOURCE_FAILED", details: hostileDetails },
-    ]) {
-      expect(() => new EnvError(options as never))
-        .toThrow("[vitehub] EnvError requires valid error options.")
-    }
-
-    expect(getter).not.toHaveBeenCalled()
   })
 
   it("classifies invalid declarations and missing runtime values without exposing diagnostics", () => {
@@ -101,7 +76,7 @@ describe("EnvError", () => {
     }
     catch (error) {
       expect(error).toBeInstanceOf(Error)
-      expect(error).not.toBeInstanceOf(EnvError)
+      expect(error).not.toBeInstanceOf(ViteHubError)
     }
   })
 
@@ -163,7 +138,7 @@ describe("EnvError", () => {
       branch: env({ mode: "build", source: env.gitBranch() }),
     }, input)).rejects.toBe(abort)
 
-    const existing = new EnvError({ code: "ENV_SOURCE_FAILED", details: { source: "git:branch" } })
+    const existing = new ViteHubError("ENV_SOURCE_FAILED", "Custom Env source failure.", { details: { source: "git:branch" } })
     context.git.branch = async () => {
       throw existing
     }
@@ -201,12 +176,12 @@ describe("EnvError", () => {
   })
 })
 
-function capture(run: () => unknown): EnvError {
+function capture(run: () => unknown): ViteHubError {
   try {
     run()
   }
   catch (error) {
-    return error as EnvError
+    return error as ViteHubError
   }
   throw new Error("Expected operation to throw.")
 }

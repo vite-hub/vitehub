@@ -98,7 +98,7 @@ Use a signed HTTPS URL for private Blob objects, with an expiry long enough for 
 The caller still owns callback authentication before `receive()`, durable operation state, duplicate-delivery handling, timeouts, and workflow resumption.
 Compose those concerns with the Workflow primitive; correlation metadata is untrusted until it matches the stored workflow attempt.
 Provider callback payloads and SDK types do not cross the transcription client interface.
-Failed completions contain a `TranscriptionError` with a fixed `TRANSCRIPTION_*` code and message. Raw provider diagnostics stay behind the in-memory `cause` and are omitted when the completion is serialized.
+Failed completions contain a `ViteHubError` with a fixed `TRANSCRIPTION_*` code and message. Raw provider diagnostics stay behind the in-memory `cause` and are omitted when the completion is serialized.
 
 ## Requirements
 

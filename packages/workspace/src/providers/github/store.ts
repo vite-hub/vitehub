@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 
-import { WorkspaceError } from "../../core/errors.ts";
+import { workspaceError } from "../../core/errors.ts";
 import {
   contentStreamToBytes,
   matchesAny,
@@ -232,10 +232,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const hasDirectory = children.length > 0;
     if (!hasDirectory) {
       if (options.force) return;
-      throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`);
+      throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`);
     }
     if (children.length && !options.recursive) {
-      throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`);
+      throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`);
     }
 
     for (const child of children) this.#files.delete(child);
@@ -262,7 +262,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       token: this.#token,
     });
     if (this.#baselineRefSha && remote.refSha !== this.#baselineRefSha) {
-      throw new WorkspaceError(
+      throw workspaceError(
         `[vitehub] GitHub Workspace Store conflict for ${this.#repository}@${this.#branch}: the branch changed after this Workspace Store loaded. Snapshotting requires a Workspace Store loaded from the current branch head.`,
       );
     }

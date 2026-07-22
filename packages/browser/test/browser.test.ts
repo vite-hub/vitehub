@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
+import { ViteHubError } from "@vite-hub/runtime"
 
 import {
-  BrowserLiveHandoffUnsupportedError,
-  BrowserSessionRefError,
-  BrowserSessionStateError,
   createBrowser,
   type BrowserController,
   type BrowserProvider,
@@ -91,11 +89,11 @@ describe("Browser Sessions", () => {
     })
     expect(JSON.stringify(ref)).not.toContain("secret")
     expect(JSON.stringify(ref)).not.toContain("provider-secret-session-id")
-    await expect(prepared.close()).rejects.toBeInstanceOf(BrowserSessionStateError)
+    await expect(prepared.close()).rejects.toBeInstanceOf(ViteHubError)
 
     const claimed = await browser.claim(ref, { audience: "run-1" })
     await expect(claimed.use(controller, client => client.sentinel.value)).resolves.toBe("application-authenticated")
-    await expect(browser.claim(ref, { audience: "run-1" })).rejects.toBeInstanceOf(BrowserSessionRefError)
+    await expect(browser.claim(ref, { audience: "run-1" })).rejects.toMatchObject({ code: "BROWSER_SESSION_REF_INVALID" })
 
     await claimed.close()
     expect(close).toHaveBeenCalledOnce()
@@ -118,14 +116,14 @@ describe("Browser Sessions", () => {
     const providerFixture = fixture({ providerHandoff: false })
     const providerBrowser = createBrowser({ provider: providerFixture.provider })
     const providerSession = await providerBrowser.open()
-    await expect(providerSession.handoff({ audience: "run-1", mode: "live" })).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
+    await expect(providerSession.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({ code: "BROWSER_LIVE_HANDOFF_UNSUPPORTED" })
     await providerSession.close()
 
     const releaseFixture = fixture({ controllerPreserves: false })
     const releaseBrowser = createBrowser({ provider: releaseFixture.provider })
     const releaseSession = await releaseBrowser.open()
     await releaseSession.use(releaseFixture.controller, () => undefined)
-    await expect(releaseSession.handoff({ audience: "run-1", mode: "live" })).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
+    await expect(releaseSession.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({ code: "BROWSER_LIVE_HANDOFF_UNSUPPORTED" })
     await releaseSession.close()
 
     const controllerFixture = fixture({ controllerHandoff: false })
@@ -133,7 +131,7 @@ describe("Browser Sessions", () => {
     const prepared = await controllerBrowser.open()
     const ref = await prepared.handoff({ audience: "run-1", mode: "live" })
     const claimed = await controllerBrowser.claim(ref, { audience: "run-1" })
-    await expect(claimed.use(controllerFixture.controller, () => undefined)).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
+    await expect(claimed.use(controllerFixture.controller, () => undefined)).rejects.toMatchObject({ code: "BROWSER_LIVE_HANDOFF_UNSUPPORTED" })
     await claimed.close()
   })
 
@@ -147,7 +145,7 @@ describe("Browser Sessions", () => {
     })
 
     await vi.waitFor(() => expect(session.inspect().state).toBe("controlled"))
-    await expect(session.use(controller, () => undefined)).rejects.toBeInstanceOf(BrowserSessionStateError)
+    await expect(session.use(controller, () => undefined)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
     finish()
     await pending
     await session.close()
@@ -233,6 +231,6 @@ describe("Browser Sessions", () => {
 
     await expect(browser.claim(ref, { audience: "run-1" })).rejects.toBe(traceError)
     expect(close).toHaveBeenCalledOnce()
-    await expect(browser.claim(ref, { audience: "run-1" })).rejects.toBeInstanceOf(BrowserSessionRefError)
+    await expect(browser.claim(ref, { audience: "run-1" })).rejects.toMatchObject({ code: "BROWSER_SESSION_REF_INVALID" })
   })
 })

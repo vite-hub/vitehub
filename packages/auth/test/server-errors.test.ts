@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ViteHubError } from "@vite-hub/runtime"
 
-import { AuthenticationProviderError } from "../src/agent.ts"
 import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuth } from "../src/server.ts"
 
@@ -47,7 +47,7 @@ describe("server authentication provider boundaries", () => {
 
     const error = await requireAuth(request, definition).catch(error => error)
 
-    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       cause,
       details: { operation: "get-auth-for-request", provider: "better-auth" },
@@ -69,7 +69,7 @@ describe("server authentication provider boundaries", () => {
 
     const error = await requireAuth(request, definition).catch(error => error)
 
-    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       cause,
       details: { operation: "get-session", provider: "better-auth" },
@@ -97,7 +97,7 @@ describe("server authentication provider boundaries", () => {
 
     const error = await requireAuth(request, definition).catch(error => error)
 
-    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
       code: "AUTH_PROVIDER_OPERATION_FAILED",
       details: { operation: "get-session", provider: "better-auth" },
@@ -110,7 +110,7 @@ describe("server authentication provider boundaries", () => {
     providerMocks.getSession.mockRejectedValueOnce(abort)
     await expect(requireAuth(request, definition)).rejects.toBe(abort)
 
-    const providerError = new AuthenticationProviderError({ operation: "get-session" })
+    const providerError = new ViteHubError("AUTH_PROVIDER_OPERATION_FAILED", "Custom provider failure.")
     providerMocks.getSession.mockRejectedValueOnce(providerError)
     await expect(requireAuth(request, definition)).rejects.toBe(providerError)
   })

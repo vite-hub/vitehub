@@ -1,6 +1,6 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import { WorkflowError } from "../errors.ts"
+import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
@@ -36,7 +36,7 @@ interface WorkflowRuntimeAdapter {
 }
 
 function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel", operation: WorkflowOperationName): never {
-  throw new WorkflowError({
+  throw createWorkflowError({
     code: "WORKFLOW_OPERATION_UNSUPPORTED",
     details: { operation, provider },
   })
@@ -192,7 +192,7 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         return await fallback.run({ definition, event, id, name, options, payload })
       }
       if (options.id) {
-        throw new WorkflowError({
+        throw createWorkflowError({
           code: "WORKFLOW_RUN_ID_UNSUPPORTED",
           details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
         })

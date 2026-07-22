@@ -1,4 +1,4 @@
-import { BrowserProviderError } from "../errors.ts"
+import { browserProviderError } from "../errors.ts"
 
 import type { BrowserProvider } from "../types.ts"
 import type { CloudflareBrowserBindingConnection } from "../internal/connections.ts"
@@ -27,7 +27,7 @@ async function loadDriver(): Promise<CloudflarePlaywrightDriver> {
     return await import("@cloudflare/playwright") as unknown as CloudflarePlaywrightDriver
   }
   catch (error) {
-    throw new BrowserProviderError("cloudflare", "load @cloudflare/playwright", { cause: error })
+    throw browserProviderError("cloudflare", "load @cloudflare/playwright", { cause: error })
   }
 }
 
@@ -56,7 +56,7 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
         ? await options.resolveBinding?.(bindingOption) ?? await runtimeBinding(bindingOption)
         : bindingOption
       if (!binding) {
-        throw new BrowserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)
+        throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)
       }
       const driver = options.driver || await loadDriver()
       let acquired: { sessionId: string }
@@ -66,7 +66,7 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
           : await driver.acquire(binding)
       }
       catch (error) {
-        throw new BrowserProviderError("cloudflare", "acquire a Browser Run session", { cause: error })
+        throw browserProviderError("cloudflare", "acquire a Browser Run session", { cause: error })
       }
       let closed = false
       return {
@@ -82,7 +82,7 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
             closed = true
           }
           catch (error) {
-            throw new BrowserProviderError("cloudflare", "terminate a Browser Run session", { cause: error })
+            throw browserProviderError("cloudflare", "terminate a Browser Run session", { cause: error })
           }
           finally {
             try {

@@ -15,16 +15,9 @@ import type {
 import type { Lease, MaybePromise, TraceEvent } from "@vite-hub/runtime"
 
 import {
-  BrowserLiveHandoffUnsupportedError,
-  BrowserSessionRefError,
-  BrowserSessionStateError,
-} from "./errors.ts"
-
-export {
-  BrowserLiveHandoffUnsupportedError,
-  BrowserProviderError,
-  BrowserSessionRefError,
-  BrowserSessionStateError,
+  browserLiveHandoffUnsupportedError,
+  browserSessionRefError,
+  browserSessionStateError,
 } from "./errors.ts"
 export type {
   BrowserClaimOptions,
@@ -145,7 +138,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
   }
 
   private assertState(action: string, expected: BrowserSessionState): void {
-    if (this.state !== expected) throw new BrowserSessionStateError(action, this.state)
+    if (this.state !== expected) throw browserSessionStateError(action, this.state)
   }
 
   async use<TClient, TResult>(
@@ -154,7 +147,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
   ): Promise<TResult> {
     this.assertState("attach a controller to", "released")
     if (this.claimed && !controller.features.attachExistingSession) {
-      throw new BrowserLiveHandoffUnsupportedError(this.owner.provider.name, controller.name)
+      throw browserLiveHandoffUnsupportedError(this.owner.provider.name, controller.name)
     }
 
     this.state = "controlled"
@@ -189,7 +182,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     }
     assertAudience(options.audience)
     if (!this.features.liveHandoff || !this.lastControllerSupportsHandoff) {
-      throw new BrowserLiveHandoffUnsupportedError(this.owner.provider.name, this.controller)
+      throw browserLiveHandoffUnsupportedError(this.owner.provider.name, this.controller)
     }
 
     const ref = this.owner.createHandoff({
@@ -216,8 +209,8 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
 
   async close(): Promise<void> {
     if (this.state === "closed") return
-    if (this.state === "handed-off") throw new BrowserSessionStateError("close", this.state)
-    if (this.state === "controlled") throw new BrowserSessionStateError("close", this.state)
+    if (this.state === "handed-off") throw browserSessionStateError("close", this.state)
+    if (this.state === "controlled") throw browserSessionStateError("close", this.state)
     try {
       await releaseResource({ lease: this.lease, providerSession: this.providerSession })
       this.state = "closed"
@@ -335,16 +328,16 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
   async claim(ref: BrowserSessionRef, options: BrowserClaimOptions): Promise<BrowserSession<TConnection>> {
     assertAudience(options?.audience)
     const record = this.handoffs.get(ref?.id)
-    if (!record) throw new BrowserSessionRefError("unknown")
+    if (!record) throw browserSessionRefError("unknown")
     this.handoffs.delete(ref.id)
     clearTimeout(record.timer)
     if (record.expiresAt <= Date.now()) {
       await releaseResource(record).catch(() => {})
-      throw new BrowserSessionRefError("expired")
+      throw browserSessionRefError("expired")
     }
     if (record.audience !== options.audience) {
       await releaseResource(record).catch(() => {})
-      throw new BrowserSessionRefError("audience")
+      throw browserSessionRefError("audience")
     }
     const session = new BrowserSessionImpl(
       this,

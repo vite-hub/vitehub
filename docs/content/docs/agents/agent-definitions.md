@@ -73,7 +73,7 @@ export default defineAgent({
 })
 ```
 
-Harness Agent Drivers receive a JSON-only output instruction. When the validator also implements Standard JSON Schema, ViteHub includes that JSON Schema as model guidance; Standard Schema validation remains the runtime authority either way. Invalid JSON and schema failures throw `AgentOutputValidationError` with distinct `AGENT_OUTPUT_INVALID_JSON` and `AGENT_OUTPUT_SCHEMA_INVALID` codes. Messages are fixed; parser and schema diagnostics remain available through the non-serialized `cause`.
+Harness Agent Drivers receive a JSON-only output instruction. When the validator also implements Standard JSON Schema, ViteHub includes that JSON Schema as model guidance; Standard Schema validation remains the runtime authority either way. Invalid JSON and schema failures throw `ViteHubError` with distinct `AGENT_OUTPUT_INVALID_JSON` and `AGENT_OUTPUT_SCHEMA_INVALID` codes. Messages are fixed; parser and schema diagnostics remain available through the non-serialized `cause`.
 
 ## Attach Capabilities
 

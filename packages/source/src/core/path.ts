@@ -1,7 +1,7 @@
 import picomatch from "picomatch"
 import { isAbsolute } from "pathe"
 
-import { SourcePathError } from "./errors.ts"
+import { sourcePathError } from "./errors.ts"
 
 import type { ReadSourceOptions, ReadSourceResult, SourceContent } from "./types.ts"
 
@@ -19,9 +19,9 @@ export function normalizeSafeSourcePath(path = "", options: SafeSourcePathOption
   const normalized = normalizeSourcePath(path)
   const parts = normalized.split("/").filter(Boolean)
 
-  if (!options.allowEmpty && !normalized) throw new SourcePathError(path)
-  if (isAbsolute(raw) || parts.some(part => part === "." || part === "..")) throw new SourcePathError(path)
-  if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw new SourcePathError(path)
+  if (!options.allowEmpty && !normalized) throw sourcePathError(path)
+  if (isAbsolute(raw) || parts.some(part => part === "." || part === "..")) throw sourcePathError(path)
+  if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw sourcePathError(path)
 
   return normalized
 }

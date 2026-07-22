@@ -1,6 +1,6 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import { WorkspaceError } from "../../core/errors.ts"
+import { workspaceError } from "../../core/errors.ts"
 import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
@@ -226,14 +226,14 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       const stat = await this.#fs!.promises.stat(absolute).catch(() => undefined) as { isDirectory(): boolean } | undefined
       if (!stat) {
         if (options.force) return
-        throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+        throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
       }
       if (stat.isDirectory() && !options.recursive) {
         const children = await this.#fs!.promises.readdir(absolute)
-        if (children.length) throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+        if (children.length) throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
       }
       const removed = this.#fs!.deleteTree(absolute)
-      if (!removed && !options.force) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      if (!removed && !options.force) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
       for (const key of this.#files.keys()) {
         if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
       }
@@ -287,7 +287,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       }
       catch (error) {
         if (isNonFastForward(error)) {
-          throw new WorkspaceError(
+          throw workspaceError(
             `[vitehub] Workspace "${this.workspaceName}" changed remotely while snapshotting branch "${this.#branch}". Reload the Workspace before retrying.`,
             { cause: error },
           )
@@ -380,7 +380,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const bindingName = this.options.binding || "WORKSPACE_ARTIFACTS"
     const binding = getActiveCloudflareBinding<ArtifactsBinding>(bindingName)
       || (globalThis as Record<string, unknown>)[bindingName] as ArtifactsBinding | undefined
-    if (!binding) throw new WorkspaceError(`[vitehub] Cloudflare Artifacts binding "${bindingName}" not found.`)
+    if (!binding) throw workspaceError(`[vitehub] Cloudflare Artifacts binding "${bindingName}" not found.`)
     return binding
   }
 

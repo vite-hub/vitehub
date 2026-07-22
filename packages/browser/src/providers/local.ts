@@ -4,7 +4,8 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { BrowserProviderError } from "../errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { browserProviderError } from "../errors.ts"
 
 import type { BrowserProvider } from "../types.ts"
 import type { CDPBrowserConnection } from "../internal/connections.ts"
@@ -41,7 +42,7 @@ async function waitForEndpoint(port: number, child: ChildProcess, timeout: numbe
       let lastError: unknown
       while (Date.now() - startedAt < timeout) {
         if (child.exitCode !== null || child.signalCode !== null) {
-          throw new BrowserProviderError("local", "start Chromium", {
+          throw browserProviderError("local", "start Chromium", {
             cause: new Error(`Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).`),
           })
         }
@@ -57,7 +58,7 @@ async function waitForEndpoint(port: number, child: ChildProcess, timeout: numbe
         }
         await new Promise(resolve => setTimeout(resolve, 50))
       }
-      throw new BrowserProviderError("local", "start Chromium", { cause: lastError })
+      throw browserProviderError("local", "start Chromium", { cause: lastError })
     })()])
   }
   finally {
@@ -91,10 +92,11 @@ export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPB
     isolation: "trusted-host",
     name: "local",
     async open() {
-      const port = await openPort()
-      const profile = await mkdtemp(join(tmpdir(), "vitehub-browser-"))
+      let profile: string | undefined
       let child: ChildProcess | undefined
       try {
+        const port = await openPort()
+        profile = await mkdtemp(join(tmpdir(), "vitehub-browser-"))
         child = spawn(options.executablePath, [
           "--headless=new",
           "--disable-background-networking",
@@ -120,7 +122,7 @@ export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPB
               await stopProcess(child!)
             }
             finally {
-              await rm(profile, { force: true, recursive: true })
+              await rm(profile!, { force: true, recursive: true })
             }
           },
           connection: { endpoint, kind: "cdp" },
@@ -129,9 +131,9 @@ export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPB
       }
       catch (error) {
         if (child) await stopProcess(child).catch(() => {})
-        await rm(profile, { force: true, recursive: true }).catch(() => {})
-        if (error instanceof BrowserProviderError) throw error
-        throw new BrowserProviderError("local", "start Chromium", { cause: error })
+        if (profile) await rm(profile, { force: true, recursive: true }).catch(() => {})
+        if (getViteHubErrorShape(error)?.code === "BROWSER_PROVIDER_ERROR") throw error
+        throw browserProviderError("local", "start Chromium", { cause: error })
       }
     },
   }

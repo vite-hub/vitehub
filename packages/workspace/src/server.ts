@@ -1,8 +1,8 @@
 import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
 import { lookup } from "mrmime"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 
-import { getWorkspaceCollectionItem, queryWorkspaceCollection, WorkspaceCollectionCursorError, workspaceCollectionEmpty } from "./collections.ts"
-import { WorkspaceNotFoundError, WorkspacePathError } from "./core/errors.ts"
+import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
@@ -181,8 +181,9 @@ function resolveContentType(path: string, mediaType: string | undefined, content
 }
 
 function isNotFoundError(error: unknown): boolean {
-  return error instanceof WorkspaceNotFoundError
-    || error instanceof WorkspacePathError
+  const code = getViteHubErrorShape(error)?.code
+  return code === "WORKSPACE_NOT_FOUND"
+    || code === "WORKSPACE_PATH_INVALID"
     || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
     || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
 }
@@ -396,11 +397,12 @@ export function defineWorkspaceCollectionHandler<Name extends WorkspaceName>(
       if (error instanceof WorkspaceCollectionRequestError) {
         throw createError({ cause: error, statusCode: 400, statusMessage: error.message })
       }
-      if (error instanceof WorkspaceCollectionCursorError) {
+      if (getViteHubErrorShape(error)?.code === "WORKSPACE_COLLECTION_CURSOR_INVALID") {
+        const reason = getViteHubErrorShape(error)?.details?.reason
         throw createError({
           cause: error,
-          statusCode: error.reason === "stale" ? 409 : 400,
-          statusMessage: error.message,
+          statusCode: reason === "stale" ? 409 : 400,
+          statusMessage: error instanceof Error ? error.message : "Invalid workspace collection cursor.",
         })
       }
       if (isNotFoundError(error)) {

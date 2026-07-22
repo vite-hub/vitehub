@@ -1,4 +1,4 @@
-import { SourceNotFoundError, SourceError } from "./errors.ts"
+import { sourceNotFoundError, sourceError } from "./errors.ts"
 import { decodeSourceContent, normalizeSafeSourcePath, normalizeSourcePath } from "./path.ts"
 
 import type {
@@ -32,7 +32,7 @@ export function registerSources<const TSources extends Record<string, Source>>(s
 
 export function getRegisteredSource<TName extends SourceName>(name: TName): Source<SourceKey<TName>> {
   const source = sourceRegistry.get(name)
-  if (!source) throw new SourceNotFoundError(name)
+  if (!source) throw sourceNotFoundError(name)
   return source as Source<SourceKey<TName>>
 }
 
@@ -51,7 +51,7 @@ function createSourceContext(name: string, context: Partial<SourceContext> = {})
 }
 
 function createMissingContentError(key: string) {
-  return new SourceError(`[vitehub] Source item ${JSON.stringify(key)} does not provide readable content.`)
+  return sourceError(`[vitehub] Source item ${JSON.stringify(key)} does not provide readable content.`)
 }
 
 function isNestedUnder(path: string, prefix: string) {

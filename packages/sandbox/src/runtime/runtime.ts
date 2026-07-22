@@ -5,7 +5,7 @@ import {
   type ResourceRuntimeContext,
 } from '../internal/shared/resource-runtime'
 import { sleep } from '../internal/shared/utils'
-import { SandboxError } from '../sandbox/errors'
+import { sandboxError } from '../sandbox/errors'
 import { executeSandboxDefinition } from './execute'
 import { readSandboxErrorMetadata, toSandboxError } from './error-normalization'
 import { createSandboxExecutionBox, type SandboxExecutionBox } from './execution-box'
@@ -52,10 +52,9 @@ type SandboxRuntimeContext = ResourceRuntimeContext<AgentSandboxConfig, SandboxR
 const sandboxRegistry = {}
 
 function isRetriableCloudflareSandboxError(error: unknown) {
-  const sandboxError = error instanceof SandboxError ? error : undefined
   const metadata = readSandboxErrorMetadata(error)
 
-  const provider = sandboxError?.provider || metadata?.provider
+  const provider = metadata?.provider
   if (provider && provider !== 'cloudflare')
     return false
 
@@ -131,7 +130,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
           }
           }
 
-          throw new SandboxError('Cloudflare sandbox retries exhausted.', {
+          throw sandboxError('Cloudflare sandbox retries exhausted.', {
             code: 'SANDBOX_RUNTIME_ERROR',
             provider: provider.provider,
           })

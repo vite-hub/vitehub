@@ -1,20 +1,25 @@
-export class SourceError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options)
-    this.name = "SourceError"
-  }
+import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
+
+export type SourceErrorCode = "SOURCE_FAILED" | "SOURCE_NOT_FOUND" | "SOURCE_PATH_INVALID"
+
+export function sourceError(message: string, options?: ErrorOptions): ViteHubError {
+  return new ViteHubError("SOURCE_FAILED", message, options)
 }
 
-export class SourceNotFoundError extends SourceError {
-  constructor(name: string) {
-    super(`[vitehub] Source "${name}" is not registered.`)
-    this.name = "SourceNotFoundError"
-  }
+export function sourceNotFoundError(name: string): ViteHubError {
+  return new ViteHubError("SOURCE_NOT_FOUND", `[vitehub] Source "${name}" is not registered.`, {
+    details: { name },
+  })
 }
 
-export class SourcePathError extends SourceError {
-  constructor(path: string) {
-    super(`[vitehub] Source path escapes the source root: ${JSON.stringify(path)}.`)
-    this.name = "SourcePathError"
-  }
+export function sourcePathError(path: string): ViteHubError {
+  const publicPath = path.slice(0, 4_096)
+  return new ViteHubError("SOURCE_PATH_INVALID", `[vitehub] Source path escapes the source root: ${JSON.stringify(publicPath)}.`, {
+    details: { path: publicPath },
+  })
+}
+
+export function isSourceError(value: unknown): boolean {
+  const code = getViteHubErrorShape(value)?.code
+  return code === "SOURCE_FAILED" || code === "SOURCE_NOT_FOUND" || code === "SOURCE_PATH_INVALID"
 }

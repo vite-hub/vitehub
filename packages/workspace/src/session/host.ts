@@ -1,6 +1,6 @@
 import { posix } from "node:path"
 
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
@@ -24,7 +24,7 @@ import type {
 
 function normalizeTarget(target = "/workspace") {
   const normalized = posix.resolve("/", target.replace(/\\/g, "/"))
-  if (normalized === "/") throw new WorkspaceError("[vitehub] Workspace session target cannot be the host root.")
+  if (normalized === "/") throw workspaceError("[vitehub] Workspace session target cannot be the host root.")
   return normalized
 }
 
@@ -45,7 +45,7 @@ function toHostCwd(root: string, cwd: string | undefined) {
   if (normalized === root || normalized.startsWith(`${root}/`)) return normalized
   if (normalized === "/workspace" || normalized.startsWith("/workspace/"))
     return toHostPath(root, normalized.slice("/workspace".length))
-  throw new WorkspaceError(`[vitehub] Workspace exec cwd must stay inside ${root}: ${cwd}.`)
+  throw workspaceError(`[vitehub] Workspace exec cwd must stay inside ${root}: ${cwd}.`)
 }
 
 function fromHostPath(root: string, path: string) {
@@ -53,7 +53,7 @@ function fromHostPath(root: string, path: string) {
   const normalizedPath = posix.resolve(root, path).replace(/\/+$/, "")
   if (normalizedPath === normalizedRoot) return ""
   if (!normalizedPath.startsWith(`${normalizedRoot}/`)) {
-    throw new WorkspaceError(`[vitehub] Workspace host returned a path outside ${root}: ${path}.`)
+    throw workspaceError(`[vitehub] Workspace host returned a path outside ${root}: ${path}.`)
   }
   return normalizeWorkspacePath(normalizedPath.slice(normalizedRoot.length + 1))
 }
@@ -83,7 +83,7 @@ async function assertNoHostSymlinkParent(host: WorkspaceSessionHost, root: strin
     .filter(isGitSymlinkEntry)
     .map(entry => entry.path))
   if (hasSymlinkParent(path, symlinks))
-    throw new WorkspaceError(`[vitehub] Workspace host path crosses a symlink parent: ${path}.`)
+    throw workspaceError(`[vitehub] Workspace host path crosses a symlink parent: ${path}.`)
 }
 
 function toWorkspaceEntry(root: string, entry: WorkspaceSessionHostFileEntry): WorkspaceEntry {
@@ -104,7 +104,9 @@ async function ensureHostParent(host: WorkspaceSessionHost, path: string) {
 async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, path: string): Promise<string> {
   const result = await host.exec("readlink", [fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
-    throw new WorkspaceError(`[vitehub] Failed to read workspace symlink: ${path}. ${result.stderr || "readlink failed"}`)
+    throw workspaceError(`[vitehub] Failed to read workspace symlink: ${path}.`, {
+      cause: new Error(result.stderr || "readlink failed"),
+    })
   return result.stdout.replace(/\n$/, "")
 }
 
@@ -112,7 +114,7 @@ async function writeHostSymlink(host: WorkspaceSessionHost, root: string, path: 
   await host.files.remove(path).catch(() => undefined)
   const result = await host.exec("ln", ["-s", target, fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
-    throw new WorkspaceError(`[vitehub] Failed to create workspace symlink: ${path}. ${result.stderr || "ln failed"}`)
+    throw workspaceError(`[vitehub] Failed to create workspace symlink: ${path}. ${result.stderr || "ln failed"}`)
 }
 
 async function readHostFile(host: WorkspaceSessionHost, root: string, path: string): Promise<WorkspaceFile | undefined> {
@@ -139,7 +141,7 @@ async function listHostEntries(host: WorkspaceSessionHost, root: string, path = 
 async function makeHostFileExecutable(host: WorkspaceSessionHost, root: string, path: string) {
   const result = await host.exec("chmod", ["+x", fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
-    throw new WorkspaceError(`[vitehub] Failed to preserve executable Workspace file: ${path}. ${result.stderr || "chmod failed"}`)
+    throw workspaceError(`[vitehub] Failed to preserve executable Workspace file: ${path}. ${result.stderr || "chmod failed"}`)
 }
 
 async function snapshotHost(host: WorkspaceSessionHost, root: string, name?: string) {
@@ -154,7 +156,7 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
     const content = isGitSymlinkEntry(entry)
       ? await readHostSymlinkTarget(host, root, toHostPath(root, entry.path))
       : await host.files.read(toHostPath(root, entry.path))
-    if (content === null) throw new WorkspaceError(`[vitehub] Workspace host file disappeared while snapshotting: ${entry.path}.`)
+    if (content === null) throw workspaceError(`[vitehub] Workspace host file disappeared while snapshotting: ${entry.path}.`)
     contents.set(entry.path, content)
     return {
       ...entry,
@@ -232,7 +234,7 @@ async function materializeWorkspace(workspace: Workspace, host: WorkspaceSession
   const symlinks = new Set(entries.filter(isGitSymlinkEntry).map(entry => entry.path))
   const nested = entries.find(entry => hasSymlinkParent(entry.path, symlinks))
   if (nested)
-    throw new WorkspaceError(`[vitehub] Workspace path crosses a symlink parent: ${nested.path}.`)
+    throw workspaceError(`[vitehub] Workspace path crosses a symlink parent: ${nested.path}.`)
   for (const entry of entries.filter(entry => entry.type === "directory"))
     await host.files.mkdir(toHostPath(root, entry.path), { recursive: true })
   for (const entry of entries) {
@@ -311,7 +313,7 @@ export async function createHostedWorkspaceSession(
   const mediaTypes = new Map<string, string>()
 
   function assertOpen() {
-    if (closed) throw new WorkspaceError("[vitehub] Workspace host session is already closed.")
+    if (closed) throw workspaceError("[vitehub] Workspace host session is already closed.")
   }
 
   async function currentDiff() {
@@ -324,7 +326,7 @@ export async function createHostedWorkspaceSession(
       assertOpen()
       const target = toHostPath(root, assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths, { masked: true }))
       const file = await readHostFile(host, root, target)
-      if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+      if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, readOptions)
     },
     async writeFile(path: string, content: WorkspaceContent, writeOptions?: WriteFileOptions) {
