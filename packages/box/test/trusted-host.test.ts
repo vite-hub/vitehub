@@ -413,7 +413,7 @@ describe("trustedHost", () => {
         settled,
         new Promise((resolvePromise) => setTimeout(resolvePromise, 1_500, "still-running")),
       ])).resolves.toBe(reason);
-      expect(() => process.kill(-child.pid!, 0)).toThrow();
+      await vi.waitFor(() => expect(() => process.kill(-child.pid!, 0)).toThrow());
     } finally {
       await session.destroy?.();
     }

@@ -183,7 +183,7 @@ describe("Agent Box", () => {
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
-      expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+      expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
     finally {
       if (originalPath === undefined) delete process.env.PATH
@@ -259,7 +259,7 @@ describe("Agent Box", () => {
 
       expect(reportedCheckout).toMatch(/\/vitehub-box-[^/]+\/workspace$/)
       await expect(stat(join(reportedCheckout, ".."))).rejects.toMatchObject({ code: "ENOENT" })
-      expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+      expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
     finally {
       if (originalPath === undefined) delete process.env.PATH
@@ -313,7 +313,7 @@ describe("Agent Box", () => {
       runtime: "unknown",
       waitUntil: vi.fn(),
     }, { prompt: "Repair the project." })).rejects.toThrow("stop after harness configuration")
-    expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+    expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
   })
 
   it("rejects Agent Workspace materialization over a Box-owned cwd", async () => {

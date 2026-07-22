@@ -1,24 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { HarnessAgent } from "@ai-sdk/harness/agent"
-import { boxHarnessWorkDir, createBoxHarnessSandbox } from "../src/harness/box-sandbox.ts"
+import { createBoxHarnessSandbox } from "../src/harness/box-sandbox.ts"
 import { shareBoxSessions } from "../src/harness/shared-box.ts"
 
 import type { Box, BoxSession } from "@vite-hub/box"
 
 describe("Box harness adapter", () => {
-  it("uses a Harness-valid work directory for the Box workspace", () => {
-    const sandbox = createBoxHarnessSandbox({ plan: plan(), async open() { return boxSession() } })
-
-    expect(() => new HarnessAgent({
-      harness: { builtinTools: {}, harnessId: "fixture" } as never,
-      permissionMode: "allow-all",
-      sandbox,
-      sandboxConfig: { workDir: boxHarnessWorkDir },
-    })).not.toThrow()
-  })
-
-  it("maps the Harness workspace back to the authoritative Box cwd", async () => {
+  it("preserves a provider-specific authoritative Box cwd", async () => {
     const exec = vi.fn(async () => ({ code: 0, ok: true, stderr: "", stdout: "" }))
     const box: Box = {
       plan: plan(),
@@ -26,8 +14,8 @@ describe("Box harness adapter", () => {
     }
 
     const harness = await createBoxHarnessSandbox(box).createSession()
-    expect(harness.defaultWorkingDirectory).toBe("/host")
-    await harness.run({ command: "pwd", workingDirectory: "/host/workspace" })
+    expect(harness.defaultWorkingDirectory).toBe("/host/repository")
+    await harness.run({ command: "pwd", workingDirectory: "/host/repository" })
     expect(exec).toHaveBeenCalledWith("sh", ["-lc", "pwd"], expect.objectContaining({ cwd: "/host/repository" }))
     await harness.destroy?.()
   })

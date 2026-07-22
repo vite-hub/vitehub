@@ -1543,9 +1543,8 @@ async function createAgentInvocationContext<
           requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
         }))
       : undefined
-    const boxHarness = box ? await import("./harness/box-sandbox.ts") : undefined
-    const harnessSandboxProvider = box && boxHarness
-      ? boxHarness.createBoxHarnessSandbox(box)
+    const harnessSandboxProvider = box
+      ? (await import("./harness/box-sandbox.ts")).createBoxHarnessSandbox(box)
       : undefined
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
@@ -1654,7 +1653,6 @@ async function createAgentInvocationContext<
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
       harnessSandboxProvider,
-      harnessWorkDir: boxHarness?.boxHarnessWorkDir,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
