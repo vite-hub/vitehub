@@ -152,9 +152,11 @@ function vercelExecutionAuthority(
     ? "none"
     : networkPolicy === undefined || networkPolicy === "allow-all"
       ? "unrestricted"
-      : hasEffectiveNetworkPolicy(networkPolicy)
-        ? "restricted"
-        : "unknown";
+      : allowsAllNetworkDestinations(networkPolicy)
+        ? "unrestricted"
+        : hasEffectiveNetworkPolicy(networkPolicy)
+          ? "restricted"
+          : "unknown";
   return {
     credentials: "unknown",
     environment: "selected",
@@ -163,6 +165,13 @@ function vercelExecutionAuthority(
     network,
     processes: "arbitrary",
   };
+}
+
+function allowsAllNetworkDestinations(
+  networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
+): boolean {
+  const allow = networkPolicy.allow;
+  return Array.isArray(allow) ? allow.includes("*") : Boolean(allow && "*" in allow);
 }
 
 function hasEffectiveNetworkPolicy(
