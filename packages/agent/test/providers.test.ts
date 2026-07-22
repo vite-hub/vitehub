@@ -2983,6 +2983,7 @@ describe("server helpers", () => {
     const { discord } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const finish = vi.fn()
     const agent = defineAgent({
       channels: {
         discord: discord({
@@ -2990,7 +2991,15 @@ describe("server helpers", () => {
           messages: { commentary: "message" },
         }),
       },
-      driver: { run: () => "Final answer." },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "upload", type: "file", url: "https://example.com/result.txt" }
+            yield { text: "Final answer.", type: "text-delta" }
+          })(),
+        }),
+      },
+      hooks: { "agent:finish": finish },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -3010,6 +3019,7 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     expect(adapter.postMessage).toHaveBeenCalledOnce()
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ text: "Final answer." })
   })
 
   it("extracts JSON response text when commentary is configured", async () => {

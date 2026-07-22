@@ -1829,7 +1829,7 @@ function withStreamedResult(
     stream: (async function* () {
       for await (const chunk of stream) {
         const event = toAgentStreamEvent(chunk, toolNames, textPhases)
-        if (chunk && typeof chunk === "object" && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined) {
+        if (event?.type === "text-delta" && event.phase !== undefined) {
           explicitTextPhaseSeen = true
           unphasedText = ""
         }
