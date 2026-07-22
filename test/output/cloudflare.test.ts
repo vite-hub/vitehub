@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { buildHints, providerEnabled, readOutputFile } from "./helpers.ts"
+import { getCloudflareRateLimitBindingName } from "../../packages/rate-limit/src/drivers/cloudflare.ts"
 
 const BUNDLE = "playground/vite/dist/vite/index.js"
 const WRANGLER = "playground/vite/dist/vite/wrangler.json"
@@ -37,6 +38,13 @@ describe.runIf(providerEnabled("cloudflare"))("cloudflare provider output", () =
   it("wrangler.json declares kv namespaces", () => {
     expect(Array.isArray(wrangler().kv_namespaces)).toBe(true)
     expect(wrangler().kv_namespaces.length).toBeGreaterThan(0)
+  })
+
+  it("wrangler.json declares Rate Limit bindings", () => {
+    expect(wrangler().ratelimits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: getCloudflareRateLimitBindingName("e2e-rate-limit-address") }),
+      expect.objectContaining({ name: getCloudflareRateLimitBindingName("e2e-rate-limit-key") }),
+    ]))
   })
 
   it("wrangler.json declares D1 databases", () => {

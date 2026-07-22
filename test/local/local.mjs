@@ -59,7 +59,7 @@ async function runCloudflare() {
   }
   const url = `http://127.0.0.1:${CLOUDFLARE_PORT}`
   log(`starting wrangler dev on ${url}`)
-  const dev = spawn("vp", ["dlx", "wrangler", "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled"], {
+  const dev = spawn("vp", ["dlx", "wrangler", "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled", "--enable-containers=false"], {
     cwd: distDir,
     env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false" },
     stdio: ["ignore", "inherit", "inherit"],
@@ -68,6 +68,7 @@ async function runCloudflare() {
     await waitForProbe(url)
     const run = suiteRunner("cloudflare", url)
     run.pkg("kv")
+    run.pkg("rate-limit")
     run.script("queue")
     run.script("schedule", ["--timeout", "90000"])
     run.script("workflow")
@@ -129,6 +130,7 @@ async function runVercel() {
       log("EXCEPTION (env): database on vercel-local needs a remote-shaped libSQL URL (TURSO_DATABASE_URL, e.g. a local sqld container). Suite NOT run - CI provides an sqld service.")
     }
     log("EXCEPTION (runtime): blob, queue, and workspace are live-only on vercel - @vercel/blob and Vercel Queue have no offline endpoint. Covered locally via cloudflare.")
+    log("EXCEPTION (provider): rate-limit has no native Vercel driver. Covered locally and live via cloudflare.")
     log("EXCEPTION (runtime): sandbox is live-only - it needs real containers.")
   }
   finally {
