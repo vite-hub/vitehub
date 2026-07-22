@@ -337,9 +337,10 @@ describe("hubSandbox", () => {
     await writeFile(join(packageRoot, "helper.ts"), `export const ok = true\n`)
     await writeFile(join(packageRoot, "index.ts"), [
       `import { ok } from "./helper.ts"`,
-      `export type SandboxPayload = { value: string }`,
-      `await Promise.resolve()`,
-      `export default { ok }`,
+      `export default async function run(payload: { value: string }) {`,
+      `  await Promise.resolve()`,
+      `  return { ok, value: payload.value }`,
+      `}`,
       ``,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
@@ -373,8 +374,8 @@ describe("hubSandbox", () => {
       options: { timeout: 30_000 },
     })
     const generatedTypes = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")
-    expect(generatedTypes).toContain(".SandboxPayload")
-    expect(generatedTypes).toContain("result: Awaited<")
+    expect(generatedTypes).toContain("SandboxPackageContract<typeof import(")
+    expect(generatedTypes).toContain("TArgs extends [] ? unknown : TArgs[0]")
   })
 
   it("keeps Cloudflare output inert without Sandbox definitions", async () => {

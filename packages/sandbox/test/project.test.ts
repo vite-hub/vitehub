@@ -922,13 +922,13 @@ describe("resolveSandboxProject", () => {
     await writeFile(join(second, "index.js"), "export const value = 42\n")
     const definitionFile = join(sandbox, "index.ts")
     await writeFile(definitionFile, [
-      "import { readFile } from 'node:fs/promises'",
       "import { value } from '@fixture/first'",
       "import { asset } from './lib/helper.mts'",
       "interface SandboxPayload { nested: boolean }",
-      "const { payload, context } = JSON.parse(await readFile(process.argv[2], 'utf8')) as { context: unknown, payload: SandboxPayload }",
-      "await Promise.resolve()",
-      "export default { asset, context, payload, value }",
+      "export default async function run(payload: SandboxPayload, context: unknown) {",
+      "  await Promise.resolve()",
+      "  return { asset, context, payload, value }",
+      "}",
       "",
     ].join("\n"))
     const project = await resolveSandboxProject(definitionFile, root)

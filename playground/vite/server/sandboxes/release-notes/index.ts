@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises"
-
-export type SandboxPayload = {
+type SandboxPayload = {
   notes: string
 }
 
@@ -9,18 +7,14 @@ type ReleaseNotesResult = {
   summary: string
 }
 
-const { payload } = JSON.parse(await readFile(process.argv[2], "utf8")) as {
-  payload?: SandboxPayload
+export default async function releaseNotes(payload: SandboxPayload): Promise<ReleaseNotesResult> {
+  const items = payload.notes
+    .split("\n")
+    .map(note => note.replace(/^[-*]\s*/, "").trim())
+    .filter(Boolean)
+
+  return {
+    items,
+    summary: items[0] || "",
+  }
 }
-
-if (!payload) throw new TypeError("Release notes require a payload.")
-
-const items = payload.notes
-  .split("\n")
-  .map((note) => note.replace(/^[-*]\s*/, "").trim())
-  .filter(Boolean)
-
-export default {
-  items,
-  summary: items[0] || "",
-} satisfies ReleaseNotesResult

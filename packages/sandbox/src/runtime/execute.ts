@@ -1,4 +1,5 @@
 import { SandboxError } from '../sandbox/errors'
+import { decodeSandboxValue, encodeSandboxValue } from './binary-sidecars'
 import { createEntrySource } from './entry-script'
 import {
   createExecutionFiles,
@@ -164,7 +165,6 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   const bundle = normalizeSandboxDefinitionBundle(source)
 
   const files = createExecutionFiles(definitionName)
-  const inputJson = toJson({ payload, context }, 'payload/context')
   const throwIfAborted = () => {
     if (signal?.aborted)
       throw createTimeoutError(sandbox.provider, definitionOptions?.timeout || 0)
@@ -173,6 +173,15 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   await sandbox.mkdir(files.baseDir, { recursive: true })
   try {
     throwIfAborted()
+    let inputJson = bundle.project
+      ? toJson(await encodeSandboxValue(
+          sandbox,
+          { payload, context },
+          files.inputAssetsDir,
+          'payload/context',
+          signal,
+        ), 'payload/context')
+      : undefined
     const bundleBaseDir = await prepareSandboxProject(sandbox, bundle, files.baseDir, {
       deadline,
       signal,
@@ -180,6 +189,13 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     })
     if (!bundle.project)
       await writeSandboxDefinitionBundle(sandbox, bundleBaseDir, bundle)
+    inputJson ||= toJson(await encodeSandboxValue(
+      sandbox,
+      { payload, context },
+      files.inputAssetsDir,
+      'payload/context',
+      signal,
+    ), 'payload/context')
     const definitionPath = resolveSandboxModulePath(bundleBaseDir, bundle.entry)
     throwIfAborted()
     await Promise.all([
@@ -233,7 +249,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     }
 
     if (output.ok)
-      return output.result as TResult
+      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result') as TResult
 
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,
@@ -288,8 +304,9 @@ export async function executeSandboxDefinition<TPayload, TResult>(
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          abortController.abort()
-          reject(createTimeoutError(sandbox.provider, timeout))
+          const timeoutError = createTimeoutError(sandbox.provider, timeout)
+          abortController.abort(timeoutError)
+          reject(timeoutError)
         }, timeout)
       }),
     ]) as TResult
