@@ -57,6 +57,15 @@ export async function encodeSandboxValue(
 ) {
   const state: { directory?: Promise<void>, nextId: number } = { nextId: 0 }
   const throwIfAborted = () => signal?.throwIfAborted()
+  const abortable = async <T>(operation: Promise<T>) => {
+    try {
+      return await operation
+    }
+    catch (error) {
+      throwIfAborted()
+      throw error
+    }
+  }
 
   async function encode(entry: unknown, ancestors: ReadonlySet<object>, key = '', applyToJSON = true): Promise<unknown> {
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
@@ -64,13 +73,13 @@ export async function encodeSandboxValue(
     if (blob || entry instanceof Uint8Array) {
       throwIfAborted()
       const id = state.nextId++
-      state.directory ||= sandbox.files.mkdir(assetsDir, { recursive: true, signal })
+      state.directory ||= abortable(sandbox.files.mkdir(assetsDir, { recursive: true, signal }))
       await state.directory
       const bytes = blob
         ? new Uint8Array(await (entry as Blob).arrayBuffer())
         : entry as Uint8Array
       throwIfAborted()
-      await sandbox.files.write(`${assetsDir}/${id}`, bytes, { signal })
+      await abortable(sandbox.files.write(`${assetsDir}/${id}`, bytes, { signal }))
       return tagged({
         id,
         kind: blob ? 'blob' : buffer ? 'buffer' : 'uint8array',

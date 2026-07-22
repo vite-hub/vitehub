@@ -585,9 +585,45 @@ describe("executeSandboxDefinition", () => {
       },
       Uint8Array.from([1, 2, 3]),
       {},
-    )).rejects.toMatchObject({ code: "TIMEOUT" })
+    )).rejects.toMatchObject({
+      code: "TIMEOUT",
+      name: "SandboxError",
+      provider: "vercel",
+    })
 
     expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
+  })
+
+  it("rejects invalid package payloads before project preparation", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+    const payload: { self?: unknown } = {}
+    payload.self = payload
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "invalid-package-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+        project: {
+          digest: "b".repeat(64),
+          files: {
+            "package.json": {
+              contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+              encoding: "base64",
+            },
+          },
+          install: { args: ["install", "--frozen-lockfile"], command: "pnpm", cwd: "." },
+          packagePath: ".",
+        },
+      },
+      payload,
+      {},
+    )).rejects.toMatchObject({ code: "SERIALIZATION_ERROR" })
+
+    expect(execCalls.some(call => call.cmd === "pnpm")).toBe(false)
   })
 
   it("prepares one package project once per digest", async () => {

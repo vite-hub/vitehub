@@ -173,6 +173,15 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   await sandbox.mkdir(files.baseDir, { recursive: true })
   try {
     throwIfAborted()
+    let inputJson = bundle.project
+      ? toJson(await encodeSandboxValue(
+          sandbox,
+          { payload, context },
+          files.inputAssetsDir,
+          'payload/context',
+          signal,
+        ), 'payload/context')
+      : undefined
     const bundleBaseDir = await prepareSandboxProject(sandbox, bundle, files.baseDir, {
       deadline,
       signal,
@@ -180,7 +189,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     })
     if (!bundle.project)
       await writeSandboxDefinitionBundle(sandbox, bundleBaseDir, bundle)
-    const inputJson = toJson(await encodeSandboxValue(
+    inputJson ||= toJson(await encodeSandboxValue(
       sandbox,
       { payload, context },
       files.inputAssetsDir,
@@ -295,8 +304,9 @@ export async function executeSandboxDefinition<TPayload, TResult>(
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          abortController.abort()
-          reject(createTimeoutError(sandbox.provider, timeout))
+          const timeoutError = createTimeoutError(sandbox.provider, timeout)
+          abortController.abort(timeoutError)
+          reject(timeoutError)
         }, timeout)
       }),
     ]) as TResult
