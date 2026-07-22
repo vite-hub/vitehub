@@ -11,7 +11,6 @@ export type {
   RateLimitDriverInput,
   RateLimitDriverOutcome,
   RateLimitDriverResult,
-  RateLimitDriverUnavailable,
   RateLimitEnforcement,
   RateLimitFailurePolicy,
   RateLimiter,

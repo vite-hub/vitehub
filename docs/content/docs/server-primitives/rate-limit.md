@@ -138,7 +138,7 @@ const decision = await limiter.consume({ key: 'demo' })
 
 Every direct limiter exposes its resolved `policy` and the provider capabilities that affect enforcement and deployment. The memory driver is process-local and intended for development, tests, and known single-process hosts.
 
-Custom drivers return `{ unavailable: true, cause }` only for expected operational outages that the declared failure policy should govern. Configuration, provider-contract, and implementation defects should throw normally.
+Custom drivers return `[null, result]` after consuming the counter and `[error, undefined]` only for expected operational outages that the declared failure policy should govern. Configuration, provider-contract, and implementation defects should throw normally.
 
 ## Deploy to Cloudflare
 

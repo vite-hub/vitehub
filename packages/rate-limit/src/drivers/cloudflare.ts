@@ -31,12 +31,12 @@ export function cloudflareRateLimitDriver(options: CloudflareRateLimitDriverOpti
         result = await options.binding.limit({ key: input.key })
       }
       catch (cause) {
-        return { cause, unavailable: true }
+        return [new Error("[vitehub] Cloudflare Rate Limit binding failed.", { cause }), undefined]
       }
       if (!result || typeof result.success !== "boolean") {
         throw new TypeError("[vitehub] Cloudflare Rate Limit binding returned an invalid result.")
       }
-      return { allowed: result.success }
+      return [null, { allowed: result.success }]
     },
     name: "cloudflare",
   }

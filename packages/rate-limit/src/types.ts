@@ -57,12 +57,9 @@ export interface RateLimitDriverResult {
   used?: number
 }
 
-export interface RateLimitDriverUnavailable {
-  readonly cause: unknown
-  readonly unavailable: true
-}
-
-export type RateLimitDriverOutcome = RateLimitDriverResult | RateLimitDriverUnavailable
+export type RateLimitDriverOutcome =
+  | [error: null, value: RateLimitDriverResult]
+  | [error: Error, value: undefined]
 
 interface RateLimitDecisionBase extends RateLimitDriverResult {
   limit: number

@@ -6,7 +6,7 @@ import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
 import { hubRateLimit } from "../src/vite.ts"
 
 import type { HTTPEvent } from "h3"
-import type { RateLimitDecision, RateLimitDriver, RateLimitDriverOutcome, RateLimiter } from "../src/index.ts"
+import type { RateLimitDecision, RateLimitDriver, RateLimitDriverOutcome, RateLimitDriverResult, RateLimiter } from "../src/index.ts"
 
 it("types the portable Rate Limit contract", async () => {
   const event = {} as HTTPEvent
@@ -27,18 +27,21 @@ it("types the portable Rate Limit contract", async () => {
   limiter.consume({ event: {}, key: "user" })
 })
 
-it("types custom and provider drivers", () => {
-  const unavailable = { cause: new Error("offline"), unavailable: true } satisfies RateLimitDriverOutcome
-  const custom = {
+it("types custom and provider drivers", async () => {
+  const unavailable = [new Error("offline"), undefined] satisfies RateLimitDriverOutcome
+  const custom: RateLimitDriver = {
     capabilities: {
       enforcement: "strict",
       rejectedAttempts: "not-counted",
       scope: "global",
     },
-    consume: async () => ({ allowed: true, remaining: 1 }),
+    consume: async () => [null, { allowed: true, remaining: 1 }],
     name: "custom",
-  } satisfies RateLimitDriver
+  }
   createRateLimiter({ driver: custom, limit: 2, window: "10s" })
+  const [error, value] = await custom.consume({ key: "user", limit: 2, windowMs: 10_000 })
+  if (error) throw error
+  expectTypeOf(value).toEqualTypeOf<RateLimitDriverResult>()
   void unavailable
   createRateLimiter({ driver: cloudflareRateLimitDriver({ binding: { limit: async () => ({ success: true }) } }), limit: 2, window: "10s" })
   hubRateLimit({ namespace: "types-test", provider: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })

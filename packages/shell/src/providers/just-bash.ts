@@ -111,8 +111,8 @@ async function runControlledCurlCommand(
 ): Promise<ShellObservation | undefined> {
   if (!mentionsCurlCommand(command)) return undefined
 
-  const parsed = parseControlledCurlCommand(command)
-  if (!parsed.ok) return policyDeniedCurl(command, options.cwd, parsed.error)
+  const [parseError, parsed] = parseControlledCurlCommand(command)
+  if (parseError) return policyDeniedCurl(command, options.cwd, parseError.message)
   if (!options.networkGrants) {
     return policyDeniedCurl(command, options.cwd, "No API-backed Source request descriptors are visible in this workspace.")
   }
@@ -146,13 +146,23 @@ async function runControlledCurlCommand(
   }
 }
 
-type ParsedControlledCurl =
-  | { body?: unknown, method: "GET" | "HEAD" | "POST", ok: true, url: string }
-  | { error: string, ok: false }
+type ParsedValue<T> =
+  | [error: null, value: T]
+  | [error: Error, value: undefined]
+
+type ParsedControlledCurl = ParsedValue<{
+  body?: unknown
+  method: "GET" | "HEAD" | "POST"
+  url: string
+}>
+
+function parseFailure<T>(message: string): ParsedValue<T> {
+  return [new Error(message), undefined]
+}
 
 function parseControlledCurlCommand(command: string): ParsedControlledCurl {
   if (hasUnsupportedCurlShellSyntax(command)) {
-    return { error: "Controlled curl must be a single command without pipes, redirects, chaining, command substitution, or heredocs.", ok: false }
+    return parseFailure("Controlled curl must be a single command without pipes, redirects, chaining, command substitution, or heredocs.")
   }
 
   let words: string[]
@@ -160,10 +170,10 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
     words = parseShellCommand(command)
   }
   catch (error) {
-    return { error: error instanceof Error ? error.message : String(error), ok: false }
+    return [error instanceof Error ? error : new Error(String(error)), undefined]
   }
 
-  if (words[0] !== "curl") return { error: "Controlled curl command must start with curl.", ok: false }
+  if (words[0] !== "curl") return parseFailure("Controlled curl command must start with curl.")
 
   let body: unknown
   let method: "GET" | "HEAD" | "POST" | undefined
@@ -177,19 +187,19 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
       }
       if (word === "-X" || word === "--request") {
         const value = words[++index]
-        if (!value) return { error: `${word} requires a method.`, ok: false }
+        if (!value) return parseFailure(`${word} requires a method.`)
         method = parseCurlMethod(value)
-        if (!method) return { error: `Unsupported curl request method: ${value}.`, ok: false }
+        if (!method) return parseFailure(`Unsupported curl request method: ${value}.`)
         continue
       }
       if (word.startsWith("--request=")) {
         method = parseCurlMethod(word.slice("--request=".length))
-        if (!method) return { error: `Unsupported curl request method: ${word.slice("--request=".length)}.`, ok: false }
+        if (!method) return parseFailure(`Unsupported curl request method: ${word.slice("--request=".length)}.`)
         continue
       }
       if (word === "--url") {
         const value = words[++index]
-        if (!value) return { error: "--url requires a URL.", ok: false }
+        if (!value) return parseFailure("--url requires a URL.")
         url = setCurlUrl(url, value)
         continue
       }
@@ -199,23 +209,23 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
       }
       if (word === "--json") {
         const value = words[++index]
-        if (!value) return { error: "--json requires a JSON body.", ok: false }
-        const parsed = parseJsonCurlBody(value)
-        if (!parsed.ok) return parsed
-        body = parsed.body
+        if (!value) return parseFailure("--json requires a JSON body.")
+        const [error, parsedBody] = parseJsonCurlBody(value)
+        if (error) return [error, undefined]
+        body = parsedBody
         method ??= "POST"
         continue
       }
       if (word.startsWith("--json=")) {
-        const parsed = parseJsonCurlBody(word.slice("--json=".length))
-        if (!parsed.ok) return parsed
-        body = parsed.body
+        const [error, parsedBody] = parseJsonCurlBody(word.slice("--json=".length))
+        if (error) return [error, undefined]
+        body = parsedBody
         method ??= "POST"
         continue
       }
       if (word === "-d" || word === "--data" || word === "--data-raw" || word === "--data-binary") {
         const value = words[++index]
-        if (!value) return { error: `${word} requires a body.`, ok: false }
+        if (!value) return parseFailure(`${word} requires a body.`)
         body = parseCurlDataBody(value)
         method ??= "POST"
         continue
@@ -231,30 +241,29 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
         continue
       }
       if (word === "-H" || word === "--header" || word === "-b" || word === "--cookie" || word.startsWith("--header=") || word.startsWith("--cookie=")) {
-        return { error: "Controlled curl injects Source credentials itself; do not pass headers or cookies in the command.", ok: false }
+        return parseFailure("Controlled curl injects Source credentials itself; do not pass headers or cookies in the command.")
       }
-      if (word.startsWith("-")) return { error: `Unsupported curl flag: ${word}.`, ok: false }
+      if (word.startsWith("-")) return parseFailure(`Unsupported curl flag: ${word}.`)
       url = setCurlUrl(url, word)
     }
   }
   catch (error) {
-    return { error: error instanceof Error ? error.message : String(error), ok: false }
+    return [error instanceof Error ? error : new Error(String(error)), undefined]
   }
 
-  if (!url) return { error: "Controlled curl requires a URL.", ok: false }
+  if (!url) return parseFailure("Controlled curl requires a URL.")
   try {
     url = new URL(url).toString()
   }
   catch {
-    return { error: `Controlled curl URL is invalid: ${url}.`, ok: false }
+    return parseFailure(`Controlled curl URL is invalid: ${url}.`)
   }
 
-  return {
+  return [null, {
     body,
     method: method ?? "GET",
-    ok: true,
     url,
-  }
+  }]
 }
 
 function mentionsCurlCommand(command: string): boolean {
@@ -299,8 +308,8 @@ function parseShellCommandLenient(command: string): string[] {
 }
 
 function parseCurlDataBody(value: string): unknown {
-  const parsed = parseJsonCurlBody(value)
-  return parsed.ok ? parsed.body : value
+  const [error, body] = parseJsonCurlBody(value)
+  return error ? value : body
 }
 
 function parseCurlMethod(value: string): "GET" | "HEAD" | "POST" | undefined {
@@ -308,12 +317,12 @@ function parseCurlMethod(value: string): "GET" | "HEAD" | "POST" | undefined {
   return method === "GET" || method === "HEAD" || method === "POST" ? method : undefined
 }
 
-function parseJsonCurlBody(value: string): { body: unknown, ok: true } | { error: string, ok: false } {
+function parseJsonCurlBody(value: string): ParsedValue<unknown> {
   try {
-    return { body: JSON.parse(value), ok: true }
+    return [null, JSON.parse(value)]
   }
   catch {
-    return { error: "--json body must be valid JSON.", ok: false }
+    return parseFailure("--json body must be valid JSON.")
   }
 }
 
