@@ -1302,6 +1302,7 @@ type AgentInvocationContext<
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hasCapabilityCleanup: boolean
+  harnessSandboxExecutionAuthority?: ExecutionAuthority
   harnessSandboxProvider?: object
   harnessWorkDir?: string
   hooks?: AgentHookObserverHooks
@@ -1606,6 +1607,7 @@ async function createAgentInvocationContext<
       : await resolveAgentExecutionSurface(definition, driver, executionDriverKind, runCallbackContext, runtimeContext)
     if (executionSurface) await authorizeAgentExecution(definition, executionSurface.executionAuthority, runCallbackContext)
     const box = executionSurface?.box
+    let harnessSandboxExecutionAuthority = executionSurface?.executionAuthority
     let harnessSandboxProvider = executionSurface?.harnessSandboxProvider
     if (box) invocationContext.set("agent.execution.box", box, { overwrite: true })
     const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
@@ -1684,6 +1686,7 @@ async function createAgentInvocationContext<
       try {
         const preparedExecutionSurface = await resolveAgentExecutionSurface(definition, driver, executionDriverKind, preparedRunCallbackContext, runtimeContext)
         await authorizeAgentExecution(definition, preparedExecutionSurface.executionAuthority, preparedRunCallbackContext)
+        harnessSandboxExecutionAuthority = preparedExecutionSurface.executionAuthority
         harnessSandboxProvider = preparedExecutionSurface.harnessSandboxProvider
       }
       catch (error) {
@@ -1757,6 +1760,7 @@ async function createAgentInvocationContext<
       globalSkills: capabilities.globalSkills,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
+      harnessSandboxExecutionAuthority,
       harnessSandboxProvider,
       harnessWorkDir: box ? "." : undefined,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,

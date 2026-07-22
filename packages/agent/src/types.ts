@@ -1626,6 +1626,7 @@ export interface AgentAdapterRunContext<
   driverContributions?: AgentDriverContribution[]
   globalSkills?: readonly AgentGlobalSkill[]
   hasCapabilityCleanup?: boolean
+  harnessSandboxExecutionAuthority?: ExecutionAuthority
   harnessSandboxProvider?: object
   harnessWorkDir?: string
   input: AgentRunInput<TOptions>

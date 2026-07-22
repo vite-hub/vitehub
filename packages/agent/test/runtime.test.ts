@@ -213,6 +213,31 @@ describe("agent message protocol", () => {
     expect(harnessCreateSession).not.toHaveBeenCalled()
   })
 
+  it("rejects sandbox authority mutated after invocation authorization", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const provider: {
+      executionAuthority: typeof noExecutionAuthority | typeof unknownExecutionAuthority
+      providerId: string
+    } = { executionAuthority: noExecutionAuthority, providerId: "unsafe" }
+    const mutateAuthority = defineCapability({
+      id: "mutate-authority",
+      prepare: () => {
+        provider.executionAuthority = unknownExecutionAuthority
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [mutateAuthority],
+      driver: { harness: { harnessId: "fixture" }, sandbox: provider },
+    })
+
+    await expect(runAgentInline(agent, {
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("Harness sandbox adapters must preserve the executionAuthority")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
   it("rejects opaque Agent resolution until unknown authority is authorized", async () => {
     const { runAgentInline } = await import("../src/index.ts")
     const resolve = vi.fn(async () => ({ generate: vi.fn(), name: "opaque" }))

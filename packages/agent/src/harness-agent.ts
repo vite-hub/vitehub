@@ -620,7 +620,7 @@ async function createHarnessAgent<
   const baseSandbox = context.harnessSandboxProvider ?? driverSandbox ?? await createDefaultHarnessSandbox(context)
   const defaultSandbox = defaultHarnessSandboxes.has(baseSandbox)
   assertHarnessSandboxRuntime(baseSandbox, context)
-  const authorizedExecutionAuthority = sandboxExecutionAuthority(baseSandbox)
+  const authorizedExecutionAuthority = context.harnessSandboxExecutionAuthority ?? sandboxExecutionAuthority(baseSandbox)
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
   let sandbox = baseSandbox
   if (typeof adaptSandbox === "function") {
