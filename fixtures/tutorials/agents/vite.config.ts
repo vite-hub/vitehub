@@ -16,6 +16,7 @@ export default defineConfig({
   },
   plugins: [vitehub({
     preset: "node",
+    agent: true,
     blob: false,
     env: false,
   })],
