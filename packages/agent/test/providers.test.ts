@@ -553,6 +553,8 @@ describe("agent Vite plugin", () => {
 
           const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
           expect(wrapper).toContain(`const chatRoutePattern = new RegExp(${JSON.stringify(testCase.expectedPattern)})`)
+          expect(wrapper).toContain("const isChatRoute = chatRoutePattern.test(pathname)")
+          expect(wrapper).toContain("isDiscordGatewayRoute ? discordGatewayHandlers[agent] : isWebhookRoute ? webhookHandlers[agent] : isChatRoute ? chatHandlers[agent] : undefined")
           expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
             netlify: expect.objectContaining({
               functions: [expect.objectContaining({

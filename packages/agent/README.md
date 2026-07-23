@@ -148,7 +148,7 @@ import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
+  plugins: [hubWorkspace(), hubAgent({ routes: { chat: true } })],
 });
 ```
 
