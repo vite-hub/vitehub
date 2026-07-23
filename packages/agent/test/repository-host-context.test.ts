@@ -380,8 +380,8 @@ describe("repositoryHostContext", () => {
     await expect(host.get("labels")).resolves.toEqual([])
   })
 
-  it("keeps the old synchronous pull request reader for source and git consumers", async () => {
-    const { pullRequestContext, repositoryHostContext } = await import("../src/capabilities.ts")
+  it("normalizes pull request data in static repository host context", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
     const rawPullRequestContext = {
       number: 999,
       pull_request: {
@@ -405,14 +405,6 @@ describe("repositoryHostContext", () => {
       },
     } as const
 
-    expect(pullRequestContext.read({
-      context: { get: (key: string) => key === "pullRequest" ? rawPullRequestContext : undefined },
-    })).toMatchObject({
-      headRef: "refs/pull/42/head",
-      number: 42,
-      repository: "acme/app",
-      source: { mount: "vitehub" },
-    })
     await expect(repositoryHostContext.read({
       context: { get: (key: string) => key === "pullRequest" ? rawPullRequestContext : undefined },
     }).get("issue")).resolves.toMatchObject({
@@ -421,121 +413,6 @@ describe("repositoryHostContext", () => {
       repository: "acme/app",
       title: "Review me",
     })
-  })
-
-  it("honors pullRequestContext targets", async () => {
-    const { pullRequestContext } = await import("../src/capabilities.ts")
-    const read = vi.fn<RepositoryHostClient["read"]>(async request => {
-      if (request.operation === "issue") {
-        return {
-          number: 42,
-          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
-          title: "Review me",
-        }
-      }
-      if (request.operation === "changeRequest") {
-        return {
-          base: { ref: "main" },
-          head: { ref: "feature", repo: { full_name: "contributor/app" } },
-          number: 42,
-          title: "Review me",
-        }
-      }
-      throw new Error(`Unexpected operation: ${request.operation}`)
-    })
-    const context = createAgentInvocationContextStore()
-
-    await resolveAgentCapabilities({
-      capabilities: [
-        pullRequestContext({
-          client: { provider: "github", read },
-          target: { pullRequest: 42, repo: "acme/app" },
-        }),
-      ],
-    }, runtime(), {}, undefined, "read", { context })
-
-    expect(context.get("pullRequest")).toMatchObject({
-      apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
-      baseRef: "main",
-      headRef: "feature",
-      number: 42,
-      repository: "acme/app",
-      source: {
-        ref: "feature",
-        repo: "contributor/app",
-      },
-      title: "Review me",
-    })
-    expect(read).toHaveBeenCalledWith({
-      operation: "issue",
-      target: { id: 42, kind: "issue", owner: "acme", repository: "app" },
-    })
-    expect(read).toHaveBeenCalledWith({
-      operation: "changeRequest",
-      target: { id: 42, kind: "changeRequest", owner: "acme", repository: "app" },
-    })
-  })
-
-  it("declares repository-host requirements for pullRequestContext targets without explicit clients", async () => {
-    const { pullRequestContext } = await import("../src/capabilities.ts")
-
-    expect(pullRequestContext({
-      target: { pullRequest: 42, repo: "acme/app" },
-    }).requires).toEqual([{ primitive: "repository-host" }])
-    expect(pullRequestContext({
-      client: { provider: "github", read: vi.fn() },
-      target: { pullRequest: 42, repo: "acme/app" },
-    }).requires).toBeUndefined()
-  })
-
-  it("records pullRequestContext under the legacy pullRequest key by default", async () => {
-    const { pullRequestContext } = await import("../src/capabilities.ts")
-    const context = createAgentInvocationContextStore()
-
-    await resolveAgentCapabilities({
-      capabilities: [
-        pullRequestContext({
-          context: {
-            pullRequest: {
-              base: { ref: "main" },
-              number: 42,
-              repository: "acme/app",
-              source: {
-                mount: "vitehub",
-                ref: "refs/pull/42/head",
-                repo: "acme/app",
-              },
-              title: "Review me",
-            },
-          },
-        }),
-      ],
-    }, runtime(), {}, emptyWorkspace() as never, "read", {
-      context,
-      workspaceDefinition: {
-        name: "review",
-        sources: {},
-      },
-    })
-
-    expect(pullRequestContext.read({ context })).toMatchObject({
-      number: 42,
-      repository: "acme/app",
-      title: "Review me",
-    })
-    expect(context.get("pullRequest")).toMatchObject({
-      headRef: "refs/pull/42/head",
-      number: 42,
-      repository: "acme/app",
-      source: {
-        mount: "vitehub",
-        ref: "refs/pull/42/head",
-        repo: "acme/app",
-      },
-      title: "Review me",
-    })
-    expect(context.get<{ get?: unknown }>("pullRequest")?.get).toBeUndefined()
-    expect(context.get("repositoryHost")).toBeUndefined()
   })
 
   it("does not add repository host context when configured resolvers opt out", async () => {
