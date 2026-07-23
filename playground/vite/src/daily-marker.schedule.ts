@@ -17,6 +17,7 @@ export default defineSchedule({
       schedule: "daily-marker",
     } satisfies ScheduleMarker
     globalThis.__vitehubScheduleMarker = marker
-    await kv.set(scheduleMarkerKey, marker)
+    const [error] = await kv.set(scheduleMarkerKey, marker)
+    if (error) throw error
   },
 })

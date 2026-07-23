@@ -21,9 +21,9 @@ Use a package Runtime Helper from server code.
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
-  return {
-    settings: await kv.get('settings'),
-  }
+  const [error, settings] = await kv.get('settings')
+  if (error) throw error
+  return { settings }
 })
 ```
 

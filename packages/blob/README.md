@@ -27,9 +27,12 @@ import { defineEventHandler, readBody } from "h3"
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ path: string, text: string }>(event)
 
-  await blob.put(body.path, body.text, { contentType: "text/plain" })
+  const [writeError] = await blob.put(body.path, body.text, { contentType: "text/plain" })
+  if (writeError) throw writeError
 
-  return blob.get(body.path)
+  const [readError, file] = await blob.get(body.path)
+  if (readError) throw readError
+  return file
 })
 ```
 
@@ -91,17 +94,19 @@ Blob stores binary objects and small object metadata. Keep catalogs, indexes, pe
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
 
 ```ts
-const download = await blob.sign("private/audio.mp3", {
+const [downloadError, download] = await blob.sign("private/audio.mp3", {
   method: "GET",
   expiresIn: 60 * 60,
 })
+if (downloadError) throw downloadError
 
-const upload = await blob.sign("private/audio.mp3", {
+const [uploadError, upload] = await blob.sign("private/audio.mp3", {
   method: "PUT",
   expiresIn: 15 * 60,
   contentType: "audio/mpeg",
   createOnly: true,
 })
+if (uploadError) throw uploadError
 
 await fetch(upload.url, {
   method: upload.method,
@@ -110,7 +115,9 @@ await fetch(upload.url, {
 })
 ```
 
-The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload. Drivers that cannot sign the requested operation or enforce `createOnly` throw explicitly.
+Blob operations return `[error, value]`. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they are configuration or API misuse rather than an operational result.
+
+The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 
 ## S3-compatible storage
 

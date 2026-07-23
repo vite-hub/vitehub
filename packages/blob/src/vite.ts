@@ -188,14 +188,22 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     ...(headers
       ? [
           "  try {",
-          "    return await blob.store(storeName).serve(event, pathname)",
+          "    const [error, stream] = await blob.store(storeName).serve(event, pathname)",
+          "    if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
+          "    if (error) throw error",
+          "    return stream",
           "  }",
           "  catch (error) {",
           "    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)",
           "    throw error",
           "  }",
         ]
-      : ["  return await blob.store(storeName).serve(event, pathname)"]),
+      : [
+          "  const [error, stream] = await blob.store(storeName).serve(event, pathname)",
+          "  if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
+          "  if (error) throw error",
+          "  return stream",
+        ]),
     "}, { headersOnly: true, maxAge: 0 })",
     "",
   ].join("\n")

@@ -655,6 +655,9 @@ importers:
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.6.1
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       aws4fetch:
         specifier: catalog:storage
         version: 1.0.20
@@ -936,6 +939,9 @@ importers:
       '@upstash/redis':
         specifier: catalog:storage
         version: 1.38.0
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       defu:
         specifier: catalog:unjs
         version: 6.1.7

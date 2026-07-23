@@ -59,8 +59,9 @@ describe("hosted Blob consumer runtime", () => {
         ])
         const sourceManifest = JSON.parse(
           await readFile(join(packageRoot, "package.json"), "utf8"),
-        ) as { devDependencies?: Record<string, string>, version: string }
+        ) as { dependencies: Record<string, string>, devDependencies?: Record<string, string>, version: string }
         delete sourceManifest.devDependencies
+        sourceManifest.dependencies["@vite-hub/runtime"] = "0.0.1"
         await Promise.all([
           cp(join(packageRoot, "dist"), join(stagedPackageRoot, "dist"), { recursive: true }),
           cp(join(workspaceRoot, "pnpm-workspace.yaml"), join(root, "workspace/pnpm-workspace.yaml")),
@@ -73,6 +74,15 @@ describe("hosted Blob consumer runtime", () => {
         await run("pnpm", ["--config.ignore-scripts=true", "pack", "--pack-destination", packDir], stagedPackageRoot)
 
         const tarball = join(packDir, `vite-hub-blob-${sourceManifest.version}.tgz`)
+        const runtimeManifest = JSON.parse(
+          await readFile(join(workspaceRoot, "packages/runtime/package.json"), "utf8"),
+        ) as { version: string }
+        await run(
+          "pnpm",
+          ["--config.ignore-scripts=true", "pack", "--pack-destination", packDir],
+          join(workspaceRoot, "packages/runtime"),
+        )
+        const runtimeTarball = join(packDir, `vite-hub-runtime-${runtimeManifest.version}.tgz`)
         const { stdout: packedManifestJson } = await run(
           "tar",
           ["-xOf", tarball, "package/package.json"],
@@ -89,10 +99,16 @@ describe("hosted Blob consumer runtime", () => {
             {
               dependencies: {
                 "@vite-hub/blob": `file:${tarball}`,
+                "@vite-hub/runtime": `file:${runtimeTarball}`,
                 vite,
               },
               name: "vitehub-blob-private-vercel-consumer",
               packageManager: "pnpm@10.33.0",
+              pnpm: {
+                overrides: {
+                  "@vite-hub/runtime": `file:${runtimeTarball}`,
+                },
+              },
               private: true,
               scripts: { build: "vite build" },
               type: "module",
@@ -158,7 +174,8 @@ describe("hosted Blob consumer runtime", () => {
           `process.env.R2_ACCESS_KEY_ID = "access-key"`,
           `process.env.R2_SECRET_ACCESS_KEY = "secret-key"`,
           `const { blob } = await import(${JSON.stringify(pathToFileURL(join(appDir, ".vitehub/nitro/blob/runtime.mjs")).href)})`,
-          `const signed = await blob.sign("proof/private.txt", { expiresIn: 60, method: "GET" })`,
+          `const [error, signed] = await blob.sign("proof/private.txt", { expiresIn: 60, method: "GET" })`,
+          `if (error) throw error`,
           `const url = new URL(signed.url)`,
           `if (url.hostname !== "account.r2.cloudflarestorage.com") throw new Error("Unexpected R2 signing host")`,
           `if (url.searchParams.get("X-Amz-Expires") !== "60") throw new Error("Unexpected R2 signing expiry")`,

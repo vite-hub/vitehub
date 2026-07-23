@@ -12,6 +12,7 @@ export default defineConfig({
     entry: [
       "src/config.ts",
       "src/content-type.ts",
+      "src/errors.ts",
       "src/ensure.ts",
       "src/storage.ts",
       "src/drivers/akamai.ts",

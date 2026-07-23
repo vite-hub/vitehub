@@ -74,9 +74,12 @@ import { kv } from "vite-hub/kv"
 const app = new H3().post("/settings", async (event) => {
   const settings = await readBody<{ theme: string }>(event)
 
-  await kv.set("settings", settings)
+  const [writeError] = await kv.set("settings", settings)
+  if (writeError) throw writeError
 
-  return { settings: await kv.get("settings") }
+  const [readError, storedSettings] = await kv.get("settings")
+  if (readError) throw readError
+  return { settings: storedSettings }
 })
 
 const port = Number(process.env.PORT || 5173)

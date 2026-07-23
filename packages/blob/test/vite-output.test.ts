@@ -205,7 +205,9 @@ describe("Vite provider outputs", () => {
       `import vitehubBlobPlugin from "../.vitehub/nitro/blob/plugin.ts"`,
       `import { blob } from "@vite-hub/blob"`,
       `vitehubBlobPlugin()`,
-      `console.log(JSON.stringify(await blob.put("proof.txt", "configured")))`,
+      `const [error, object] = await blob.put("proof.txt", "configured")`,
+      `if (error) throw error`,
+      `console.log(JSON.stringify(object))`,
       ``,
     ].join("\n"))
     const [{ build }, { hubBlob }] = await Promise.all([
@@ -729,8 +731,11 @@ describe("Vite provider outputs", () => {
 
     await writeFile(entryFile, [
       `import { blob } from ${JSON.stringify(resolve(import.meta.dirname, "../src/index.ts"))}`,
-      "await blob.put('proof.txt', 'ok')",
-      "console.log(await (await blob.get('proof.txt'))?.text())",
+      "const [putError] = await blob.put('proof.txt', 'ok')",
+      "if (putError) throw putError",
+      "const [getError, object] = await blob.get('proof.txt')",
+      "if (getError) throw getError",
+      "console.log(await object?.text())",
       "",
     ].join("\n"), "utf8")
 
@@ -757,7 +762,8 @@ describe("Vite provider outputs", () => {
       `import { blob } from ${JSON.stringify(resolve(import.meta.dirname, "../src/index.ts"))}`,
       `import { setBlobRuntimeConfig } from ${JSON.stringify(resolve(import.meta.dirname, "../src/runtime/state.ts"))}`,
       "setBlobRuntimeConfig({ store: { binding: 'BLOB', driver: 'cloudflare-r2' } })",
-      "await blob.put('proof.txt', 'ok')",
+      "const [error] = await blob.put('proof.txt', 'ok')",
+      "if (error) throw error",
       "",
     ].join("\n"), "utf8")
 
@@ -803,7 +809,8 @@ describe("Vite provider outputs", () => {
       }
     }
 
-    await runtimeModule.blob.put("notes/generated.txt", "hello")
+    const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
+    expect(error).toBeNull()
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith(
       "notes/generated.txt",
@@ -856,9 +863,9 @@ describe("Vite provider outputs", () => {
       }
     }
 
-    await expect(runtimeModule.blob.store("assets").put("notes/assets.txt", "hello")).resolves.toMatchObject({
-      url: "/notes/assets.txt",
-    })
+    const [error, object] = await runtimeModule.blob.store("assets").put("notes/assets.txt", "hello") as [unknown, { url?: string }]
+    expect(error).toBeNull()
+    expect(object).toMatchObject({ url: "/notes/assets.txt" })
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith(
       "notes/assets.txt",
@@ -919,7 +926,8 @@ describe("Vite provider outputs", () => {
         put: (pathname: string, body: string) => Promise<unknown>
       }
     }
-    await runtimeModule.blob.put("notes/generated.txt", "hello")
+    const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
+    expect(error).toBeNull()
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")

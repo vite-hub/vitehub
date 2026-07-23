@@ -220,6 +220,19 @@ describe("playground import contracts", () => {
     expect(vercelQueueWrapper).toContain("}, createVercelQueueRuntimeClient)`")
     expect(viteE2e).not.toContain('"setQueueRuntimeConfig(queueConfig)"')
   })
+
+  it("keeps the Vite e2e KV shim on error-first results", () => {
+    const viteE2E = readFileSync(join(repoRoot, "playground", "vite", "build", "vite-e2e.ts"), "utf8")
+    const kvShim = viteE2E.slice(
+      viteE2E.indexOf("function renderKvRuntimeModule"),
+      viteE2E.indexOf("function renderQueueRuntimeModule"),
+    )
+
+    expect(kvShim).toContain('resolve(kvPackageDir, "src/errors.ts")')
+    for (const operation of ["clear", "del", "get", "has", "keys", "set"]) {
+      expect(kvShim).toContain(String.raw`kvResult(\"${operation}\", \"default\"`)
+    }
+  })
 })
 
 describe("showcase contracts", () => {

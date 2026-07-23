@@ -3,7 +3,7 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { blob, type BlobModuleOptions, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, type BlobModuleOptions, type BlobResult, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -65,20 +65,31 @@ describe("types", () => {
   })
 
   it("exposes the intended Blob runtime surface", () => {
-    expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<Blob | null>>()
+    expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<BlobResult<Blob | null>>>()
     expectTypeOf(blob.list).toBeFunction()
     expectTypeOf(blob.put).toBeFunction()
-    expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toMatchTypeOf<Promise<{
+    expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toEqualTypeOf<Promise<BlobResult<{
       headers: Record<string, string>
       method: "GET" | "PUT"
       url: string
-    }>>()
+    }>>>()
     expectTypeOf(blob.sign("private/audio.mp3", {
       contentType: "audio/mpeg",
       createOnly: true,
       expiresIn: 900,
       method: "PUT",
-    })).toMatchTypeOf<Promise<{ url: string }>>()
+    })).toMatchTypeOf<Promise<BlobResult<{ url: string }>>>()
+  })
+
+  it("narrows Blob results by the error element", async () => {
+    const [error, value] = await blob.put("proof.txt", "value")
+    if (error) {
+      expectTypeOf(error.code).toEqualTypeOf<"BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED">()
+      expectTypeOf(value).toEqualTypeOf<undefined>()
+      return
+    }
+    expectTypeOf(error).toEqualTypeOf<null>()
+    expectTypeOf(value.pathname).toEqualTypeOf<string>()
   })
 
   it("returns a vite plugin with runtime config access", () => {

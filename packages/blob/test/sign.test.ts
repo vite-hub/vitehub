@@ -64,11 +64,12 @@ describe("signed Blob requests", () => {
   it("signs the Summary source read with the requested lifetime", async () => {
     const storage = createR2Storage()
 
-    const signed = await storage.sign("/users/user/jobs/job/source.mp3", {
+    const [error, signed] = await storage.sign("/users/user/jobs/job/source.mp3", {
       expiresIn: 6 * 60 * 60,
       method: "GET",
     })
 
+    expect(error).toBeNull()
     expect(signed).toEqual({
       headers: {},
       method: "GET",
@@ -86,13 +87,14 @@ describe("signed Blob requests", () => {
   it("signs the Summary direct upload as create-only with its content type", async () => {
     const storage = createR2Storage()
 
-    const signed = await storage.sign("users/user/jobs/job/source.mp3", {
+    const [error, signed] = await storage.sign("users/user/jobs/job/source.mp3", {
       contentType: "audio/mpeg",
       createOnly: true,
       expiresIn: 15 * 60,
       method: "PUT",
     })
 
+    expect(error).toBeNull()
     expect(signed).toEqual({
       headers: {
         "Content-Type": "audio/mpeg",
@@ -129,9 +131,16 @@ describe("signed Blob requests", () => {
       }),
     )
 
-    await expect(storage.sign("source.mp3", { expiresIn: 60, method: "GET" })).rejects.toThrow(
-      "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials.",
-    )
+    const [error, signed] = await storage.sign("source.mp3", { expiresIn: 60, method: "GET" })
+
+    expect(signed).toBeUndefined()
+    expect(error).toMatchObject({
+      code: "BLOB_OPERATION_FAILED",
+      details: { operation: "sign", store: "cloudflare-r2" },
+    })
+    expect(error?.cause).toMatchObject({
+      message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials.",
+    })
   })
 
   it("fails explicitly when a driver cannot sign requests", async () => {

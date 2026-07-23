@@ -9,7 +9,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
-    entry: ["src/index.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
+    entry: ["src/errors.ts", "src/index.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
     exports: {
       inlinedDependencies: false,
     },

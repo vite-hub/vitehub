@@ -20,6 +20,7 @@ import type { Plugin, ResolvedConfig } from "vite"
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
 const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
+const KV_ERRORS_IMPORT_ID = new URL(import.meta.url.endsWith(".ts") ? "./errors.ts" : "./errors.js", import.meta.url).href
 const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
 const UNSTORAGE_IMPORT_ID = import.meta.resolve("unstorage")
 const CLOUDFLARE_KV_DRIVER_IMPORT_ID = import.meta.resolve("unstorage/drivers/cloudflare-kv-binding")
@@ -108,14 +109,20 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
     `import { createStorage } from ${JSON.stringify(UNSTORAGE_IMPORT_ID)};`,
     `import createDriver from ${JSON.stringify(CLOUDFLARE_KV_DRIVER_IMPORT_ID)};`,
+    `import { kvResult } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     "const storages = new Map();",
     "",
-    "function resolveStorage(name = \"default\") {",
+    "function resolveStoreConfig(name) {",
     "  const stores = kvConfig.stores || { default: kvConfig.store };",
     "  const store = stores[name];",
     "  if (!store) throw new Error(`[vitehub] Unknown KV store \"${name}\".`);",
+    "  return store;",
+    "}",
+    "",
+    "function resolveStorage(name = \"default\") {",
+    "  const store = resolveStoreConfig(name);",
     "  const existing = storages.get(name);",
     "  if (existing) return existing;",
     "  const storage = createStorage({ driver: createDriver(store) });",
@@ -123,14 +130,19 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "  return storage;",
     "}",
     "",
+    "async function resolveStorageResult(name, operation) {",
+    "  resolveStoreConfig(name);",
+    "  return kvResult(operation, name, async () => resolveStorage(name));",
+    "}",
+    "",
     "function createKVStorage(name = \"default\") {",
     "  return {",
-    "    async clear(base, options) { await resolveStorage(name).clear(base, options); },",
-    "    async del(key, options) { await resolveStorage(name).removeItem(key, options); },",
-    "    async get(key, options) { return await resolveStorage(name).getItem(key, options); },",
-    "    async has(key, options) { return await resolveStorage(name).hasItem(key, options); },",
-    "    async keys(base, options) { return await resolveStorage(name).getKeys(base, options); },",
-    "    async set(key, value, options) { await resolveStorage(name).setItem(key, value, options); },",
+    "    async clear(base, options) { const [error, storage] = await resolveStorageResult(name, \"clear\"); return error ? [error, undefined] : kvResult(\"clear\", name, async () => { await storage.clear(base, options); }); },",
+    "    async del(key, options) { const [error, storage] = await resolveStorageResult(name, \"del\"); return error ? [error, undefined] : kvResult(\"del\", name, async () => { await storage.removeItem(key, options); }); },",
+    "    async get(key, options) { const [error, storage] = await resolveStorageResult(name, \"get\"); return error ? [error, undefined] : kvResult(\"get\", name, () => storage.getItem(key, options)); },",
+    "    async has(key, options) { const [error, storage] = await resolveStorageResult(name, \"has\"); return error ? [error, undefined] : kvResult(\"has\", name, () => storage.hasItem(key, options)); },",
+    "    async keys(base, options) { const [error, storage] = await resolveStorageResult(name, \"keys\"); return error ? [error, undefined] : kvResult(\"keys\", name, () => storage.getKeys(base, options)); },",
+    "    async set(key, value, options) { const [error, storage] = await resolveStorageResult(name, \"set\"); return error ? [error, undefined] : kvResult(\"set\", name, async () => { await storage.setItem(key, value, options); }); },",
     "    store(storeName) { return createKVStorage(storeName); },",
     "  };",
     "}",

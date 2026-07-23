@@ -1,10 +1,13 @@
 import { createBlobStorage } from "../storage.ts"
+import { blobResult } from "../errors.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobDriverAdapter, BlobObject, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+
+class UnknownBlobStoreError extends Error {}
 
 const driverModules = {
   akamai: "akamai",
@@ -75,13 +78,13 @@ function resolveRuntimeBlobStore(store: ResolvedBlobStoreConfig): ResolvedBlobSt
   return store
 }
 
-async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions): Promise<BlobStorage> {
+async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions, name: string): Promise<BlobStorage> {
   const resolvedConfig = {
     ...config,
     store: resolveRuntimeBlobStore(config.store),
   }
   const driver = await importRuntimeDriver(resolvedConfig.store)
-  return createBlobStorage(driver)
+  return createBlobStorage(driver, name)
 }
 
 function joinServedBlobUrl(...parts: string[]): string {
@@ -113,24 +116,56 @@ async function resolveStorage(name = "default") {
 
   const stores = config.stores || { default: config.store }
   const store = stores[name]
-  if (!store) throw new Error(`Unknown Blob store "${name}".`)
-  const storage = await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } })
+  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  const storage = await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } }, name)
   setNamedBlobRuntimeStorage(name, storage)
   return storage
 }
 
+async function resolveStorageResult(operation: BlobOperation, name: string): Promise<BlobResult<BlobStorage>> {
+  const result = await blobResult(operation, name, () => resolveStorage(name))
+  if (result[0]?.cause instanceof UnknownBlobStoreError) throw result[0].cause
+  return result
+}
+
 function createRuntimeBlobStorage(name = "default"): BlobStorage {
   return {
-    async del(pathnames) { await (await resolveStorage(name)).del(pathnames) },
-    async get(pathname) { return (await resolveStorage(name)).get(pathname) },
-    async head(pathname) { return withServedBlobUrl(name, await (await resolveStorage(name)).head(pathname)) },
-    async list(options) {
-      const result = await (await resolveStorage(name)).list(options)
-      return { ...result, blobs: await Promise.all(result.blobs.map(object => withServedBlobUrl(name, object))) }
+    async del(pathnames) {
+      const [error, storage] = await resolveStorageResult("del", name)
+      return error ? [error, undefined] : storage.del(pathnames)
     },
-    async put(pathname, body, options) { return withServedBlobUrl(name, await (await resolveStorage(name)).put(pathname, body, options)) },
-    async sign(pathname, options) { return (await resolveStorage(name)).sign(pathname, options) },
-    async serve(event, pathname) { return (await resolveStorage(name)).serve(event, pathname) },
+    async get(pathname) {
+      const [error, storage] = await resolveStorageResult("get", name)
+      return error ? [error, undefined] : storage.get(pathname)
+    },
+    async head(pathname) {
+      const [resolutionError, storage] = await resolveStorageResult("head", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, object] = await storage.head(pathname)
+      return error ? [error, undefined] : [null, await withServedBlobUrl(name, object)]
+    },
+    async list(options) {
+      const [resolutionError, storage] = await resolveStorageResult("list", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, result] = await storage.list(options)
+      return error
+        ? [error, undefined]
+        : [null, { ...result, blobs: await Promise.all(result.blobs.map(object => withServedBlobUrl(name, object))) }]
+    },
+    async put(pathname, body, options) {
+      const [resolutionError, storage] = await resolveStorageResult("put", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, object] = await storage.put(pathname, body, options)
+      return error ? [error, undefined] : [null, await withServedBlobUrl(name, object)]
+    },
+    async sign(pathname, options) {
+      const [error, storage] = await resolveStorageResult("sign", name)
+      return error ? [error, undefined] : storage.sign(pathname, options)
+    },
+    async serve(event, pathname) {
+      const [error, storage] = await resolveStorageResult("serve", name)
+      return error ? [error, undefined] : storage.serve(event, pathname)
+    },
     store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
   }
 }

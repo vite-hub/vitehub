@@ -1,4 +1,5 @@
 import type { H3Event } from "h3"
+import type { ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
 
 export type BlobDriver =
   | "akamai"
@@ -60,6 +61,16 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
+export type BlobOperation = "del" | "get" | "head" | "list" | "put" | "serve" | "sign"
+export type BlobErrorCode = "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED"
+export type BlobErrorDetails = ViteHubErrorDetails & {
+  operation: BlobOperation
+  store: string
+}
+export type BlobResult<TResult> =
+  | [error: null, value: TResult]
+  | [error: ViteHubError<BlobErrorCode, BlobErrorDetails>, value: undefined]
+
 export type BlobSignOptions =
   | { expiresIn: number, method: "GET" }
   | { contentType?: string, createOnly?: boolean, expiresIn: number, method: "PUT" }
@@ -88,13 +99,13 @@ export interface BlobEnsureOptions {
 }
 
 export interface BlobStorage {
-  del(pathnames: string | string[]): Promise<void>
-  get(pathname: string): Promise<Blob | null>
-  head(pathname: string): Promise<BlobObject>
-  list(options?: BlobListOptions): Promise<BlobListResult>
-  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
-  sign(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
-  serve(event: H3Event, pathname: string): Promise<ReadableStream>
+  del(pathnames: string | string[]): Promise<BlobResult<void>>
+  get(pathname: string): Promise<BlobResult<Blob | null>>
+  head(pathname: string): Promise<BlobResult<BlobObject>>
+  list(options?: BlobListOptions): Promise<BlobResult<BlobListResult>>
+  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobResult<BlobObject>>
+  sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
+  serve(event: H3Event, pathname: string): Promise<BlobResult<ReadableStream>>
   store(name: BlobStoreName): BlobStorage
 }
 

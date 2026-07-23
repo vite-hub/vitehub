@@ -71,7 +71,31 @@ function scheduleRunAttemptBase(prefix: string): string {
 
 async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
   const module = await import("@vite-hub/kv")
-  return module.kv
+  return {
+    async del(key) {
+      const [error] = await module.kv.del(key)
+      if (error) throw error
+    },
+    async get<T = unknown>(key: string) {
+      const [error, value] = await module.kv.get<T>(key)
+      if (error) throw error
+      return value
+    },
+    async has(key) {
+      const [error, value] = await module.kv.has(key)
+      if (error) throw error
+      return value
+    },
+    async keys(base) {
+      const [error, value] = await module.kv.keys(base)
+      if (error) throw error
+      return value
+    },
+    async set(key, value) {
+      const [error] = await module.kv.set(key, value)
+      if (error) throw error
+    },
+  }
 }
 
 function cloneRuntimeSchedule<TInput>(record: RuntimeScheduleRecord<TInput>): RuntimeScheduleRecord<TInput> {

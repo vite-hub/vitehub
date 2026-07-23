@@ -14,6 +14,7 @@ import {
   method,
   requirePrimitive,
   selectStore,
+  storageValue,
 } from "./shared.ts"
 
 import type {
@@ -188,11 +189,11 @@ async function publishReferencedHarnessArtifacts(
   const published = await publishWorkspaceArtifacts(context, artifacts, {
     prefix,
     publish: async input => ({
-      url: absoluteBlobArtifactUrl(await method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(
+      url: absoluteBlobArtifactUrl(await storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(
         input.pathname,
         input.content,
         input.mediaType ? { contentType: input.mediaType } : undefined,
-      ), context.request),
+      )), context.request),
     }),
   })
   const nextArtifacts = [...(runResult.artifacts || []), ...published]
@@ -251,11 +252,11 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
         description: "Read one Blob object, read object metadata, or list objects under a developer-provided prefix.",
         execute: async ({ cursor, folded, limit, operation, pathname, prefix }: BlobReadInput) => {
           const store = await resolveBlobStore(context, options)
-          if (operation === "get") return method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "get")(assertString(pathname, "blob_read pathname"))
-          if (operation === "head") return method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "head")(assertString(pathname, "blob_read pathname"))
+          if (operation === "get") return storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "get")(assertString(pathname, "blob_read pathname")))
+          if (operation === "head") return storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "head")(assertString(pathname, "blob_read pathname")))
           if (operation === "list") {
             const scopedPrefix = assertString(prefix, "blob_read prefix")
-            return method<(options?: unknown) => MaybePromise<unknown>>(store, "blob", "list")({ cursor, folded, limit: normalizeListLimit(limit), prefix: scopedPrefix })
+            return storageValue(method<(options?: unknown) => MaybePromise<unknown>>(store, "blob", "list")({ cursor, folded, limit: normalizeListLimit(limit), prefix: scopedPrefix }))
           }
           throw new Error(`[vitehub] Unsupported blob_read operation: ${String(operation)}`)
         },
@@ -273,14 +274,14 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             const sourcePath = typeof workspacePath === "string" && workspacePath.trim() ? workspacePath : undefined
             if (sourcePath && body !== undefined) throw new Error("[vitehub] blob_edit put accepts body or workspacePath, not both.")
             if (sourcePath) {
-              return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, await readWorkspaceBlobBody(context, sourcePath), putOptions)
+              return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, await readWorkspaceBlobBody(context, sourcePath), putOptions))
             }
             if (body === undefined) throw new Error("[vitehub] blob_edit put requires body or workspacePath.")
-            return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions)
+            return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions))
           }
           if (operation === "delete") {
             const path = assertString(pathname, "blob_edit pathname")
-            await method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(path)
+            await storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(path))
             return { pathname: path, deleted: true }
           }
           throw new Error(`[vitehub] Unsupported blob_edit operation: ${String(operation)}`)

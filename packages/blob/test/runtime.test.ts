@@ -9,6 +9,13 @@ import {
   setBlobRuntimeConfig,
   setBlobRuntimeStorage,
 } from "../src/runtime/state.ts"
+import type { BlobResult } from "../src/types.ts"
+
+function expectBlobSuccess<TResult>(result: BlobResult<TResult>): TResult {
+  const [error, value] = result
+  expect(error).toBeNull()
+  return value as TResult
+}
 
 const vercelBlobMock = vi.hoisted(() => ({
   del: vi.fn(async () => {}),
@@ -276,6 +283,64 @@ function createMemoryBucket() {
 }
 
 describe("blob runtime", () => {
+  it("returns provider failures as Blob results", async () => {
+    const cause = new Error("provider unavailable")
+    const storage = createBlobStorage({
+      name: "failure",
+      options: {},
+      async delete() {},
+      async get() { return null },
+      async getArrayBuffer() { return null },
+      async head() { return null },
+      async list() { return { blobs: [], hasMore: false } },
+      async put() { throw cause },
+    }, "archive")
+
+    const [error, value] = await storage.put("proof.txt", "value")
+
+    expect(value).toBeUndefined()
+    expect(error).toMatchObject({
+      cause,
+      code: "BLOB_OPERATION_FAILED",
+      details: { operation: "put", store: "archive" },
+      name: "ViteHubError",
+    })
+  })
+
+  it("returns provider initialization failures as Blob results", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        driver: "unavailable",
+      } as never,
+    })
+
+    const [error, value] = await blob.get("proof.txt")
+
+    expect(value).toBeUndefined()
+    expect(error).toMatchObject({
+      code: "BLOB_OPERATION_FAILED",
+      details: { operation: "get", store: "default" },
+      name: "ViteHubError",
+    })
+  })
+
+  it("keeps invalid Blob calls throwing", async () => {
+    const get = vi.fn(async () => null)
+    const storage = createBlobStorage({
+      name: "validation",
+      options: {},
+      async delete() {},
+      get,
+      async getArrayBuffer() { return null },
+      async head() { return null },
+      async list() { return { blobs: [], hasMore: false } },
+      async put() { throw new Error("not reached") },
+    })
+
+    await expect(storage.get(Symbol("invalid") as never)).rejects.toBeInstanceOf(TypeError)
+    expect(get).not.toHaveBeenCalled()
+  })
+
   it("rehydrates the masked Vercel token", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
     setBlobRuntimeConfig({
@@ -286,7 +351,7 @@ describe("blob runtime", () => {
       },
     })
 
-    const result = await blob.put("notes/hello.txt", "hello")
+    const result = expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
 
     expect(result.pathname).toBe("notes/hello.txt")
     expect(result.url).toBe("https://blob.example/notes/hello.txt")
@@ -336,7 +401,7 @@ describe("blob runtime", () => {
       }
     })
 
-    const firstPage = await blob.list({ folded: true, limit: 1, prefix: "a/" })
+    const firstPage = expectBlobSuccess(await blob.list({ folded: true, limit: 1, prefix: "a/" }))
 
     expect(firstPage).toMatchObject({
       blobs: [{ pathname: "a/root.txt" }],
@@ -345,7 +410,7 @@ describe("blob runtime", () => {
     })
     expect(firstPage.cursor).toBeDefined()
 
-    const secondPage = await blob.list({ cursor: firstPage.cursor, folded: true, limit: 1, prefix: "a/" })
+    const secondPage = expectBlobSuccess(await blob.list({ cursor: firstPage.cursor, folded: true, limit: 1, prefix: "a/" }))
 
     expect(vercelBlobMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-2" }))
     expect(secondPage).toMatchObject({
@@ -376,7 +441,7 @@ describe("blob runtime", () => {
       },
     })
 
-    await blob.store("assets").put("notes/assets.txt", "value")
+    expectBlobSuccess(await blob.store("assets").put("notes/assets.txt", "value"))
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith("notes/assets.txt", "value", expect.objectContaining({
       access: "public",
@@ -419,10 +484,10 @@ describe("blob runtime", () => {
       hasMore: false,
     })
 
-    const put = await blob.store("assets").put("notes/served.txt", "value")
-    const head = await blob.store("assets").head("notes/served.txt")
-    const list = await blob.store("assets").list()
-    const otherStore = await blob.put("notes/private.txt", "value")
+    const put = expectBlobSuccess(await blob.store("assets").put("notes/served.txt", "value"))
+    const head = expectBlobSuccess(await blob.store("assets").head("notes/served.txt"))
+    const list = expectBlobSuccess(await blob.store("assets").list())
+    const otherStore = expectBlobSuccess(await blob.put("notes/private.txt", "value"))
 
     expect(put.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
     expect(head.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
@@ -458,7 +523,7 @@ describe("blob runtime", () => {
       },
     })
 
-    const put = await blob.store("assets").put("notes/served.txt", "value")
+    const put = expectBlobSuccess(await blob.store("assets").put("notes/served.txt", "value"))
 
     expect(put.url).toBe(expectedUrl)
   })
@@ -492,14 +557,14 @@ describe("blob runtime", () => {
     })
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
 
-    await blob.put("notes/hello.txt", "hello", {
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello", {
       contentType: "text/plain",
       customMetadata: { test: "true" },
-    })
+    }))
 
-    const list = await blob.list()
-    const head = await blob.head("notes/hello.txt")
-    const body = await blob.get("notes/hello.txt")
+    const list = expectBlobSuccess(await blob.list())
+    const head = expectBlobSuccess(await blob.head("notes/hello.txt"))
+    const body = expectBlobSuccess(await blob.get("notes/hello.txt"))
 
     expect(list.blobs).toHaveLength(1)
     expect(head.customMetadata).toEqual({ test: "true" })
@@ -507,8 +572,9 @@ describe("blob runtime", () => {
     expect(await body?.text()).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
 
-    await blob.del("notes/hello.txt")
-    await expect(blob.head("notes/hello.txt")).rejects.toThrow("Blob not found")
+    expectBlobSuccess(await blob.del("notes/hello.txt"))
+    const [missingError] = await blob.head("notes/hello.txt")
+    expect(missingError).toMatchObject({ code: "BLOB_NOT_FOUND", details: { operation: "head", store: "default" } })
   })
 
   it("falls back to Files SDK R2 when no Cloudflare binding exists", async () => {
@@ -527,7 +593,7 @@ describe("blob runtime", () => {
       },
     })
 
-    const list = await blob.list()
+    const list = expectBlobSuccess(await blob.list())
 
     expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
       accountId: "account",
@@ -557,10 +623,10 @@ describe("blob runtime", () => {
       },
     })
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
-    await blob.list()
+    expectBlobSuccess(await blob.list())
 
     setActiveCloudflareEnv(undefined)
-    await blob.list()
+    expectBlobSuccess(await blob.list())
 
     expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
       accountId: "account",
@@ -577,10 +643,10 @@ describe("blob runtime", () => {
     }))
 
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
-    await storage.put("notes/late-binding.txt", "hello")
+    expectBlobSuccess(await storage.put("notes/late-binding.txt", "hello"))
 
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
-    expect(await (await storage.get("notes/late-binding.txt"))?.text()).toBe("hello")
+    expect(await expectBlobSuccess(await storage.get("notes/late-binding.txt"))?.text()).toBe("hello")
   })
 
   it("returns folded folders from the active Cloudflare binding", async () => {
@@ -593,10 +659,10 @@ describe("blob runtime", () => {
     })
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
 
-    await blob.put("notes/hello.txt", "hello")
-    await blob.put("images/logo.png", "logo")
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+    expectBlobSuccess(await blob.put("images/logo.png", "logo"))
 
-    const list = await blob.list({ folded: true })
+    const list = expectBlobSuccess(await blob.list({ folded: true }))
 
     expect(list.blobs).toEqual([])
     expect(list.folders).toEqual(["images/", "notes/"])
@@ -610,7 +676,7 @@ describe("blob runtime", () => {
       },
     })
 
-    const list = await blob.list()
+    const list = expectBlobSuccess(await blob.list())
 
     expect(filesSdkMock.s3).toHaveBeenCalledWith(expect.objectContaining({ driver: "s3" }))
     expect(list.blobs).toEqual([
@@ -635,7 +701,7 @@ describe("blob runtime", () => {
       },
     })
 
-    const list = await blob.list()
+    const list = expectBlobSuccess(await blob.list())
 
     expect(filesSdkMock.minio).toHaveBeenCalledWith(expect.objectContaining({
       accessKeyId: "minio",
@@ -661,21 +727,22 @@ describe("blob runtime", () => {
 
     // Users pass URL-encoded pathnames; storage decodes exactly once.
     // Before the fix, the Cloudflare driver decoded again and "%25" → "%" → URIError on the next op.
-    await blob.put("notes/100%25.txt", "value")
-    await blob.put("notes/h%C3%A9llo.txt", "unicode")
-    await blob.put("notes/space%20file.txt", "raw")
+    expectBlobSuccess(await blob.put("notes/100%25.txt", "value"))
+    expectBlobSuccess(await blob.put("notes/h%C3%A9llo.txt", "unicode"))
+    expectBlobSuccess(await blob.put("notes/space%20file.txt", "raw"))
 
-    const list = await blob.list()
-    const keys = list.blobs.map(b => b.pathname).sort()
+    const list = expectBlobSuccess(await blob.list())
+    const keys = list.blobs.map((b: { pathname: string }) => b.pathname).sort()
     expect(keys).toEqual([
       "notes/100%.txt",
       "notes/héllo.txt",
       "notes/space file.txt",
     ])
 
-    expect(await (await blob.get("notes/100%25.txt"))?.text()).toBe("value")
-    await blob.del("notes/h%C3%A9llo.txt")
-    await expect(blob.head("notes/h%C3%A9llo.txt")).rejects.toThrow("Blob not found")
+    expect(await expectBlobSuccess(await blob.get("notes/100%25.txt"))?.text()).toBe("value")
+    expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
+    const [missingError] = await blob.head("notes/h%C3%A9llo.txt")
+    expect(missingError?.code).toBe("BLOB_NOT_FOUND")
   })
 
   it("passes decoded pathnames to the Vercel driver", async () => {
@@ -684,8 +751,8 @@ describe("blob runtime", () => {
       store: { access: "public", driver: "vercel-blob", token: "********" },
     })
 
-    await blob.put("notes/100%25.txt", "value")
-    await blob.del("notes/h%C3%A9llo.txt")
+    expectBlobSuccess(await blob.put("notes/100%25.txt", "value"))
+    expectBlobSuccess(await blob.del("notes/h%C3%A9llo.txt"))
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith(
       "notes/100%.txt",
@@ -705,10 +772,10 @@ describe("blob runtime", () => {
     })
     setActiveCloudflareEnv({ BLOB: bucket })
 
-    await blob.put("notes/100%.txt", "value")
+    expectBlobSuccess(await blob.put("notes/100%.txt", "value"))
 
-    expect(await (await blob.get("notes/100%.txt"))?.text()).toBe("value")
-    expect((await blob.list()).blobs).toEqual([
+    expect(await expectBlobSuccess(await blob.get("notes/100%.txt"))?.text()).toBe("value")
+    expect(expectBlobSuccess(await blob.list()).blobs).toEqual([
       expect.objectContaining({
         pathname: "notes/100%.txt",
       }),
@@ -720,11 +787,11 @@ describe("blob runtime", () => {
       app: async (request) => {
         const url = new URL(request.url)
         if (url.pathname === "/put") {
-          await blob.put("notes/worker.txt", "hello")
+          expectBlobSuccess(await blob.put("notes/worker.txt", "hello"))
           return Response.json({ ok: true })
         }
 
-        return Response.json(await blob.list())
+        return Response.json(expectBlobSuccess(await blob.list()))
       },
       blob: {
         store: {
@@ -749,7 +816,7 @@ describe("blob runtime", () => {
 
   it("rehydrates R2 HTTP fallback secrets from the Cloudflare worker env", async () => {
     const worker = createBlobCloudflareWorker({
-      app: async () => Response.json(await blob.list()),
+      app: async () => Response.json(expectBlobSuccess(await blob.list())),
       blob: {
         store: {
           accountId: "********",
@@ -780,7 +847,7 @@ describe("blob runtime", () => {
 
   it("keeps R2 HTTP fallback credentials isolated across worker envs", async () => {
     const worker = createBlobCloudflareWorker({
-      app: async () => Response.json(await blob.list()),
+      app: async () => Response.json(expectBlobSuccess(await blob.list())),
       blob: {
         store: {
           accountId: "********",
@@ -831,12 +898,12 @@ describe("blob runtime", () => {
         if (url.pathname === "/defer") {
           workerContext?.waitUntil?.((async () => {
             await Promise.resolve()
-            await blob.put("notes/deferred.txt", "hello")
+            expectBlobSuccess(await blob.put("notes/deferred.txt", "hello"))
           })())
           return Response.json({ ok: true })
         }
 
-        return Response.json(await blob.list())
+        return Response.json(expectBlobSuccess(await blob.list()))
       },
       blob: {
         store: {
@@ -873,7 +940,7 @@ describe("blob runtime", () => {
         if (delay > 0) {
           await new Promise(resolve => setTimeout(resolve, delay))
         }
-        await blob.put(`notes/${url.pathname.slice(1)}.txt`, url.pathname)
+        expectBlobSuccess(await blob.put(`notes/${url.pathname.slice(1)}.txt`, url.pathname))
         return Response.json({ ok: true })
       },
       blob: {
@@ -894,12 +961,12 @@ describe("blob runtime", () => {
     ])
 
     setActiveCloudflareEnv(envA)
-    expect(await (await blob.get("notes/slow.txt"))?.text()).toBe("/slow")
-    expect(await blob.get("notes/fast.txt")).toBeNull()
+    expect(await expectBlobSuccess(await blob.get("notes/slow.txt"))?.text()).toBe("/slow")
+    expect(expectBlobSuccess(await blob.get("notes/fast.txt"))).toBeNull()
 
     setActiveCloudflareEnv(envB)
-    expect(await (await blob.get("notes/fast.txt"))?.text()).toBe("/fast")
-    expect(await blob.get("notes/slow.txt")).toBeNull()
+    expect(await expectBlobSuccess(await blob.get("notes/fast.txt"))?.text()).toBe("/fast")
+    expect(expectBlobSuccess(await blob.get("notes/slow.txt"))).toBeNull()
   })
 
 })

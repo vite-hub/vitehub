@@ -8,6 +8,7 @@ const markerBody = v.object({
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, markerBody)
-  await kv.set(`queue-e2e:${body.marker}`, true)
+  const [error] = await kv.set(`queue-e2e:${body.marker}`, true)
+  if (error) throw error
   return { ok: true }
 })

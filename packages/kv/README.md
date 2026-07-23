@@ -25,9 +25,12 @@ import { kv } from "@vite-hub/kv"
 import { defineEventHandler, readBody } from "h3"
 
 export default defineEventHandler(async (event) => {
-  await kv.set("settings", await readBody(event))
+  const [writeError] = await kv.set("settings", await readBody(event))
+  if (writeError) throw writeError
 
-  return kv.get("settings")
+  const [readError, settings] = await kv.get("settings")
+  if (readError) throw readError
+  return settings
 })
 ```
 
@@ -50,5 +53,7 @@ export default defineConfig({
 Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
 Providers include local `fs-lite`, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
+
+KV operations return `[error, value]`. Provider failures use `ViteHubError` with code `KV_OPERATION_FAILED`, operation/store details, and the provider failure in `cause`. Invalid configuration and unknown named stores still throw before provider execution.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

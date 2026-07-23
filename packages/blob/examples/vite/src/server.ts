@@ -4,10 +4,16 @@ import { blob } from "@vite-hub/blob"
 
 const app = new H3()
 
-app.get("/api/blob", async () => await blob.list({ limit: 10 }))
+app.get("/api/blob", async () => {
+  const [error, result] = await blob.list({ limit: 10 })
+  if (error) throw error
+  return result
+})
 app.put("/api/blob", async (event) => {
   const body = await readBody<{ pathname?: string, value?: string }>(event)
-  return await blob.put(body?.pathname || "notes/example.txt", body?.value || "hello world")
+  const [error, object] = await blob.put(body?.pathname || "notes/example.txt", body?.value || "hello world")
+  if (error) throw error
+  return object
 })
 
 export default app

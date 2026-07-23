@@ -125,23 +125,28 @@ app.get("/", () => ({
 
 app.get("/api/blob", async (event) => {
   const query = getQuery(event)
-  return await blob.list({
+  const [error, result] = await blob.list({
     folded: query.folded === "true",
     limit: typeof query.limit === "string" ? Number.parseInt(query.limit, 10) : undefined,
     prefix: typeof query.prefix === "string" ? query.prefix : undefined,
   })
+  if (error) throw error
+  return result
 })
 
 app.put("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobPutBody)
-  return await blob.put(body?.pathname || "notes/hello.txt", body?.value || "hello world", {
+  const [error, object] = await blob.put(body?.pathname || "notes/hello.txt", body?.value || "hello world", {
     contentType: "text/plain; charset=utf-8",
   })
+  if (error) throw error
+  return object
 })
 
 app.delete("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobDeleteBody)
-  await blob.del(body.pathname)
+  const [error] = await blob.del(body.pathname)
+  if (error) throw error
   return { ok: true }
 })
 
@@ -151,7 +156,9 @@ app.get("/api/blob/head", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  return await blob.head(pathname)
+  const [error, object] = await blob.head(pathname)
+  if (error) throw error
+  return object
 })
 
 app.get("/api/blob/body", async (event) => {
@@ -160,7 +167,8 @@ app.get("/api/blob/body", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  const file = await blob.get(pathname)
+  const [error, file] = await blob.get(pathname)
+  if (error) throw error
   return {
     ok: true,
     text: file ? await file.text() : null,
@@ -173,7 +181,9 @@ app.get("/api/blob/serve", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  return await blob.serve(event, pathname)
+  const [error, stream] = await blob.serve(event, pathname)
+  if (error) throw error
+  return stream
 })
 
 app.get("/api/database", async () => {
@@ -242,8 +252,11 @@ app.post("/api/queues/welcome-defer", async (event) => {
 
 app.post("/api/tests/kv", async () => {
   const key = "smoke"
-  await kv.set(key, { key, store: "kv" })
-  return { ok: true, value: await kv.get(key) }
+  const [writeError] = await kv.set(key, { key, store: "kv" })
+  if (writeError) throw writeError
+  const [readError, value] = await kv.get(key)
+  if (readError) throw readError
+  return { ok: true, value }
 })
 
 app.get("/api/tests/probe", (event) => {
@@ -267,15 +280,18 @@ app.get("/api/tests/queue", async (event) => {
     ? `queue-e2e:${marker}`
     : ""
 
+  const [error, seen] = key ? await kv.has(key) : [null, false] as const
+  if (error) throw error
   return {
     ok: true,
-    seen: key ? await kv.has(key) : false,
+    seen,
   }
 })
 
 app.post("/api/tests/queue", async (event) => {
   const body = await readValidatedBody(event, markerBody)
-  await kv.set(`queue-e2e:${body.marker}`, true)
+  const [error] = await kv.set(`queue-e2e:${body.marker}`, true)
+  if (error) throw error
   return { ok: true }
 })
 
@@ -302,7 +318,9 @@ app.post("/api/tests/rate-limit/address", async (event) => {
 })
 
 app.get("/api/tests/schedule", async () => {
-  const marker = await kv.get("schedule-e2e:daily-marker") ?? globalThis.__vitehubScheduleMarker
+  const [error, storedMarker] = await kv.get("schedule-e2e:daily-marker")
+  if (error) throw error
+  const marker = storedMarker ?? globalThis.__vitehubScheduleMarker
   return {
     ok: true,
     marker,

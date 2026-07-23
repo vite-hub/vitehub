@@ -36,7 +36,8 @@ export default defineConfig({
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
-  await kv.set('settings', await readBody(event))
+  const [error] = await kv.set('settings', await readBody(event))
+  if (error) throw error
   return { ok: true }
 })
 ```
@@ -95,7 +96,8 @@ Use the `kv` Runtime Helper from server code.
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
-  await kv.set('settings', await readBody(event))
+  const [error] = await kv.set('settings', await readBody(event))
+  if (error) throw error
   return { ok: true }
 })
 ```
@@ -104,9 +106,9 @@ export default defineEventHandler(async (event) => {
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
-  return {
-    settings: await kv.get('settings'),
-  }
+  const [error, settings] = await kv.get('settings')
+  if (error) throw error
+  return { settings }
 })
 ```
 
@@ -118,7 +120,8 @@ import { kv } from '@vite-hub/kv'
 const preferences = kv.store('tenant-preferences')
 
 export async function savePreferences(tenantId: string, value: unknown) {
-  await preferences.set(tenantId, value)
+  const [error] = await preferences.set(tenantId, value)
+  if (error) throw error
 }
 ```
 
@@ -137,6 +140,8 @@ KV does not provide the atomic consume contract required for request budgets. Us
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |
 | `kv.store(name)` | Selects a named KV Store. |
+
+Every async method returns `[error, value]`. Provider failures are `ViteHubError` values with code `KV_OPERATION_FAILED`, operation/store details, and the provider failure in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Invalid configuration and unknown named stores still throw before provider execution.
 
 ## Provider output
 

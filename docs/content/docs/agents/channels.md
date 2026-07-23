@@ -324,7 +324,8 @@ export default defineAgent({
             }], {
               prefix: `reviews/${context.run?.runId || crypto.randomUUID()}`,
               publish: async ({ content, mediaType, pathname }) => {
-                const object = await blob.put(pathname, content, { access: 'public', contentType: mediaType })
+                const [error, object] = await blob.put(pathname, content, { access: 'public', contentType: mediaType })
+                if (error) throw error
                 return { url: object.url }
               },
             }),
