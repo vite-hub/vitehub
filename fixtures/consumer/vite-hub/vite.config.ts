@@ -17,6 +17,7 @@ export default defineConfig({
   plugins: [vitehub({
     preset,
     auth: true,
+    blob: preset === "cloudflare" || (preset === "vercel" && !providerSandboxClosure),
     database: true,
     queue: preset === "vercel" || preset === "cloudflare",
     rateLimit: preset === "node",
