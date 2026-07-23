@@ -7,6 +7,8 @@ import { promisify } from "node:util"
 
 import { afterAll, beforeAll, expect, it } from "vitest"
 
+import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const workspaceRoot = resolve(packageRoot, "../..")
@@ -51,6 +53,11 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
 beforeAll(async () => {
   consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-auth-types-"))
   await cp(fixtureRoot, consumerRoot, { recursive: true })
+  await syncPackedWorkspaceDependencies(
+    consumerRoot,
+    workspaceRoot,
+    packedPackages.map(name => `@vite-hub/${name}`),
+  )
   const packResults = await Promise.allSettled(packedPackages.map(name => (
     runPnpm(["pack", "--pack-destination", consumerRoot!], join(workspaceRoot, "packages", name))
   )))

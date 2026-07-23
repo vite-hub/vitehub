@@ -7,8 +7,11 @@ import { promisify } from "node:util"
 
 import { afterAll, beforeAll, it } from "vitest"
 
+import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 const phaseTimeout = 15_000
@@ -33,6 +36,7 @@ async function runProcess(command: string, args: string[], cwd: string): Promise
 beforeAll(async () => {
   consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-runtime-types-"))
   await cp(fixtureRoot, consumerRoot, { recursive: true })
+  await syncPackedWorkspaceDependencies(consumerRoot, workspaceRoot, ["@vite-hub/runtime"])
   const packResults = await Promise.allSettled([runProcess("npm", [
     "pack",
     "--pack-destination",

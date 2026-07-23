@@ -7,8 +7,11 @@ import { promisify } from "node:util"
 
 import { it } from "vitest"
 
+import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
@@ -25,6 +28,7 @@ it("publishes every documented Rate Limit entrypoint to a real consumer", { time
   const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-types-"))
   try {
     await cp(fixtureRoot, root, { recursive: true })
+    await syncPackedWorkspaceDependencies(root, workspaceRoot, ["@vite-hub/rate-limit"])
     await runPnpm(["pack", "--pack-destination", root], packageRoot)
     await runPnpm(["install", "--ignore-scripts", "--no-frozen-lockfile"], root)
     try {
