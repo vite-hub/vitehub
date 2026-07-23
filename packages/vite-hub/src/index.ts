@@ -208,6 +208,11 @@ function cloudflareResourceScope(name: string): string {
   return name.slice(0, 48)
 }
 
+function cloudflareR2BucketName(name: string): string {
+  const scoped = cloudflareResourceScope(name).replace(/-+$/g, "")
+  return scoped.length >= 3 ? scoped : `${scoped || "app"}-blob`
+}
+
 function packageName(root?: string): string | undefined {
   let directory = resolve(process.cwd(), root || ".")
   while (true) {
@@ -324,7 +329,7 @@ function deploymentPlugins(
             ;(config as { blob?: BlobModuleOptions }).blob = presetBlobOptions(plan, {
               ...cloneRecord(optionBlob),
               ...cloneRecord(configuredBlob),
-            }, cloudflareResourceScope(name))
+            }, cloudflareR2BucketName(name))
           }
         }
         if (plan.preset === "cloudflare") {
@@ -470,7 +475,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/agent`,
       providerImportAliases,
       runtimeCapabilityImports: {
-        blob: `${generatedImportBase}/blob`,
+        blob: blobEnabled ? `${generatedImportBase}/blob` : false,
         email: "vite-hub/email/server",
         kv: `${generatedImportBase}/kv`,
       },

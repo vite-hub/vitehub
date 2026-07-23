@@ -572,6 +572,22 @@ describe("vitehub", () => {
     expect(config.sandbox).toMatchObject({ name: `${"a".repeat(48)}-sandbox` })
   })
 
+  it("derives valid R2 bucket defaults from short and truncated identities", async () => {
+    const short = await applyDeploymentConfig({
+      blob: true,
+      name: "ui",
+      preset: "cloudflare",
+    })
+    expect(short.blob).toMatchObject({ bucketName: "ui-blob" })
+
+    const truncated = await applyDeploymentConfig({
+      blob: true,
+      name: `${"a".repeat(47)}-prod`,
+      preset: "cloudflare",
+    })
+    expect(truncated.blob).toMatchObject({ bucketName: "a".repeat(47) })
+  })
+
   it("keeps explicit and legacy deployment identities deterministic", async () => {
     const previousName = process.env.VITEHUB_DEPLOYMENT_NAME
     process.env.VITEHUB_DEPLOYMENT_NAME = "Legacy App"

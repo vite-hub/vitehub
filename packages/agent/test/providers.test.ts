@@ -276,7 +276,7 @@ describe("agent Vite plugin", () => {
       const filteredPlugin = hubAgent({
         importBase: "vite-hub/_internal/agent",
         runtimeCapabilityImports: {
-          blob: "vite-hub/_internal/blob",
+          blob: false,
           email: "vite-hub/email/server",
           kv: "vite-hub/_internal/kv",
         },
@@ -298,9 +298,10 @@ describe("agent Vite plugin", () => {
       })
       const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
       expect(filteredRegistry).not.toContain('vite-hub/_internal/blob')
+      expect(filteredRegistry).toContain("blob: false")
       expect(filteredRegistry).toContain('import { email as vitehubEmail } from "vite-hub/email/server"')
       expect(filteredRegistry).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
-      expect(filteredRegistry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
+      expect(filteredRegistry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { blob: false, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
       expect(filteredRegistry).toContain('import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from "vite-hub/_internal/agent/server/internal"')
       expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(filteredRegistry).toContain('import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"')
