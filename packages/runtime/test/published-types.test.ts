@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { cp, mkdtemp, rm } from "node:fs/promises"
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -33,6 +33,11 @@ async function runProcess(command: string, args: string[], cwd: string): Promise
 beforeAll(async () => {
   consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-runtime-types-"))
   await cp(fixtureRoot, consumerRoot, { recursive: true })
+  const version = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")).version
+  const consumerManifestPath = join(consumerRoot, "package.json")
+  const consumerManifest = JSON.parse(await readFile(consumerManifestPath, "utf8"))
+  consumerManifest.dependencies["@vite-hub/runtime"] = `file:./vite-hub-runtime-${version}.tgz`
+  await writeFile(consumerManifestPath, `${JSON.stringify(consumerManifest, null, 2)}\n`)
   const packResults = await Promise.allSettled([runProcess("npm", [
     "pack",
     "--pack-destination",

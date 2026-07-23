@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -51,6 +51,15 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
 beforeAll(async () => {
   consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-auth-types-"))
   await cp(fixtureRoot, consumerRoot, { recursive: true })
+  const consumerManifestPath = join(consumerRoot, "package.json")
+  const consumerManifest = JSON.parse(await readFile(consumerManifestPath, "utf8"))
+  for (const name of packedPackages) {
+    const packageName = `@vite-hub/${name}`
+    if (!(packageName in consumerManifest.dependencies)) continue
+    const version = JSON.parse(await readFile(join(workspaceRoot, "packages", name, "package.json"), "utf8")).version
+    consumerManifest.dependencies[packageName] = `file:./vite-hub-${name}-${version}.tgz`
+  }
+  await writeFile(consumerManifestPath, `${JSON.stringify(consumerManifest, null, 2)}\n`)
   const packResults = await Promise.allSettled(packedPackages.map(name => (
     runPnpm(["pack", "--pack-destination", consumerRoot!], join(workspaceRoot, "packages", name))
   )))
