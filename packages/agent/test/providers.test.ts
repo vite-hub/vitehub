@@ -293,7 +293,7 @@ describe("agent Vite plugin", () => {
       await filteredConfigResolved({
         command: "serve",
         createResolver: () => async id => id === "vite-hub/email/server" || id === "vite-hub/_internal/kv" ? `/app/node_modules/${id}` : undefined,
-        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
+        plugins: [{ name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
       const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
@@ -306,6 +306,22 @@ describe("agent Vite plugin", () => {
       expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(filteredRegistry).toContain('import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"')
       expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
+
+      const composedBlobPlugin = hubAgent({
+        runtimeCapabilityImports: { blob: false },
+      } as never)
+      const composedBlobConfigResolved = composedBlobPlugin.configResolved as unknown as typeof configResolved
+      const composedBlobTransform = composedBlobPlugin.transform as typeof transform
+      await composedBlobConfigResolved({
+        command: "serve",
+        createResolver: () => async id => id === "@vite-hub/blob" ? `/app/node_modules/${id}` : undefined,
+        plugins: [{ name: "@vite-hub/blob/vite" }],
+        root,
+      })
+      const composedBlobRegistry = await composedBlobTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+      expect(composedBlobRegistry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(composedBlobRegistry).toContain("blob: vitehubBlob")
+      expect(composedBlobRegistry).not.toContain("blob: false")
     }
     finally {
       await rm(root, { force: true, recursive: true })

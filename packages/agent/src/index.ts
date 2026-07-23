@@ -571,6 +571,7 @@ type AgentDefinitionWithBaseResolve<
   [colocatedAgentSkillsSymbol]?: ColocatedAgentSkills
 }
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
+  capabilities?: Record<string, false>
   input: AgentRunInput<CALL_OPTIONS>
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeContext["runtime"]
@@ -693,6 +694,9 @@ async function runAgentAsWorkflow<
   const capabilityNames = Object.entries(context.capabilities || {})
     .filter(([, capability]) => capability !== false)
     .map(([name]) => name)
+  const disabledCapabilities = Object.fromEntries(
+    Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
+  ) as Record<string, false>
   // ponytail: Host capability handles and registries cannot cross a Workflow payload without losing identity.
   if ("discoveryDefault" in binding && capabilityNames.length) return undefined
 
@@ -706,6 +710,7 @@ async function runAgentAsWorkflow<
     : context.run
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
+    ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
     input: workflowInput,
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,

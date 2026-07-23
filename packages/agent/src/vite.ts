@@ -137,19 +137,23 @@ async function resolveGeneratedAgentRuntimeCapabilities(
   const candidates = generatedAgentRuntimeCapabilityDefinitions.filter(capability =>
     pluginNames.has(capability.pluginName) || packageImports[capability.name] === false
   )
+  const packageName = (capability: GeneratedAgentRuntimeCapability) =>
+    packageImports[capability.name] === false && pluginNames.has(capability.pluginName)
+      ? capability.packageName
+      : packageImports[capability.name] ?? capability.packageName
   const resolveImport = config.createResolver?.()
   if (!resolveImport) {
     return candidates.map(capability => ({
       ...capability,
-      packageName: packageImports[capability.name] ?? capability.packageName,
+      packageName: packageName(capability),
     }))
   }
   const importer = join(config.root, ".vitehub", "agent", "runtime-capabilities.js")
   const resolved = await Promise.all(candidates.map(async (capability) => {
-    const packageName = packageImports[capability.name] ?? capability.packageName
-    if (packageName === false) return { ...capability, packageName }
-    return await resolveImport(packageName, importer)
-      ? { ...capability, packageName }
+    const importName = packageName(capability)
+    if (importName === false) return { ...capability, packageName: importName }
+    return await resolveImport(importName, importer)
+      ? { ...capability, packageName: importName }
       : undefined
   }))
   return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)

@@ -267,7 +267,7 @@ function deploymentNitroModule(plan: DeploymentPlan, services: object, identity:
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
       if (plan.output.packaging === "deno-node-modules") {
-        await finalizeDenoDeploymentOutput({ outputDir, rootDir })
+        await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir })
       }
       await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
     })

@@ -9690,7 +9690,9 @@ describe("agent message protocol", () => {
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
-        "named-discovered": async () => ({ handler: async () => "registry" }),
+        "named-discovered": async () => ({
+          handler: async context => ({ marker: "registry", payload: context.payload }),
+        }),
       })
 
       const run = await runAgent(defineAgent({
@@ -9705,7 +9707,12 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
 
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("named-discovered", run.id)).resolves.toMatchObject({ result: "registry" })
+      await expect(getWorkflowRun("named-discovered", run.id)).resolves.toMatchObject({
+        result: {
+          marker: "registry",
+          payload: { capabilities: { blob: false } },
+        },
+      })
     })
 
     it("does not reuse cached discovered handles for direct Agent runs", async () => {
