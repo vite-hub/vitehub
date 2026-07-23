@@ -186,7 +186,7 @@ import "real"
     await writeFile(join(libvipsDir, "lib/index.js"), "export default {}\n", "utf8")
     await writeFile(join(libvipsDir, "lib/libvips-cpp.so.9"), "native", "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir })
+    await finalizeDenoDeploymentOutput({ deploymentName: "package-default", rootDir })
 
     expect(existsSync(join(outputDir, "node_modules", "@img", "sharp-linux-x64", "lib/sharp-linux-x64.node"))).toBe(true)
     expect(existsSync(join(outputDir, "node_modules", "@img", "sharp-libvips-linux-x64", "lib/libvips-cpp.so.9"))).toBe(true)
@@ -194,6 +194,7 @@ import "real"
       readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse),
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
+    expect(deployRunner).toContain('process.env.VITEHUB_DEPLOYMENT_NAME || "package-default"')
     for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.mjs", '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
   })

@@ -21,6 +21,7 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
   let nitro: Awaited<ReturnType<typeof createNitro>> | undefined
   try {
     await mkdir(join(root, "server/routes"), { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "netlify-fixture" }), "utf8")
     await writeFile(join(root, "server/routes/index.ts"), "export default defineEventHandler(() => 'ok')\n", "utf8")
     const config = await resolveConfig({
       root,
@@ -54,6 +55,10 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
     expect(missingNetlifyDeploymentOutputs, "Netlify must preserve Nitro output and emit the ViteHub deployment manifest").toEqual([])
     await expect(readFile(netlifyDeploymentPath, "utf8").then(JSON.parse)).resolves.toMatchObject({
       host: "netlify",
+      identity: {
+        name: "netlify-fixture",
+        source: "package.json",
+      },
       output: {
         directory: ".netlify",
         entry: "functions-internal/server/server.mjs",
@@ -80,10 +85,11 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
   const manualRateLimit = { name: "MANUAL", namespace_id: "9", simple: { limit: 1, period: 10 } }
   const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
   try {
-    process.env.VITEHUB_DEPLOYMENT_NAME = deploymentName
+    delete process.env.VITEHUB_DEPLOYMENT_NAME
     await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/api"), { recursive: true })
     await mkdir(join(root, "server/queues"), { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: deploymentName }), "utf8")
     await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
     await writeFile(join(root, "server/queues/image-optimization.ts"), "export default async () => undefined\n", "utf8")
     await writeFile(join(root, "server/api/upload.get.ts"), [
@@ -107,7 +113,6 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
         cloudflare: {
           wrangler: {
             containers: [manualContainer],
-            name: deploymentName,
             queues: {
               consumers: [{ queue: manualQueue }],
               producers: [{ binding: "MANUAL_QUEUE", queue: manualQueue }],
@@ -123,13 +128,13 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
         vitehub({
           preset: "cloudflare",
           agent: false,
-          blob: false,
+          blob: true,
           database: false,
           env: false,
           kv: false,
           queue: true,
           rateLimit: true,
-          sandbox: false,
+          sandbox: true,
           workflow: false,
           workspace: false,
         }),
@@ -145,7 +150,10 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
     })
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8"))
     expect(wrangler).toMatchObject({
-      containers: [manualContainer],
+      containers: expect.arrayContaining([
+        manualContainer,
+        expect.objectContaining({ name: `${deploymentName}-sandbox` }),
+      ]),
       name: deploymentName,
       ratelimits: [
         manualRateLimit,
@@ -155,7 +163,10 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
           simple: { limit: 5, period: 60 },
         },
       ],
-      r2_buckets: [manualBucket],
+      r2_buckets: expect.arrayContaining([
+        manualBucket,
+        { binding: "BLOB", bucket_name: deploymentName },
+      ]),
     })
     expect(wrangler.queues?.consumers).toEqual([
       { queue: manualQueue },

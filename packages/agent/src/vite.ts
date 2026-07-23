@@ -91,7 +91,7 @@ interface InternalAgentModuleOptions extends AgentModuleOptions {
   cloudflareStateImport?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
-  runtimeCapabilityImports?: Record<string, string>
+  runtimeCapabilityImports?: Record<string, false | string>
   scheduleRuntimeImport?: string
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
@@ -119,7 +119,7 @@ interface WorkspaceDependencyRuntimeImports {
 interface GeneratedAgentRuntimeCapability {
   importName: string
   name: string
-  packageName: string
+  packageName: false | string
   pluginName: string
 }
 
@@ -131,22 +131,29 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
 
 async function resolveGeneratedAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
-  packageImports: Record<string, string> = {},
+  packageImports: Record<string, false | string> = {},
 ): Promise<GeneratedAgentRuntimeCapability[]> {
   const pluginNames = new Set(config.plugins?.map(plugin => plugin.name))
-  const candidates = generatedAgentRuntimeCapabilityDefinitions.filter(capability => pluginNames.has(capability.pluginName))
+  const candidates = generatedAgentRuntimeCapabilityDefinitions.filter(capability =>
+    pluginNames.has(capability.pluginName) || packageImports[capability.name] === false
+  )
+  const packageName = (capability: GeneratedAgentRuntimeCapability) =>
+    packageImports[capability.name] === false && pluginNames.has(capability.pluginName)
+      ? capability.packageName
+      : packageImports[capability.name] ?? capability.packageName
   const resolveImport = config.createResolver?.()
   if (!resolveImport) {
     return candidates.map(capability => ({
       ...capability,
-      packageName: packageImports[capability.name] ?? capability.packageName,
+      packageName: packageName(capability),
     }))
   }
   const importer = join(config.root, ".vitehub", "agent", "runtime-capabilities.js")
   const resolved = await Promise.all(candidates.map(async (capability) => {
-    const packageName = packageImports[capability.name] ?? capability.packageName
-    return await resolveImport(packageName, importer)
-      ? { ...capability, packageName }
+    const importName = packageName(capability)
+    if (importName === false) return { ...capability, packageName: importName }
+    return await resolveImport(importName, importer)
+      ? { ...capability, packageName: importName }
       : undefined
   }))
   return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)
@@ -157,11 +164,15 @@ function generatedAgentRuntimeCapabilityAlias(capability: GeneratedAgentRuntimeC
 }
 
 function generatedAgentRuntimeCapabilityImports(capabilities: GeneratedAgentRuntimeCapability[]): string[] {
-  return capabilities.map(capability => `import { ${capability.importName} as ${generatedAgentRuntimeCapabilityAlias(capability)} } from ${JSON.stringify(capability.packageName)}`)
+  return capabilities.flatMap(capability => capability.packageName === false
+    ? []
+    : [`import { ${capability.importName} as ${generatedAgentRuntimeCapabilityAlias(capability)} } from ${JSON.stringify(capability.packageName)}`])
 }
 
 function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[], schedule: boolean): string {
-  const entries = capabilities.map(capability => `${capability.name}: ${generatedAgentRuntimeCapabilityAlias(capability)}`)
+  const entries = capabilities.map(capability =>
+    `${capability.name}: ${capability.packageName === false ? "false" : generatedAgentRuntimeCapabilityAlias(capability)}`
+  )
   if (schedule) entries.push("schedule: { schedules: vitehubSchedules }")
   return `{ ${entries.join(", ")} }`
 }
@@ -170,7 +181,9 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  const emailCapability = capabilities.find(capability => capability.name === "email")
+  const emailCapability = capabilities.find(capability =>
+    capability.name === "email" && capability.packageName !== false
+  )
   const emailPlugin = config.plugins?.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
     api?: { getDefinition?: () => { handler: string } | undefined }
   }
@@ -181,8 +194,10 @@ async function writeStandaloneAgentRuntimeCapabilities(
     return capabilities
   }
 
-  const emailImport = emailCapability.packageName.endsWith("/server")
-    ? emailCapability.packageName.slice(0, -"/server".length)
+  const emailPackageName = emailCapability.packageName
+  if (emailPackageName === false) return capabilities
+  const emailImport = emailPackageName.endsWith("/server")
+    ? emailPackageName.slice(0, -"/server".length)
     : "@vite-hub/email"
   await mkdir(dirname(runtimePath), { recursive: true })
   await writeFile(runtimePath, [

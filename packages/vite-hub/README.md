@@ -24,11 +24,14 @@ export default defineConfig({
 
 The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
 
-Blob is included when the selected preset has a built-in store. Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace remain opt-in:
+ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. `VITEHUB_DEPLOYMENT_NAME` remains a compatibility input, and conflicts with an explicit `name` fail configuration. Cloudflare uses this identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, and Sandbox name; explicit Worker, Blob bucket, driver, and store options still win.
+
+Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in:
 
 ```ts
 vitehub({
   agent: true,
+  blob: true,
   preset: "cloudflare",
   auth: true,
   database: true,

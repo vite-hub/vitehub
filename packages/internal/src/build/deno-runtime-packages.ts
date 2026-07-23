@@ -14,6 +14,7 @@ const denoRuntimeTargets = [
 ] as const
 
 interface FinalizeDenoDeploymentOutputOptions {
+  deploymentName?: string
   outputDir?: string
   rootDir: string
 }
@@ -304,14 +305,15 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-const denoDeployRunnerSource = `import { spawn } from "node:child_process"
+function denoDeployRunnerSource(deploymentName?: string): string {
+  return `import { spawn } from "node:child_process"
 import { access, cp, mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const organization = process.env.DENO_DEPLOY_ORG
-const app = process.env.DENO_DEPLOY_APP || process.env.VITEHUB_DEPLOYMENT_NAME
+const app = process.env.DENO_DEPLOY_APP || process.env.VITEHUB_DEPLOYMENT_NAME || ${JSON.stringify(deploymentName)}
 const region = process.env.DENO_DEPLOY_REGION || "global"
 
 if (!organization || !app) {
@@ -382,6 +384,7 @@ try {
   await rm(uploadRoot, { force: true, recursive: true })
 }
 `
+}
 
 export async function finalizeDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
@@ -407,5 +410,5 @@ export async function finalizeDenoDeploymentOutput(
     "utf8",
   )
   await writeFile(join(outputDir, "deno.json"), `${JSON.stringify(denoConfig, null, 2)}\n`, "utf8")
-  await writeFile(join(outputDir, "deploy.mjs"), denoDeployRunnerSource, "utf8")
+  await writeFile(join(outputDir, "deploy.mjs"), denoDeployRunnerSource(options.deploymentName), "utf8")
 }
