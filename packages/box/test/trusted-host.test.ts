@@ -148,7 +148,14 @@ describe("trustedHost", () => {
     expect(box.plan).toMatchObject({
       cache: { state: "disposable" },
       environment: {},
-      isolation: "none",
+      executionAuthority: {
+        credentials: "unknown",
+        environment: "selected",
+        filesystem: { access: "read-write", scope: "host" },
+        isolation: "none",
+        network: "unrestricted",
+        processes: "arbitrary",
+      },
       requirements: [{ command: "gh", name: "gh auth status" }],
       runtime: "trusted-host",
       workspace: { path: workspace, state: "authoritative" },

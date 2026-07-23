@@ -109,7 +109,8 @@ function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   if (!driver) return "unavailable"
   if (driver.kind === "model") return driver.model?.id ? `Model-backed Agent Driver (${driver.model.id})` : "Model-backed Agent Driver"
   if (driver.kind === "harness") return driver.harness?.provider ? `Harness-backed Agent Driver (${driver.harness.provider})` : "Harness-backed Agent Driver"
-  return "Custom-run Agent Driver"
+  if (driver.kind === "run") return "Custom-run Agent Driver"
+  return "Unknown Agent Driver"
 }
 
 function agentInfoNames(values: Array<{ name: string }>, fallback: string): string {

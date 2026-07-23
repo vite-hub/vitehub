@@ -25,6 +25,7 @@ import { hostname, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
+import type { ExecutionAuthority } from "@vite-hub/runtime";
 
 import type {
   BoxFileEntry,
@@ -90,6 +91,15 @@ const runtimeEnvironmentKeys = new Set([
   "XDG_STATE_HOME",
 ]);
 
+const trustedHostExecutionAuthority = {
+  credentials: "unknown",
+  environment: "selected",
+  filesystem: { access: "read-write", scope: "host" },
+  isolation: "none",
+  network: "unrestricted",
+  processes: "arbitrary",
+} as const satisfies ExecutionAuthority;
+
 export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
   return {
     name: "trusted-host",
@@ -98,8 +108,8 @@ export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
       return {
         cache: { state: "disposable" },
         environment: { env: {} },
+        executionAuthority: trustedHostExecutionAuthority,
         identity: input.identity,
-        isolation: "none",
         requirements: input.requirements.map(({ command, name }) => ({ command, name })),
         runtime: "trusted-host",
         workspace: cwd

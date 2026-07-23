@@ -5,6 +5,7 @@ import type {
   McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions,
   Source as SourcePackageSource,
 } from "@vite-hub/source"
+import type { ExecutionAuthority } from "@vite-hub/runtime"
 
 export type WorkspaceContent = string | Uint8Array
 export type WorkspaceContentStream = ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>
@@ -160,6 +161,7 @@ export interface WorkspaceSessionHostFiles {
 }
 
 export interface WorkspaceSessionHost {
+  readonly executionAuthority: ExecutionAuthority
   files: WorkspaceSessionHostFiles
   exec(
     command: string,
@@ -205,6 +207,7 @@ export interface ExecResult {
 }
 
 export interface WorkspaceSession {
+  readonly executionAuthority: ExecutionAuthority
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
   mkdir(path: string, options?: MkdirOptions): Promise<void>

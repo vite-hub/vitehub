@@ -42,4 +42,15 @@ const [error, result] = await runSandbox("release-notes", { notes: "ship it" })
 if (error) throw error
 ```
 
+Resolve a runner when orchestration needs to inspect the provider boundary before execution:
+
+```ts
+import { resolveSandboxRunner } from "@vite-hub/sandbox"
+
+const runner = await resolveSandboxRunner("release-notes")
+console.log(runner.executionAuthority)
+```
+
+The runner exposes the selected Box provider's complete `ExecutionAuthority` descriptor. A Sandbox Definition name and its structural command arguments choose work to run; they do not limit what that process can read, reach, inherit, or spawn.
+
 Add `hubSandbox()` to Vite for discovery, typed registry generation, package preparation plans, and host output. Provider images and full Dockerfile overrides belong to the selected Box adapter or host configuration; Sandbox Definitions stay portable.

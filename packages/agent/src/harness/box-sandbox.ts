@@ -2,6 +2,7 @@ import { posix } from "node:path"
 
 import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness"
 import type { Box, BoxProcess, BoxSession } from "@vite-hub/box"
+import type { ExecutionAuthority } from "@vite-hub/runtime"
 import { openHarnessBox } from "./shared-box.ts"
 
 function streamFromBytes(bytes: Uint8Array) {
@@ -123,8 +124,11 @@ async function adaptOrClose(session: BoxSession) {
   }
 }
 
-export function createBoxHarnessSandbox(box: Box): HarnessV1SandboxProvider {
+export function createBoxHarnessSandbox(
+  box: Box,
+): HarnessV1SandboxProvider & { readonly executionAuthority: ExecutionAuthority } {
   return {
+    executionAuthority: box.plan.executionAuthority,
     providerId: box.plan.runtime,
     specificationVersion: "harness-sandbox-v1",
     async createSession(options) {

@@ -1,8 +1,10 @@
 import type { BoxFiles, BoxSession } from '@vite-hub/box'
+import type { ExecutionAuthority } from '@vite-hub/runtime'
 
 export type SandboxExecutionProvider = 'cloudflare' | 'vercel'
 
 export interface SandboxExecutionBox {
+  readonly executionAuthority: ExecutionAuthority
   readonly id: string
   readonly files: BoxFiles
   readonly provider: SandboxExecutionProvider
@@ -23,6 +25,7 @@ export function createSandboxExecutionBox(
   provider: SandboxExecutionProvider,
 ): SandboxExecutionBox {
   return {
+    executionAuthority: session.executionAuthority,
     id: session.id,
     files: session.files,
     provider,

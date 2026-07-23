@@ -65,6 +65,19 @@ async function ownerFixture(pid: number) {
 }
 
 describe("local harness sandbox", () => {
+  it("declares whether it inherits the ambient environment", () => {
+    expect(createLocalHarnessSandbox().executionAuthority).toMatchObject({
+      credentials: "ambient",
+      environment: "ambient",
+      filesystem: { access: "read-write", scope: "host" },
+      isolation: "none",
+      network: "unrestricted",
+      processes: "arbitrary",
+    })
+    expect(createLocalHarnessSandbox({ env: { PATH: process.env.PATH } }).executionAuthority)
+      .toMatchObject({ credentials: "unknown", environment: "selected" })
+  })
+
   it("keeps session ids inside the local sandbox root", async () => {
     const session = await createLocalHarnessSandbox().createSession({ sessionId: "../../outside" })
 

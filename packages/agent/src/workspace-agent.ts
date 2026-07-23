@@ -1,4 +1,11 @@
 import { normalizeWorkspaceSourcesMetadata, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import {
+  isExecutionAuthority,
+  noExecutionAuthority,
+  normalizeExecutionAuthority,
+  unknownExecutionAuthority,
+  type ExecutionAuthority,
+} from "@vite-hub/runtime"
 
 import {
   capabilityWorkspaceSources,
@@ -45,6 +52,7 @@ import type {
   AgentInvokerProfile,
   AgentInput,
   AgentModelInput,
+  AgentRunCallbackContext,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -473,6 +481,70 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
+function declaredExecutionAuthority(value: unknown): ExecutionAuthority | undefined {
+  if (!isRecord(value)) return
+  const authority = value.executionAuthority
+  return isExecutionAuthority(authority) ? normalizeExecutionAuthority(authority) : undefined
+}
+
+function boxFileUsesInvocationCallback(value: unknown): boolean {
+  return isRecord(value) && typeof value.contents === "function"
+}
+
+function boxUsesInvocationCallbacks(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (typeof value.cwd === "function") return true
+  if (isRecord(value.checkout) && [value.checkout.ref, value.checkout.remote, value.checkout.sha].some(field => typeof field === "function")) return true
+  if (isRecord(value.env) && Object.values(value.env).some(field => typeof field === "function")) return true
+  if (!isRecord(value.home)) return false
+  if (isRecord(value.home.files) && Object.values(value.home.files).some(boxFileUsesInvocationCallback)) return true
+  if (!isRecord(value.home.state)) return false
+  return Object.values(value.home.state).some(state => isRecord(state)
+    && isRecord(state.seed)
+    && Object.values(state.seed).some(boxFileUsesInvocationCallback))
+}
+
+function staticDriverExecutionAuthority(
+  hasBox: boolean,
+  driver: { kind: AgentDriverKind, sandbox?: unknown },
+): ExecutionAuthority {
+  if (driver.kind !== "harness") return noExecutionAuthority
+  if (hasBox) return unknownExecutionAuthority
+  return declaredExecutionAuthority(driver.sandbox) ?? unknownExecutionAuthority
+}
+
+async function resolvedDriverExecutionAuthority<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  box: AgentSettings<TRuntimeConfig, CALL_OPTIONS>["box"],
+  driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
+  context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<ExecutionAuthority> {
+  if (driver.kind === "model") return noExecutionAuthority
+  if (driver.kind !== "harness") return unknownExecutionAuthority
+  if (box) {
+    if (context.input.options === undefined && boxUsesInvocationCallbacks(box)) return unknownExecutionAuthority
+    const { resolveBox } = await import("@vite-hub/box")
+    const resolvedBox = await resolveBox(box, context, { requires: driver.requires })
+    return resolvedBox.plan.executionAuthority
+  }
+  const provider = typeof driver.sandbox === "function"
+    ? context.input.options === undefined ? undefined : await driver.sandbox(context)
+    : driver.sandbox
+  if (provider !== undefined) {
+    return declaredExecutionAuthority(provider) ?? unknownExecutionAuthority
+  }
+  if (context.runtime === "cloudflare-agents" || context.runtime === "deno") {
+    return noExecutionAuthority
+  }
+  if (context.runtime === "vite" || context.runtime === "vercel") {
+    const { createLocalHarnessSandbox } = await import("./harness/local-sandbox.ts")
+    return createLocalHarnessSandbox({ env: {} }).executionAuthority
+  }
+  return unknownExecutionAuthority
+}
+
 function agentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -581,10 +653,11 @@ function staticDriverMetadata<
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined): AgentInspectionDriverMetadata | undefined {
-  if (!settings) return
+  if (!settings) return { executionAuthority: unknownExecutionAuthority, kind: "unknown" }
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "model") {
     return {
+      executionAuthority: noExecutionAuthority,
       ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
       kind: "model",
       model: modelMetadata(typeof driver.model === "function" ? undefined : driver.model, typeof driver.model === "function"),
@@ -593,11 +666,12 @@ function staticDriverMetadata<
   if (driver.kind === "harness") {
     const harness = harnessMetadata(driver)
     return {
+      executionAuthority: staticDriverExecutionAuthority(Boolean(settings.box), driver),
       ...(harness ? { harness } : {}),
       kind: "harness",
     }
   }
-  return { kind: "run" }
+  return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
 async function resolvedDriverMetadata<
@@ -607,7 +681,7 @@ async function resolvedDriverMetadata<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
   settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined,
-  context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
+  context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentInspectionDriverMetadata | undefined> {
   if (!settings) return
   const driver = normalizeAgentDriver(settings)
@@ -617,6 +691,7 @@ async function resolvedDriverMetadata<
       ? await (driver.model as (context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => AgentModelInput | Promise<AgentModelInput>)(context)
       : driver.model
     return {
+      executionAuthority: noExecutionAuthority,
       ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
       kind: "model",
       model: modelMetadata(model, dynamic),
@@ -625,11 +700,12 @@ async function resolvedDriverMetadata<
   if (driver.kind === "harness") {
     const harness = harnessMetadata(driver)
     return {
+      executionAuthority: await resolvedDriverExecutionAuthority(settings.box, driver, context),
       ...(harness ? { harness } : {}),
       kind: "harness",
     }
   }
-  return { kind: "run" }
+  return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
 function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
@@ -644,7 +720,7 @@ async function resolvedConfigMetadata<
   Name extends WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
+  context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentInspectionConfigMetadata | undefined> {
   const driver = await resolvedDriverMetadata(agentSettings(definition), context)
   return driver ? { driver } : undefined
@@ -1305,9 +1381,10 @@ async function resolveWorkspaceMetadataCapabilityContext<
       context: invocationContext,
       driver: { kind: driverKind },
       fs: metadataWorkspace.fs,
+      input,
       invoker,
       workspace: metadataWorkspace,
-    } satisfies AgentAdapterMetadataContext<TRuntimeConfig, Name>,
+    } satisfies AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
     options: {
       ...workspaceOptionsFromDefinition(options, resolvedDefinition),
       capabilities: capabilityDefinitions,
@@ -1359,11 +1436,34 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     phases: ["prepare"],
     resolveTools: false,
   })
-  return await withMetadataCapabilityCleanup(capabilities, async () => ({
-    files: [],
-    ...agentInspectionMetadata(definition as never),
-    tools: capabilityMetadataTools(selection.capabilities, { driverKind: selection.driverKind }),
-  }))
+  return await withMetadataCapabilityCleanup(capabilities, async () => {
+    const context = {
+      ...agentInvocationCallbackContextValues(selection.invocationContext),
+      ...agentCallbackContext(selection.runtime),
+      actor: selection.invoker,
+      context: selection.invocationContext,
+      driver: { kind: selection.driverKind },
+      input: selection.input,
+      invoker: selection.invoker,
+    } as AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>
+    const staticConfig = staticConfigMetadata(definition)
+    const config = staticConfig && {
+      driver: {
+        ...staticConfig.driver,
+        executionAuthority: await resolvedDriverExecutionAuthority(
+          settings.box,
+          normalizeAgentDriver(settings),
+          context,
+        ),
+      },
+    }
+    return {
+      files: [],
+      ...agentInspectionMetadata(definition as never),
+      ...(config ? { config } : {}),
+      tools: capabilityMetadataTools(selection.capabilities, { driverKind: selection.driverKind }),
+    }
+  })
 }
 
 export function createAgentInspectionMetadata<

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
 const harnessObservation = vi.hoisted(() => ({ before: undefined as string | undefined, command: false, exitCode: undefined as number | undefined, live: undefined as string | undefined }))
@@ -293,8 +294,8 @@ describe("Agent Box", () => {
             return {
               cache: { state: "disposable" as const },
               environment: { env: {} },
+              executionAuthority: unknownExecutionAuthority,
               identity,
-              isolation: "none" as const,
               requirements: [],
               runtime: "path-only",
               workspace: { path: "/workspace", state: "authoritative" as const, workDir: "workspace" as const },
@@ -328,8 +329,8 @@ describe("Agent Box", () => {
             return {
               cache: { state: "disposable" as const },
               environment: { env: {} },
+              executionAuthority: unknownExecutionAuthority,
               identity,
-              isolation: "none" as const,
               requirements: [],
               runtime: "workspace-host",
               workspace: { path: "/workspace", state: "authoritative" as const, workDir: "workspace" as const },
@@ -362,8 +363,8 @@ describe("Agent Box", () => {
             return {
               cache: { state: "disposable" as const },
               environment: { env: {} },
+              executionAuthority: unknownExecutionAuthority,
               identity,
-              isolation: "microvm" as const,
               requirements: [],
               runtime: "workspace-host",
               workspace: { state: "disposable" as const, workDir: "." as const },

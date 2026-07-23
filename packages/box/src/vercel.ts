@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
+import type { ExecutionAuthority } from "@vite-hub/runtime";
 
 import type { Box, BoxFileEntry, BoxRuntime } from "./index.ts";
 import {
@@ -102,10 +103,11 @@ export interface VercelFileStat {
 
 export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
   const runtime = options.runtime ?? "node24";
+  const executionAuthority = vercelExecutionAuthority(options.networkPolicy);
   return {
     name: "vercel",
     async prepare(input) {
-      return remoteBoxPlan(input, { isolation: "microvm", runtime: "vercel" });
+      return remoteBoxPlan(input, { executionAuthority, runtime: "vercel" });
     },
     async open(input, openOptions) {
       const workspace = options.source ? "/vercel/sandbox" : "/workspace";
@@ -132,8 +134,8 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
         workspace,
       );
       return await openRemoteBox(input, runtimeSession, {
+        executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
-        isolation: "microvm",
         runtime: "vercel",
         workspace,
         preserveWorkspace: Boolean(options.source),
@@ -141,6 +143,45 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
       });
     },
   };
+}
+
+function vercelExecutionAuthority(
+  networkPolicy: VercelBoxNetworkPolicy | undefined,
+): ExecutionAuthority {
+  const network = networkPolicy === "deny-all"
+    ? "none"
+    : networkPolicy === undefined || networkPolicy === "allow-all"
+      ? "unrestricted"
+      : allowsAllNetworkDestinations(networkPolicy)
+        ? "unrestricted"
+        : hasEffectiveNetworkPolicy(networkPolicy)
+          ? "restricted"
+          : "unknown";
+  return {
+    credentials: "unknown",
+    environment: "selected",
+    filesystem: { access: "read-write", scope: "sandbox" },
+    isolation: "microvm",
+    network,
+    processes: "arbitrary",
+  };
+}
+
+function allowsAllNetworkDestinations(
+  networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
+): boolean {
+  if (networkPolicy.subnets?.deny?.length) return false;
+  const allow = networkPolicy.allow;
+  return Array.isArray(allow) ? allow.includes("*") : Boolean(allow && "*" in allow);
+}
+
+function hasEffectiveNetworkPolicy(
+  networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
+): boolean {
+  const allow = networkPolicy.allow;
+  if (Array.isArray(allow) && allow.length > 0) return true;
+  if (allow && !Array.isArray(allow) && Object.keys(allow).length > 0) return true;
+  return Boolean(networkPolicy.subnets?.allow?.length || networkPolicy.subnets?.deny?.length);
 }
 
 export async function resolveVercelBox(

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import { createBoxHarnessSandbox } from "../src/harness/box-sandbox.ts"
 import { shareBoxSessions } from "../src/harness/shared-box.ts"
@@ -132,8 +133,8 @@ function plan() {
   return {
     cache: { state: "disposable" as const },
     environment: { env: {} },
+    executionAuthority: unknownExecutionAuthority,
     identity: "fixture",
-    isolation: "microvm" as const,
     requirements: [],
     runtime: "fixture",
     workspace: { state: "disposable" as const, workDir: "." as const },
@@ -144,6 +145,7 @@ function boxSession(overrides: Partial<BoxSession> = {}): BoxSession {
   return {
     id: "physical-session",
     cwd: "/workspace",
+    executionAuthority: unknownExecutionAuthority,
     files: {
       async exists() { return false },
       async list() { return [] },

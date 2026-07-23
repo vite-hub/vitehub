@@ -1,4 +1,5 @@
 import type { Box, BoxFileEntry, BoxRuntime } from "./index.ts";
+import type { ExecutionAuthority } from "@vite-hub/runtime";
 import {
   openRemoteBox,
   remoteBoxPlan,
@@ -85,13 +86,25 @@ export interface CloudflareSandboxStub {
   ): Promise<{ success: boolean } | void>;
 }
 
+const cloudflareExecutionAuthority = {
+  credentials: "unknown",
+  environment: "selected",
+  filesystem: { access: "read-write", scope: "sandbox" },
+  isolation: "container",
+  network: "unknown",
+  processes: "arbitrary",
+} as const satisfies ExecutionAuthority;
+
 export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
   if (!options?.namespace)
     throw new TypeError("[vitehub] cloudflareBox() requires a Durable Objects namespace.");
   return {
     name: "cloudflare",
     async prepare(input) {
-      return remoteBoxPlan(input, { isolation: "container", runtime: "cloudflare" });
+      return remoteBoxPlan(input, {
+        executionAuthority: cloudflareExecutionAuthority,
+        runtime: "cloudflare",
+      });
     },
     async open(input, openOptions) {
       const env = await resolveRemoteEnvironment(input, {});
@@ -100,8 +113,8 @@ export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
       const stub = getSandbox(options.namespace, id, options.cloudflare);
       const runtimeSession = createCloudflareSession(id, stub, env, options.hostname);
       return await openRemoteBox(input, runtimeSession, {
+        executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
-        isolation: "container",
         runtime: "cloudflare",
         signal: openOptions?.signal,
       });

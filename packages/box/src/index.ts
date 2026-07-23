@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
+import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 
 export type BoxRequirement =
   | string
@@ -48,7 +49,7 @@ export interface BoxDefinition<Context = unknown> {
 
 export interface BoxRuntime {
   readonly name: string;
-  open(input: BoxRuntimeInput, options?: BoxOpenOptions): Promise<BoxSession>;
+  open(input: BoxRuntimeInput, options: BoxRuntimeOpenOptions): Promise<BoxSession>;
   prepare(input: BoxRuntimeInput): Promise<BoxPlan>;
 }
 
@@ -59,6 +60,10 @@ export interface BoxOpenOptions {
     context: { signal?: AbortSignal },
   ) => Promise<void>;
   signal?: AbortSignal;
+}
+
+export interface BoxRuntimeOpenOptions extends BoxOpenOptions {
+  readonly executionAuthority: ExecutionAuthority;
 }
 
 export interface BoxExecOptions {
@@ -122,6 +127,7 @@ export interface BoxPorts {
 
 export interface BoxSession {
   readonly cwd: string;
+  readonly executionAuthority: ExecutionAuthority;
   readonly files: BoxFiles;
   readonly id: string;
   readonly ports?: BoxPorts;
@@ -189,8 +195,8 @@ export interface BoxPlan {
     readonly state: "disposable";
   };
   readonly environment: BoxEnvironment;
+  readonly executionAuthority: ExecutionAuthority;
   readonly identity: string;
-  readonly isolation: "container" | "microvm" | "none" | "process";
   readonly requirements: readonly BoxResolvedRequirement[];
   readonly runtime: string;
   readonly workspace: {
@@ -263,12 +269,24 @@ export async function resolveBox<Context>(
     requirements,
   };
   const prepared = await definition.runtime.prepare(input);
+  let executionAuthority: ExecutionAuthority;
+  try {
+    executionAuthority = normalizeExecutionAuthority(prepared.executionAuthority);
+  } catch {
+    throw new TypeError(
+      `[vitehub] Box runtime ${definition.runtime.name} must declare executionAuthority.`,
+    );
+  }
+  const boxPlan = Object.freeze({ ...prepared, executionAuthority });
   return Object.freeze({
     async open(options?: BoxOpenOptions) {
       options?.signal?.throwIfAborted();
-      return await definition.runtime.open(input, options);
+      return await definition.runtime.open(input, {
+        ...options,
+        executionAuthority: boxPlan.executionAuthority,
+      });
     },
-    plan: prepared,
+    plan: boxPlan,
   });
 }
 

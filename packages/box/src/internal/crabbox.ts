@@ -4,6 +4,7 @@ import { cp, lstat, mkdtemp, readFile, realpath, rename, rm, rmdir, stat, writeF
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
+import type { ExecutionAuthority } from "@vite-hub/runtime"
 
 import type {
   BoxPlan,
@@ -83,6 +84,15 @@ const runtimeEnvironmentKeys = new Set([
   "XDG_STATE_HOME",
 ]);
 
+const crabboxExecutionAuthority = {
+  credentials: "unknown",
+  environment: "selected",
+  filesystem: { access: "read-write", scope: "host" },
+  isolation: "none",
+  network: "unrestricted",
+  processes: "arbitrary",
+} as const satisfies ExecutionAuthority
+
 export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
   return {
     name: "crabbox",
@@ -91,8 +101,8 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
       return {
         cache: { state: "disposable" },
         environment: { env: {} },
+        executionAuthority: crabboxExecutionAuthority,
         identity: input.identity,
-        isolation: "none",
         requirements: input.requirements.map(({ command, name }) => ({ command, name })),
         runtime: "crabbox",
         workspace: workspace

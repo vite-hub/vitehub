@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
-import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority } from "@vite-hub/runtime"
 import { chat, title, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
@@ -2474,8 +2474,8 @@ describe("agent message protocol", () => {
             return {
               cache: { state: "disposable" },
               environment: { env: {} },
+              executionAuthority: unknownExecutionAuthority,
               identity,
-              isolation: "none",
               requirements: [],
               runtime: "test",
               workspace: { path: cwd, state: "authoritative", workDir: "workspace" },
