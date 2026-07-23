@@ -3,9 +3,11 @@ import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
+import { H3Event, toResponse } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
@@ -620,6 +622,7 @@ describe("hubBlob", () => {
     } as never)
 
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
+    expect(handler).toContain("import { defineCachedHandler } from 'nitro/cache'")
     expect(handler).toContain("const storeName = \"media\"")
     expect(handler).toContain("const responseHeaders = {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
     expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
@@ -627,9 +630,89 @@ describe("hubBlob", () => {
     expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
     expect(handler).toContain("for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)")
     expect(handler).toContain("throw error")
+    expect(handler).toContain("}, { headersOnly: true, maxAge: 0 })")
     expect(handler.indexOf("setResponseHeaders(event, responseHeaders)")).toBeLessThan(
       handler.indexOf("blob.store(storeName).serve(event, pathname)"),
     )
+  })
+
+  it.each([
+    {
+      expectedCacheControl: "public, max-age=0, s-maxage=0",
+      headers: undefined,
+      name: "default",
+    },
+    {
+      expectedCacheControl: "private, max-age=60",
+      headers: { "Cache-Control": "private, max-age=60" },
+      name: "configured",
+    },
+  ])("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headers }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-cached-route-"))
+    try {
+      const plugin = hubBlob({
+        driver: "fs",
+        importBase: "virtual:blob-test",
+        serve: { headers },
+      } as never)
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
+        build: { outDir: "dist" },
+        root,
+      } as never)
+
+      const artifactFile = join(root, "serve-route.mjs")
+      await bundle({
+        bundle: true,
+        entryPoints: [join(root, ".vitehub", "blob", "serve-route.ts")],
+        format: "esm",
+        logLevel: "silent",
+        nodePaths: [join(workspaceRoot, "node_modules")],
+        outfile: artifactFile,
+        platform: "node",
+        plugins: [{
+          name: "blob-route-stub",
+          setup(build) {
+            build.onResolve({ filter: /^virtual:blob-test$/ }, () => ({
+              namespace: "blob-route-stub",
+              path: "blob",
+            }))
+            build.onLoad({ filter: /.*/, namespace: "blob-route-stub" }, () => ({
+              contents: [
+                "export const blob = {",
+                "  store(name) {",
+                "    if (name !== 'default') throw new Error(`Unexpected store: ${name}`)",
+                "    return {",
+                "      serve(_event, pathname) {",
+                "        if (pathname !== 'binary.bin') throw new Error(`Unexpected pathname: ${pathname}`)",
+                "        return new Response(new Uint8Array([0, 128, 255, 195, 40]), {",
+                "          headers: { 'Content-Type': 'application/octet-stream' },",
+                "        })",
+                "      },",
+                "    }",
+                "  },",
+                "}",
+              ].join("\n"),
+              loader: "js",
+            }))
+          },
+        }],
+        target: "node24",
+      })
+
+      const artifact = await import(pathToFileURL(artifactFile).href) as {
+        default: (event: H3Event) => Promise<Response>
+      }
+      const event = new H3Event(new Request("http://localhost/i/binary.bin"))
+      event.context.params = { _: "binary.bin" }
+      const response = await toResponse(await artifact.default(event), event)
+
+      expect(response.headers.get("Cache-Control")).toBe(expectedCacheControl)
+      expect(response.headers.get("Content-Type")).toBe("application/octet-stream")
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 128, 255, 195, 40]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("uses a configured package base in physical Nitro imports", async () => {
