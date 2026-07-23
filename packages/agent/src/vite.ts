@@ -837,11 +837,13 @@ async function generateAgentDeploymentCatalog(
   options: {
     agentImportBase: string
     channelHandlers?: boolean
+    chatHandlers?: boolean
     workspaceImportBase: string
     workspaceRuntimeImport?: string
   },
 ): Promise<GeneratedAgentDeploymentCatalog> {
   const channelHandlers = options.channelHandlers !== false
+  const chatHandlers = channelHandlers && options.chatHandlers !== false
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
@@ -869,7 +871,9 @@ async function generateAgentDeploymentCatalog(
   return {
     imports: [
       `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
-      ...(channelHandlers ? [`import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`] : []),
+      ...(channelHandlers
+        ? [`import { ${chatHandlers ? "createChannelChatRouteHandler, " : ""}createChannelWebhookRouteHandler${chatHandlers ? ", hasChannelChatRoute" : ""} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
+        : []),
       ...(options.workspaceRuntimeImport ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
@@ -879,7 +883,7 @@ async function generateAgentDeploymentCatalog(
       "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
       "}",
       "",
-      ...(channelHandlers
+      ...(chatHandlers
         ? [
             "function resolveChatRouteOptions(module) {",
             "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
@@ -904,8 +908,12 @@ async function generateAgentDeploymentCatalog(
       `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
       ...(channelHandlers
         ? [
-            `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
-            "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
+            ...(chatHandlers
+              ? [
+                  `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
+                  "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
+                ]
+              : ["const chatHandlers = {}"]),
             "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
           ]
         : []),
@@ -927,6 +935,7 @@ async function generateAgentWebhookRouteHandler(
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
+    chatHandlers: Boolean(options.chatRoute),
     workspaceImportBase,
     workspaceRuntimeImport: subpath(workspaceImportBase, "runtime"),
   })
@@ -996,6 +1005,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
+    chatHandlers: Boolean(options.chatRoute),
     workspaceImportBase,
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
@@ -1038,11 +1048,12 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "export default async function viteHubAgentNetlifyFunction(request, context) {",
     "  ensureNetlifyHostingEnv()",
     "  const pathname = new URL(request.url).pathname",
+    "  const isChatRoute = chatRoutePattern.test(pathname)",
     "  const isDiscordGatewayRoute = discordGatewayRoutePattern.test(pathname)",
     "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
     "  const agent = netlifyParam(context, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
     `  const webhook = ${webhookSelector}`,
-    "  const handler = agent ? (isDiscordGatewayRoute ? discordGatewayHandlers[agent] : isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
+    "  const handler = agent ? (isDiscordGatewayRoute ? discordGatewayHandlers[agent] : isWebhookRoute ? webhookHandlers[agent] : isChatRoute ? chatHandlers[agent] : undefined) : undefined",
     "  if (!handler) {",
     "    return Response.json({ message: 'Unknown ViteHub agent.', status: 404 }, { status: 404 })",
     "  }",
@@ -1188,6 +1199,7 @@ async function generateAgentDenoServer(
   const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
+    chatHandlers: Boolean(options.chatRoute),
     workspaceImportBase,
     workspaceRuntimeImport: definitions.some(definition => definition.workspace)
       ? subpath(workspaceImportBase, "runtime")
@@ -1527,7 +1539,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
       const nitroHandlers = [
-        ...(resolved && hasHostedAgents && !denoOutput
+        ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{
               handler: generatedAgentWebhookRouteHandler,
               route: normalizeNitroRoute(resolved.routes.chat),

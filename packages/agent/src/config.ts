@@ -14,6 +14,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
     return false
   }
 
+  const chatRoute = normalizeAgentRouteOption(options?.routes?.chat, defaultAgentChatRoute)
   const discordGatewayRoute = normalizeAgentRouteOption(options?.routes?.discordGateway, defaultAgentDiscordGatewayRoute)
   return {
     execution: options?.execution || "inline",
@@ -35,7 +36,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
       },
     },
     routes: {
-      chat: defaultAgentChatRoute,
+      chat: chatRoute,
       discordGateway: discordGatewayRoute,
       webhooks: defaultAgentWebhookRoute,
     },

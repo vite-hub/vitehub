@@ -23,6 +23,7 @@
   },
   "files": [
     "dist",
+    "tsconfig.json",
     "package.json"
   ],
   "type": "module",
@@ -119,12 +120,13 @@
     "./workspace/publish": "./dist/workspace/publish.js",
     "./workspace/runtime": "./dist/workspace/runtime.js",
     "./workspace/server": "./dist/workspace/server.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./tsconfig": "./tsconfig.json"
   },
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {

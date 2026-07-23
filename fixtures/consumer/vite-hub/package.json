@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build && vite build --ssr server-entry.ts --outDir dist/server",
+    "postinstall": "vitehub types prepare",
     "smoke": "node runtime-smoke.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

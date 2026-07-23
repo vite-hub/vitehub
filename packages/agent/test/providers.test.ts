@@ -425,7 +425,7 @@ describe("agent Vite plugin", () => {
             url: "libsql://state.example.test",
           },
         },
-        routes: { discordGateway: true },
+        routes: { chat: true, discordGateway: true },
         workflowImportBase: "vite-hub/_internal/workflow",
         workspaceDependencyRuntimeImports: {
           sandbox: "vite-hub/sandbox",
@@ -522,6 +522,82 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("publishes Netlify chat paths only when configured", async () => {
+    const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
+    const { hubAgent } = await import("../src/vite.ts")
+    const previousHosting = process.env.VITEHUB_HOSTING
+    process.env.VITEHUB_HOSTING = "netlify"
+
+    try {
+      for (const testCase of [
+        { chat: undefined, expectedPattern: "(?!)", expectedPaths: "/api/_vitehub/agents/:agent/webhooks/:webhook" },
+        { chat: false, expectedPattern: "(?!)", expectedPaths: "/api/_vitehub/agents/:agent/webhooks/:webhook" },
+        {
+          chat: true,
+          expectedPattern: "^/api/_vitehub/agents/[^/]+/chat$",
+          expectedPaths: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+        },
+        {
+          chat: "/chat/[agent]",
+          expectedPattern: "^/chat/[^/]+$",
+          expectedPaths: ["/chat/:agent", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+        },
+      ] as const) {
+        const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-chat-route-"))
+        try {
+          await mkdir(join(root, "server", "agents"), { recursive: true })
+          await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+          const routes = testCase.chat === undefined ? undefined : { chat: testCase.chat }
+          const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes } as never)
+          const configResolved = plugin.configResolved as unknown as (config: {
+            agent?: unknown
+            build?: { outDir?: string }
+            command: "build"
+            resolve: { alias: Array<{ find: string, replacement: string }> }
+            root: string
+          }) => Promise<void>
+          const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+          vi.mocked(writeProviderDeploymentOutputs).mockClear()
+
+          await configResolved({
+            agent: { providers: { state: { provider: "memory" } }, routes },
+            build: { outDir: "dist/client" },
+            command: "build",
+            resolve: { alias: [] },
+            root,
+          })
+          await closeBundle.handler()
+
+          const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+          expect(wrapper).toContain(`const chatRoutePattern = new RegExp(${JSON.stringify(testCase.expectedPattern)})`)
+          expect(wrapper).toContain("const isChatRoute = chatRoutePattern.test(pathname)")
+          expect(wrapper).toContain("isDiscordGatewayRoute ? discordGatewayHandlers[agent] : isWebhookRoute ? webhookHandlers[agent] : isChatRoute ? chatHandlers[agent] : undefined")
+          if (testCase.chat) {
+            expect(wrapper).toContain("createChannelChatRouteHandler")
+          }
+          else {
+            expect(wrapper).not.toContain("createChannelChatRouteHandler")
+            expect(wrapper).toContain("const chatHandlers = {}")
+          }
+          expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
+            netlify: expect.objectContaining({
+              functions: [expect.objectContaining({
+                config: expect.objectContaining({ path: testCase.expectedPaths }),
+              })],
+            }),
+          }))
+        }
+        finally {
+          await rm(root, { force: true, recursive: true })
+        }
+      }
+    }
+    finally {
+      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
+    }
+  })
+
   it("writes Netlify provider output during Netlify local dev", async () => {
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
@@ -537,6 +613,7 @@ describe("agent Vite plugin", () => {
         providerImportAliases: {
           "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
         },
+        routes: { chat: true },
       } as never)
       const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "serve", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
@@ -622,27 +699,36 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("registers hosted agent routes with Nitro", async () => {
+  it("publishes Nitro chat routes only when configured", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent()
-    const result = typeof plugin.config === "function"
-      ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
-      : undefined
+    const handlers = async (chat?: boolean | string) => {
+      const plugin = hubAgent(chat === undefined ? undefined : { routes: { chat } })
+      const result = typeof plugin.config === "function"
+        ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+        : undefined
+      return (result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers
+    }
+    const webhook = {
+      handler: ".vitehub/agent/chat-webhook-route.ts",
+      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+    }
 
-    expect(result).toMatchObject({
-      nitro: {
-        handlers: [
-          {
-            handler: ".vitehub/agent/chat-webhook-route.ts",
-            route: "/api/_vitehub/agents/:agent/chat",
-          },
-          {
-            handler: ".vitehub/agent/chat-webhook-route.ts",
-            route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
-          },
-        ],
+    await expect(handlers()).resolves.toEqual([webhook])
+    await expect(handlers(false)).resolves.toEqual([webhook])
+    await expect(handlers(true)).resolves.toEqual([
+      {
+        handler: ".vitehub/agent/chat-webhook-route.ts",
+        route: "/api/_vitehub/agents/:agent/chat",
       },
-    })
+      webhook,
+    ])
+    await expect(handlers("/chat/[agent]")).resolves.toEqual([
+      {
+        handler: ".vitehub/agent/chat-webhook-route.ts",
+        route: "/chat/:agent",
+      },
+      webhook,
+    ])
   })
 
   it("does not register agent routes without hosted Agents", async () => {
@@ -973,7 +1059,7 @@ describe("agent Vite plugin", () => {
 
   it("keeps automatic chat state host-neutral for Vercel hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent()
+    const plugin = hubAgent({ routes: { chat: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {
           preset: "vercel",
@@ -1056,7 +1142,7 @@ describe("agent Vite plugin", () => {
 
   it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes: { chat: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
       : undefined
@@ -1126,7 +1212,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent()
+      const plugin = hubAgent({ routes: { chat: true } })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { command: "serve", root } as never)
       }
@@ -1177,6 +1263,8 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
+      expect(webhookRoute).not.toContain("createChannelChatRouteHandler")
+      expect(webhookRoute).toContain("const chatHandlers = {}")
       expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
     }
@@ -1422,13 +1510,49 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("publishes Deno chat routes only when configured", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+
+    for (const testCase of [
+      { chat: undefined, expectedPattern: "(?!)" },
+      { chat: false, expectedPattern: "(?!)" },
+      { chat: true, expectedPattern: "^/api/_vitehub/agents/(?<agent>[^/]+)/chat$" },
+      { chat: "/chat/[agent]", expectedPattern: "^/chat/(?<agent>[^/]+)$" },
+    ] as const) {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-chat-route-"))
+      try {
+        await mkdir(join(root, "server", "agents"), { recursive: true })
+        await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+        const routes = testCase.chat === undefined ? undefined : { chat: testCase.chat }
+        const plugin = hubAgent({ routes, runtime: "deno" } as never)
+        if (typeof plugin.configResolved === "function") {
+          await plugin.configResolved.call({} as never, { root } as never)
+        }
+
+        const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
+        expect(denoServer).toContain(`const chatRoutePattern = new RegExp(${JSON.stringify(testCase.expectedPattern)})`)
+        expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
+        if (testCase.chat) {
+          expect(denoServer).toContain("createChannelChatRouteHandler")
+        }
+        else {
+          expect(denoServer).not.toContain("createChannelChatRouteHandler")
+          expect(denoServer).toContain("const chatHandlers = {}")
+        }
+      }
+      finally {
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+  })
+
   it("writes generated Deno server output for chat and webhook routes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-routes-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ runtime: "deno" })
+      const plugin = hubAgent({ routes: { chat: true }, runtime: "deno" })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { root } as never)
       }

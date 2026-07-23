@@ -49,6 +49,9 @@ export default defineConfig({
     exports: {
       exclude: ["bin"],
       bin: distributionBinEntries,
+      customExports: {
+        "./tsconfig": "./tsconfig.json",
+      },
       inlinedDependencies: false,
     },
     outExtensions: () => ({

@@ -53,6 +53,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/shell/providers/cloudflare` and `vite-hub/shell/providers/just-bash` | Cloudflare and Just Bash Shell providers. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
 | `vite-hub/source` | Source Definitions, loaders, and registry APIs. |
+| `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, runtime facades, and registry APIs. |
 | `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |

@@ -60,6 +60,29 @@ The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.
 
 The Deno preset emits `.output/deno.json`, stages emitted runtime packages and installed optional native dependencies under `.output/node_modules`, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` plus `DENO_DEPLOY_APP` or `VITEHUB_DEPLOYMENT_NAME` before deployment. The runner uploads node modules when it creates or updates an app. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
 
+## Configure TypeScript
+
+Extend `vite-hub/tsconfig` to load ViteHub's generated declarations without adding `.vitehub` to your application `include`. This config requires TypeScript 5.5 or newer.
+
+```json
+{
+  "extends": ["vite-hub/tsconfig"],
+  "include": ["server/**/*.ts", "vite.config.ts"]
+}
+```
+
+Run `vitehub types prepare` after installation so editors have `.vitehub/types.d.ts` before the first dev build:
+
+```json
+{
+  "scripts": {
+    "postinstall": "vitehub types prepare"
+  }
+}
+```
+
+Vite config resolution and builds also refresh the entry. Defining `files` in the application config replaces the inherited entry, so include `.vitehub/types.d.ts` there when taking ownership of `files`.
+
 ## Use feature APIs
 
 ```ts

@@ -148,7 +148,7 @@ import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
+  plugins: [hubWorkspace(), hubAgent({ routes: { chat: true } })],
 });
 ```
 
@@ -160,7 +160,7 @@ Pass `--json` for the structured inspection contract.
 
 ## Capabilities
 
-- A `webChat()` Channel exposes the generated web chat route. Use `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
+- Set `routes.chat` on `hubAgent()` to publish the web chat dispatcher, then use a `webChat()` Channel on each Agent that should answer it. Use `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
 - `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.

@@ -175,12 +175,13 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
   return [
     `import { blob } from '${importBase}'`,
-    `import { createError, defineEventHandler, getRouterParam${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
+    `import { createError, getRouterParam${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
+    "import { defineCachedHandler } from 'nitro/cache'",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
     "",
-    "export default defineEventHandler(async (event) => {",
+    "export default defineCachedHandler(async (event) => {",
     "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
     "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
     ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
@@ -195,7 +196,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
           "  }",
         ]
       : ["  return await blob.store(storeName).serve(event, pathname)"]),
-    "})",
+    "}, { headersOnly: true, maxAge: 0 })",
     "",
   ].join("\n")
 }
