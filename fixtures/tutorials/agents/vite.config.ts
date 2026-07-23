@@ -17,10 +17,7 @@ export default defineConfig({
   plugins: [vitehub({
     preset: "node",
     blob: false,
-    database: false,
     env: false,
-    workflow: false,
-    workspace: false,
   })],
   ssr: {
     external: ["vite-hub/agent"],

@@ -14,14 +14,10 @@ describe("built-in deployment preset integration", () => {
       root,
       plugins: [vitehub({
         preset,
-        agent: false,
         blob: false,
-        database: false,
         env: false,
         queue: false,
         rateLimit: false,
-        workflow: false,
-        workspace: false,
       })],
     }, "build")
     expect(config.plugins.map(plugin => plugin.name)).not.toContain("@vite-hub/sandbox/vite")

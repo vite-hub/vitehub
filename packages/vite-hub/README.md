@@ -24,18 +24,22 @@ export default defineConfig({
 
 The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
 
-Blob is included when the selected preset has a built-in store. Email, KV, Queue, Rate Limit, Sandbox, Schedule, and Auth remain opt-in:
+Blob is included when the selected preset has a built-in store. Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace remain opt-in:
 
 ```ts
 vitehub({
+  agent: true,
   preset: "cloudflare",
   auth: true,
+  database: true,
   email: true,
   kv: true,
   queue: true,
   rateLimit: true,
   sandbox: true,
   schedule: true,
+  workflow: true,
+  workspace: true,
 })
 ```
 

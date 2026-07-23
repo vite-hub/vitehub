@@ -17,18 +17,18 @@ export default defineConfig({
   plugins: [vitehub({
     preset,
     auth: true,
+    database: true,
     queue: preset === "vercel" || preset === "cloudflare",
     rateLimit: preset === "node",
     schedule: true,
     ...(providerSandboxClosure
       ? {
-          agent: false,
           sandbox: preset === "vercel" || preset === "cloudflare",
-          workspace: false,
-          workflow: false,
         }
-      : process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE === "1"
-        ? { workspace: false }
-        : {}),
+      : {
+          agent: true,
+          workflow: true,
+          workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE !== "1",
+        }),
   })],
 })

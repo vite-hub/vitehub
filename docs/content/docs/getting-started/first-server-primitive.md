@@ -51,13 +51,9 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: "node",
-      agent: false,
       blob: false,
-      database: false,
       env: false,
       kv: { driver: "fs-lite", base: ".data/kv" },
-      workflow: false,
-      workspace: false,
     }),
   ],
 })
