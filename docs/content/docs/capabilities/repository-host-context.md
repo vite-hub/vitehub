@@ -134,4 +134,4 @@ Call `resolveAll()` in tests when you need to assert the full resolved shape.
 
 - [Repository host](/docs/capabilities/repository-host)
 - [Agent invocations](/docs/agents/invocations)
-- Source: `packages/agent/src/capabilities/pull-request-context.ts`
+- Source: `packages/agent/src/capabilities/repository-host-context.ts`

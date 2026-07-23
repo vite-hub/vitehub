@@ -1,6 +1,6 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { readPullRequestContext } from "./capabilities/pull-request-context.ts"
+import { readPullRequestContext } from "./capabilities/repository-host-context.ts"
 import {
   deliveryArtifactAttachments,
   deliveryArtifactMarkdownReferencePaths,
@@ -38,7 +38,7 @@ import type {
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
-import type { PullRequestContextValue } from "./capabilities/pull-request-context.ts"
+import type { PullRequestContextValue } from "./capabilities/repository-host-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { Adapter, FileUpload } from "chat"
 
