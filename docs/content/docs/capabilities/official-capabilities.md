@@ -32,7 +32,6 @@ import {
   papercuts,
   rateLimit,
   repositoryHost,
-  repositoryHostContext,
   sandbox,
   schedule,
   skills,
@@ -80,7 +79,6 @@ import {
 | Ability | Capability | Use it when |
 | --- | --- | --- |
 | Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
-| Repository host context | [`repositoryHostContext()`](/docs/capabilities/repository-host-context) | A trigger or host knows the current issue or Change Request and runtime code should read related context lazily. |
 | MCP servers | [`mcp()`](/docs/capabilities/mcp) | External MCP server tools should become model-facing Agent tools. |
 | Web search | [`webSearch()`](/docs/capabilities/web-search) | The Agent needs model web search or normalized web search/read tools. |
 | Fetch tools | [`fetch()`](/docs/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |

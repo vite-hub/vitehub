@@ -1,6 +1,5 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { readPullRequestContext } from "./capabilities/pull-request-context.ts"
 import {
   deliveryArtifactAttachments,
   deliveryArtifactMarkdownReferencePaths,
@@ -38,7 +37,6 @@ import type {
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
-import type { PullRequestContextValue } from "./capabilities/pull-request-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { Adapter, FileUpload } from "chat"
 
@@ -274,6 +272,17 @@ export interface GitHubPullRequestRunContext {
   }
 }
 
+export type GitHubPullRequestContext = GitHubPullRequestRunContext["pullRequest"] & {
+  actor: string
+  baseRef?: string
+  deliveryId?: string
+  headRef?: string
+  provider: "github"
+  repository: string
+  run: GitHubPullRequestRunContext["run"]
+  trigger: GitHubPullRequestRunContext["trigger"]
+}
+
 export interface GitHubPullRequestReadInvocation {
   context: {
     get: (key: string) => unknown
@@ -299,10 +308,21 @@ function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullReque
 }
 
 export const pullRequest = {
-  read(invocation: GitHubPullRequestReadInvocation): PullRequestContextValue {
-    const context = readPullRequestContext(invocation)
-    if (!context) throw new Error("[vitehub] pullRequest.read() requires pull request invocation context.")
-    return context
+  read(invocation: GitHubPullRequestReadInvocation): GitHubPullRequestContext {
+    const runContext = githubPullRequestRunContextFromUnknown(invocation.context.get("pullRequest"))
+    if (!runContext) throw new Error("[vitehub] pullRequest.read() requires pull request invocation context.")
+    const context = runContext.pullRequest
+    return {
+      ...context,
+      actor: runContext.trigger.actor.login,
+      ...(context.base?.ref ? { baseRef: context.base.ref } : {}),
+      ...(runContext.trigger.deliveryId ? { deliveryId: runContext.trigger.deliveryId } : {}),
+      ...(context.source.ref || context.head?.ref ? { headRef: context.source.ref || context.head?.ref } : {}),
+      provider: "github",
+      repository: runContext.repository.fullName,
+      run: runContext.run,
+      trigger: runContext.trigger,
+    }
   },
 }
 
