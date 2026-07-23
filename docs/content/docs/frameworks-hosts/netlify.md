@@ -12,7 +12,7 @@ Netlify support is package-specific. ViteHub currently provides Netlify-owned be
 | Surface | Current contract |
 | --- | --- |
 | Blob | `hubBlob()` selects the `netlify-blobs` driver when the build reports Netlify hosting. Application code continues to use `@vite-hub/blob`. |
-| Agent routes | `hubAgent()` writes one `vitehub-agent` function when hosted Agent Definitions exist. Channels own chat and webhook reachability through fixed dispatcher routes; `routes.discordGateway` remains explicit. |
+| Agent routes | `hubAgent()` writes one `vitehub-agent` function when hosted Agent Definitions exist. The webhook route remains enabled for adapter delivery. `routes.chat` publishes the chat dispatcher, while route-enabled Channels select which Agents answer it. `routes.discordGateway` remains explicit. |
 | Static schedules | `hubSchedule()` writes one scheduled Netlify function per discovered static Schedule Definition. |
 | Local proof | The repository runs a real-project fixture through Netlify CLI in pull-request CI. |
 

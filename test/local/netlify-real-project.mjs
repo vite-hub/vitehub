@@ -122,6 +122,7 @@ async function writeFixtureFiles(overrides) {
     "    preset: \"netlify\",",
     "    agent: {",
     "      providers: { state: { provider: \"memory\" } },",
+    "      routes: { chat: true },",
     "    },",
     "    blob: {},",
     "    database: false,",

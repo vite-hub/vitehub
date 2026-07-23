@@ -141,6 +141,7 @@ async function createDeploymentRuntimeFixture(adapter: "deno" | "netlify" | "nit
             url: "file:catalog.sqlite",
           },
         },
+        routes: { chat: true },
         ...(adapter === "deno" ? { runtime: "deno" } : {}),
       }),
       {

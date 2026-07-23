@@ -12,7 +12,7 @@ ViteHub keeps Agent Definitions, Schedule Definitions, KV Stores, and Runtime He
 
 | Concern | ViteHub boundary |
 | --- | --- |
-| Agent chat and webhook routes | Agent Package writes `.vitehub/agent/deno-server.ts` when `runtime: 'deno'` and hosted Agent Definitions exist. Channels own reachability through the fixed dispatcher routes. |
+| Agent chat and webhook routes | Agent Package writes `.vitehub/agent/deno-server.ts` when `runtime: 'deno'` and hosted Agent Definitions exist. The webhook route remains enabled; `routes.chat` publishes the chat dispatcher, and route-enabled Channels select which Agents answer it. |
 | Static cron schedules | Schedule Package writes `.vitehub/schedule/deno-cron.mjs` for Deno `Deno.cron` wake output. |
 | Lightweight state | KV Package can use `driver: 'deno-kv'` and native `Deno.openKv()`. |
 | Deployment | Deno Deploy owns app entrypoint configuration, environment variables, permissions, logs, and production rollout. |
@@ -29,7 +29,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    hubAgent({ runtime: 'deno' }),
+    hubAgent({ routes: { chat: true }, runtime: 'deno' }),
     hubKv(),
     hubSchedule(),
   ],
@@ -39,7 +39,7 @@ export default defineConfig({
 })
 ```
 
-The generated Agent server imports discovered Agent Definitions and mounts the default chat and webhook route patterns.
+The generated Agent server imports discovered Agent Definitions and always mounts the webhook route pattern. It mounts a chat dispatcher only when `routes.chat` is enabled.
 If Schedule output exists, the generated server loads `.vitehub/schedule/deno-cron.mjs` before serving requests.
 
 ## Generated output
@@ -64,7 +64,7 @@ A route using `driver: 'deno-kv'` also requires Deno KV support.
 deno run --unstable-kv --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts --host 127.0.0.1 --port 8787
 ```
 
-For a single discovered `support` Agent with the default chat route enabled, the generated route accepts the following request. The target Agent must expose the `chat.message` trigger, usually by attaching `chat()` from `@vite-hub/agent/capabilities`; a custom `driver.run` Agent without that Capability can mount the route but rejects chat requests.
+For a single discovered `support` Agent with the default chat route enabled, the generated route accepts the following request. The target Agent must attach a route-enabled `webChat()` Channel; Agents without one remain unreachable through the dispatcher.
 
 ```bash [Terminal]
 curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \

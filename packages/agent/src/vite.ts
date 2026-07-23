@@ -1512,7 +1512,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
       const nitroHandlers = [
-        ...(resolved && hasHostedAgents && !denoOutput
+        ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{
               handler: generatedAgentWebhookRouteHandler,
               route: normalizeNitroRoute(resolved.routes.chat),

@@ -9,11 +9,11 @@ The Channels API names message-shaped reachability without turning delivery meta
 
 Message-shaped input is one way to start an Agent Invocation. ViteHub keeps it separate from the Agent itself: an Agent can receive plain prompts, structured input, or messages depending on the trigger and Capability behavior.
 
-Channel definitions own invocation reachability, route admission, and delivery facts. Chat state owns conversation history and session selection. The `chat.message` trigger is the shared message-shaped entry point that both generated Channel routes and app-owned trigger consumers can use.
+Channel definitions own Agent admission and delivery facts, while `routes.chat` on `hubAgent()` owns whether the host publishes a chat dispatcher. Chat state owns conversation history and session selection. The `chat.message` trigger is the shared message-shaped entry point that both the generated dispatcher and app-owned trigger consumers can use.
 
 ## Message-shaped invocation
 
-Generated routes should be configured on Channel definitions. `webChat()` enables its route by default, while `webChat({ route })` customizes admission and input mapping; application code should not import generated route handler factories.
+Set `routes.chat` on `hubAgent()` to publish the generated dispatcher. `webChat()` admits an Agent by default once that dispatcher exists, while `webChat({ route })` customizes admission and input mapping; application code should not import generated route handler factories.
 
 Application routes can consume the same trigger directly when the app owns the chat UI.
 

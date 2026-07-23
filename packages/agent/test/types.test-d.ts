@@ -122,21 +122,19 @@ describe("agent public types", () => {
     })
   })
 
-  it("keeps generated Channel routes out of hubAgent options", () => {
-
-    const chatRoute: AgentModuleOptions = {
-      routes: {
-        // @ts-expect-error Chat route ownership belongs to Channels.
-        chat: true,
-      },
-    }
+  it("accepts chat dispatcher routes and keeps Channel webhook routes out of hubAgent options", () => {
+    const standardChatRoute: AgentModuleOptions = { routes: { chat: true } }
+    const customChatRoute: AgentModuleOptions = { routes: { chat: "/chat/[agent]" } }
+    const disabledChatRoute: AgentModuleOptions = { routes: { chat: false } }
     const webhookRoute: AgentModuleOptions = {
       routes: {
         // @ts-expect-error Webhook route ownership belongs to Channels.
         webhooks: true,
       },
     }
-    void chatRoute
+    void standardChatRoute
+    void customChatRoute
+    void disabledChatRoute
     void webhookRoute
   })
 
