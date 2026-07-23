@@ -88,6 +88,7 @@ describe("Agent Process Schedule integration", () => {
         hubAgent({
           eval: false,
           providers: { state: { provider: "memory" } },
+          routes: { chat: true },
         }),
         {
           name: "@vite-hub/kv/vite",

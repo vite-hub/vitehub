@@ -149,7 +149,7 @@ export default defineConfig(async () => {
     const { hubAgent } = await import("@vite-hub/agent/vite")
     return {
       ...baseConfig,
-      agent: {},
+      agent: { routes: { chat: true } },
       plugins: [hubAgent()],
     }
   }

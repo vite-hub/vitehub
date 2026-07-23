@@ -1177,11 +1177,12 @@ export type AgentCliOptions = Record<never, never>
 export type AgentRouteOption = boolean | string
 
 export interface AgentRoutesOptions {
+  chat?: AgentRouteOption
   discordGateway?: AgentRouteOption
 }
 
 export interface ResolvedAgentRoutesOptions {
-  chat: string
+  chat: false | string
   discordGateway: false | string
   webhooks: string
 }

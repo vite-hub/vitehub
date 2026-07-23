@@ -200,7 +200,9 @@ Text-like files keep the existing bounded prompt behavior: ViteHub decodes recog
 
 ## Admit web chat requests
 
-Use `webChat()` when a web destination should expose the generated AI SDK UI-message route. Pass `route` options when the route needs authentication or product context, or set `route: false` when application code invokes the Channel from its own handler.
+Use `webChat()` when an Agent should admit requests from the generated AI SDK UI-message dispatcher. Publish that dispatcher with `routes.chat: true` on `hubAgent()`, or set `routes.chat` to a custom route string. Pass Channel `route` options when requests need authentication or product context, or set `route: false` when application code invokes the Channel from its own handler.
+
+Omitting `routes.chat` keeps the public dispatcher absent even when an Agent declares `webChat()`. Enabling the dispatcher does not expose every Agent: only Agents with a route-enabled `webChat()` Channel answer it.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
