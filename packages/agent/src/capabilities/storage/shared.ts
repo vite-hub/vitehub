@@ -59,6 +59,15 @@ export function method<T extends (...args: never[]) => unknown>(handle: unknown,
   return fn.bind(handle) as T
 }
 
+export async function storageValue<T>(result: MaybePromise<T | [Error, undefined] | [null, T]>): Promise<T> {
+  const resolved = await result
+  if (!Array.isArray(resolved) || resolved.length !== 2 || (resolved[0] !== null && !(resolved[0] instanceof Error))) {
+    return resolved as T
+  }
+  if (resolved[0]) throw resolved[0]
+  return resolved[1]
+}
+
 export function selectStore(handle: unknown, primitive: "Blob" | "KV", store?: string): unknown {
   if (!store) return handle
   const storeFn = typeof handle === "object" && handle !== null ? (handle as { store?: unknown }).store : undefined

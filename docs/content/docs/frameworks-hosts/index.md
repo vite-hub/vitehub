@@ -59,7 +59,8 @@ Do not import framework virtual modules or generated files unless a package refe
 import { kv } from 'vite-hub/kv'
 
 export async function saveSettings(settings: Record<string, unknown>) {
-  await kv.set('settings', settings)
+  const [error] = await kv.set('settings', settings)
+  if (error) throw error
 }
 ```
 

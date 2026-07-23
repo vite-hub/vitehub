@@ -64,7 +64,8 @@ export default defineAgent({
     code: `import { kv } from "vite-hub/kv"
 
 export default defineEventHandler(async (event) => {
-  await kv.set("settings", await readBody(event))
+  const [error] = await kv.set("settings", await readBody(event))
+  if (error) throw error
   return { ok: true }
 })`,
   },

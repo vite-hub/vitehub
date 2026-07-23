@@ -36,7 +36,9 @@ export default defineConfig({
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async () => {
-  return blob.put('hello.txt', 'Hello from ViteHub')
+  const [error, object] = await blob.put('hello.txt', 'Hello from ViteHub')
+  if (error) throw error
+  return object
 })
 ```
 
@@ -277,10 +279,11 @@ import { blob } from '@vite-hub/blob'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ path: string, text: string }>(event)
 
-  await blob.put(body.path, body.text, {
+  const [error] = await blob.put(body.path, body.text, {
     contentType: 'text/plain',
     customMetadata: { source: 'api' },
   })
+  if (error) throw error
 
   return { ok: true }
 })
@@ -291,7 +294,8 @@ import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const path = getRouterParam(event, 'path')!
-  const object = await blob.get(path)
+  const [error, object] = await blob.get(path)
+  if (error) throw error
 
   if (!object) {
     throw createError({ statusCode: 404 })
@@ -354,6 +358,8 @@ Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL
 
 `blob` implements `BlobStorage`.
 
+Every async method returns `[error, value]`. Expected provider and storage failures are `ViteHubError` values with `BLOB_*` codes, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()` and pass its error to H3.
+
 | Method | Description |
 | --- | --- |
 | `blob.put(pathname, body, options?)` | Stores text, bytes, streams, ArrayBuffers, or `Blob` objects. |
@@ -383,17 +389,19 @@ Use `blob.sign()` when a client or provider needs short-lived direct access to o
 ```ts [server/api/uploads/presign.post.ts]
 import { blob } from '@vite-hub/blob'
 
-const source = await blob.sign('users/user/jobs/job/source.mp3', {
+const [sourceError, source] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'GET',
   expiresIn: 6 * 60 * 60,
 })
+if (sourceError) throw sourceError
 
-const upload = await blob.sign('users/user/jobs/job/source.mp3', {
+const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'PUT',
   expiresIn: 15 * 60,
   contentType: 'audio/mpeg',
   createOnly: true,
 })
+if (uploadError) throw uploadError
 ```
 
 Send `upload.headers` unchanged with the `PUT` body. `contentType` binds the upload MIME type into the signed request. `createOnly` binds a provider condition that rejects the upload when the object already exists; drivers that cannot enforce it throw instead of silently allowing an overwrite.

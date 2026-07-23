@@ -1,21 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, schedules } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, schedules, type ScheduleKVStorage } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
-import type { KVStorage } from "@vite-hub/kv"
 
-function createTestKVStore(): KVStorage {
+function createTestKVStore(): ScheduleKVStorage {
   const data = new Map<string, unknown>()
 
   return {
-    async clear(base = "") {
-      for (const key of data.keys()) {
-        if (!base || key.startsWith(base)) {
-          data.delete(key)
-        }
-      }
-    },
     async del(key) {
       data.delete(key)
     },
@@ -31,13 +23,10 @@ function createTestKVStore(): KVStorage {
     async set(key, value) {
       data.set(key, value)
     },
-    store() {
-      return this
-    },
   }
 }
 
-function createDelayedHasKVStore(): KVStorage & { releaseHas: () => void } {
+function createDelayedHasKVStore(): ScheduleKVStorage & { releaseHas: () => void } {
   const store = createTestKVStore()
   let releaseHas: (() => void) | undefined
   return {

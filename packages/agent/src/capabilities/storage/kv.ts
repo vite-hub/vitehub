@@ -6,6 +6,7 @@ import {
   method,
   requirePrimitive,
   selectStore,
+  storageValue,
 } from "./shared.ts"
 
 import type {
@@ -57,8 +58,8 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
         description: "Read one KV value by exact key or list KV keys under a developer-provided prefix.",
         execute: ({ key, prefix }: KVReadInput = {}) => {
           if (!hasExactlyOne(key, prefix)) throw new Error("[vitehub] kv_read requires exactly one of key or prefix.")
-          if (typeof key === "string" && key.trim()) return method<(key: string) => MaybePromise<unknown>>(store, "kv", "get")(key)
-          return method<(prefix: string) => MaybePromise<string[]>>(store, "kv", "keys")(assertString(prefix, "kv_read prefix"))
+          if (typeof key === "string" && key.trim()) return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "get")(key))
+          return storageValue<string[]>(method<(prefix: string) => MaybePromise<string[]>>(store, "kv", "keys")(assertString(prefix, "kv_read prefix")))
         },
         inputSchema: kvReadInputSchema,
         name: "kv_read",
@@ -69,8 +70,8 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
         description: "Put or delete one KV key.",
         execute: ({ key, operation, value }) => {
           assertString(key, "kv_edit key")
-          if (operation === "put") return method<(key: string, value: unknown) => MaybePromise<unknown>>(store, "kv", "set")(key, value)
-          if (operation === "delete") return method<(key: string) => MaybePromise<unknown>>(store, "kv", "del")(key)
+          if (operation === "put") return storageValue(method<(key: string, value: unknown) => MaybePromise<unknown>>(store, "kv", "set")(key, value))
+          if (operation === "delete") return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "del")(key))
           throw new Error(`[vitehub] Unsupported kv_edit operation: ${String(operation)}`)
         },
         inputSchema: kvEditInputSchema,

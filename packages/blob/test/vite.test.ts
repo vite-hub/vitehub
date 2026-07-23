@@ -179,10 +179,16 @@ describe("hubBlob", () => {
       await writeFile(entryFile, [
         "import './.vitehub/nitro/blob/runtime.mjs'",
         `import { blob } from ${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))}`,
-        "await blob.put('default.txt', 'default-store')",
-        "await blob.store('archive').put('archive.txt', 'named-store')",
-        "const defaultValue = await (await blob.get('default.txt'))?.text()",
-        "const archiveValue = await (await blob.store('archive').get('archive.txt'))?.text()",
+        "const [defaultPutError] = await blob.put('default.txt', 'default-store')",
+        "if (defaultPutError) throw defaultPutError",
+        "const [archivePutError] = await blob.store('archive').put('archive.txt', 'named-store')",
+        "if (archivePutError) throw archivePutError",
+        "const [defaultGetError, defaultBlob] = await blob.get('default.txt')",
+        "if (defaultGetError) throw defaultGetError",
+        "const [archiveGetError, archiveBlob] = await blob.store('archive').get('archive.txt')",
+        "if (archiveGetError) throw archiveGetError",
+        "const defaultValue = await defaultBlob?.text()",
+        "const archiveValue = await archiveBlob?.text()",
         "console.log(JSON.stringify({ archiveValue, defaultValue }))",
         "",
       ].join("\n"), "utf8")
@@ -301,8 +307,11 @@ describe("hubBlob", () => {
       await writeFile(entryFile, [
         "import './.vitehub/nitro/blob/runtime.mjs'",
         `import { blob } from ${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))}`,
-        "await blob.put('netlify.txt', 'netlify-store', { contentType: 'text/plain' })",
-        "console.log(await (await blob.get('netlify.txt'))?.text())",
+        "const [putError] = await blob.put('netlify.txt', 'netlify-store', { contentType: 'text/plain' })",
+        "if (putError) throw putError",
+        "const [getError, object] = await blob.get('netlify.txt')",
+        "if (getError) throw getError",
+        "console.log(await object?.text())",
         "",
       ].join("\n"), "utf8")
       const buildResult = await bundle({
@@ -628,6 +637,8 @@ describe("hubBlob", () => {
     expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
     expect(handler).toContain("setResponseHeaders(event, responseHeaders)")
     expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
+    expect(handler).toContain("error?.code === 'BLOB_NOT_FOUND'")
+    expect(handler).toContain("statusCode: 404")
     expect(handler).toContain("for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)")
     expect(handler).toContain("throw error")
     expect(handler).toContain("}, { headersOnly: true, maxAge: 0 })")
@@ -684,9 +695,9 @@ describe("hubBlob", () => {
                 "    return {",
                 "      serve(_event, pathname) {",
                 "        if (pathname !== 'binary.bin') throw new Error(`Unexpected pathname: ${pathname}`)",
-                "        return new Response(new Uint8Array([0, 128, 255, 195, 40]), {",
+                "        return [null, new Response(new Uint8Array([0, 128, 255, 195, 40]), {",
                 "          headers: { 'Content-Type': 'application/octet-stream' },",
-                "        })",
+                "        })]",
                 "      },",
                 "    }",
                 "  },",

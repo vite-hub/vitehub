@@ -16,23 +16,28 @@ app.get("/", () => ({ ok: true, service: "blob" }))
 
 app.get("/api/blob", async (event) => {
   const query = getQuery(event)
-  return await blob.list({
+  const [error, result] = await blob.list({
     folded: query.folded === "true",
     limit: typeof query.limit === "string" ? Number.parseInt(query.limit, 10) : undefined,
     prefix: typeof query.prefix === "string" ? query.prefix : undefined,
   })
+  if (error) throw error
+  return result
 })
 
 app.put("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobPutBody)
-  return await blob.put(body?.pathname || "notes/hello.txt", body?.value || "hello world", {
+  const [error, object] = await blob.put(body?.pathname || "notes/hello.txt", body?.value || "hello world", {
     contentType: "text/plain; charset=utf-8",
   })
+  if (error) throw error
+  return object
 })
 
 app.delete("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobDeleteBody)
-  await blob.del(body.pathname)
+  const [error] = await blob.del(body.pathname)
+  if (error) throw error
   return { ok: true }
 })
 
@@ -42,7 +47,9 @@ app.get("/api/blob/head", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  return await blob.head(pathname)
+  const [error, object] = await blob.head(pathname)
+  if (error) throw error
+  return object
 })
 
 app.get("/api/blob/body", async (event) => {
@@ -51,7 +58,8 @@ app.get("/api/blob/body", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  const file = await blob.get(pathname)
+  const [error, file] = await blob.get(pathname)
+  if (error) throw error
   return {
     ok: true,
     text: file ? await file.text() : null,
@@ -64,7 +72,9 @@ app.get("/api/blob/serve", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  return await blob.serve(event, pathname)
+  const [error, stream] = await blob.serve(event, pathname)
+  if (error) throw error
+  return stream
 })
 
 export default app

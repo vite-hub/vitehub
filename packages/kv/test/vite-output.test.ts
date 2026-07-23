@@ -37,8 +37,11 @@ async function createConsumerRoot() {
     ``,
     `export default {`,
     `  async fetch() {`,
-    `    await kv.set("settings", { ok: true })`,
-    `    return Response.json(await kv.get("settings"))`,
+    `    const [writeError] = await kv.set("settings", { ok: true })`,
+    `    if (writeError) throw writeError`,
+    `    const [readError, settings] = await kv.get("settings")`,
+    `    if (readError) throw readError`,
+    `    return Response.json(settings)`,
     `  },`,
     `}`,
     ``,
@@ -71,7 +74,11 @@ describe("KV Vite output", () => {
     await writeFile(entry, [
       `import "preserved-external"`,
       `import { kv } from "@vite-hub/kv"`,
-      `export default async () => await kv.get("proof")`,
+      `export default async () => {`,
+      `  const [error, value] = await kv.get("proof")`,
+      `  if (error) throw error`,
+      `  return value`,
+      `}`,
       ``,
     ].join("\n"))
 
@@ -398,7 +405,8 @@ describe("KV source type visibility", () => {
     await writeFile(join(rootDir, "src", "consumer.ts"), [
       `import { kv } from "@vite-hub/kv"`,
       ``,
-      `await kv.get("settings")`,
+      `const [error] = await kv.get("settings")`,
+      `if (error) throw error`,
       ``,
     ].join("\n"))
 

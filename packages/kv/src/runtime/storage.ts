@@ -4,8 +4,9 @@ import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
-import type { KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
-import { createHostedKVStorage, createNamedHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
+import { kvResult } from "../errors.ts"
+import type { KVOperation, KVResult, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
+import { createHostedKVStorage, createNamedHostedKVStorage, KVStoreConfigurationError, type RuntimeStorage } from "./hosted-storage.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 
@@ -70,14 +71,24 @@ async function resolveStorage(name = "default") {
   return promise
 }
 
+async function runKVOperation<TResult>(
+  operation: KVOperation,
+  name: string,
+  run: (storage: RuntimeStorage) => Promise<TResult>,
+): Promise<KVResult<TResult>> {
+  const result = await kvResult(operation, name, async () => run(await resolveStorage(name)))
+  if (result[0]?.cause instanceof KVStoreConfigurationError) throw result[0].cause
+  return result
+}
+
 function createKVStorage(name = "default"): KVStorage {
   return {
-    async clear(base, options) { await (await resolveStorage(name)).clear(base, options) },
-    async del(key, options) { await (await resolveStorage(name)).removeItem(key, options) },
-    async get(key, options) { return (await resolveStorage(name)).getItem(key, options) },
-    async has(key, options) { return (await resolveStorage(name)).hasItem(key, options) },
-    async keys(base, options) { return (await resolveStorage(name)).getKeys(base, options) },
-    async set(key, value, options) { await (await resolveStorage(name)).setItem(key, value, options) },
+    async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
+    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options)) },
+    async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
+    async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },
+    async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
+    async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },
     store(storeName: KVStoreName) { return createKVStorage(storeName) },
   }
 }

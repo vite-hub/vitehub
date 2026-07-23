@@ -3,6 +3,9 @@ import { kv } from "@vite-hub/kv"
 
 export default defineEventHandler(async () => {
   const key = "smoke"
-  await kv.set(key, { key, store: "kv" })
-  return { ok: true, value: await kv.get(key) }
+  const [writeError] = await kv.set(key, { key, store: "kv" })
+  if (writeError) throw writeError
+  const [readError, value] = await kv.get(key)
+  if (readError) throw readError
+  return { ok: true, value }
 })

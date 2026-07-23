@@ -218,8 +218,8 @@ function renderProviderEntry(
   const storageExpression = !blobConfig
     ? undefined
     : runtimeStoreResolver
-      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)))`
-      : "createBlobStorage(createDriver(blobConfig.store))"
+      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)), "default")`
+      : "createBlobStorage(createDriver(blobConfig.store), \"default\")"
 
   const lines = [
     ...imports,
@@ -252,6 +252,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   ]
   if (selectedDriverModules.length > 0) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
+    imports.push(`import { blobResult } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
   }
   for (const driverModule of selectedDriverModules) {
     const driverImport = driverImports[driverModule]
@@ -311,30 +312,41 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "function createGeneratedBlobStorage(name = \"default\") {",
           "  const existing = blobStorages.get(name)",
           "  if (existing) return existing",
-          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)))",
+          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)), name)",
           "  const runtimeStorage = {",
           "    ...storage,",
-          "    async head(pathname) { return withServedBlobUrl(name, await storage.head(pathname)) },",
-          "    async list(options) {",
-          "      const result = await storage.list(options)",
-          "      return { ...result, blobs: result.blobs.map(object => withServedBlobUrl(name, object)) }",
+          "    async head(pathname) {",
+          "      const [error, object] = await storage.head(pathname)",
+          "      return error ? [error, undefined] : [null, withServedBlobUrl(name, object)]",
           "    },",
-          "    async put(pathname, body, options) { return withServedBlobUrl(name, await storage.put(pathname, body, options)) },",
+          "    async list(options) {",
+          "      const [error, result] = await storage.list(options)",
+          "      return error ? [error, undefined] : [null, { ...result, blobs: result.blobs.map(object => withServedBlobUrl(name, object)) }]",
+          "    },",
+          "    async put(pathname, body, options) {",
+          "      const [error, object] = await storage.put(pathname, body, options)",
+          "      return error ? [error, undefined] : [null, withServedBlobUrl(name, object)]",
+          "    },",
           "    store: storeName => createGeneratedBlobStorage(storeName),",
           "  }",
           "  blobStorages.set(name, runtimeStorage)",
           "  return runtimeStorage",
           "}",
           "",
+          "async function resolveGeneratedBlobStorage(name, operation) {",
+          "  resolveBlobStoreConfig(name)",
+          "  return blobResult(operation, name, async () => createGeneratedBlobStorage(name))",
+          "}",
+          "",
           "function createLazyGeneratedBlobStorage(name) {",
           "  return {",
-          "    async del(pathnames) { return createGeneratedBlobStorage(name).del(pathnames) },",
-          "    async get(pathname) { return createGeneratedBlobStorage(name).get(pathname) },",
-          "    async head(pathname) { return createGeneratedBlobStorage(name).head(pathname) },",
-          "    async list(options) { return createGeneratedBlobStorage(name).list(options) },",
-          "    async put(pathname, body, options) { return createGeneratedBlobStorage(name).put(pathname, body, options) },",
-          "    async sign(pathname, options) { return createGeneratedBlobStorage(name).sign(pathname, options) },",
-          "    async serve(event, pathname) { return createGeneratedBlobStorage(name).serve(event, pathname) },",
+          "    async del(pathnames) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"del\"); return error ? [error, undefined] : storage.del(pathnames) },",
+          "    async get(pathname) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"get\"); return error ? [error, undefined] : storage.get(pathname) },",
+          "    async head(pathname) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"head\"); return error ? [error, undefined] : storage.head(pathname) },",
+          "    async list(options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"list\"); return error ? [error, undefined] : storage.list(options) },",
+          "    async put(pathname, body, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"put\"); return error ? [error, undefined] : storage.put(pathname, body, options) },",
+          "    async sign(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"sign\"); return error ? [error, undefined] : storage.sign(pathname, options) },",
+          "    async serve(event, pathname) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"serve\"); return error ? [error, undefined] : storage.serve(event, pathname) },",
           "    store: storeName => createLazyGeneratedBlobStorage(storeName),",
           "  }",
           "}",

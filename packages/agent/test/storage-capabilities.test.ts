@@ -489,6 +489,31 @@ describe("storage capabilities", () => {
     expect(blobStore.list).toHaveBeenCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "images/" })
   })
 
+  it("unwraps error-first KV and Blob primitive results for agent tools", async () => {
+    const { blob, kv } = await import("../src/capabilities.ts")
+    const failure = new Error("storage failed")
+    const kvStore = {
+      del: vi.fn(async () => [null, undefined] as const),
+      get: vi.fn(async () => [null, ["tuple", "value"]] as const),
+      keys: vi.fn(async () => [failure, undefined] as const),
+      set: vi.fn(async () => [null, undefined] as const),
+    }
+    const blobStore = {
+      get: vi.fn(async () => [null, new Blob(["body"])] as const),
+      head: vi.fn(async () => [failure, undefined] as const),
+      list: vi.fn(async () => [null, { blobs: [] }] as const),
+    }
+
+    const kvTools = await resolveTools([kv({ mode: "write" })], { kv: kvStore })
+    await expect(kvTools.kv_read!.execute?.({ key: "tuple" })).resolves.toEqual(["tuple", "value"])
+    await expect(kvTools.kv_read!.execute?.({ prefix: "app:" })).rejects.toBe(failure)
+    await expect(kvTools.kv_edit!.execute?.({ key: "tuple", operation: "put", value: true })).resolves.toBeUndefined()
+
+    const blobTools = await resolveTools([blob()], { blob: blobStore })
+    await expect(blobTools.blob_read!.execute?.({ operation: "list", prefix: "images/" })).resolves.toEqual({ blobs: [] })
+    await expect(blobTools.blob_read!.execute?.({ operation: "head", pathname: "images/a.png" })).rejects.toBe(failure)
+  })
+
   it("exposes curated Blob read and edit tools", async () => {
     const { blob } = await import("../src/capabilities.ts")
     const workspaceBytes = new Uint8Array([1, 2, 3])

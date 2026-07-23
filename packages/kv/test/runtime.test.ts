@@ -3,6 +3,14 @@ import { createStorage } from "unstorage"
 import type { Driver } from "unstorage"
 import memoryDriver from "unstorage/drivers/memory"
 
+import type { KVResult } from "../src/types.ts"
+
+function expectKVSuccess<TResult>(result: KVResult<TResult>): TResult {
+  const [error, value] = result
+  expect(error).toBeNull()
+  return value as TResult
+}
+
 const mountedDrivers: {
   cloudflare?: Record<string, unknown>
   fsLite?: Record<string, unknown>
@@ -10,7 +18,7 @@ const mountedDrivers: {
 } = {}
 
 let cloudflareDriver: Driver | undefined
-let fsLiteDriver: Driver | undefined
+let fsLiteDriver: Driver | Error | undefined
 const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
 
 function resetStorage() {
@@ -85,6 +93,7 @@ function createDenoOpenKvMock() {
 vi.mock("unstorage/drivers/fs-lite", () => ({
   default: vi.fn((options: Record<string, unknown> = {}) => {
     mountedDrivers.fsLite = options
+    if (fsLiteDriver instanceof Error) throw fsLiteDriver
     return fsLiteDriver || memoryDriver()
   }),
 }))
@@ -114,14 +123,51 @@ describe("kv runtime", () => {
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
 
+  it("returns provider failures as KV results", async () => {
+    process.env.VITEHUB_HOSTING = "local"
+    const cause = new Error("provider unavailable")
+    fsLiteDriver = {
+      ...memoryDriver(),
+      async getItem() { throw cause },
+    }
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    const [error, value] = await kv.get("settings")
+
+    expect(value).toBeUndefined()
+    expect(error).toMatchObject({
+      cause,
+      code: "KV_OPERATION_FAILED",
+      details: { operation: "get", store: "default" },
+      name: "ViteHubError",
+    })
+  })
+
+  it("returns provider initialization failures as KV results", async () => {
+    process.env.VITEHUB_HOSTING = "local"
+    const cause = new Error("provider initialization unavailable")
+    fsLiteDriver = cause
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    const [error, value] = await kv.get("settings")
+
+    expect(value).toBeUndefined()
+    expect(error).toMatchObject({
+      cause,
+      code: "KV_OPERATION_FAILED",
+      details: { operation: "get", store: "default" },
+      name: "ViteHubError",
+    })
+  })
+
   it("falls back to hosted env config when the generated config import cannot load", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"
 
     const { kv } = await import("../src/runtime/storage.ts")
-    await kv.set("notes/hello", "world")
+    expectKVSuccess(await kv.set("notes/hello", "world"))
 
-    expect(await kv.get("notes/hello")).toBe("world")
+    expect(expectKVSuccess(await kv.get("notes/hello"))).toBe("world")
     expect(mountedDrivers.upstash).toMatchObject({
       driver: "upstash",
       token: "upstash-token",
@@ -135,9 +181,9 @@ describe("kv runtime", () => {
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
 
     const { kv } = await import("../src/runtime/storage.ts")
-    await kv.set("explicit-host", "fs-lite")
+    expectKVSuccess(await kv.set("explicit-host", "fs-lite"))
 
-    expect(await kv.get("explicit-host")).toBe("fs-lite")
+    expect(expectKVSuccess(await kv.get("explicit-host"))).toBe("fs-lite")
     expect(mountedDrivers.fsLite).toMatchObject({
       base: ".data/kv",
       driver: "fs-lite",

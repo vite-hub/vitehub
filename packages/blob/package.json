@@ -53,6 +53,7 @@
     "./drivers/vercel": "./dist/drivers/vercel.js",
     "./drivers/vercel-bundled": "./dist/drivers/vercel-bundled.js",
     "./ensure": "./dist/ensure.js",
+    "./errors": "./dist/errors.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/storage": "./dist/runtime/storage.js",
@@ -71,6 +72,7 @@
   "dependencies": {
     "@netlify/blobs": "catalog:storage",
     "@vercel/blob": "catalog:storage",
+    "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",

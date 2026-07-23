@@ -27,6 +27,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./errors": "./dist/errors.js",
     "./runtime/upstash-driver": "./dist/runtime/upstash-driver.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
@@ -39,6 +40,7 @@
     "test": "vp run -t @vite-hub/kv#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "unstorage": "catalog:storage"
   },

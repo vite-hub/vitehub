@@ -1,6 +1,8 @@
-import { createError, setHeader } from "h3"
+import { setHeader } from "h3"
 
 import { toArray } from "@vite-hub/internal/arrays"
+
+import { blobError, blobResult } from "./errors.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 
@@ -66,34 +68,40 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
     : normalized
 }
 
-export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
+export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name): BlobStorage {
   return {
     async del(pathnames: string | string[]) {
-      await driver.delete(toArray(pathnames).map(value => normalizePathname(value)))
+      const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
+      return blobResult("del", store, async () => {
+        await driver.delete(normalizedPathnames)
+      })
     },
     async get(pathname: string) {
-      return driver.get(normalizePathname(pathname))
+      const normalizedPathname = normalizePathname(pathname)
+      return blobResult("get", store, () => driver.get(normalizedPathname))
     },
     async head(pathname: string) {
-      const meta = await driver.head(normalizePathname(pathname))
-      if (!meta) {
-        throw createError({ message: "Blob not found", statusCode: 404 })
-      }
+      const normalizedPathname = normalizePathname(pathname)
+      const [error, meta] = await blobResult("head", store, () => driver.head(normalizedPathname))
+      if (error) return [error, undefined]
       return meta
+        ? [null, meta]
+        : [blobError("BLOB_NOT_FOUND", "head", store), undefined]
     },
     async list(options: BlobListOptions = {}) {
-      return driver.list({
+      const normalizedPrefix = options.prefix ? normalizePathname(options.prefix) : options.prefix
+      return blobResult("list", store, () => driver.list({
         ...options,
-        prefix: options.prefix ? normalizePathname(options.prefix) : options.prefix,
-      })
+        prefix: normalizedPrefix,
+      }))
     },
     async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       const contentType = options.contentType || (body instanceof Blob ? body.type : undefined) || guessContentType(normalizedPath)
-      return driver.put(normalizedPath, body, {
+      return blobResult("put", store, () => driver.put(normalizedPath, body, {
         ...options,
         contentType,
-      })
+      }))
     },
     async sign(pathname, options) {
       if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
@@ -102,30 +110,35 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
       if (!driver.sign) {
         throw new Error(`Blob driver "${driver.name}" does not support signed requests.`)
       }
-      return driver.sign(normalizePathname(pathname), options)
+      const normalizedPathname = normalizePathname(pathname)
+      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
     async serve(event, pathname: string) {
       const normalizedPath = normalizePathname(pathname)
-      const arrayBuffer = await driver.getArrayBuffer(normalizedPath)
-      if (!arrayBuffer) {
-        throw createError({ message: "File not found", statusCode: 404 })
-      }
+      const [error, payload] = await blobResult("serve", store, async () => {
+        const arrayBuffer = await driver.getArrayBuffer(normalizedPath)
+        if (!arrayBuffer) return
 
-      const meta = await driver.head(normalizedPath)
-      const contentType = meta?.contentType || guessContentType(normalizedPath)
+        const meta = await driver.head(normalizedPath)
+        const contentType = meta?.contentType || guessContentType(normalizedPath)
 
-      setHeader(event, "Content-Length", String(arrayBuffer.byteLength))
-      setHeader(event, "Content-Type", contentType)
-      if (meta?.httpEtag) {
-        setHeader(event, "etag", meta.httpEtag)
-      }
+        setHeader(event, "Content-Length", String(arrayBuffer.byteLength))
+        setHeader(event, "Content-Type", contentType)
+        if (meta?.httpEtag) {
+          setHeader(event, "etag", meta.httpEtag)
+        }
 
-      return new ReadableStream({
-        start(controller) {
-          controller.enqueue(new Uint8Array(arrayBuffer))
-          controller.close()
-        },
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(arrayBuffer))
+            controller.close()
+          },
+        })
       })
+      if (error) return [error, undefined]
+      return payload
+        ? [null, payload]
+        : [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
     },
     store() {
       throw new Error("Named Blob stores are only available from the @vite-hub/blob runtime export.")

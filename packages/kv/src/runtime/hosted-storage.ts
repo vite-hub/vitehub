@@ -12,9 +12,11 @@ export interface RuntimeStorage {
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
 }
 
+export class KVStoreConfigurationError extends Error {}
+
 function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined): ResolvedKVModuleOptions {
   if (!config) {
-    throw new Error("[vitehub] `@vite-hub/kv` requires `hubKv()` and `kv !== false`.")
+    throw new KVStoreConfigurationError("[vitehub] `@vite-hub/kv` requires `hubKv()` and `kv !== false`.")
   }
 
   return config
@@ -29,7 +31,7 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   const stores = resolved.stores || { default: resolved.store }
   const store = stores[name]
   if (!store) {
-    throw new Error(`[vitehub] Unknown KV store "${name}".`)
+    throw new KVStoreConfigurationError(`[vitehub] Unknown KV store "${name}".`)
   }
   return createStorage({
     driver: createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } }),

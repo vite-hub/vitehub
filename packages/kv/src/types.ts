@@ -1,3 +1,5 @@
+import type { ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
+
 export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lite"
 
 export interface CloudflareKVStoreConfig {
@@ -61,12 +63,21 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
+export type KVOperation = "clear" | "del" | "get" | "has" | "keys" | "set"
+export type KVErrorDetails = ViteHubErrorDetails & {
+  operation: KVOperation
+  store: string
+}
+export type KVResult<TResult> =
+  | [error: null, value: TResult]
+  | [error: ViteHubError<"KV_OPERATION_FAILED", KVErrorDetails>, value: undefined]
+
 export interface KVStorage {
-  clear(base?: string, options?: unknown): Promise<void>
-  del(key: string, options?: unknown): Promise<void>
-  get<T = unknown>(key: string, options?: unknown): Promise<T | null>
-  has(key: string, options?: unknown): Promise<boolean>
-  keys(base?: string, options?: unknown): Promise<string[]>
-  set<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
+  clear(base?: string, options?: unknown): Promise<KVResult<void>>
+  del(key: string, options?: unknown): Promise<KVResult<void>>
+  get<T = unknown>(key: string, options?: unknown): Promise<KVResult<T | null>>
+  has(key: string, options?: unknown): Promise<KVResult<boolean>>
+  keys(base?: string, options?: unknown): Promise<KVResult<string[]>>
+  set<T = unknown>(key: string, value: T, options?: unknown): Promise<KVResult<void>>
   store(name: KVStoreName): KVStorage
 }

@@ -25,7 +25,8 @@ Server code calls the same Runtime Helpers used in hosted applications. The prov
 import { kv } from '@vite-hub/kv'
 
 export async function saveSettings(settings: Record<string, unknown>) {
-  await kv.set('settings', settings)
+  const [error] = await kv.set('settings', settings)
+  if (error) throw error
 }
 ```
 

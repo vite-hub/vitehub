@@ -15,6 +15,8 @@ Errors and diagnostics belong to the package that owns the failing boundary. Vit
 | --- | --- | --- |
 | `CAPABILITY_*` | Runtime Package | Capability lookup or policy failed. |
 | `ENV_*` | Env Package | Env Declaration or runtime resolution failed. |
+| `BLOB_*` | Blob Package | Blob lookup or Provider-backed storage failed. |
+| `KV_*` | KV Package | Provider-backed key-value storage failed. |
 | `AUTH_*` and `AUTHENTICATION_*` | Auth Package | Authentication is required or a provider operation failed. HTTP adapters map `AUTHENTICATION_REQUIRED` to `401`. |
 | `EMAIL_*` | Email Package | Message validation, configuration, credentials, throttling, network, timeout, or delivery failed. |
 | `QUEUE_*`, `CLOUDFLARE_*`, and `VERCEL_*` | Queue Package | Queue dispatch, callback, or Provider handling failed. Queue Delivery owns retry and acknowledgement decisions. |

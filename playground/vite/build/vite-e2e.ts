@@ -246,6 +246,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
 
   const imports = [
     `import { createStorage } from ${JSON.stringify(createImportPath(file, resolvePackageDependency(kvPackageDir, "unstorage")))}`,
+    `import { kvResult } from ${JSON.stringify(createImportPath(file, resolve(kvPackageDir, "src/errors.ts")))}`,
   ]
 
   if (config.store.driver === "cloudflare-kv-binding") {
@@ -270,12 +271,12 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
     `const resolvedKvConfig = ${resolvedConfigExpression}`,
     "const storage = createStorage({ driver: createDriver(resolvedKvConfig.store) })",
     "export const kv = {",
-    "  async clear(base, options) { await storage.clear(base, options) },",
-    "  async del(key, options) { await storage.removeItem(key, options) },",
-    "  async get(key, options) { return await storage.getItem(key, options) },",
-    "  async has(key, options) { return await storage.hasItem(key, options) },",
-    "  async keys(base, options) { return await storage.getKeys(base, options) },",
-    "  async set(key, value, options) { await storage.setItem(key, value, options) },",
+    "  async clear(base, options) { return kvResult(\"clear\", \"default\", async () => { await storage.clear(base, options) }) },",
+    "  async del(key, options) { return kvResult(\"del\", \"default\", async () => { await storage.removeItem(key, options) }) },",
+    "  async get(key, options) { return kvResult(\"get\", \"default\", () => storage.getItem(key, options)) },",
+    "  async has(key, options) { return kvResult(\"has\", \"default\", () => storage.hasItem(key, options)) },",
+    "  async keys(base, options) { return kvResult(\"keys\", \"default\", () => storage.getKeys(base, options)) },",
+    "  async set(key, value, options) { return kvResult(\"set\", \"default\", async () => { await storage.setItem(key, value, options) }) },",
     "}",
     "",
   ].join("\n")
