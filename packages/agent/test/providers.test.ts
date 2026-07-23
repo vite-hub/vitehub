@@ -555,6 +555,13 @@ describe("agent Vite plugin", () => {
           expect(wrapper).toContain(`const chatRoutePattern = new RegExp(${JSON.stringify(testCase.expectedPattern)})`)
           expect(wrapper).toContain("const isChatRoute = chatRoutePattern.test(pathname)")
           expect(wrapper).toContain("isDiscordGatewayRoute ? discordGatewayHandlers[agent] : isWebhookRoute ? webhookHandlers[agent] : isChatRoute ? chatHandlers[agent] : undefined")
+          if (testCase.chat) {
+            expect(wrapper).toContain("createChannelChatRouteHandler")
+          }
+          else {
+            expect(wrapper).not.toContain("createChannelChatRouteHandler")
+            expect(wrapper).toContain("const chatHandlers = {}")
+          }
           expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
             netlify: expect.objectContaining({
               functions: [expect.objectContaining({
@@ -1239,6 +1246,8 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
+      expect(webhookRoute).not.toContain("createChannelChatRouteHandler")
+      expect(webhookRoute).toContain("const chatHandlers = {}")
       expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
     }
@@ -1506,6 +1515,13 @@ describe("agent Vite plugin", () => {
         const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
         expect(denoServer).toContain(`const chatRoutePattern = new RegExp(${JSON.stringify(testCase.expectedPattern)})`)
         expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
+        if (testCase.chat) {
+          expect(denoServer).toContain("createChannelChatRouteHandler")
+        }
+        else {
+          expect(denoServer).not.toContain("createChannelChatRouteHandler")
+          expect(denoServer).toContain("const chatHandlers = {}")
+        }
       }
       finally {
         await rm(root, { force: true, recursive: true })
