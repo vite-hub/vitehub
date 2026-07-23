@@ -5,11 +5,17 @@ import { cloudflareRateLimitDriver } from "../src/drivers/cloudflare.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
 import { hubRateLimit } from "../src/vite.ts"
 
-import type { HTTPEvent } from "h3"
+import type { H3Event } from "h3"
 import type { RateLimitDecision, RateLimitDriver, RateLimitDriverOutcome, RateLimitDriverResult, RateLimiter } from "../src/index.ts"
 
+type H3EventWithHostContext = Omit<H3Event, "req"> & {
+  readonly req: Omit<H3Event["req"], "context"> & {
+    readonly context?: { readonly platform?: unknown }
+  }
+}
+
 it("types the portable Rate Limit contract", async () => {
-  const event = {} as HTTPEvent
+  const event = {} as H3EventWithHostContext
   expectTypeOf(await requireRateLimit(event, "uploads", { enforcement: "strict", failure: "deny", limit: 10, window: "1m" })).toEqualTypeOf<void>()
   expectTypeOf(await requireRateLimit(event, "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<void>()
   const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: "1m" })
