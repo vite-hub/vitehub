@@ -25,9 +25,7 @@ export interface RequireRateLimitOptions extends RateLimitPolicy {
 
 export interface RateLimitRequestEvent {
   readonly req: {
-    readonly context?: { clientAddress?: string }
     readonly headers: { get: (name: string) => string | null }
-    readonly ip?: string
   }
 }
 
