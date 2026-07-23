@@ -11,7 +11,7 @@ import {
   ScriptTarget,
 } from "typescript"
 import { build } from "vite"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { resolveServerEnv } from "../src/server.ts"
@@ -19,8 +19,12 @@ import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from ".
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
+afterEach(() => vi.unstubAllEnvs())
+
 describe("Vite plugin", () => {
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {
+    vi.stubEnv("GITHUB_REF_TYPE", "")
+
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "quiver-chat", version: "1.2.3" }), "utf8")
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
