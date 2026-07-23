@@ -4,6 +4,10 @@ import { basename, dirname, relative, resolve } from "node:path"
 import type { DeploymentPlan } from "../deployment.ts"
 
 interface FinalizeDeploymentPlanOutputOptions {
+  identity?: {
+    name: string
+    source: string
+  }
   outputDir?: string
   plan: DeploymentPlan
   rootDir: string
@@ -26,6 +30,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
   }
   const manifest = {
     host: options.plan.host,
+    ...(options.identity ? { identity: options.identity } : {}),
     output: {
       ...options.plan.output,
       directory: relative(options.rootDir, outputRoot).replaceAll("\\", "/") || ".",

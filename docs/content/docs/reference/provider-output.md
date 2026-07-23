@@ -12,6 +12,7 @@ It belongs to the package that owns the primitive and should not become applicat
 
 | Output | Provider | Owner | Purpose |
 | --- | --- | --- | --- |
+| `deployment.json` | All built-in presets | `vite-hub` | Records the resolved deployment identity and source with the host, runtime, output, and service contract. |
 | Worker bundle | Cloudflare | Package integration using Cloudflare output | Runs server or primitive runtime code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Rate Limit, Schedule, Workflow, Sandbox, Agent state as applicable | Declares bindings, crons, durable objects, queues, Rate Limiting bindings, and other worker config. |
 | Vercel Build Output | Vercel | Package integration using Vercel output | Writes functions, static files, routes, and function config under `.vercel/output`. |

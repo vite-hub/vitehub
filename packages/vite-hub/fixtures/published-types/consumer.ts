@@ -50,8 +50,10 @@ export default defineConfig({
     },
   },
   plugins: [vitehub({
+    name: "published-consumer",
     preset: "node",
     agent: true,
+    blob: true,
     database: true,
     workflow: true,
     workspace: true,

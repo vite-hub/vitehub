@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
@@ -59,7 +62,7 @@ function pluginNames(plugins: PluginOption[]): string[] {
 }
 
 function dependencyResolver() {
-  const resolver = dependencyPlugin()
+  const resolver = dependencyPlugin({ preset: "node", blob: true })
   if (!resolver || typeof resolver.resolveId !== "function") throw new TypeError("Expected the framework dependency resolver.")
   return resolver.resolveId
 }
@@ -70,6 +73,20 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "no
   return plugin
 }
 
+async function applyDeploymentConfig(
+  options: Parameters<typeof vitehub>[0],
+  config: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const plugin = vitehub(options)
+    .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+  const hook = plugin.config as unknown as (
+    config: Record<string, unknown>,
+    env: { command: "build", mode: string },
+  ) => void
+  await hook(config, { command: "build", mode: "production" })
+  return config
+}
+
 describe("vitehub", () => {
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
@@ -78,13 +95,13 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
-      "@vite-hub/blob/vite",
       "@vite-hub/kv/optional-peers",
     ])
 
     expect(pluginNames(vitehub({
       agent: true,
       auth: true,
+      blob: true,
       database: true,
       email: true,
       kv: true,
@@ -116,6 +133,7 @@ describe("vitehub", () => {
 
     vitehub({
       agent: true,
+      blob: true,
       database: true,
       preset: "node",
       schedule: true,
@@ -462,7 +480,7 @@ describe("vitehub", () => {
     ["vercel", "vercel-blob"],
   ] as const)("wires the %s Blob adapter from the deployment plan", (preset, driver) => {
     integrationMocks.hubBlob.mockClear()
-    vitehub({ preset })
+    vitehub({ preset, blob: true })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver }))
   })
 
@@ -475,11 +493,12 @@ describe("vitehub", () => {
     }))
   })
 
-  it("omits unsupported implicit Blob wiring and its facade alias for Deno", () => {
+  it("keeps Blob disabled until requested and rejects unsupported presets", () => {
     integrationMocks.hubBlob.mockClear()
+    expect(pluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
     expect(integrationMocks.hubBlob).not.toHaveBeenCalled()
-    const deployment = vitehub({ preset: "deno" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const resolveId = deployment.resolveId as unknown as (source: string, importer?: string) => void
     expect(() => resolveId("vite-hub/blob", "/app/server/api.ts")).toThrow("cannot provide blob")
     expect(() => resolveId(fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts")).toThrow("cannot provide blob")
@@ -506,26 +525,106 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
   })
 
-  it("scopes generated resource names to the Vite project root", async () => {
-    const config = { root: "apps/api" } as Record<string, unknown>
-    const plugin = vitehub({ preset: "cloudflare", queue: true, rateLimit: true, sandbox: true })
-      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
-    await hook(config, { command: "build", mode: "production" })
-    expect(config).toMatchObject({
-      queue: { namePrefix: "api-", provider: "cloudflare" },
-      rateLimit: { namespace: "api", provider: "cloudflare" },
-      sandbox: { name: "api-sandbox", provider: "cloudflare" },
-    })
+  it("uses the nearest package name for the deployment identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-identity-"))
+    const appRoot = join(root, "apps/api")
+    await mkdir(appRoot, { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "@acme/My App" }))
+
+    try {
+      const config = await applyDeploymentConfig(
+        { preset: "cloudflare", blob: true, queue: true, rateLimit: true, sandbox: true },
+        { root: appRoot },
+      )
+      expect(config).toMatchObject({
+        blob: { bucketName: "acme-my-app", driver: "cloudflare-r2" },
+        nitro: { cloudflare: { wrangler: { name: "acme-my-app" } } },
+        queue: { namePrefix: "acme-my-app-", provider: "cloudflare" },
+        rateLimit: { namespace: "acme-my-app", provider: "cloudflare" },
+        sandbox: { name: "acme-my-app-sandbox", provider: "cloudflare" },
+      })
+
+      await rm(join(root, "package.json"))
+      const fallback = await applyDeploymentConfig(
+        { preset: "cloudflare", queue: true },
+        { root: appRoot },
+      )
+      expect(fallback.queue).toMatchObject({ namePrefix: "api-" })
+    }
+    finally {
+      await rm(root, { recursive: true })
+    }
   })
 
-  it("passes the full deployment scope to Cloudflare Queue naming", async () => {
-    const config = { root: "a".repeat(80) } as Record<string, unknown>
-    const plugin = vitehub({ preset: "cloudflare", queue: true })
-      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
-    await hook(config, { command: "build", mode: "production" })
-    expect((config.queue as { namePrefix: string }).namePrefix).toBe(`${"a".repeat(48)}-`)
+  it("keeps the full identity while bounding Cloudflare resource defaults", async () => {
+    const config = await applyDeploymentConfig({
+      blob: true,
+      name: "a".repeat(80),
+      preset: "cloudflare",
+      queue: true,
+      rateLimit: true,
+      sandbox: true,
+    })
+    expect(config.blob).toMatchObject({ bucketName: "a".repeat(48) })
+    expect(config.nitro).toMatchObject({ cloudflare: { wrangler: { name: "a".repeat(48) } } })
+    expect((config.queue as { namePrefix: string }).namePrefix).toBe(`${"a".repeat(80)}-`)
+    expect(config.rateLimit).toMatchObject({ namespace: "a".repeat(80) })
+    expect(config.sandbox).toMatchObject({ name: `${"a".repeat(48)}-sandbox` })
+  })
+
+  it("keeps explicit and legacy deployment identities deterministic", async () => {
+    const previousName = process.env.VITEHUB_DEPLOYMENT_NAME
+    process.env.VITEHUB_DEPLOYMENT_NAME = "Legacy App"
+    try {
+      const explicit = await applyDeploymentConfig({
+        name: "legacy-app",
+        preset: "cloudflare",
+        rateLimit: true,
+      })
+      expect(explicit.rateLimit).toMatchObject({ namespace: "legacy-app" })
+
+      await expect(applyDeploymentConfig({
+        name: "another-app",
+        preset: "cloudflare",
+      })).rejects.toThrow("conflicts with VITEHUB_DEPLOYMENT_NAME")
+
+      const legacy = await applyDeploymentConfig({
+        preset: "cloudflare",
+        rateLimit: true,
+      })
+      expect(legacy.rateLimit).toMatchObject({ namespace: "legacy-app" })
+
+      process.env.VITEHUB_DEPLOYMENT_NAME = `${"a".repeat(48)}-environment`
+      await expect(applyDeploymentConfig({
+        name: `${"a".repeat(48)}-configured`,
+        preset: "cloudflare",
+      })).rejects.toThrow("conflicts with VITEHUB_DEPLOYMENT_NAME")
+    }
+    finally {
+      if (previousName === undefined) delete process.env.VITEHUB_DEPLOYMENT_NAME
+      else process.env.VITEHUB_DEPLOYMENT_NAME = previousName
+    }
+  })
+
+  it("preserves explicit provider and Blob store overrides", async () => {
+    const config = await applyDeploymentConfig(
+      {
+        name: "logical-app",
+        preset: "cloudflare",
+        blob: { bucketName: "explicit-bucket" },
+        queue: true,
+      },
+      { nitro: { cloudflare: { wrangler: { name: "physical-worker" } } } },
+    )
+    expect(config).toMatchObject({
+      blob: { bucketName: "explicit-bucket", driver: "cloudflare-r2" },
+      nitro: { cloudflare: { wrangler: { name: "physical-worker" } } },
+      queue: { namePrefix: "logical-app-" },
+    })
+
+    integrationMocks.hubBlob.mockClear()
+    vitehub({ name: "logical-app", preset: "cloudflare", blob: { driver: "fs" } })
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver: "fs" }))
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {

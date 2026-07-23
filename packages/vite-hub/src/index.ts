@@ -1,4 +1,5 @@
-import { basename, resolve } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
@@ -169,9 +170,10 @@ function frameworkDependencyResolver(
 
 export interface ViteHubOptions {
   preset: DeploymentPreset
+  name?: string
   agent?: boolean | AgentModuleOptions
   auth?: true | AuthModuleOptions
-  blob?: false | BlobModuleOptions
+  blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
   database?: boolean | DBModulePublicOptions
   email?: boolean | EmailVitePluginOptions
@@ -187,12 +189,60 @@ export interface ViteHubOptions {
 
 export type DeploymentPreset = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
 
-function deploymentName(root?: string): string {
-  return (process.env.VITEHUB_DEPLOYMENT_NAME || basename(resolve(process.cwd(), root || ".")))
+type DeploymentIdentitySource = "VITEHUB_DEPLOYMENT_NAME" | "package.json" | "root" | "vitehub.name"
+
+interface DeploymentIdentity {
+  name: string
+  source: DeploymentIdentitySource
+}
+
+function normalizeDeploymentName(value: string | undefined): string | undefined {
+  return value
+    ?.trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48) || "vitehub"
+    .replace(/^-|-$/g, "") || undefined
+}
+
+function cloudflareResourceScope(name: string): string {
+  return name.slice(0, 48)
+}
+
+function packageName(root?: string): string | undefined {
+  let directory = resolve(process.cwd(), root || ".")
+  while (true) {
+    const manifestPath = join(directory, "package.json")
+    if (existsSync(manifestPath)) {
+      const name = JSON.parse(readFileSync(manifestPath, "utf8")).name
+      if (typeof name === "string" && name.trim()) return name
+    }
+    const parent = dirname(directory)
+    if (parent === directory) return
+    directory = parent
+  }
+}
+
+function resolveDeploymentIdentity(root: string | undefined, configuredName: string | undefined): DeploymentIdentity {
+  const configured = normalizeDeploymentName(configuredName)
+  if (configuredName !== undefined && !configured) {
+    throw new Error("[vitehub] vitehub name must contain at least one letter or number.")
+  }
+  const environmentName = process.env.VITEHUB_DEPLOYMENT_NAME
+  const environment = normalizeDeploymentName(environmentName)
+  if (environmentName?.trim() && !environment) {
+    throw new Error("[vitehub] VITEHUB_DEPLOYMENT_NAME must contain at least one letter or number.")
+  }
+  if (configured && environment && configured !== environment) {
+    throw new Error(`[vitehub] vitehub name ${JSON.stringify(configuredName)} conflicts with VITEHUB_DEPLOYMENT_NAME=${JSON.stringify(environmentName)}.`)
+  }
+  if (configured) return { name: configured, source: "vitehub.name" }
+  if (environment) return { name: environment, source: "VITEHUB_DEPLOYMENT_NAME" }
+  const manifestName = normalizeDeploymentName(packageName(root))
+  if (manifestName) return { name: manifestName, source: "package.json" }
+  return {
+    name: normalizeDeploymentName(basename(resolve(process.cwd(), root || "."))) || "vitehub",
+    source: "root",
+  }
 }
 
 function cloneRecord(value: unknown): Record<string, unknown> {
@@ -203,7 +253,7 @@ function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
-function deploymentNitroModule(plan: DeploymentPlan, services: object) {
+function deploymentNitroModule(plan: DeploymentPlan, services: object, identity: DeploymentIdentity) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
     options: { output: { dir: string }, rootDir: string }
@@ -214,12 +264,18 @@ function deploymentNitroModule(plan: DeploymentPlan, services: object) {
       if (plan.output.packaging === "deno-node-modules") {
         await finalizeDenoDeploymentOutput({ outputDir, rootDir })
       }
-      await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir, services })
+      await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
     })
   }
 }
 
-function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentService[], blobEnabled: boolean, services: object): Plugin[] {
+function deploymentPlugins(
+  plan: DeploymentPlan,
+  requestedServices: DeploymentService[],
+  blobEnabled: boolean,
+  services: object,
+  options: ViteHubOptions,
+): Plugin[] {
   return [
     {
       name: "vite-hub/deployment-preset",
@@ -232,7 +288,11 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
       },
       config(config) {
         for (const service of requestedServices) assertDeploymentService(plan, service)
-        const name = deploymentName(typeof config.root === "string" ? config.root : undefined)
+        const identity = resolveDeploymentIdentity(
+          typeof config.root === "string" ? config.root : undefined,
+          options.name,
+        )
+        const name = identity.name
         if (requestedServices.includes("queue") && plan.services.queue.supported) {
           ;(config as { queue?: unknown }).queue = {
             ...cloneRecord((config as { queue?: unknown }).queue),
@@ -250,11 +310,30 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
         if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
           ;(config as { sandbox?: unknown }).sandbox = {
             ...cloneRecord((config as { sandbox?: unknown }).sandbox),
-            ...(plan.services.sandbox.adapter === "cloudflare" ? { name: name + "-sandbox" } : {}),
+            ...(plan.services.sandbox.adapter === "cloudflare"
+              ? { name: cloudflareResourceScope(name) + "-sandbox" }
+              : {}),
             provider: plan.services.sandbox.adapter,
           }
         }
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
+        if (blobEnabled && plan.services.blob.supported && plan.services.blob.adapter === "cloudflare-r2") {
+          const optionBlob = options.blob === true ? undefined : options.blob
+          const configuredBlob = (config as { blob?: BlobModuleOptions }).blob
+          if (!hasExplicitBlobStore(optionBlob) && !hasExplicitBlobStore(configuredBlob)) {
+            ;(config as { blob?: BlobModuleOptions }).blob = presetBlobOptions(plan, {
+              ...cloneRecord(optionBlob),
+              ...cloneRecord(configuredBlob),
+            }, cloudflareResourceScope(name))
+          }
+        }
+        if (plan.preset === "cloudflare") {
+          const cloudflare = cloneRecord(nitro.cloudflare)
+          const wrangler = cloneRecord(cloudflare.wrangler)
+          if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
+          cloudflare.wrangler = wrangler
+          nitro.cloudflare = cloudflare
+        }
         const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
         if (configuredPreset && normalizeNitroPreset(configuredPreset) !== plan.nitroPreset) {
           throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + ".")
@@ -271,7 +350,7 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
         }
         nitro.modules = [
           ...(Array.isArray(nitro.modules) ? nitro.modules : []),
-          deploymentNitroModule(plan, services),
+          deploymentNitroModule(plan, services, identity),
         ]
         if (plan.output.packaging === "deno-node-modules") {
           nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
@@ -300,16 +379,20 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
   ]
 }
 
-function hasExplicitBlobStore(options: BlobModuleOptions | undefined): boolean {
+function hasExplicitBlobStore(options: boolean | BlobModuleOptions | undefined): boolean {
   return Boolean(options && typeof options === "object" && ("driver" in options || "stores" in options))
 }
 
-function presetBlobOptions(plan: DeploymentPlan, options: BlobModuleOptions | undefined): BlobModuleOptions {
+function presetBlobOptions(
+  plan: DeploymentPlan,
+  options: boolean | BlobModuleOptions | undefined,
+  deploymentName = "vitehub-blob",
+): BlobModuleOptions {
   if (hasExplicitBlobStore(options)) return options as BlobModuleOptions
   const configured = options && typeof options === "object" ? options : {}
   switch (plan.services.blob.supported && plan.services.blob.adapter) {
     case "cloudflare-r2": return {
-      bucketName: process.env.BLOB_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || "vitehub-blob",
+      bucketName: process.env.BLOB_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || deploymentName,
       ...configured,
       driver: "cloudflare-r2",
     }
@@ -333,7 +416,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     throw new Error("[vitehub] Browser currently requires the Cloudflare deployment preset.")
   }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
-  const blobEnabled = options.blob !== false && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
+  const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -343,7 +426,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const manifestServices = hasExplicitBlobStore(options.blob)
     ? { ...plan.services, blob: { configured: true, supported: true } }
     : plan.services
-  plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices))
+  plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options))
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
