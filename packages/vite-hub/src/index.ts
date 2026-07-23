@@ -169,11 +169,11 @@ function frameworkDependencyResolver(
 
 export interface ViteHubOptions {
   preset: DeploymentPreset
-  agent?: false | AgentModuleOptions
+  agent?: boolean | AgentModuleOptions
   auth?: true | AuthModuleOptions
   blob?: false | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
-  database?: false | DBModulePublicOptions
+  database?: boolean | DBModulePublicOptions
   email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
@@ -181,8 +181,8 @@ export interface ViteHubOptions {
   rateLimit?: boolean
   sandbox?: boolean
   schedule?: boolean | ScheduleVitePluginOptions
-  workflow?: false | WorkflowModuleOptions
-  workspace?: false | WorkspaceModuleOptions
+  workflow?: boolean | WorkflowModuleOptions
+  workspace?: boolean | WorkspaceModuleOptions
 }
 
 export type DeploymentPreset = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
@@ -326,7 +326,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.schedule && plan.preset === "deno") {
     throw new Error("[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration.")
   }
-  if (options.agent && options.agent.runtime === "deno" && plan.preset === "deno") {
+  if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.preset === "deno") {
     throw new Error("[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment.")
   }
   if (options.browser && plan.preset !== "cloudflare") {
@@ -380,9 +380,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       providerImportSpecifier: "vite-hub/sandbox",
     } as SandboxPublicOptions))
   }
-  if (options.agent !== false) {
+  if (options.agent) {
     plugins.push(hubAgent({
-      ...options.agent,
+      ...(options.agent === true ? {} : options.agent),
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
       importBase: `${generatedImportBase}/agent`,
       providerImportAliases,
@@ -398,7 +398,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as AgentModuleOptions))
   }
   if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
-  if (options.database !== false) plugins.push(hubDb(options.database))
+  if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(hubBlob({
       ...presetBlobOptions(plan, options.blob),
@@ -432,9 +432,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }
-  if (options.workflow !== false) {
+  if (options.workflow) {
     plugins.push(hubWorkflow({
-      ...options.workflow,
+      ...(options.workflow === true ? {} : options.workflow),
       agentImportBase: `${generatedImportBase}/agent`,
       importBase: `${generatedImportBase}/workflow`,
       providerImportAliases,
@@ -442,9 +442,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       workspaceImportBase: `${generatedImportBase}/workspace`,
     } as unknown as WorkflowModuleOptions))
   }
-  if (options.workspace !== false) {
+  if (options.workspace) {
     plugins.push(hubWorkspace({
-      ...options.workspace,
+      ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))

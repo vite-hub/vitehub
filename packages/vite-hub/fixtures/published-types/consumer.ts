@@ -49,5 +49,11 @@ export default defineConfig({
       GH_TOKEN: env(),
     },
   },
-  plugins: [vitehub({ preset: "node" })],
+  plugins: [vitehub({
+    preset: "node",
+    agent: true,
+    database: true,
+    workflow: true,
+    workspace: true,
+  })],
 })

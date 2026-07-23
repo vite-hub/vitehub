@@ -74,7 +74,7 @@ The Vite config key is `workspace`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workspace: false` | `false` | enabled | Disables Workspace integration. |
+| `workspace` | `boolean` or `WorkspaceModuleOptions` | disabled | Enables Workspace discovery and runtime wiring through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
 | `projectRoot` | `string` | ViteHub project root | Resolves server-side discovery from a custom project root. |
 | `assets` | `WorkspaceModuleOptions['assets']` | package default | Controls build-time Workspace asset materialization. Accepts `false`, `true`, or explicit asset paths. |
