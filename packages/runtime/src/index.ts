@@ -12,6 +12,90 @@ export {
 
 export type MaybePromise<T> = T | Promise<T>
 
+export interface ExecutionAuthority {
+  readonly credentials: "ambient" | "none" | "provisioned" | "unknown"
+  readonly environment: "ambient" | "none" | "selected" | "unknown"
+  readonly filesystem: {
+    readonly access: "none" | "read-only" | "read-write" | "unknown"
+    readonly scope: "host" | "none" | "sandbox" | "unknown" | "workspace"
+  }
+  readonly isolation: "container" | "microvm" | "none" | "process" | "unknown"
+  readonly network: "none" | "restricted" | "unrestricted" | "unknown"
+  readonly processes: "arbitrary" | "none" | "restricted" | "unknown"
+}
+
+export const noExecutionAuthority: ExecutionAuthority = Object.freeze({
+  credentials: "none",
+  environment: "none",
+  filesystem: Object.freeze({ access: "none", scope: "none" }),
+  isolation: "none",
+  network: "none",
+  processes: "none",
+}) satisfies ExecutionAuthority
+
+export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
+  credentials: "unknown",
+  environment: "unknown",
+  filesystem: Object.freeze({ access: "unknown", scope: "unknown" }),
+  isolation: "unknown",
+  network: "unknown",
+  processes: "unknown",
+}) satisfies ExecutionAuthority
+
+export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const authority = value as Record<string, unknown>
+  const filesystem = authority.filesystem
+  if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem)) return false
+  const files = filesystem as Record<string, unknown>
+  return typeof authority.credentials === "string"
+    && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
+    && typeof authority.environment === "string"
+    && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
+    && typeof files.access === "string"
+    && ["none", "read-only", "read-write", "unknown"].includes(files.access)
+    && typeof files.scope === "string"
+    && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
+    && typeof authority.isolation === "string"
+    && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
+    && typeof authority.network === "string"
+    && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
+    && typeof authority.processes === "string"
+    && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
+}
+
+export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
+  if (!isExecutionAuthority(value)) {
+    throw new TypeError("[vitehub] Invalid execution authority descriptor.")
+  }
+  if (
+    hasCanonicalFrozenProperties(value, ["credentials", "environment", "filesystem", "isolation", "network", "processes"])
+    && hasCanonicalFrozenProperties(value.filesystem, ["access", "scope"])
+  ) return value
+  return Object.freeze({
+    credentials: value.credentials,
+    environment: value.environment,
+    filesystem: Object.freeze({
+      access: value.filesystem.access,
+      scope: value.filesystem.scope,
+    }),
+    isolation: value.isolation,
+    network: value.network,
+    processes: value.processes,
+  })
+}
+
+function hasCanonicalFrozenProperties(value: object, keys: readonly string[]): boolean {
+  const prototype = Object.getPrototypeOf(value)
+  if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
+  const ownKeys = Reflect.ownKeys(value)
+  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== "string" || !keys.includes(key))) return false
+  return keys.every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
+  })
+}
+
 export type RuntimeWaitUntil = (task: Promise<unknown>) => void
 
 export interface RuntimeWaitUntilController {

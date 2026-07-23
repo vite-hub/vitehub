@@ -7,6 +7,7 @@ import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, T
 import type {
   MaybePromise,
   MaybeResolvable,
+  ExecutionAuthority,
   Resolvable,
   RuntimeCapabilities,
   RuntimeCapabilityHandle,
@@ -1494,9 +1495,10 @@ export interface AgentInspectionHarnessMetadata {
 }
 
 export interface AgentInspectionDriverMetadata {
+  readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata
   harness?: AgentInspectionHarnessMetadata
-  kind: "harness" | "model" | "run"
+  kind: "harness" | "model" | "run" | "unknown"
   model?: AgentInspectionModelMetadata
 }
 

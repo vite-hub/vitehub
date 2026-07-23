@@ -7,6 +7,7 @@ import { Readable } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { createHash, randomUUID } from "node:crypto"
 import { Cause, Effect, Exit } from "effect"
+import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { runAgentEffect, tryAgentPromise } from "../internal/effect-runtime.ts"
 
@@ -329,15 +330,27 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
   return session
 }
 
-export function createLocalHarnessSandbox(options: LocalHarnessSandboxOptions = {}): HarnessV1SandboxProvider {
+export function createLocalHarnessSandbox(
+  options: LocalHarnessSandboxOptions = {},
+): HarnessV1SandboxProvider & { readonly executionAuthority: ExecutionAuthority } {
   return createLocalHarnessSandboxProvider(options)
 }
 
-function createLocalHarnessSandboxProvider(options: LocalHarnessSandboxOptions): HarnessV1SandboxProvider {
+function createLocalHarnessSandboxProvider(
+  options: LocalHarnessSandboxOptions,
+): HarnessV1SandboxProvider & { readonly executionAuthority: ExecutionAuthority } {
   const firstCreates = new Map<string, Promise<void>>()
 
   return {
     ...(options.ports ? { bridgePorts: options.ports } : {}),
+    executionAuthority: normalizeExecutionAuthority({
+      credentials: options.env === undefined ? "ambient" : "unknown",
+      environment: options.env === undefined ? "ambient" : "selected",
+      filesystem: { access: "read-write", scope: "host" },
+      isolation: "none",
+      network: "unrestricted",
+      processes: "arbitrary",
+    }),
     providerId: "local",
     specificationVersion: "harness-sandbox-v1",
     async createSession(createOptions) {

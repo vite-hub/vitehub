@@ -38,7 +38,14 @@ describe("crabbox", () => {
     expect(box.plan).toMatchObject({
       cache: { state: "disposable" },
       environment: {},
-      isolation: "none",
+      executionAuthority: {
+        credentials: "unknown",
+        environment: "selected",
+        filesystem: { access: "read-write", scope: "host" },
+        isolation: "none",
+        network: "unrestricted",
+        processes: "arbitrary",
+      },
       runtime: "crabbox",
       requirements: [
         { command: "gh", name: "gh auth status" },

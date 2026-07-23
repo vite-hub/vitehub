@@ -1,5 +1,6 @@
 import { posix } from "node:path"
 import { describe, expect, it } from "vitest"
+import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
@@ -21,6 +22,7 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
   }
 
   return {
+    executionAuthority: unknownExecutionAuthority,
     isExecutable(path) {
       return executables.has(normalize(path))
     },
@@ -133,6 +135,7 @@ describe("workspace host sessions", () => {
     await docs.snapshot({ name: "baseline" })
 
     const session = await docs.startSession()
+    expect(session.executionAuthority).toBe(noExecutionAuthority)
     await session.writeFile("README.md", "discarded")
     await session.writeFile("partial.txt", "discarded")
     await session.close()
@@ -159,7 +162,9 @@ describe("workspace host sessions", () => {
     await docs.writeFile("README.md", "before")
     await docs.snapshot({ name: "baseline" })
 
-    const session = await docs.startSession({ host: memoryHost() })
+    const host = memoryHost()
+    const session = await docs.startSession({ host })
+    expect(session.executionAuthority).toBe(host.executionAuthority)
     await expect(session.readFile("README.md")).resolves.toBe("before")
     expect(await session.exec("write", ["result.txt", "done"])).toMatchObject({ exitCode: 0 })
     await session.commit({ message: "success" })

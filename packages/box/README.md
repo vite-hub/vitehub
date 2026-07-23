@@ -65,7 +65,7 @@ const box = await resolveBox(
   {},
 );
 
-console.log(box.plan.runtime, box.plan.requirements);
+console.log(box.plan.runtime, box.plan.requirements, box.plan.executionAuthority);
 
 const session = await box.open();
 try {
@@ -127,7 +127,7 @@ requires: [
 
 Core does not contain provider names or auth-file formats. `codexDriver()` contributes its own generic `codex login status` check when it uses direct OpenAI authentication.
 
-Requirement names, commands, and argv are inspectable declaration metadata. Keep credentials in `env` or Home files rather than arguments.
+Requirement names, commands, and argv are inspectable declaration metadata. They verify or select executables, but they do not restrict filesystem access, network egress, inherited credentials, or child processes. Inspect `box.plan.executionAuthority` for those boundaries, and keep credentials in `env` or Home files rather than arguments.
 
 ## Run through Crabbox
 
@@ -163,7 +163,7 @@ Commands must remain owned by their Box session. Daemonizing or escaping the ses
 
 ## Security boundary
 
-A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not isolate the filesystem, network, installed executables, or trusted project code. Use `trustedHost()` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
+A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `box.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. Use `trustedHost()` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
 
 Resolved environment values, file contents, state, and physical Home paths are excluded from `box.plan`. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 

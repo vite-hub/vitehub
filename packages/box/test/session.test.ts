@@ -7,6 +7,25 @@ import { describe, expect, it } from "vitest";
 import { resolveBox, trustedHost } from "../src/index.ts";
 
 describe("BoxSession", () => {
+  it("rejects runtimes that do not declare execution authority", async () => {
+    await expect(resolveBox({
+      runtime: {
+        name: "opaque",
+        async open() { throw new Error("unreachable") },
+        async prepare({ identity }) {
+          return {
+            cache: { state: "disposable" },
+            environment: { env: {} },
+            identity,
+            requirements: [],
+            runtime: "opaque",
+            workspace: { state: "disposable", workDir: "." },
+          } as never
+        },
+      },
+    }, {})).rejects.toThrow("must declare executionAuthority")
+  })
+
   it("provides one binary-safe file contract", async () => {
     const box = await resolveBox({ runtime: trustedHost() }, {});
     const session = await box.open();
