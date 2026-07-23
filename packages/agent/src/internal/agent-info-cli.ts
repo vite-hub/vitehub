@@ -1,3 +1,5 @@
+import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
+
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
 
 import type { AgentInspectionMetadata } from "../types.ts"
@@ -113,6 +115,21 @@ function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   return "Unknown Agent Driver"
 }
 
+function agentInfoExecutionAuthority(authority: ExecutionAuthority): string[] {
+  const filesystem = authority.filesystem.scope === authority.filesystem.access
+    ? authority.filesystem.scope
+    : `${authority.filesystem.scope}, ${authority.filesystem.access}`
+  return [
+    "Execution authority:",
+    `  Filesystem: ${filesystem}`,
+    `  Network: ${authority.network}`,
+    `  Environment: ${authority.environment}`,
+    `  Credentials: ${authority.credentials}`,
+    `  Process execution: ${authority.processes}`,
+    `  Isolation: ${authority.isolation}`,
+  ]
+}
+
 function agentInfoNames(values: Array<{ name: string }>, fallback: string): string {
   if (!values.length) return fallback
   const names = values.slice(0, 5).map(value => value.name)
@@ -121,10 +138,12 @@ function agentInfoNames(values: Array<{ name: string }>, fallback: string): stri
 
 function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionMetadata): void {
   const files = countAgentInfoFiles(metadata.files || [])
+  const authority = metadata.config?.driver?.executionAuthority
   context.stdout.write([
     `Agent: ${metadata.name || "unknown"}`,
     "Metadata: ready",
     `Driver: ${agentInfoDriver(metadata.config)}`,
+    ...(isExecutionAuthority(authority) ? agentInfoExecutionAuthority(authority) : ["Execution authority: unavailable"]),
     `Tools: ${plural(metadata.tools?.length || 0, "tool")} (${agentInfoNames(metadata.tools || [], "none")})`,
     `Workspace files: ${plural(files.files, "file")}, ${plural(files.directories, "directory", "directories")}, ${plural(files.sources, "source")}`,
     `Instructions: ${plural(metadata.instructions?.length || 0, "document")}`,

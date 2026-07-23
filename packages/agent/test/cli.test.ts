@@ -26,6 +26,15 @@ function ndjson(events: unknown[]): Response {
   })
 }
 
+const unknownExecutionAuthorityFixture = {
+  credentials: "unknown",
+  environment: "unknown",
+  filesystem: { access: "unknown", scope: "unknown" },
+  isolation: "unknown",
+  network: "unknown",
+  processes: "unknown",
+} as const
+
 describe("agent CLI", () => {
   it("contributes the agent eval feature", () => {
     expect(createAgentCliContributor()).toEqual({
@@ -58,7 +67,20 @@ describe("agent CLI", () => {
     const stdout = stream()
     const fetchAgentInfo = vi.fn(async () => Response.json({
       inspection: {
-        config: { driver: { kind: "model", model: { id: "openai/gpt-5" } } },
+        config: {
+          driver: {
+            executionAuthority: {
+              credentials: "ambient",
+              environment: "ambient",
+              filesystem: { access: "read-write", scope: "host" },
+              isolation: "none",
+              network: "unrestricted",
+              processes: "arbitrary",
+            },
+            kind: "model",
+            model: { id: "openai/gpt-5" },
+          },
+        },
         files: [
           {
             children: [{ kind: "file", path: "docs/AGENTS.md", source: "docs" }],
@@ -89,6 +111,13 @@ describe("agent CLI", () => {
       "Agent: support",
       "Metadata: ready",
       "Driver: Model-backed Agent Driver (openai/gpt-5)",
+      "Execution authority:",
+      "  Filesystem: host, read-write",
+      "  Network: unrestricted",
+      "  Environment: ambient",
+      "  Credentials: ambient",
+      "  Process execution: arbitrary",
+      "  Isolation: none",
       "Tools: 2 tools (search, shell)",
       "Workspace files: 1 file, 1 directory, 1 source",
       "Instructions: 1 document",
@@ -103,11 +132,11 @@ describe("agent CLI", () => {
     }))
   })
 
-  it("prints the existing Agent inspection contract as JSON", async () => {
+  it("prints execution authority in the existing Agent inspection contract as JSON", async () => {
     const stdout = stream()
     const fetchAgentInfo = vi.fn(async () => Response.json({
       inspection: {
-        config: { driver: { kind: "run" } },
+        config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
         files: [],
         instructions: [],
         invokerProfiles: [],
@@ -128,7 +157,7 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(0)
     expect(JSON.parse(stdout.output())).toEqual({
-      config: { driver: { kind: "run" } },
+      config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
       files: [],
       instructions: [],
       invokerProfiles: [],
@@ -140,7 +169,77 @@ describe("agent CLI", () => {
     expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/invocation-stream?inspect=1&agent=support", expect.anything())
   })
 
-  it("requires an Agent target when multiple chat-capable Agents are discovered", async () => {
+  it("prints unknown execution authority without inferring restrictions", async () => {
+    const stdout = stream()
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: vi.fn(async () => Response.json({
+        inspection: {
+          config: { driver: { executionAuthority: unknownExecutionAuthorityFixture, kind: "unknown" } },
+          name: "opaque",
+        },
+      })) as never,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toContain([
+      "Execution authority:",
+      "  Filesystem: unknown",
+      "  Network: unknown",
+      "  Environment: unknown",
+      "  Credentials: unknown",
+      "  Process execution: unknown",
+      "  Isolation: unknown",
+    ].join("\n"))
+  })
+
+  it("reports unavailable execution authority without treating it as none", async () => {
+    const stdout = stream()
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: vi.fn(async () => Response.json({ inspection: { name: "legacy" } })) as never,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toContain("Execution authority: unavailable\n")
+    expect(stdout.output()).not.toContain("Execution authority: none")
+  })
+
+  it.each([
+    { config: {}, label: "missing Driver metadata" },
+    { config: { driver: { executionAuthority: {}, kind: "unknown" } }, label: "malformed execution authority" },
+  ])("reports $label as unavailable", async ({ config }) => {
+    const stdout = stream()
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: vi.fn(async () => Response.json({
+        inspection: {
+          config,
+          name: "legacy",
+        },
+      })) as never,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toContain("Execution authority: unavailable\n")
+  })
+
+  it("requires an Agent target when multiple Agents are discovered", async () => {
     const stderr = stream()
     const fetchAgentInfo = vi.fn(async () => new Response("Multiple Agents discovered. Pass --agent review|support.", { status: 400 }))
 
