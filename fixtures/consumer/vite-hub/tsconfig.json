@@ -1,4 +1,5 @@
 {
+  "extends": ["vite-hub/tsconfig"],
   "compilerOptions": {
     "target": "ES2023",
     "module": "ESNext",
@@ -10,5 +11,5 @@
     "noEmit": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["vite.config.ts", "src/**/*.ts", "server/**/*.ts", ".vitehub/**/*.d.ts"]
+  "include": ["vite.config.ts", "src/**/*.ts", "server/**/*.ts"]
 }

@@ -119,6 +119,7 @@
     "./workspace/publish": "./dist/workspace/publish.js",
     "./workspace/runtime": "./dist/workspace/runtime.js",
     "./workspace/server": "./dist/workspace/server.js",
+    "./tsconfig": "./dist/tsconfig.json",
     "./package.json": "./package.json"
   },
   "scripts": {

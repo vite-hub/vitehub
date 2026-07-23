@@ -80,6 +80,7 @@ describe("vitehub", () => {
       "@vite-hub/env/vite",
       "@vite-hub/blob/vite",
       "@vite-hub/kv/optional-peers",
+      "vite-hub/types",
     ])
 
     expect(pluginNames(vitehub({
@@ -111,6 +112,7 @@ describe("vitehub", () => {
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
+      "vite-hub/types",
     ])
     expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
 

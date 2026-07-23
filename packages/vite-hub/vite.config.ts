@@ -32,6 +32,7 @@ const distributionEntries = distributionEntriesFromManifest([
 
 export default defineConfig({
   pack: {
+    copy: [{ from: "src/tsconfig.json", to: "dist" }],
     tsconfig: "tsconfig.build.json",
     deps: {
       neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$))/],
