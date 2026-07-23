@@ -690,7 +690,9 @@ async function runAgentAsWorkflow<
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
     if (owner && owner !== agent) return undefined
   }
-  const capabilityNames = Object.keys(context.capabilities || {})
+  const capabilityNames = Object.entries(context.capabilities || {})
+    .filter(([, capability]) => capability !== false)
+    .map(([name]) => name)
   // ponytail: Host capability handles and registries cannot cross a Workflow payload without losing identity.
   if ("discoveryDefault" in binding && capabilityNames.length) return undefined
 

@@ -9698,6 +9698,7 @@ describe("agent message protocol", () => {
         driver: { run: () => "inline" },
       }), {
         agentIdentity: { name: "support" },
+        capabilities: { blob: false },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),

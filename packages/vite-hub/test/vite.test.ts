@@ -586,6 +586,9 @@ describe("vitehub", () => {
       preset: "cloudflare",
     })
     expect(truncated.blob).toMatchObject({ bucketName: "a".repeat(47) })
+    expect(truncated.nitro).toMatchObject({
+      cloudflare: { wrangler: { name: "a".repeat(47) } },
+    })
   })
 
   it("keeps explicit and legacy deployment identities deterministic", async () => {

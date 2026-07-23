@@ -548,7 +548,7 @@ async function hasActiveWorkflowRuntime(
 ): Promise<boolean> {
   if (!isRecord(agent) || !isRecord(agent.runtime) || agent.runtime.kind !== "workflow") return false
   if (agent.runtime.discoveryDefault !== true) return true
-  if (!context.agentIdentity || Object.keys(context.capabilities || {}).length) return false
+  if (!context.agentIdentity || Object.values(context.capabilities || {}).some(capability => capability !== false)) return false
   try {
     return Boolean((await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig())
   }

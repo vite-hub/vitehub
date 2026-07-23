@@ -205,11 +205,11 @@ function normalizeDeploymentName(value: string | undefined): string | undefined 
 }
 
 function cloudflareResourceScope(name: string): string {
-  return name.slice(0, 48)
+  return name.slice(0, 48).replace(/-+$/g, "")
 }
 
 function cloudflareR2BucketName(name: string): string {
-  const scoped = cloudflareResourceScope(name).replace(/-+$/g, "")
+  const scoped = cloudflareResourceScope(name)
   return scoped.length >= 3 ? scoped : `${scoped || "app"}-blob`
 }
 
