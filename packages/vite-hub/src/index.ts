@@ -22,6 +22,8 @@ import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
 import { assertDeploymentService, deploymentPresetFromNitro, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
+import { viteHubTypesPlugin } from "./internal/types.ts"
+
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
@@ -92,9 +94,9 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
   }
 }
 const frameworkProviderImportAliases = Object.fromEntries(
-  Object.keys(frameworkPackageManifest.exports)
-    .filter(subpath => subpath.startsWith("./") && subpath !== "./package.json")
-    .map((subpath) => {
+  Object.entries(frameworkPackageManifest.exports)
+    .filter(([subpath, target]) => subpath.startsWith("./") && target.endsWith(".js"))
+    .map(([subpath]) => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]
     })
@@ -449,5 +451,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }
+  plugins.push(viteHubTypesPlugin())
   return plugins as PluginOption[]
 }
