@@ -1,6 +1,6 @@
 import type { BoxRuntime } from "../index.ts";
 
-export const builtInBoxRuntime: symbol = Symbol.for("vitehub.box.internal-runtime");
+const builtInBoxRuntime: symbol = Symbol.for("vitehub.box.internal-runtime");
 
 export function isBuiltInBoxRuntime(runtime: BoxRuntime): boolean {
   return builtInBoxRuntime in runtime;
