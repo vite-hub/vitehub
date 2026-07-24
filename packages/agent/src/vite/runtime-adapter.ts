@@ -4,7 +4,9 @@ import { pathToFileURL } from "node:url"
 
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
+import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
+import { readColocatedAgentHome } from "./colocated-agent-home.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -52,12 +54,19 @@ function colocatedSkills(file: string) {
   return decodeColocatedAgentSkills(readColocatedAgentSkills(file))
 }
 
+function colocatedHome(file: string) {
+  return decodeColocatedAgentHome(readColocatedAgentHome(file))
+}
+
 export async function loadViteAgent(
   server: ViteDevServer,
   definition: DiscoveredAgentDefinition,
 ): Promise<LoadedViteAgent | undefined> {
   const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-  const agent = withColocatedAgentSkills(resolveAgentModule(module), colocatedSkills(definition.handler))
+  const agent = withColocatedAgentHome(
+    withColocatedAgentSkills(resolveAgentModule(module), colocatedSkills(definition.handler)),
+    colocatedHome(definition.handler),
+  )
   if (!agent) return
   return {
     agent,
@@ -77,9 +86,12 @@ export function createViteWorkspaceAgentLoader(
     const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
     return {
       ...module,
-      default: workspaceAgentWithSourceRoot(
-        withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
-        workspaceSourceRoot(definition.handler),
+      default: withColocatedAgentHome(
+        workspaceAgentWithSourceRoot(
+          withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
+          workspaceSourceRoot(definition.handler),
+        ),
+        colocatedHome(definition.handler),
       ),
     }
   }

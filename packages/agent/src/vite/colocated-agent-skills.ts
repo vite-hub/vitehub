@@ -1,5 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { basename, dirname, join, relative } from "node:path"
+import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
 
 export interface EncodedColocatedAgentSkillSource {
   content: string
@@ -10,32 +9,20 @@ export interface EncodedColocatedAgentSkillSource {
 }
 
 export function readColocatedAgentSkills(handler: string): Record<string, EncodedColocatedAgentSkillSource> | undefined {
-  if (!/^(?:agent|index)\.(?:c|m)?[jt]s$/i.test(basename(handler))) return
-  const sourceRoot = dirname(handler)
-  if (/^agent\.(?:c|m)?[jt]s$/i.test(basename(handler))
-    && basename(sourceRoot) === "agents"
-    && basename(dirname(sourceRoot)) === "server") return
-  const skillsRoot = join(sourceRoot, "skills")
-  if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return
-
-  const sources: Record<string, EncodedColocatedAgentSkillSource> = {}
-  const visit = (directory: string) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      const file = join(directory, entry.name)
-      if (entry.isDirectory()) visit(file)
-      else if (entry.isFile()) {
-        const workspacePath = relative(sourceRoot, file).replace(/\\/g, "/")
-        sources[`__vitehubAgentSkill:${workspacePath}`] = {
-          content: readFileSync(file).toString("base64"),
-          encoding: "base64",
+  const files = readColocatedAgentFiles(handler, "skills")
+  if (!files) return
+  return Object.fromEntries(
+    Object.entries(files).map(([path, file]) => {
+      const workspacePath = `skills/${path}`
+      return [
+        `__vitehubAgentSkill:${workspacePath}`,
+        {
+          ...file,
           materialize: "build",
           mount: "",
           workspacePath,
-        }
-      }
-    }
-  }
-
-  visit(skillsRoot)
-  return Object.keys(sources).length ? sources : undefined
+        },
+      ]
+    }),
+  )
 }

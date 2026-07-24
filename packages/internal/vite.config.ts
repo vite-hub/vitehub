@@ -19,6 +19,7 @@ export default defineConfig({
       "src/workspace-inventory.ts",
       "src/build/client-output.ts",
       "src/build/cloudflare.ts",
+      "src/build/colocated-agent-files.ts",
       "src/build/deployment-output.ts",
       "src/build/deployment-plan-output.ts",
       "src/build/deno-runtime-packages.ts",
