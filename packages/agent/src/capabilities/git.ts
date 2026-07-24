@@ -297,6 +297,12 @@ function safeGitRef(ref: unknown): string | undefined {
   return ref
 }
 
+function safeGitSha(sha: unknown): string | undefined {
+  if (typeof sha !== "string") return
+  const normalized = sha.toLowerCase()
+  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(normalized) ? normalized : undefined
+}
+
 function safeWorkspacePath(path: unknown): string | undefined {
   if (typeof path !== "string" || !path) return
   try {
@@ -368,10 +374,13 @@ function pullRequestGitSetup(context: { context?: { get(key: string): unknown } 
   const headRef = safeGitRef(source?.ref) || safeGitRef(head?.ref) || safeGitRef(pullRequest.headRef)
   const baseRef = safeGitRef(base?.ref) || safeGitRef(pullRequest.baseRef)
   if (!repo || !mount || !headRef) return
+  const headSha = safeGitSha(head?.sha) || safeGitSha(pullRequest.headSha)
+  if (!headSha) throw new Error("[vitehub] GitHub pull request checkout requires an exact head SHA.")
 
   return {
     ...(baseRef ? { baseRef: gitRemoteRef(baseRef) } : {}),
     headRef: gitRemoteRef(headRef),
+    headSha,
     mount,
     remoteUrl: `https://github.com/${repo}.git`,
   }
@@ -395,7 +404,13 @@ async function preparePullRequestGitSession(
 
   const cwd = `/workspace/${setup.mount}`
   const existing = await session.exec("git", ["rev-parse", "--is-inside-work-tree"], gitExecOptions(cwd, timeout))
-  if (existing.exitCode === 0) return false
+  if (existing.exitCode === 0) {
+    const head = await session.exec("git", ["rev-parse", "HEAD"], gitExecOptions(cwd, timeout))
+    if (head.exitCode !== 0 || head.stdout.trim().toLowerCase() !== setup.headSha) {
+      throw new Error("[vitehub] existing pull request checkout does not match the expected SHA.")
+    }
+    return false
+  }
 
   const baseTrackingRef = setup.baseRef ? gitRemoteBranchTrackingRef(setup.baseRef) : undefined
   const authHeader = await gitHubAuthHeader()
@@ -412,6 +427,7 @@ async function preparePullRequestGitSession(
     `git remote add origin ${shellQuote(setup.remoteUrl)}`,
     'if [ -n "${VITEHUB_GIT_AUTH_HEADER:-}" ]; then git config --local http.https://github.com/.extraheader "$VITEHUB_GIT_AUTH_HEADER"; fi',
     `git fetch --depth=100 origin ${fetchRefspecs}`,
+    `test "$(git rev-parse refs/vitehub/head)" = ${shellQuote(setup.headSha)} || { echo "[vitehub] fetched pull request head does not match the expected SHA." >&2; exit 1; }`,
     "git checkout -q --detach refs/vitehub/head",
     ...(baseTrackingRef ? [`git branch -f vitehub-base ${shellQuote(baseTrackingRef)} >/dev/null`] : []),
     "git branch -f vitehub-head HEAD >/dev/null",

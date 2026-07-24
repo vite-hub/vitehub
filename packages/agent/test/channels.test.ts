@@ -385,6 +385,50 @@ describe("agent channels", () => {
     })
   })
 
+  it("fetches public pull request head metadata without a token", async () => {
+    const { github } = await import("../src/channels.ts")
+    const tokenKeys = ["VITEHUB_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const
+    const previousTokens = Object.fromEntries(tokenKeys.map(key => [key, process.env[key]]))
+    tokenKeys.forEach(key => delete process.env[key])
+    try {
+      const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(init?.headers).not.toHaveProperty("authorization")
+        return Response.json({
+          base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+          head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
+        })
+      })
+      const channel = github({
+        app: { fetch: fetcher as typeof fetch },
+        pullRequest: { reply: false },
+      })
+      const trigger = channel.triggers?.webhook
+      if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+
+      const result = await trigger.invoke({
+        capabilities: [],
+        channel,
+        trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+      } as never, { payload: githubIssueCommentPayload() })
+      if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+
+      expect(result.input.context?.pullRequest).toMatchObject({
+        pullRequest: {
+          head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
+          number: 42,
+          source: { ref: "refs/pull/42/head" },
+        },
+      })
+    }
+    finally {
+      tokenKeys.forEach((key) => {
+        const value = previousTokens[key]
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      })
+    }
+  })
+
   it("uses token fallback to fetch GitHub PR metadata", async () => {
     const { github } = await import("../src/channels.ts")
     const previousToken = process.env.VITEHUB_GITHUB_TOKEN
