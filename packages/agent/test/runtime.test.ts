@@ -8265,8 +8265,9 @@ describe("agent message protocol", () => {
 
   it("does not lock alternate progress stream representations before one is consumed", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Checking inventory.")
     const agent = defineAgent({
-      capabilities: [progressSummary({ execute: () => "Checking inventory.", intervalMs: 0 })],
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
       driver: { run: () => {
         const source = new ReadableStream({
           start(controller) {
@@ -8307,6 +8308,9 @@ describe("agent message protocol", () => {
       transient: true,
       type: "data-progress-summary",
     })
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      userText: "Check inventory.",
+    }))
   })
 
   it("aborts in-flight progress generation when the primary stream finishes", async () => {

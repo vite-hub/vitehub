@@ -103,13 +103,16 @@ function eventToolId(value: unknown): string {
   return typeof id === "string" ? id : ""
 }
 
-function firstUserText(messages: Message[]): string {
+function firstUserText(messages: Message[], input: AgentRunInput): string {
   const message = messages.findLast(message => message.role === "user")
-  return message
+  const text = message
     ? getMessageText(message)
-        .replace(/<context>[\s\S]*?<\/context>/gi, "")
-        .trim()
-    : ""
+    : typeof input.prompt === "string"
+      ? input.prompt
+      : ""
+  return text
+    .replace(/<context>[\s\S]*?<\/context>/gi, "")
+    .trim()
 }
 
 function cleanSummary(value: unknown, maxLength: number): string | undefined {
@@ -386,7 +389,7 @@ function withProgressSummaryStream(
         messages,
         previous,
         reasoning: reasoningActive ? "Active" : undefined,
-        userText: firstUserText(messages),
+        userText: firstUserText(messages, inputValue),
       }
       void generateProgressSummary(context, options, input)
         .then((summary) => {
