@@ -588,20 +588,23 @@ describe("blob runtime", () => {
         accessKeyId: "********",
         binding: "BLOB",
         bucketName: "********",
+        defaultUrlExpiresIn: 900,
         driver: "cloudflare-r2",
+        publicBaseUrl: "https://assets.example.com",
         secretAccessKey: "********",
       },
     })
 
     const list = expectBlobSuccess(await blob.list())
 
-    expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
+    expect(filesSdkMock.r2).toHaveBeenCalledWith({
       accountId: "account",
       accessKeyId: "access-key",
       bucket: "runtime-assets",
-      bucketName: "runtime-assets",
+      defaultUrlExpiresIn: 900,
+      publicBaseUrl: "https://assets.example.com",
       secretAccessKey: "secret-key",
-    }))
+    })
     expect(list.blobs).toEqual([
       expect.objectContaining({ pathname: "notes/hello.txt" }),
     ])
@@ -840,7 +843,6 @@ describe("blob runtime", () => {
       accountId: "worker-account",
       accessKeyId: "worker-access-key",
       bucket: "worker-assets",
-      bucketName: "worker-assets",
       secretAccessKey: "worker-secret-key",
     }))
   })
@@ -877,14 +879,12 @@ describe("blob runtime", () => {
       accountId: "first-account",
       accessKeyId: "first-access-key",
       bucket: "first-assets",
-      bucketName: "first-assets",
       secretAccessKey: "first-secret-key",
     }))
     expect(filesSdkMock.r2).toHaveBeenNthCalledWith(2, expect.objectContaining({
       accountId: "second-account",
       accessKeyId: "second-access-key",
       bucket: "second-assets",
-      bucketName: "second-assets",
       secretAccessKey: "second-secret-key",
     }))
   })
