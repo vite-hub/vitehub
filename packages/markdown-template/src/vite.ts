@@ -10,6 +10,7 @@ import {
   markdownTemplateRegistryId,
   markdownTemplateRegistryPath,
   markdownTemplateRuntimeSpecifier,
+  markdownTemplateMaterializationPath,
   bundleMarkdownTemplateImports,
   parseMarkdownTemplateRequest,
   renderMarkdownTemplateCatalogModule,
@@ -17,6 +18,8 @@ import {
   renderMarkdownTemplateModule,
   renderMarkdownTemplateTypes,
 } from "./internal/vite.ts"
+
+export { markdownTemplateMaterializationPath }
 
 import type { BundledMarkdownTemplate, BundledMarkdownTemplateCatalogEntry } from "./internal/vite.ts"
 import type { Plugin } from "vite"

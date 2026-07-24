@@ -30,6 +30,24 @@ const emptyWorkspace = () => ({
 })
 
 describe("repositoryHostContext", () => {
+  it("requires the Vite plugin to compile materialization path strings", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          materialize: "./PULL_REQUEST.template.md",
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context: createAgentInvocationContextStore(),
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow("materialize paths require the ViteHub Agent plugin")
+  })
+
   it("records a data-only async record without workspace context files", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const context = createAgentInvocationContextStore()

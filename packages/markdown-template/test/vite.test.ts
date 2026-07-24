@@ -14,7 +14,7 @@ import {
 import { build } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { extractMarkdownTemplateImportSpecifiers, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
+import { extractMarkdownTemplateImportSpecifiers, markdownTemplateMaterializationPath, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -31,6 +31,20 @@ afterEach(async () => {
 })
 
 describe("hubMarkdownTemplate", () => {
+  it("derives safe materialization paths from template names", () => {
+    expect(markdownTemplateMaterializationPath("./PULL_REQUEST.template.md")).toBe("PULL_REQUEST.md")
+    expect(markdownTemplateMaterializationPath("./review/PULL_REQUEST.template.md")).toBe("review/PULL_REQUEST.md")
+    for (const path of [
+      "/PULL_REQUEST.template.md",
+      "../PULL_REQUEST.template.md",
+      "./review/../PULL_REQUEST.template.md",
+      "./PULL_REQUEST.md",
+      ".\\PULL_REQUEST.template.md",
+    ]) {
+      expect(() => markdownTemplateMaterializationPath(path)).toThrow("Markdown materialization")
+    }
+  })
+
   it("leaves explicit Vite queries on direct templates untouched", () => {
     expect(parseMarkdownTemplateRequest("./prompt.template.md?raw")).toBeUndefined()
     expect(parseMarkdownTemplateRequest("./prompt.template.md?url")).toBeUndefined()

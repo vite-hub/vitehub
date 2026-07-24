@@ -22,6 +22,17 @@ export interface BundledMarkdownTemplateCatalogEntry extends BundledMarkdownTemp
   imports: Record<string, BundledMarkdownTemplate>
 }
 
+export function markdownTemplateMaterializationPath(templatePath: string): string {
+  if (!templatePath.startsWith("./") || !templatePath.endsWith(markdownTemplateFileSuffix) || templatePath.includes("\\")) {
+    throw new TypeError(`[vitehub] Markdown materialization requires a relative ${markdownTemplateFileSuffix} path, received ${JSON.stringify(templatePath)}.`)
+  }
+  const segments = templatePath.slice(2).split("/")
+  if (segments.some(segment => !segment || segment === "." || segment === "..")) {
+    throw new TypeError(`[vitehub] Markdown materialization paths cannot escape or contain ambiguous segments, received ${JSON.stringify(templatePath)}.`)
+  }
+  return templatePath.slice(2, -markdownTemplateFileSuffix.length) + ".md"
+}
+
 function stripMarkdownCode(template: string): string {
   let fence: { marker: string, length: number, listIndented: boolean } | undefined
   let inList = false

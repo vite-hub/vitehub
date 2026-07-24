@@ -38,6 +38,7 @@ export default defineAgent({
   capabilities: [
     repositoryHostContext({
       client: githubRepositoryHostClient,
+      materialize: './PULL_REQUEST.template.md',
       target: {
         repo: 'acme/app',
         number: 42,
@@ -94,8 +95,9 @@ Node ids, discussions, actions, and non-GitHub providers are not part of this co
 
 ## Runtime behavior
 
-`repositoryHostContext()` does not generate Workspace files.
-It does not render `context.md`, create `context.json`, or format provider data for the Agent.
+`repositoryHostContext()` keeps context data-only unless `materialize` is configured.
+With `materialize: './PULL_REQUEST.template.md'`, ViteHub bundles the colocated Markdown renderer and writes the resolved context to `PULL_REQUEST.md` in the Agent Workspace.
+The generated path preserves directories and case while removing only the final `.template`.
 
 Use `repositoryHost()` separately when a model-backed Agent needs repository-host tools such as `repository_host_read`.
 Use `repositoryHostContext()` when trusted runtime code needs a typed invocation context value.
@@ -110,7 +112,7 @@ Target-based context requires a client option or a configured `repository-host` 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Does not receive rendered context automatically. Caller code must render selected values into instructions, input, or another model-facing surface. |
-| Harness-backed | Does not receive generated Workspace context files. Caller code must materialize any files it wants the harness to inspect. |
+| Harness-backed | Receives the configured materialized Markdown file in its Agent Workspace. |
 | Custom-run-backed | Can read the async record directly through `repositoryHostContext.read(ctx)`. |
 
 ## Options
@@ -121,6 +123,7 @@ Target-based context requires a client option or a configured `repository-host` 
 | `context` | `RepositoryHostContextInput \| function` | invocation context | Static issue, Change Request, or selected key values. |
 | `contextKey` | `string` | `"repositoryHost"` | Agent Invocation Context key used to store the async record. |
 | `id` | `string` | `"repository-host-context"` | Capability id. |
+| `materialize` | relative `*.template.md` path | none | Renders resolved context into the matching Workspace `.md` path. |
 | `provider` | `"github" \| string` | client provider | Provider guard. V1 accepts GitHub targets. |
 | `target` | `RepositoryHostContextTarget \| function` | none | Repository host target such as `{ repo, number }`, `{ repo, issue }`, or `{ repo, pullRequest }`. |
 | `triggers` | `Record<string, AgentTriggerDefinition>` | none | Trigger contributions tied to this context. |
