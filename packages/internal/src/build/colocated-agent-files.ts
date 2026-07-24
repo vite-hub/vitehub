@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { basename, dirname, join, relative } from "node:path"
 
-export interface EncodedColocatedAgentFile {
+interface EncodedColocatedAgentFile {
   content: string
   encoding: "base64"
 }
@@ -19,7 +19,7 @@ function formatSize(bytes: number): string {
   return bytes % mebibyte === 0 ? `${bytes / mebibyte} MiB` : `${bytes} bytes`
 }
 
-export function isFolderAgentEntry(file: string): boolean {
+function isFolderAgentEntry(file: string): boolean {
   if (!/^(?:agent|index)\.(?:c|m)?[jt]s$/i.test(basename(file))) return false
   return !(basename(file).toLowerCase().startsWith("agent.")
     && basename(dirname(file)) === "agents"
