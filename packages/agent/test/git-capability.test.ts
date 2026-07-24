@@ -340,7 +340,7 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--is-inside-work-tree"], expect.objectContaining({ cwd: "/workspace" }))
     const setupScript = session.exec.mock.calls[1]?.[1]?.[1]
     expect(setupScript).toContain("cd -- .")
-    expect(setupScript).toContain("git reset -q --mixed refs/vitehub/head")
+    expect(setupScript).toContain("git reset -q --hard refs/vitehub/head")
     expect(setupScript).not.toContain("rm -rf")
   })
 
@@ -362,7 +362,7 @@ describe("git capability", () => {
       await execFileAsync("git", ["init", "-q"], { cwd: workspace })
       await execFileAsync("git", ["remote", "add", "origin", source], { cwd: workspace })
       await execFileAsync("git", ["fetch", "-q", "origin", `${headSha.trim()}:refs/vitehub/head`], { cwd: workspace })
-      await execFileAsync("git", ["reset", "-q", "--mixed", "refs/vitehub/head"], { cwd: workspace })
+      await execFileAsync("git", ["reset", "-q", "--hard", "refs/vitehub/head"], { cwd: workspace })
 
       expect(await readFile(join(workspace, "README.md"), "utf8")).toBe("exact head\n")
       expect(await readFile(join(workspace, "PULL_REQUEST.md"), "utf8")).toBe("workspace artifact\n")
