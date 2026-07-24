@@ -52,11 +52,11 @@ The part is transient, so it does not become conversation history. Keep structur
 
 ## Understand the runtime behavior
 
-Reasoning deltas and tool start or completion events mark the current activity dirty. While new activity exists, the Capability generates at most one summary per interval and never overlaps generations. Tool input and output are excluded from the generated prompt.
+Reasoning deltas and tool start or completion events mark the current activity dirty. While new activity exists, the Capability generates at most one summary per interval and never overlaps generations. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
 
 The default prompt preserves useful product concepts and names while translating internal tool identifiers into their purpose. It omits code, commands, paths, traces, hidden instructions, credentials, and raw tool details. Trusted `<context>` payloads embedded in user messages are also excluded.
 
-The Capability stops pending timers when the parent invocation aborts. A generation failure does not interrupt the primary response stream.
+The Capability stops pending timers when the parent invocation aborts. It also discards pending or in-flight summaries when the primary stream finishes, so progress never delays completion or arrives after terminal output. A generation failure does not interrupt the primary response stream.
 
 ## Requirements
 
@@ -92,7 +92,7 @@ Stop the invocation before the next interval and confirm that no later progress 
 | `template` | `string \| function` | generated | Markdown prompt template. |
 | `variables` | `Record<string, value \| function>` | none | Extra Markdown template variables. |
 
-String templates use `@vite-hub/markdown-template` and receive `userText`, `reasoning`, `activeTools`, `completedTools`, and `previous`.
+String templates use `@vite-hub/markdown-template` and receive `userText`, the `reasoning` presence signal, `activeTools`, `completedTools`, and `previous`.
 
 ## Reference
 

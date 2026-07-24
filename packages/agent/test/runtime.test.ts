@@ -8219,7 +8219,7 @@ describe("agent message protocol", () => {
           toUIMessageStream() {
             return new ReadableStream({
               async start(controller) {
-                controller.enqueue({ delta: "Comparing costs", type: "reasoning-delta" })
+                controller.enqueue({ delta: "Comparing /private/costs with credential sk-secret", type: "reasoning-delta" })
                 controller.enqueue({ id: "tool-1", toolName: "tool_portal_api", type: "tool-input-start" })
                 await new Promise(resolve => setTimeout(resolve, 20))
                 controller.enqueue({ id: "tool-1", output: { internal: true }, toolName: "tool_portal_api", type: "tool-output-available" })
@@ -8234,6 +8234,12 @@ describe("agent message protocol", () => {
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({
+        role: "user",
+        text: "What was the original request?",
+      }), createMessage({
+        role: "assistant",
+        text: "The original answer.",
+      }), createMessage({
         role: "user",
         text: "How is this SKU cost calculated?\n<context>{\"cubeToken\":\"secret\"}</context>",
       })],
@@ -8252,8 +8258,177 @@ describe("agent message protocol", () => {
     })
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
       activeTools: ["portal api"],
-      reasoning: "Comparing costs",
+      reasoning: "Active",
       userText: "How is this SKU cost calculated?",
+    }))
+  })
+
+  it("does not lock alternate progress stream representations before one is consumed", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute: () => "Checking inventory.", intervalMs: 0 })],
+      driver: { run: () => {
+        const source = new ReadableStream({
+          start(controller) {
+            controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+            controller.enqueue({ finishReason: "stop", type: "finish" })
+            controller.close()
+          },
+        })
+        return Object.defineProperties({}, {
+          fullStream: {
+            configurable: false,
+            value: source,
+          },
+          stream: {
+            configurable: false,
+            value: source,
+          },
+          toUIMessageStream: {
+            configurable: false,
+            value: () => source,
+          },
+        })
+      } },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks = []
+    for await (const chunk of stream) chunks.push(chunk)
+
+    expect(chunks).toContainEqual({
+      data: {
+        revision: 1,
+        summary: "Checking inventory.",
+        type: "progress-summary",
+      },
+      transient: true,
+      type: "data-progress-summary",
+    })
+  })
+
+  it("aborts in-flight progress generation when the primary stream finishes", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const aborted = vi.fn()
+    const agent = defineAgent({
+      capabilities: [progressSummary({
+        execute: input => new Promise((resolve) => {
+          input.input.abortSignal?.addEventListener("abort", () => {
+            aborted()
+            resolve("")
+          }, { once: true })
+        }),
+        intervalMs: 0,
+      })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
+
+    expect(aborted).toHaveBeenCalledOnce()
+  })
+
+  it("cleans up scheduled progress generation when the client cancels", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 20 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    await reader.read()
+    await reader.cancel()
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("cleans up scheduled progress generation when the source errors", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 20 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                controller.error(new Error("stream failed"))
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    await expect((async () => {
+      for await (const _chunk of stream) {}
+    })()).rejects.toThrow("stream failed")
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("observes phased reasoning text without exposing its contents", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Working through the request.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              async start(controller) {
+                controller.enqueue({ id: "reasoning-1", phase: "reasoning", type: "text-start" })
+                controller.enqueue({
+                  delta: "Inspecting /private/path with credential sk-secret",
+                  id: "reasoning-1",
+                  phase: "reasoning",
+                  type: "text-delta",
+                })
+                await new Promise(resolve => setTimeout(resolve, 20))
+                controller.close()
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Investigate the issue." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      reasoning: "Active",
     }))
   })
 

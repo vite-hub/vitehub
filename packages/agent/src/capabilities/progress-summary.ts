@@ -92,12 +92,6 @@ function eventType(value: unknown): string {
   return isRecord(value) ? String(value.type || "") : ""
 }
 
-function eventText(value: unknown): string {
-  if (!isRecord(value)) return ""
-  const text = value.text ?? value.textDelta ?? value.delta
-  return typeof text === "string" ? text : ""
-}
-
 function eventToolName(value: unknown): string {
   if (!isRecord(value)) return ""
   const name = value.toolName ?? value.name
@@ -113,7 +107,7 @@ function eventToolId(value: unknown): string {
 }
 
 function firstUserText(messages: Message[]): string {
-  const message = messages.find(message => message.role === "user")
+  const message = messages.findLast(message => message.role === "user")
   return message
     ? getMessageText(message)
         .replace(/<context>[\s\S]*?<\/context>/gi, "")
@@ -283,18 +277,43 @@ async function generateProgressSummary(
   return cleanSummary(result.text, maxLength)
 }
 
-function cloneResult<T extends object>(result: T, overrides: Record<string, unknown>): T {
+function cloneResult<T extends object>(result: T, overrides: Record<string, PropertyDescriptor>): T {
   const clone = Object.create(Object.getPrototypeOf(result))
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
-  for (const [key, value] of Object.entries(overrides)) {
+  const descriptors = Object.getOwnPropertyDescriptors(result)
+  for (const key of Object.keys(overrides)) delete descriptors[key]
+  Object.defineProperties(clone, descriptors)
+  for (const [key, descriptor] of Object.entries(overrides)) {
     Object.defineProperty(clone, key, {
       configurable: true,
       enumerable: true,
-      value,
-      writable: true,
+      ...descriptor,
     })
   }
   return clone
+}
+
+function isProgressSummaryStream(value: unknown): value is AsyncIterable<unknown> | ReadableStream<unknown> {
+  return isAsyncIterable(value) || value instanceof ReadableStream
+}
+
+function progressSummaryStreamOverrides(
+  result: {
+    fullStream?: AsyncIterable<unknown> | ReadableStream<unknown>
+    stream?: AsyncIterable<unknown> | ReadableStream<unknown>
+  },
+  wrap: (stream: AsyncIterable<unknown> | ReadableStream<unknown>) => AsyncIterable<unknown> & ReadableStream<unknown>,
+): Record<string, PropertyDescriptor> {
+  const descriptor = (key: "fullStream" | "stream"): PropertyDescriptor => ({
+    get() {
+      const stream = result[key]
+      if (!isProgressSummaryStream(stream)) return stream
+      return wrap(stream)
+    },
+  })
+  return {
+    ...("stream" in result ? { stream: descriptor("stream") } : {}),
+    ...("fullStream" in result ? { fullStream: descriptor("fullStream") } : {}),
+  }
 }
 
 function progressData(summary: string, revision: number) {
@@ -322,38 +341,54 @@ function withProgressSummaryStream(
   const completedTools: string[] = []
   const startedAt = Date.now()
   const intervalMs = Math.max(0, options.intervalMs ?? 10_000)
-  let reasoning = ""
+  let reasoningActive = false
   let previous: string | undefined
   let revision = 0
   let dirty = false
   let running = false
   let closed = false
+  let scheduled = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let controller: TransformStreamDefaultController<unknown> | undefined
+  let generationAbortController: AbortController | undefined
   const abortSignal = context.abortSignal ?? context.input.get().abortSignal
   const close = () => {
+    // Progress is transient: never hold the primary stream open or emit stale
+    // activity after its terminal event while independent generation finishes.
     closed = true
     if (timer) clearTimeout(timer)
+    generationAbortController?.abort()
+    scheduled = false
     abortSignal?.removeEventListener("abort", close)
   }
   abortSignal?.addEventListener("abort", close, { once: true })
 
   const schedule = () => {
-    if (closed || running || timer || !dirty) return
-    timer = setTimeout(() => {
+    if (closed || running || scheduled || !dirty) return
+    scheduled = true
+    const run = () => {
+      scheduled = false
       timer = undefined
       if (closed || running || !dirty) return
       dirty = false
       running = true
       const currentRevision = ++revision
+      const inputValue = context.input.get()
+      const generationAbort = new AbortController()
+      generationAbortController = generationAbort
       const input: ProgressSummaryExecuteInput = {
         activeTools: [...activeTools.values()],
         completedTools: completedTools.slice(-5),
         elapsedMs: Date.now() - startedAt,
-        input: context.input.get(),
+        input: {
+          ...inputValue,
+          abortSignal: inputValue.abortSignal
+            ? AbortSignal.any([inputValue.abortSignal, generationAbort.signal])
+            : generationAbort.signal,
+        },
         messages,
         previous,
-        reasoning: reasoning.slice(-4_000).trim() || undefined,
+        reasoning: reasoningActive ? "Active" : undefined,
         userText: firstUserText(messages),
       }
       void generateProgressSummary(context, options, input)
@@ -364,16 +399,22 @@ function withProgressSummaryStream(
         })
         .catch(() => undefined)
         .finally(() => {
+          if (generationAbortController === generationAbort) generationAbortController = undefined
           running = false
           schedule()
         })
-    }, intervalMs)
+    }
+    if (intervalMs === 0) queueMicrotask(run)
+    else timer = setTimeout(run, intervalMs)
   }
 
   const observe = (chunk: unknown) => {
     const type = eventType(chunk)
-    if (type === "reasoning-delta" || type === "reasoning-summary-text-delta") {
-      reasoning += eventText(chunk)
+    const phasedReasoning = isRecord(chunk)
+      && chunk.phase === "reasoning"
+      && (type === "text-start" || type === "text-delta")
+    if (type === "reasoning-delta" || type === "reasoning-summary-text-delta" || phasedReasoning) {
+      reasoningActive = true
       dirty = true
     }
     else if (type === "tool-input-start" || type === "tool-call" || type === "tool-input-available") {
@@ -400,7 +441,24 @@ function withProgressSummaryStream(
       observe(chunk)
     },
   }))
-  return toReadableAsyncIterableStream(transformed)
+  const reader = transformed.getReader()
+  return toReadableAsyncIterableStream(new ReadableStream({
+    async cancel(reason) {
+      close()
+      await reader.cancel(reason)
+    },
+    async pull(outputController) {
+      try {
+        const { done, value } = await reader.read()
+        if (done) outputController.close()
+        else outputController.enqueue(value)
+      }
+      catch (error) {
+        close()
+        outputController.error(error)
+      }
+    },
+  }))
 }
 
 function isStreamResult(value: unknown): value is {
@@ -410,10 +468,8 @@ function isStreamResult(value: unknown): value is {
 } {
   return isRecord(value)
     && (
-      isAsyncIterable(value.fullStream)
-      || value.fullStream instanceof ReadableStream
-      || isAsyncIterable(value.stream)
-      || value.stream instanceof ReadableStream
+      "fullStream" in value
+      || "stream" in value
       || typeof value.toUIMessageStream === "function"
     )
 }
@@ -428,16 +484,24 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
         const messages = context.input.messages()
         if (!messages.some(message => message.role === "user")) return result
         if (isStreamResult(result)) {
-          const stream = result.stream
-          const fullStream = result.fullStream
+          const wrapped = new WeakMap<object, AsyncIterable<unknown> & ReadableStream<unknown>>()
+          const wrap = (stream: AsyncIterable<unknown> | ReadableStream<unknown>) => {
+            const existing = wrapped.get(stream)
+            if (existing) return existing
+            const value = withProgressSummaryStream(stream, context, options, messages)
+            wrapped.set(stream, value)
+            return value
+          }
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
           return cloneResult(result, {
-            ...(stream ? { stream: withProgressSummaryStream(stream, context, options, messages) } : {}),
-            ...(fullStream ? { fullStream: withProgressSummaryStream(fullStream, context, options, messages) } : {}),
+            ...progressSummaryStreamOverrides(result, wrap),
             ...(toUIMessageStream
               ? {
-                  toUIMessageStream: (...args: unknown[]) =>
-                    withProgressSummaryStream(toUIMessageStream(...args), context, options, messages),
+                  toUIMessageStream: {
+                    value: (...args: unknown[]) =>
+                      wrap(toUIMessageStream(...args)),
+                    writable: true,
+                  },
                 }
               : {}),
           })
