@@ -1655,6 +1655,29 @@ describe("agent public types", () => {
     // @ts-expect-error GitHub Channel PR comments are configured through pullRequest, not legacy events.
     github({ events: { pullRequestComments: true } })
 
+    defineAgent({
+      channels: {
+        github: () => github({ app: true, pullRequest: true }),
+      },
+      driver: { run: () => "ok" },
+    })
+    github({ pullRequest: { workspace: true } })
+    github({ pullRequest: { workspace: false } })
+    github({ pullRequest: { workspace: { mount: "portal" } } })
+
+    const inferredWorkspace = defineCapability({
+      id: "inferred-workspace",
+      workspace: {
+        sources: {
+          docs: file("README.md"),
+        },
+      },
+    })
+    defineAgent({
+      capabilities: [inferredWorkspace],
+      driver: { run: () => "ok" },
+    })
+
     const broadCapabilities: AgentCapabilityDefinition[] = [
       access({
         workspace: {

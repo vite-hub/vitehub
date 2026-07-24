@@ -975,6 +975,20 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   return channels || (inputs as AgentChannels<TRuntimeConfig>)
 }
 
+function capabilitiesContributeWorkspace(capabilities: unknown): boolean {
+  return Array.isArray(capabilities)
+    && normalizeCapabilities(capabilities).some(capability => Boolean(capability.workspace))
+}
+
+function agentContributesWorkspace(options: {
+  capabilities?: unknown
+  channels?: AgentChannels
+}): boolean {
+  if (capabilitiesContributeWorkspace(options.capabilities)) return true
+  return Object.values(options.channels || {})
+    .some(channel => capabilitiesContributeWorkspace(channel.capabilities))
+}
+
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1197,9 +1211,20 @@ function createWorkspaceAgentDefinition<
 }
 
 export const defineAgent: DefineAgent = ((options: unknown) => {
-  return isWorkspaceAgentOptions(options)
-    ? createWorkspaceAgentDefinition(options)
-    : defineBaseAgent(options as never)
+  const agentOptions = options as AgentSettings
+  const channels = normalizeAgentChannels(agentOptions.channels)
+  const normalizedOptions = channels === agentOptions.channels
+    ? agentOptions
+    : { ...agentOptions, channels }
+  if (isWorkspaceAgentOptions(normalizedOptions)) {
+    return createWorkspaceAgentDefinition(normalizedOptions)
+  }
+  return agentContributesWorkspace({
+    capabilities: normalizedOptions.capabilities,
+    channels,
+  })
+    ? createWorkspaceAgentDefinition({ ...normalizedOptions, workspace: {} })
+    : defineBaseAgent(normalizedOptions as never)
 }) as DefineAgent
 
 export async function resolveAgent<TContext extends AgentRuntimeContext>(
@@ -1525,7 +1550,8 @@ async function createAgentInvocationContext<
           run: context.run,
         })
       : []
-    const channelCapabilities = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel.capabilities || []
+    const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
+    const channelCapabilities = activeChannel?.capabilities || []
     const resolvedCapabilityDefinitions = normalizeCapabilities([
       ...invocationResolvedCapabilities,
       ...(definition?.capabilities || []),
@@ -1537,7 +1563,20 @@ async function createAgentInvocationContext<
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
-    const boxDefinition = definition?.box
+    const channelBox = activeChannel?.box
+    const boxDefinition = definition?.box && channelBox
+      ? {
+          ...definition.box,
+          env: {
+            ...channelBox.env,
+            ...definition.box.env,
+          },
+          requires: [
+            ...(channelBox.requires || []),
+            ...(definition.box.requires || []),
+          ],
+        }
+      : definition?.box
     if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
       throw new Error("[vitehub] defineAgent({ box, workspace }) cannot combine a Workspace with Box cwd or checkout because both own the same working tree. Remove cwd/checkout and let Workspace materialize into the Box.")
     }

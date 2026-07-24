@@ -123,6 +123,74 @@ describe("agent channels", () => {
     expect(() => pullRequest.read({ context: { get: () => undefined } })).toThrow("requires pull request invocation context")
   })
 
+  it("configures pull request workspaces with portal, root, custom, and disabled policies", async () => {
+    const { github } = await import("../src/channels.ts")
+    const pullRequestContext = {
+      pullRequest: {
+        apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        head: { ref: "feature", sha: "a".repeat(40) },
+        number: 42,
+        source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/app" },
+      },
+      repository: { fullName: "acme/app", name: "app", owner: "acme" },
+      run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
+      trigger: {
+        action: "created",
+        actor: { login: "mona" },
+        args: "",
+        command: "/review",
+        comment: { id: 99 },
+        event: "issue_comment",
+      },
+    }
+    const context = {
+      context: {
+        get: (key: string) => key === "pullRequest" ? pullRequestContext : undefined,
+      },
+    }
+
+    const defaultChannel = github({ pullRequest: true })
+    const defaultWorkspace = defaultChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof defaultWorkspace !== "function") throw new Error("Missing default pull request Workspace contribution.")
+    const contribution = await defaultWorkspace(context as never)
+    if (!contribution) throw new Error("Missing default pull request Workspace source.")
+    expect(contribution.sources?.github).toMatchObject({
+      materialize: "build",
+      mount: { path: "portal" },
+    })
+    expect(defaultChannel.box?.env?.PR_WORKSPACE_PATH).toBe("portal")
+    expect(defaultChannel.box?.requires).toEqual([expect.objectContaining({
+      args: ["-c", expect.stringContaining('test "$(git rev-parse FETCH_HEAD)" = "$PR_HEAD_SHA"')],
+      command: "sh",
+      name: "GitHub pull request checkout",
+    })])
+
+    const rootChannel = github({ pullRequest: { workspace: true } })
+    expect(rootChannel.box?.env?.PR_WORKSPACE_PATH).toBe(".")
+
+    const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
+    expect(customChannel.box?.env?.PR_WORKSPACE_PATH).toBe("repository")
+
+    const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
+    expect(sourceMountChannel.box?.env?.PR_WORKSPACE_PATH).toBe("legacy-repository")
+
+    const disabledChannel = github({ pullRequest: { workspace: false } })
+    expect(disabledChannel.capabilities).toEqual([])
+    expect(disabledChannel.box).toBeUndefined()
+
+    const nonPullRequestChannel = github()
+    expect(nonPullRequestChannel.capabilities).toEqual([])
+    expect(nonPullRequestChannel.box).toBeUndefined()
+  })
+
+  it("rejects pull request workspace mounts outside the Workspace", async () => {
+    const { github } = await import("../src/channels.ts")
+    expect(() => github({ pullRequest: { workspace: { mount: "../portal" } } }))
+      .toThrow("workspace mount must stay inside the Workspace")
+    expect(() => github({ pullRequest: { workspace: { mount: "C:\\portal" } } }))
+      .toThrow("workspace mount must stay inside the Workspace")
+  })
+
   it("creates Discord adapters from provider defaults", async () => {
     vi.resetModules()
     const createDiscordAdapter = vi.fn(() => ({ name: "discord" }))
@@ -479,6 +547,7 @@ describe("agent channels", () => {
           files: [{ filename: "src/app.ts", status: "modified" }],
           head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
           number: 42,
+          source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/app" },
         },
       })
       expect(fetcher.mock.calls.map(([url]) => String(url))).not.toContain("https://api.github.test/app/installations/123/access_tokens")
@@ -487,6 +556,37 @@ describe("agent channels", () => {
       if (previousToken === undefined) delete process.env.VITEHUB_GITHUB_TOKEN
       else process.env.VITEHUB_GITHUB_TOKEN = previousToken
     }
+  })
+
+  it("marks disabled pull request workspaces in invocation context", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      app: {
+        fetch: (async () => Response.json({
+          base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+          head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
+        })) as typeof fetch,
+      },
+      pullRequest: { workspace: false },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+
+    const result = await trigger.invoke({
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    } as never, { payload: githubIssueCommentPayload() })
+    if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+
+    expect(result.input.context?.pullRequest).toMatchObject({
+      pullRequest: {
+        source: {
+          checkout: false,
+          mount: "app",
+        },
+      },
+    })
   })
 
   it("invokes GitHub PR dev trigger from context and raw payload", async () => {

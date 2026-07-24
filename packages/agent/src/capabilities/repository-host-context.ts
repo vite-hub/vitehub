@@ -99,6 +99,7 @@ export interface PullRequestContextValue extends JsonObject {
     threadId?: string
   }
   source?: JsonObject & {
+    checkout?: boolean
     mount?: string
     ref?: string
     repo?: string

@@ -298,6 +298,77 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(3, "git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
   })
 
+  it("prepares explicit root pull request checkouts without deleting Workspace artifacts", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: "",
+      stdout: command === "git" && args.join(" ") === "status --short" ? "ok\n" : "",
+    }))
+    const { startSession, tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          head: { sha: pullRequestHeadSha },
+          number: 42,
+          source: {
+            mount: "",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith(undefined)
+    expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--is-inside-work-tree"], expect.objectContaining({ cwd: "/workspace" }))
+    const setupScript = session.exec.mock.calls[1]?.[1]?.[1]
+    expect(setupScript).toContain("cd -- .")
+    expect(setupScript).toContain("git reset -q --mixed refs/vitehub/head")
+    expect(setupScript).not.toContain("rm -rf")
+  })
+
+  it("does not prepare a pull request checkout when the channel disables it", async () => {
+    const session = gitSession()
+    const { startSession, tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          head: { ref: "feature", sha: pullRequestHeadSha },
+          number: 42,
+          source: {
+            checkout: false,
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith(undefined)
+    expect(session.exec).toHaveBeenCalledOnce()
+    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace" }))
+  })
+
   it("requires an exact pull request head SHA", async () => {
     await expect(capabilityTools(git(), gitSession(), {
       pullRequest: {

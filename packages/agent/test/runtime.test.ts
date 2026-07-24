@@ -4856,7 +4856,7 @@ describe("agent message protocol", () => {
                   labels: ["agent"],
                   number: 42,
                   source: {
-                    mount: "vitehub",
+                    mount: "portal",
                     ref: "refs/pull/42/head",
                     repo: "vite-hub/vitehub",
                   },
@@ -5113,6 +5113,7 @@ describe("agent message protocol", () => {
             maxComments: 100,
             maxFiles: 100,
             reply: false,
+            workspace: false,
           },
         }),
       },
@@ -5182,7 +5183,7 @@ describe("agent message protocol", () => {
             installationId: 321,
             privateKey: privateKeyPem,
           },
-          pullRequest: { reply: false },
+          pullRequest: { reply: false, workspace: false },
         }),
       },
       driver: { run: () => "ok" },
@@ -5354,11 +5355,11 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: false },
-          pullRequest: true,
+          pullRequest: { workspace: false },
         }),
         triage: github({
           app: { webhookSecret: false },
-          pullRequest: true,
+          pullRequest: { workspace: false },
         }),
       },
       driver: { run: context => `ran:${context.prompt}` },

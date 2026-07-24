@@ -303,10 +303,11 @@ function safeGitSha(sha: unknown): string | undefined {
   return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(normalized) ? normalized : undefined
 }
 
-function safeWorkspacePath(path: unknown): string | undefined {
-  if (typeof path !== "string" || !path) return
+function safeWorkspacePath(path: unknown, allowRoot = false): string | undefined {
+  if (typeof path !== "string" || (!path && !allowRoot)) return
   try {
-    return workspacePathFromGitCwd(normalizeCwd(path)) || undefined
+    const workspacePath = workspacePathFromGitCwd(normalizeCwd(path))
+    return workspacePath || (allowRoot ? "" : undefined)
   }
   catch {
     return
@@ -364,16 +365,19 @@ function pullRequestGitSetup(context: { context?: { get(key: string): unknown } 
   if (typeof provider === "string" && provider !== "github") return
 
   const source = isGitRecord(pullRequest.source) ? pullRequest.source : undefined
+  if (source?.checkout === false) return
   const base = isGitRecord(pullRequest.base) ? pullRequest.base : undefined
   const head = isGitRecord(pullRequest.head) ? pullRequest.head : undefined
   const repository = isGitRecord(raw) && isGitRecord(raw.repository) ? raw.repository : undefined
   const repo = safeGitHubRepository(source?.repo)
     || safeGitHubRepository(isGitRecord(raw) ? raw.repository : undefined)
     || safeGitHubRepository(repository?.fullName)
-  const mount = safeWorkspacePath(source?.mount) || safeWorkspacePath(repository?.name)
+  const mount = source && "mount" in source
+    ? safeWorkspacePath(source.mount, true)
+    : safeWorkspacePath(repository?.name)
   const headRef = safeGitRef(source?.ref) || safeGitRef(head?.ref) || safeGitRef(pullRequest.headRef)
   const baseRef = safeGitRef(base?.ref) || safeGitRef(pullRequest.baseRef)
-  if (!repo || !mount || !headRef) return
+  if (!repo || mount === undefined || !headRef) return
   const headSha = safeGitSha(head?.sha) || safeGitSha(pullRequest.headSha)
   if (!headSha) throw new Error("[vitehub] GitHub pull request checkout requires an exact head SHA.")
 
@@ -402,7 +406,7 @@ async function preparePullRequestGitSession(
   const setup = pullRequestGitSetup(context)
   if (!setup || workspacePath !== setup.mount) return false
 
-  const cwd = `/workspace/${setup.mount}`
+  const cwd = setup.mount ? `/workspace/${setup.mount}` : "/workspace"
   const existing = await session.exec("git", ["rev-parse", "--is-inside-work-tree"], gitExecOptions(cwd, timeout))
   if (existing.exitCode === 0) {
     const head = await session.exec("git", ["rev-parse", "HEAD"], gitExecOptions(cwd, timeout))
@@ -420,15 +424,19 @@ async function preparePullRequestGitSession(
   ].map(shellQuote).join(" ")
   const script = [
     "set -eu",
-    `rm -rf -- ${shellQuote(setup.mount)}`,
-    `mkdir -p -- ${shellQuote(setup.mount)}`,
-    `cd -- ${shellQuote(setup.mount)}`,
+    ...(setup.mount
+      ? [
+          `rm -rf -- ${shellQuote(setup.mount)}`,
+          `mkdir -p -- ${shellQuote(setup.mount)}`,
+          `cd -- ${shellQuote(setup.mount)}`,
+        ]
+      : ["cd -- ."]),
     "git init -q",
     `git remote add origin ${shellQuote(setup.remoteUrl)}`,
     'if [ -n "${VITEHUB_GIT_AUTH_HEADER:-}" ]; then git config --local http.https://github.com/.extraheader "$VITEHUB_GIT_AUTH_HEADER"; fi',
     `git fetch --depth=100 origin ${fetchRefspecs}`,
     `test "$(git rev-parse refs/vitehub/head)" = ${shellQuote(setup.headSha)} || { echo "[vitehub] fetched pull request head does not match the expected SHA." >&2; exit 1; }`,
-    "git checkout -q --detach refs/vitehub/head",
+    setup.mount ? "git checkout -q --detach refs/vitehub/head" : "git reset -q --mixed refs/vitehub/head",
     ...(baseTrackingRef ? [`git branch -f vitehub-base ${shellQuote(baseTrackingRef)} >/dev/null`] : []),
     "git branch -f vitehub-head HEAD >/dev/null",
   ].join("\n")
