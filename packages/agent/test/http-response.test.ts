@@ -4,6 +4,7 @@ import {
   toAgentEventStreamResponse,
   toAgentFetchResponse,
   toAgentHttpResult,
+  toAgentUiMessageStreamResponse,
   toJsonSafeAgentResult,
 } from "../src/http-response.ts"
 
@@ -68,6 +69,22 @@ describe("agent HTTP response helpers", () => {
 
     expect(response.headers.get("content-type")).toBe("application/x-ndjson; charset=utf-8")
     await expect(response.text()).resolves.toBe("{\"type\":\"start\"}\n{\"type\":\"done\",\"text\":\"ok\"}\n")
+  })
+
+  it("renders UI message streams without loading the AI SDK", async () => {
+    const response = toAgentUiMessageStreamResponse({
+      headers: { "x-custom": "value" },
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "start" })
+          controller.close()
+        },
+      }),
+    })
+
+    expect(response.headers.get("x-custom")).toBe("value")
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toBe("data: {\"type\":\"start\"}\n\ndata: [DONE]\n\n")
   })
 
   it("wraps non-streaming results in fetch JSON responses", async () => {

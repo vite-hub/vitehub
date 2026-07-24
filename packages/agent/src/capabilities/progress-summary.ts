@@ -1,7 +1,7 @@
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
-import { createUIMessageStreamResponse } from "ai"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
@@ -529,7 +529,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
             ...(toUIMessageStreamResponse
               ? {
                   toUIMessageStreamResponse: {
-                    value: (...args: unknown[]) => createUIMessageStreamResponse({
+                    value: (...args: unknown[]) => toAgentUiMessageStreamResponse({
                       ...(isRecord(args[0]) ? args[0] : {}),
                       stream: wrap(toUIMessageStream(...args)) as ReadableStream<never>,
                     }),
