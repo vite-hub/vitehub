@@ -60,17 +60,28 @@ export function readColocatedAgentFiles(
         continue
       }
 
-      const content = readFileSync(file)
+      const size = statSync(file).size
       fileCount += 1
       if (options.fileCountLimit !== undefined && fileCount > options.fileCountLimit) {
         throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} exceeds ${options.fileCountLimit} files.`)
       }
-      if (options.fileSizeLimit !== undefined && content.byteLength > options.fileSizeLimit) {
+      if (options.fileSizeLimit !== undefined && size > options.fileSizeLimit) {
         throw new Error(`[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}`)
       }
-      totalSize += content.byteLength
+      totalSize += size
       if (options.totalSizeLimit !== undefined && totalSize > options.totalSizeLimit) {
         throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.`)
+      }
+
+      const content = readFileSync(file)
+      if (content.byteLength !== size) {
+        if (options.fileSizeLimit !== undefined && content.byteLength > options.fileSizeLimit) {
+          throw new Error(`[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}`)
+        }
+        totalSize += content.byteLength - size
+        if (options.totalSizeLimit !== undefined && totalSize > options.totalSizeLimit) {
+          throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.`)
+        }
       }
       files[target] = {
         content: content.toString("base64"),
