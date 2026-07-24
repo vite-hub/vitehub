@@ -8229,8 +8229,9 @@ describe("agent message protocol", () => {
       { id: "reasoning-1", type: "reasoning-start" },
       { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" },
       { id: "reasoning-1", type: "reasoning-end" },
-      { id: "reasoning-2", phase: "reasoning", type: "text-start" },
-      { delta: "private phased reasoning", id: "reasoning-2", type: "text-delta" },
+      { id: "reasoning-2", type: "text-start" },
+      { delta: "private phased reasoning", id: "reasoning-2", phase: "reasoning", type: "text-delta" },
+      { delta: "private phased suffix", id: "reasoning-2", type: "text-delta" },
       { id: "reasoning-2", type: "text-end" },
       { id: "text-1", type: "text-start" },
       { delta: "public answer", id: "text-1", type: "text-delta" },
@@ -8285,6 +8286,32 @@ describe("agent message protocol", () => {
       "hide-reasoning",
       "hide-tools",
     ])
+  })
+
+  it("tracks phased reasoning IDs before converting async iterable UI output", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        run: async function* () {
+          yield { id: "reasoning-1", type: "text-start" }
+          yield { delta: "private", id: "reasoning-1", phase: "reasoning", type: "text-delta" }
+          yield { delta: " suffix", id: "reasoning-1", type: "text-delta" }
+          yield { id: "reasoning-1", type: "text-end" }
+          yield { delta: "public", id: "final-1", phase: "final", type: "text-delta" }
+          yield { type: "finish" }
+        },
+      },
+      uiMessageStream: { reasoning: "hidden" },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    const chunks = []
+    for await (const chunk of stream) chunks.push(chunk)
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("private") }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("suffix") }))
+    expect(chunks).toContainEqual(expect.objectContaining({ delta: "public" }))
   })
 
   it("projects an already-framed UI message stream Response", async () => {

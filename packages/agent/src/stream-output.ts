@@ -229,8 +229,12 @@ function projectUiMessageStream(
   projection: AgentUIMessageStreamProjection | undefined,
 ): ReadableStream<unknown> {
   if (!projection) return stream
+  const pendingTextStarts = new Map<string, unknown>()
   const reasoningTextIds = new Set<string>()
   return stream.pipeThrough(new TransformStream<unknown, unknown>({
+    flush(controller) {
+      for (const start of pendingTextStarts.values()) controller.enqueue(start)
+    },
     transform(chunk, controller) {
       const type = streamEventType(chunk)
       if (projection.reasoning === "hidden") {
@@ -239,11 +243,25 @@ function projectUiMessageStream(
         const id = typeof text.id === "string" ? text.id : undefined
         if (type === "text-start" && id) {
           reasoningTextIds.delete(id)
-          if (text.phase === "reasoning") reasoningTextIds.add(id)
+          pendingTextStarts.delete(id)
+          if (text.phase === "reasoning") {
+            reasoningTextIds.add(id)
+            return
+          }
+          pendingTextStarts.set(id, chunk)
+          return
+        }
+        if (text.phase === "reasoning" && id) {
+          pendingTextStarts.delete(id)
+          reasoningTextIds.add(id)
         }
         const reasoning = text.phase === "reasoning" || Boolean(id && reasoningTextIds.has(id))
         if (type === "text-end" && id) reasoningTextIds.delete(id)
         if (reasoning) return
+        if (id && pendingTextStarts.has(id)) {
+          controller.enqueue(pendingTextStarts.get(id))
+          pendingTextStarts.delete(id)
+        }
       }
       if (projection.tools === "hidden" && type?.startsWith("tool-")) return
       controller.enqueue(chunk)
@@ -282,8 +300,8 @@ async function writeEventsToUiMessageStream(
       const id = typeof text.id === "string" ? text.id : undefined
       if (type === "text-start" && id) {
         reasoningTextIds.delete(id)
-        if (text.phase === "reasoning") reasoningTextIds.add(id)
       }
+      if (text.phase === "reasoning" && id) reasoningTextIds.add(id)
       const reasoning = type.startsWith("reasoning-")
         || text.phase === "reasoning"
         || Boolean(id && reasoningTextIds.has(id))
