@@ -216,7 +216,10 @@ describe("agent Vite plugin", () => {
         ``,
       ].join("\n"), "utf8")
 
-      await build({
+      const runBuild = build as unknown as (config: unknown) => Promise<unknown>
+      const agentPlugin: unknown = hubAgent({ eval: false })
+      const markdownPlugin: unknown = hubMarkdownTemplate()
+      await runBuild({
         build: {
           emptyOutDir: true,
           lib: { entry, fileName: () => "agent.mjs", formats: ["es"] },
@@ -227,7 +230,7 @@ describe("agent Vite plugin", () => {
           },
         },
         logLevel: "silent",
-        plugins: [hubAgent({ eval: false }), hubMarkdownTemplate()],
+        plugins: [agentPlugin, markdownPlugin],
         root,
       })
 
@@ -249,10 +252,22 @@ describe("agent Vite plugin", () => {
       }, {
         context: {
           pullRequest: {
-            number: 42,
-            repository: "acme/app",
+            pullRequest: {
+              apiUrl: "https://api.github.com/repos/acme/app/pulls/42",
+              number: 42,
+              source: {
+                mount: "app",
+                ref: "refs/pull/42/head",
+                repo: "acme/app",
+              },
+            },
+            repository: {
+              fullName: "acme/app",
+              name: "app",
+              owner: "acme",
+            },
           },
-        },
+        } as never,
       }, {
         fs: {
           exists: vi.fn(async () => false),
