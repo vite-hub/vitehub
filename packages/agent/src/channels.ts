@@ -1862,44 +1862,6 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
   })
 }
 
-const githubPullRequestCheckout = `set -eu
-mkdir -p -- "$PR_WORKSPACE_PATH"
-cd -- "$PR_WORKSPACE_PATH"
-git init --quiet
-if [ -n "\${GH_TOKEN:-}" ]; then
-  git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
-fi
-git remote remove origin 2>/dev/null || true
-git remote add origin "https://github.com/$PR_REPOSITORY.git"
-git fetch --quiet --no-tags origin "$PR_SOURCE_REF"
-test "$(git rev-parse FETCH_HEAD)" = "$PR_HEAD_SHA"
-git reset --mixed "$PR_HEAD_SHA"
-`
-
-function githubPullRequestBox<TRuntimeConfig extends AgentRuntimeConfig>(
-  workspace: GitHubPullRequestWorkspacePolicy | undefined,
-  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
-): AgentChannelDefinition<TRuntimeConfig>["box"] | undefined {
-  if (!workspace?.enabled) return
-  return {
-    env: {
-      GH_TOKEN: async (context) => {
-        const value = githubPullRequestContextValue(context)
-        return await githubPullRequestMetadataToken(app, context, githubPullRequestInstallationId(value)) || ""
-      },
-      PR_HEAD_SHA: context => String(githubPullRequestContextValue(context).head!.sha),
-      PR_REPOSITORY: context => String(githubPullRequestContextValue(context).source!.repo),
-      PR_SOURCE_REF: context => String(githubPullRequestContextValue(context).source!.ref),
-      PR_WORKSPACE_PATH: workspace.mount ? `workspace/${workspace.mount}` : "workspace",
-    },
-    requires: [{
-      args: ["-c", githubPullRequestCheckout],
-      command: "sh",
-      name: "GitHub pull request checkout",
-    }],
-  }
-}
-
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   kind: string,
   options: AgentChannelDefinitionOptions<TRuntimeConfig> = {},
@@ -1939,7 +1901,6 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
   const pullRequestOptions = pullRequest === true ? {} : pullRequest || {}
   const workspace = pullRequest ? githubPullRequestWorkspacePolicy(pullRequestOptions) : undefined
   const workspaceCapability = githubPullRequestWorkspaceCapability(workspace, appOptions)
-  const box = githubPullRequestBox(workspace, appOptions)
   const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = appOptions
     ? githubPullRequestEffects<TRuntimeConfig>({
         apiBaseUrl: app?.apiBaseUrl,
@@ -1952,7 +1913,6 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     : undefined
   return defineChannel("github", {
     ...channelOptions,
-    ...(box ? { box } : {}),
     capabilities: [
       ...(workspaceCapability ? [workspaceCapability] : []),
       ...channelOptions.capabilities || [],

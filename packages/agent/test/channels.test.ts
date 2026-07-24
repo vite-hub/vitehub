@@ -158,32 +158,32 @@ describe("agent channels", () => {
       materialize: "build",
       mount: { path: "portal" },
     })
-    expect(defaultChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace/portal")
-    expect(defaultChannel.box?.requires).toEqual([expect.objectContaining({
-      args: ["-c", expect.stringContaining('if [ -n "${GH_TOKEN:-}" ]; then')],
-      command: "sh",
-      name: "GitHub pull request checkout",
-    })])
-    expect(defaultChannel.box?.requires).toEqual([expect.objectContaining({
-      args: ["-c", expect.stringContaining('test "$(git rev-parse FETCH_HEAD)" = "$PR_HEAD_SHA"')],
-    })])
-
     const rootChannel = github({ pullRequest: { workspace: true } })
-    expect(rootChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace")
+    const rootWorkspace = rootChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof rootWorkspace !== "function") throw new Error("Missing root pull request Workspace contribution.")
+    await expect(rootWorkspace(context as never)).resolves.toMatchObject({
+      sources: { github: { mount: { path: "" } } },
+    })
 
     const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
-    expect(customChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace/repository")
+    const customWorkspace = customChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof customWorkspace !== "function") throw new Error("Missing custom pull request Workspace contribution.")
+    await expect(customWorkspace(context as never)).resolves.toMatchObject({
+      sources: { github: { mount: { path: "repository" } } },
+    })
 
     const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
-    expect(sourceMountChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace/legacy-repository")
+    const sourceMountWorkspace = sourceMountChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof sourceMountWorkspace !== "function") throw new Error("Missing source-mount pull request Workspace contribution.")
+    await expect(sourceMountWorkspace(context as never)).resolves.toMatchObject({
+      sources: { github: { mount: { path: "legacy-repository" } } },
+    })
 
     const disabledChannel = github({ pullRequest: { workspace: false } })
     expect(disabledChannel.capabilities).toEqual([])
-    expect(disabledChannel.box).toBeUndefined()
 
     const nonPullRequestChannel = github()
     expect(nonPullRequestChannel.capabilities).toEqual([])
-    expect(nonPullRequestChannel.box).toBeUndefined()
   })
 
   it("rejects pull request workspace mounts outside the Workspace", async () => {

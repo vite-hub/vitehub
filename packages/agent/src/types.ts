@@ -1372,7 +1372,6 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
 
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
-  box?: Pick<BoxDefinition<AgentRunCallbackContext<TRuntimeConfig>>, "env" | "requires">
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
   identity?: IdentityResolver

@@ -1563,20 +1563,7 @@ async function createAgentInvocationContext<
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
-    const channelBox = activeChannel?.box
-    const boxDefinition = definition?.box && channelBox
-      ? {
-          ...definition.box,
-          env: {
-            ...channelBox.env,
-            ...definition.box.env,
-          },
-          requires: [
-            ...(channelBox.requires || []),
-            ...(definition.box.requires || []),
-          ],
-        }
-      : definition?.box
+    const boxDefinition = definition?.box
     if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
       throw new Error("[vitehub] defineAgent({ box, workspace }) cannot combine a Workspace with Box cwd or checkout because both own the same working tree. Remove cwd/checkout and let Workspace materialize into the Box.")
     }
