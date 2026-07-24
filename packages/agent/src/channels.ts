@@ -1866,7 +1866,9 @@ const githubPullRequestCheckout = `set -eu
 mkdir -p -- "$PR_WORKSPACE_PATH"
 cd -- "$PR_WORKSPACE_PATH"
 git init --quiet
-git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+if [ -n "\${GH_TOKEN:-}" ]; then
+  git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+fi
 git remote remove origin 2>/dev/null || true
 git remote add origin "https://github.com/$PR_REPOSITORY.git"
 git fetch --quiet --no-tags origin "$PR_SOURCE_REF"
@@ -1883,12 +1885,12 @@ function githubPullRequestBox<TRuntimeConfig extends AgentRuntimeConfig>(
     env: {
       GH_TOKEN: async (context) => {
         const value = githubPullRequestContextValue(context)
-        return await githubPullRequestMetadataToken(app, context, githubPullRequestInstallationId(value))
+        return await githubPullRequestMetadataToken(app, context, githubPullRequestInstallationId(value)) || ""
       },
       PR_HEAD_SHA: context => String(githubPullRequestContextValue(context).head!.sha),
       PR_REPOSITORY: context => String(githubPullRequestContextValue(context).source!.repo),
       PR_SOURCE_REF: context => String(githubPullRequestContextValue(context).source!.ref),
-      PR_WORKSPACE_PATH: workspace.mount || ".",
+      PR_WORKSPACE_PATH: workspace.mount ? `workspace/${workspace.mount}` : "workspace",
     },
     requires: [{
       args: ["-c", githubPullRequestCheckout],

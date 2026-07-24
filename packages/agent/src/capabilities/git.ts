@@ -436,7 +436,7 @@ async function preparePullRequestGitSession(
     'if [ -n "${VITEHUB_GIT_AUTH_HEADER:-}" ]; then git config --local http.https://github.com/.extraheader "$VITEHUB_GIT_AUTH_HEADER"; fi',
     `git fetch --depth=100 origin ${fetchRefspecs}`,
     `test "$(git rev-parse refs/vitehub/head)" = ${shellQuote(setup.headSha)} || { echo "[vitehub] fetched pull request head does not match the expected SHA." >&2; exit 1; }`,
-    "git checkout -q --detach refs/vitehub/head",
+    setup.mount ? "git checkout -q --detach refs/vitehub/head" : "git reset -q --mixed refs/vitehub/head",
     ...(baseTrackingRef ? [`git branch -f vitehub-base ${shellQuote(baseTrackingRef)} >/dev/null`] : []),
     "git branch -f vitehub-head HEAD >/dev/null",
   ].join("\n")

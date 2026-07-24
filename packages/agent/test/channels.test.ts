@@ -158,21 +158,24 @@ describe("agent channels", () => {
       materialize: "build",
       mount: { path: "portal" },
     })
-    expect(defaultChannel.box?.env?.PR_WORKSPACE_PATH).toBe("portal")
+    expect(defaultChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace/portal")
     expect(defaultChannel.box?.requires).toEqual([expect.objectContaining({
-      args: ["-c", expect.stringContaining('test "$(git rev-parse FETCH_HEAD)" = "$PR_HEAD_SHA"')],
+      args: ["-c", expect.stringContaining('if [ -n "${GH_TOKEN:-}" ]; then')],
       command: "sh",
       name: "GitHub pull request checkout",
     })])
+    expect(defaultChannel.box?.requires).toEqual([expect.objectContaining({
+      args: ["-c", expect.stringContaining('test "$(git rev-parse FETCH_HEAD)" = "$PR_HEAD_SHA"')],
+    })])
 
     const rootChannel = github({ pullRequest: { workspace: true } })
-    expect(rootChannel.box?.env?.PR_WORKSPACE_PATH).toBe(".")
+    expect(rootChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace")
 
     const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
-    expect(customChannel.box?.env?.PR_WORKSPACE_PATH).toBe("repository")
+    expect(customChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace/repository")
 
     const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
-    expect(sourceMountChannel.box?.env?.PR_WORKSPACE_PATH).toBe("legacy-repository")
+    expect(sourceMountChannel.box?.env?.PR_WORKSPACE_PATH).toBe("workspace/legacy-repository")
 
     const disabledChannel = github({ pullRequest: { workspace: false } })
     expect(disabledChannel.capabilities).toEqual([])
