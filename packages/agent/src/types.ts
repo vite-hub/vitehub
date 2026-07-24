@@ -1058,6 +1058,19 @@ export interface AgentOutputDefinition<TOutput = unknown> {
   schema: StandardSchemaV1<unknown, TOutput>
 }
 
+export interface AgentUIMessageStreamProjection {
+  reasoning?: "hidden" | "visible"
+  tools?: "hidden" | "full"
+}
+
+export type AgentUIMessageStreamProjectionResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+> =
+  | AgentUIMessageStreamProjection
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<AgentUIMessageStreamProjection>)
+
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1078,6 +1091,7 @@ type AgentSharedSettings<
   output?: AgentOutputDefinition<TOutput>
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
+  uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
@@ -1115,6 +1129,7 @@ export interface AgentDefinition<
   runEvents?: AgentRunEvents
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
@@ -1505,6 +1520,7 @@ export interface AgentInspectionDriverMetadata {
 
 export interface AgentInspectionConfigMetadata {
   driver: AgentInspectionDriverMetadata
+  uiMessageStream?: AgentUIMessageStreamProjection
 }
 
 export interface AgentInspectionMetadata {

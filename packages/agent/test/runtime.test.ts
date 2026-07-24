@@ -8222,6 +8222,140 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("projects reasoning and tool details per UI message stream invocation", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const chunks = [
+      { messageId: "assistant-1", type: "start" },
+      { id: "reasoning-1", type: "reasoning-start" },
+      { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" },
+      { id: "reasoning-1", type: "reasoning-end" },
+      { id: "reasoning-2", type: "text-start" },
+      { delta: "private phased reasoning", id: "reasoning-2", phase: "reasoning", type: "text-delta" },
+      { delta: "private phased suffix", id: "reasoning-2", type: "text-delta" },
+      { id: "reasoning-2", type: "text-end" },
+      { id: "text-1", type: "text-start" },
+      { delta: "public answer", id: "text-1", type: "text-delta" },
+      { id: "text-1", type: "text-end" },
+      { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" },
+      { output: "42", toolCallId: "tool-1", type: "tool-output-available" },
+      { finishReason: "stop", type: "finish" },
+    ]
+    const driver = {
+      run: () => ({
+        toUIMessageStream() {
+          return new ReadableStream<unknown>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk)
+              controller.close()
+            },
+          })
+        },
+      }),
+    }
+    const resolveProjection = vi.fn(({ input }) => {
+      if (input.prompt === "hide-reasoning") return { reasoning: "hidden" as const, tools: "full" as const }
+      if (input.prompt === "hide-tools") return { reasoning: "visible" as const, tools: "hidden" as const }
+      return { reasoning: "visible" as const, tools: "full" as const }
+    })
+    const agent = defineAgent({
+      driver,
+      uiMessageStream: resolveProjection,
+    })
+    const defaultAgent = defineAgent({ driver })
+    const collect = async (target: typeof agent, prompt: string) => {
+      const stream = await streamAgent(target, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const projected = []
+      for await (const chunk of stream) projected.push(chunk)
+      return projected
+    }
+
+    const omitted = await collect(defaultAgent, "omitted")
+    const visible = await collect(agent, "visible")
+    const hiddenReasoning = await collect(agent, "hide-reasoning")
+    const hiddenTools = await collect(agent, "hide-tools")
+
+    expect(omitted).toEqual(chunks)
+    expect(visible).toEqual(chunks)
+    expect(hiddenReasoning).toEqual(chunks.filter(chunk =>
+      !chunk.type.startsWith("reasoning-")
+      && chunk.id !== "reasoning-2",
+    ))
+    expect(hiddenTools).toEqual(chunks.filter(chunk => !chunk.type.startsWith("tool-")))
+    expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual([
+      "visible",
+      "hide-reasoning",
+      "hide-tools",
+    ])
+  })
+
+  it("tracks phased reasoning IDs before converting async iterable UI output", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        run: async function* () {
+          yield { id: "reasoning-1", type: "text-start" }
+          yield { delta: "private", id: "reasoning-1", phase: "reasoning", type: "text-delta" }
+          yield { delta: " suffix", id: "reasoning-1", type: "text-delta" }
+          yield { id: "reasoning-1", type: "text-end" }
+          yield { delta: "public", id: "final-1", phase: "final", type: "text-delta" }
+          yield { type: "finish" }
+        },
+      },
+      uiMessageStream: { reasoning: "hidden" },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    const chunks = []
+    for await (const chunk of stream) chunks.push(chunk)
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("private") }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("suffix") }))
+    expect(chunks).toContainEqual(expect.objectContaining({ delta: "public" }))
+  })
+
+  it("projects an already-framed UI message stream Response", async () => {
+    const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: () => createAgentUIMessageStreamResponse({
+          headers: { "content-length": "999", "x-agent": "custom" },
+          status: 201,
+          statusText: "Created",
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ id: "reasoning-1", type: "reasoning-start" })
+              controller.enqueue({ delta: "private", id: "reasoning-1", type: "reasoning-delta" })
+              controller.enqueue({ id: "reasoning-1", type: "reasoning-end" })
+              controller.enqueue({ id: "text-1", type: "text-start" })
+              controller.enqueue({ delta: "public", id: "text-1", type: "text-delta" })
+              controller.enqueue({ id: "text-1", type: "text-end" })
+              controller.enqueue({ finishReason: "stop", type: "finish" })
+              controller.close()
+            },
+          }),
+        }),
+      },
+      hooks: { "agent:finish": finish },
+      uiMessageStream: { reasoning: "hidden" },
+    })
+
+    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as Response
+    expect(response.status).toBe(201)
+    expect(response.statusText).toBe("Created")
+    expect(response.headers.get("x-agent")).toBe("custom")
+    expect(response.headers.has("content-length")).toBe(false)
+    expect(finish).not.toHaveBeenCalled()
+    const body = await response.text()
+    expect(body).not.toContain("private")
+    expect(body).toContain("public")
+    expect(finish).toHaveBeenCalledOnce()
+  })
+
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {
     const { createUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

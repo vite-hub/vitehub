@@ -4362,6 +4362,32 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("inspects static and resolved UI message stream projection", async () => {
+    const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const staticAgent = defineAgent({
+      driver: { run: () => "ok" },
+      uiMessageStream: { reasoning: "hidden", tools: "full" },
+    })
+    const dynamicAgent = defineAgent({
+      driver: { run: () => "ok" },
+      uiMessageStream: ({ input }) => input.prompt === "private"
+        ? { reasoning: "hidden", tools: "hidden" }
+        : { reasoning: "visible", tools: "full" },
+    })
+
+    expect(createAgentInspectionMetadata(staticAgent).config?.uiMessageStream).toEqual({
+      reasoning: "hidden",
+      tools: "full",
+    })
+    expect(createAgentInspectionMetadata(dynamicAgent).config).not.toHaveProperty("uiMessageStream")
+    expect((await resolveAgentInspectionMetadata(dynamicAgent, {
+      input: { prompt: "private" },
+    })).config?.uiMessageStream).toEqual({
+      reasoning: "hidden",
+      tools: "hidden",
+    })
+  })
+
   it("reports unknown authority when a dynamic Box cannot resolve inspection input", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const { trustedHost } = await import("@vite-hub/box")
