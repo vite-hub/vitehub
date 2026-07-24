@@ -223,8 +223,11 @@ async function generateWithDriver(
   const instructions = options.instructions ?? defaultProgressSummaryInstructions
   const runContext = progressSummaryAdapterRunContext(context, input, prompt)
   if (driver.kind === "harness") {
+    const resolvedDriver = driver.resolve
+      ? { ...driver, ...await driver.resolve(), kind: "harness" as const }
+      : driver
     const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
-    return await resultText(await createHarnessAgentAdapter({ ...driver, instructions } as never).generate(runContext as never))
+    return await resultText(await createHarnessAgentAdapter({ ...resolvedDriver, instructions } as never).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   return await resultText(await createAiSdkAdapter({

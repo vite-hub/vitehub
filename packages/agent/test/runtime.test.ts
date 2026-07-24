@@ -8564,6 +8564,42 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("resolves built-in progress summary drivers", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValueOnce({ text: "Checking inventory." })
+    const agent = defineAgent({
+      capabilities: [
+        progressSummary({
+          driver: { kind: "codex", model: "gpt-5.6-luna", sandbox: false },
+          intervalMs: 0,
+        }),
+      ],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              async start(controller) {
+                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                await new Promise(resolve => setTimeout(resolve, 20))
+                controller.close()
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks = []
+    for await (const chunk of stream) chunks.push(chunk)
+
+    expect(harnessGenerate).toHaveBeenCalledOnce()
+    expect(chunks).toContainEqual(expect.objectContaining({
+      type: "data-progress-summary",
+    }))
+  })
+
   it("keeps user message contents out of the default progress prompt", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
