@@ -8287,6 +8287,48 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("projects an already-framed UI message stream Response", async () => {
+    const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: () => createAgentUIMessageStreamResponse({
+          headers: { "content-length": "999", "x-agent": "custom" },
+          status: 201,
+          statusText: "Created",
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ id: "reasoning-1", type: "reasoning-start" })
+              controller.enqueue({ delta: "private", id: "reasoning-1", type: "reasoning-delta" })
+              controller.enqueue({ id: "reasoning-1", type: "reasoning-end" })
+              controller.enqueue({ id: "text-1", type: "text-start" })
+              controller.enqueue({ delta: "public", id: "text-1", type: "text-delta" })
+              controller.enqueue({ id: "text-1", type: "text-end" })
+              controller.enqueue({ finishReason: "stop", type: "finish" })
+              controller.close()
+            },
+          }),
+        }),
+      },
+      hooks: { "agent:finish": finish },
+      uiMessageStream: { reasoning: "hidden" },
+    })
+
+    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as Response
+    expect(response.status).toBe(201)
+    expect(response.statusText).toBe("Created")
+    expect(response.headers.get("x-agent")).toBe("custom")
+    expect(response.headers.has("content-length")).toBe(false)
+    expect(finish).not.toHaveBeenCalled()
+    const body = await response.text()
+    expect(body).not.toContain("private")
+    expect(body).toContain("public")
+    expect(finish).toHaveBeenCalledOnce()
+  })
+
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {
     const { createUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

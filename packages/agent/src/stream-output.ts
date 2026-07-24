@@ -31,6 +31,40 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
     && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
 }
 
+export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
+  return value instanceof Response
+    && value.body !== null
+    && value.headers.get("x-vercel-ai-ui-message-stream") === "v1"
+}
+
+export function uiMessageStreamFromResponse(response: Response & { body: ReadableStream<Uint8Array> }): ReadableStream<unknown> {
+  const decoder = new TextDecoder()
+  let buffer = ""
+  const enqueueFrames = (controller: TransformStreamDefaultController<unknown>, flush = false) => {
+    const frames = buffer.split(/\r?\n\r?\n/)
+    buffer = flush ? "" : frames.pop() || ""
+    for (const frame of frames) {
+      const data = frame.split(/\r?\n/)
+        .filter(line => line.startsWith("data:"))
+        .map(line => line.slice(5).trimStart())
+        .join("\n")
+      if (!data || data === "[DONE]") continue
+      controller.enqueue(JSON.parse(data))
+    }
+  }
+  return response.body.pipeThrough(new TransformStream<Uint8Array, unknown>({
+    flush(controller) {
+      buffer += decoder.decode()
+      if (buffer.trim()) buffer += "\n\n"
+      enqueueFrames(controller, true)
+    },
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true })
+      enqueueFrames(controller)
+    },
+  }))
+}
+
 export function createAgentUIMessageStream(options: {
   execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {

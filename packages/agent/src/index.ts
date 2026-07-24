@@ -66,7 +66,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
+import { createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -2287,6 +2287,7 @@ async function finalizeAgentInvocationResult<
   finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
   options: {
+    finalizeResponse?: (response: Response) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: Response | TResult } | undefined>
     finalizeRawStreams?: boolean
     outputExtensions?: Map<string, unknown>
     wrapStream?: (stream: AsyncIterable<unknown>) => AsyncIterable<unknown>
@@ -2295,6 +2296,13 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = shouldWrapInvocationOutput(context)
   try {
     if (result instanceof Response) {
+      const finalized = await options.finalizeResponse?.(result)
+      if (finalized) {
+        if (!finalized.deferFinish) {
+          await lifecycle.finish({ result: finalized.finishResult, status: "success", usage: finalized.finishUsage })
+        }
+        return finalized.value
+      }
       const responseMediaType = result.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
       const responseIsText = responseMediaType !== "text/event-stream" && (responseMediaType?.startsWith("text/")
         || responseMediaType === "application/json"
@@ -2607,6 +2615,33 @@ async function executeAgentInvocation<
       value: customRun ? withStreamResultProperties(value, rendered) : value,
     }
   }, executionFailureMessage, {
+    finalizeResponse: options.output === "ui-message-stream"
+      ? async (response) => {
+          if (!isUIMessageStreamResponse(response)) return
+          const projection = typeof definition?.uiMessageStream === "function"
+            ? await definition.uiMessageStream(invocation)
+            : definition?.uiMessageStream
+          const finalized = await finalizeUiMessageStreamOutput({
+            toUIMessageStream: () => uiMessageStreamFromResponse(response),
+          }, shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
+            const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
+            await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          }, projection)
+          const headers = new Headers(response.headers)
+          headers.delete("content-encoding")
+          headers.delete("content-length")
+          return {
+            ...finalized,
+            finishResult: response,
+            value: createAgentUIMessageStreamResponse({
+              headers,
+              status: response.status,
+              statusText: response.statusText,
+              stream: finalized.value,
+            }),
+          }
+        }
+      : undefined,
     finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
     outputExtensions,
     ...(customRun
