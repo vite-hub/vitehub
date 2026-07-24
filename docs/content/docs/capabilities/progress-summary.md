@@ -16,16 +16,16 @@ Import the Capability from `@vite-hub/agent/capabilities` and give it the indepe
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { progressSummary } from '@vite-hub/agent/capabilities'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
 
 export default defineAgent({
   driver: primaryDriver,
   capabilities: [
     progressSummary({
-      driver: codexDriver({
+      driver: {
+        kind: 'codex',
         model: 'gpt-5.6-luna',
         reasoningEffort: 'low',
-      }),
+      },
     }),
   ],
 })
