@@ -8293,7 +8293,7 @@ describe("agent message protocol", () => {
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ role: "user", text: "Check inventory." })],
+      prompt: "Check inventory.",
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)

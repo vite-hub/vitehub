@@ -479,7 +479,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
     output(context) {
       context.output.render((result) => {
         const messages = context.input.messages()
-        if (!messages.some(message => message.role === "user")) return result
+        if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return result
         if (isStreamResult(result)) {
           const wrapped = new WeakMap<object, AsyncIterable<unknown> & ReadableStream<unknown>>()
           const wrap = (stream: AsyncIterable<unknown> | ReadableStream<unknown>) => {
