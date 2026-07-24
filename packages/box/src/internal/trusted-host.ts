@@ -37,6 +37,7 @@ import type {
   ResolvedBoxState,
 } from "../index.ts";
 import { materializeGitCheckout } from "./git-checkout.ts";
+import { markBuiltInBoxRuntime } from "./runtime.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
 export interface TrustedHostOptions {
@@ -100,8 +101,8 @@ const trustedHostExecutionAuthority = {
   processes: "arbitrary",
 } as const satisfies ExecutionAuthority;
 
-export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
-  return {
+export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxRuntime {
+  return markBuiltInBoxRuntime({
     name: "trusted-host",
     async prepare(input) {
       const { cwd } = await resolveTrustedHostInput(input, options);
@@ -148,7 +149,7 @@ export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
         resolved.cwd ? join(runtimeSession.defaultWorkingDirectory, "workspace") : undefined,
       );
     },
-  };
+  });
 }
 
 async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedHostOptions) {
@@ -157,7 +158,7 @@ async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedH
   const configuredStateRoot = options.stateRoot;
   if (input.plan.state.length && (!configuredStateRoot || !isAbsolute(configuredStateRoot))) {
     throw new Error(
-      "[vitehub] trustedHost({ stateRoot }) requires an absolute path when box.home.state is declared.",
+      "[vitehub] The trusted-host runtime requires stateRoot to be an absolute path when box.home.state is declared.",
     );
   }
   const stateRoot = configuredStateRoot

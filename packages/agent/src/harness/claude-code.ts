@@ -1,8 +1,6 @@
 import { join } from "node:path"
 
-import { createClaudeCode as createAiSdkClaudeCode } from "@ai-sdk/harness-claude-code"
-
-import { createLocalHarnessSandbox, type LocalHarnessSandboxOptions } from "./local-sandbox.ts"
+import { createLocalHarnessSandbox } from "./local-sandbox.ts"
 
 import type {
   HarnessV1Bootstrap,
@@ -12,15 +10,11 @@ import type {
   HarnessV1StreamPart,
 } from "@ai-sdk/harness"
 import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code"
-import type { AgentHarnessCredentialSource, AgentHarnessDriver } from "../types.ts"
+import type { AgentHarnessDriver, ClaudeCodeDriverOptions } from "../types.ts"
 
-export interface ClaudeCodeDriverOptions extends ClaudeCodeHarnessSettings {
-  credentials?: AgentHarnessCredentialSource
-  env?: Record<string, string | undefined>
-  sandbox?: false | LocalHarnessSandboxOptions
-}
+const claudeCodePackage = "@ai-sdk/harness-claude-code"
 
-export function claudeCodeDriver(options: ClaudeCodeDriverOptions = {}): AgentHarnessDriver {
+export async function createClaudeCodeDriver(options: ClaudeCodeDriverOptions = {}): Promise<AgentHarnessDriver> {
   const {
     credentials,
     env,
@@ -30,7 +24,7 @@ export function claudeCodeDriver(options: ClaudeCodeDriverOptions = {}): AgentHa
 
   return {
     credentials: credentials ?? { label: "Claude Code", source: "ambient" },
-    harness: createClaudeCode(settings),
+    harness: await createClaudeCode(settings as ClaudeCodeHarnessSettings),
     ...(sandbox === false
       ? {}
       : {
@@ -45,7 +39,8 @@ export function claudeCodeDriver(options: ClaudeCodeDriverOptions = {}): AgentHa
   }
 }
 
-export function createClaudeCode(settings: ClaudeCodeHarnessSettings = {}): ReturnType<typeof createAiSdkClaudeCode> {
+export async function createClaudeCode(settings: ClaudeCodeHarnessSettings = {}): Promise<ReturnType<typeof import("@ai-sdk/harness-claude-code").createClaudeCode>> {
+  const { createClaudeCode: createAiSdkClaudeCode } = await import(/* @vite-ignore */ claudeCodePackage)
   const harness = createAiSdkClaudeCode({
     auth: { anthropic: {} },
     ...settings,

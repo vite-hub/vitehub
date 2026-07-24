@@ -6,11 +6,11 @@ vi.mock("@ai-sdk/harness-codex", () => ({
   createCodex,
 }))
 
-describe("codexDriver", () => {
+describe("createCodexDriver", () => {
   it("defaults to direct OpenAI auth and contributes its Box requirement", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
 
-    const driver = codexDriver()
+    const driver = createCodexDriver()
 
     expect(createCodex).toHaveBeenLastCalledWith({ auth: { openai: {} }, model: "" })
     expect(driver).toMatchObject({
@@ -28,9 +28,9 @@ describe("codexDriver", () => {
     process.env.GITHUB_APP_PRIVATE_KEY = "github-private-key"
 
     try {
-      const { codexDriver } = await import("../src/harness/codex.ts")
+      const { createCodexDriver } = await import("../src/harness/codex.ts")
       const { createLocalHarnessSandbox } = await import("../src/harness/local-sandbox.ts")
-      const driver = codexDriver()
+      const driver = createCodexDriver()
       const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> }
       const session = await adaptSandbox(createLocalHarnessSandbox(), { defaultSandbox: true }).createSession()
 
@@ -49,9 +49,9 @@ describe("codexDriver", () => {
   })
 
   it("preserves GitHub credentials in explicitly supplied sandboxes", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
     const { createLocalHarnessSandbox } = await import("../src/harness/local-sandbox.ts")
-    const driver = codexDriver()
+    const driver = createCodexDriver()
     const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> }
     const provider = createLocalHarnessSandbox({ env: { GH_TOKEN: "box-token" } })
     const session = await adaptSandbox(provider, { defaultSandbox: false }).createSession()
@@ -77,8 +77,8 @@ describe("codexDriver", () => {
     process.env.VITEHUB_GITHUB_WEBHOOK_SECRET = "github-webhook-secret"
 
     try {
-      const { codexDriver } = await import("../src/harness/codex.ts")
-      const driver = codexDriver({ env: { EXTRA_CODEX_ENV: "1" } }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
+      const { createCodexDriver } = await import("../src/harness/codex.ts")
+      const driver = createCodexDriver({ env: { EXTRA_CODEX_ENV: "1" } }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
       const session = await driver.sandbox?.createSession()
 
       try {
@@ -104,8 +104,8 @@ describe("codexDriver", () => {
   })
 
   it("creates isolated default local sandbox sessions", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
-    const driver = codexDriver({ sandbox: {} }) as { sandbox?: { createSession: () => Promise<{ defaultWorkingDirectory: string, destroy: () => Promise<void> }> } }
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
+    const driver = createCodexDriver({ sandbox: {} }) as { sandbox?: { createSession: () => Promise<{ defaultWorkingDirectory: string, destroy: () => Promise<void> }> } }
     const first = await driver.sandbox?.createSession()
     const second = await driver.sandbox?.createSession()
 
@@ -121,20 +121,20 @@ describe("codexDriver", () => {
   })
 
   it("passes through explicit harness sandbox providers", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
     const provider = {
       providerId: "isolated",
       specificationVersion: "harness-sandbox-v1",
       createSession: vi.fn(),
     }
 
-    const driver = codexDriver({ sandbox: provider })
+    const driver = createCodexDriver({ sandbox: provider })
 
     expect(driver.sandbox).toBe(provider)
   })
 
   it("passes through harness sandbox provider resolvers", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
     const provider = {
       providerId: "isolated",
       specificationVersion: "harness-sandbox-v1",
@@ -142,15 +142,15 @@ describe("codexDriver", () => {
     }
     const resolver = vi.fn(() => provider)
 
-    const driver = codexDriver({ sandbox: resolver })
+    const driver = createCodexDriver({ sandbox: resolver })
 
     expect(driver.sandbox).toBe(resolver)
   })
 
   it("preserves explicit Codex auth settings", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
 
-    const driver = codexDriver({ auth: { gateway: { apiKey: "gateway-key" } }, sandbox: false })
+    const driver = createCodexDriver({ auth: { gateway: { apiKey: "gateway-key" } }, sandbox: false })
 
     expect(createCodex).toHaveBeenLastCalledWith({ auth: { gateway: { apiKey: "gateway-key" } }, model: "" })
     expect(driver.sandbox).toBeUndefined()
@@ -158,15 +158,15 @@ describe("codexDriver", () => {
   })
 
   it("does not adapt explicit local Codex sandboxes twice", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
-    const driver = codexDriver({ sandbox: {} })
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
+    const driver = createCodexDriver({ sandbox: {} })
     const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object) => object
 
     expect(adaptSandbox(driver.sandbox! as object)).toBe(driver.sandbox)
   })
 
   it("adapts resumed Codex sandbox sessions", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
     const run = vi.fn()
     const rawSession = {
       defaultWorkingDirectory: "/sandbox/run-1",
@@ -179,7 +179,7 @@ describe("codexDriver", () => {
       resumeSession: vi.fn(async () => rawSession),
       specificationVersion: "harness-sandbox-v1",
     }
-    const adapt = (codexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => typeof provider & { resumeSession(options: { sessionId: string }): Promise<typeof rawSession> }
+    const adapt = (createCodexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => typeof provider & { resumeSession(options: { sessionId: string }): Promise<typeof rawSession> }
     const resumed = await adapt(provider, { defaultSandbox: true }).resumeSession({ sessionId: "thread-1" })
 
     await resumed.run({ command: "node /tmp/harness/codex/bridge.mjs" })
@@ -214,8 +214,8 @@ describe("codexDriver", () => {
   })
 
   it("exposes an isolated global skill directory", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
-    const driver = codexDriver({ sandbox: false })
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
+    const driver = createCodexDriver({ sandbox: false })
     const directory = (driver.harness as Record<PropertyKey, unknown>)[
       Symbol.for("vitehub.harnessGlobalSkillsDirectory")
     ] as (context: { box?: unknown }) => string
@@ -225,7 +225,7 @@ describe("codexDriver", () => {
   })
 
   it("uses Box-owned Codex Home without replacing its authentication state", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
     const run = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
     const restrictedRun = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
     const rawSession = {
@@ -242,7 +242,7 @@ describe("codexDriver", () => {
         return rawSession
       },
     }
-    const driver = codexDriver({ sandbox: provider })
+    const driver = createCodexDriver({ sandbox: provider })
     const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<typeof rawSession> }
     const session = await adaptSandbox(provider, { defaultSandbox: false }).createSession()
 
@@ -266,11 +266,11 @@ describe("codexDriver", () => {
   })
 
   it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
     const instructions = vi.fn(() => "Repair the pull request.")
     const workDir = vi.fn(() => "vitehub/pr-559")
 
-    const driver = codexDriver<{ pullRequest: number }>({
+    const driver = createCodexDriver<{ pullRequest: number }>({
       instructions,
       sandbox: false,
       workDir,
@@ -282,9 +282,9 @@ describe("codexDriver", () => {
   })
 
   it("preserves an empty work directory for harness validation", async () => {
-    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
 
-    const driver = codexDriver({ sandbox: false, workDir: "" })
+    const driver = createCodexDriver({ sandbox: false, workDir: "" })
 
     expect(driver.workDir).toBe("")
   })

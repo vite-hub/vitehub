@@ -22,7 +22,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
-| `vite-hub/agent/harness/claude-code` and `vite-hub/agent/harness/codex` | Claude Code and Codex harness adapters; install the selected AI SDK harness package explicitly. |
 | `vite-hub/agent/harness/local-sandbox` | Trusted local harness sandbox helper for development and Agent Evals. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
@@ -33,8 +32,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser` | Browser Session lifecycle, feature negotiation, inspection, and live handoff. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Cloudflare Browser Run and local Chromium providers. |
-| `vite-hub/box` | Box Definitions and trusted-host execution contracts. |
-| `vite-hub/box/cloudflare`, `vite-hub/box/crabbox`, and `vite-hub/box/vercel` | Cloudflare, Crabbox, and Vercel Box runtimes. |
+| `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare, and Vercel execution. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email Definitions, runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
@@ -77,7 +75,6 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
-| `@vite-hub/agent/harness/codex` | Agent Package | Codex harness integration; install its third-party harness dependencies explicitly. |
 | `@vite-hub/agent/harness/local-sandbox` | Agent Package | Trusted local harness sandbox helper for development and Agent Evals. |
 | `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Agent state helpers. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
@@ -87,8 +84,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser` | Browser Package | Browser Session lifecycle, feature negotiation, inspection, and live handoff. |
 | `@vite-hub/browser/controllers/cdp` and `@vite-hub/browser/controllers/playwright` | Browser Package | Raw CDP and Playwright Browser Session controllers. |
 | `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
-| `@vite-hub/box` | Box Package | Box Definitions, sessions, and trusted-host execution. |
-| `@vite-hub/box/cloudflare`, `@vite-hub/box/crabbox`, and `@vite-hub/box/vercel` | Box Package | Cloudflare, Crabbox, and Vercel Box runtimes. |
+| `@vite-hub/box` | Box Package | Box Definitions, sessions, and built-in runtime selection. |
 | `@vite-hub/email` | Email Package | Email Definition, explicit clients, portable types, and normalized errors. |
 | `@vite-hub/email/server` | Email Runtime | Server-only discovered `email` Runtime Helper. |
 | `@vite-hub/email/drivers/smtp` | Email Package | Optional Node.js SMTP delivery through Nodemailer. |

@@ -561,8 +561,8 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   const paths = command.paths as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
   // Keep the dev-only runtime out of provider output tracing.
-  const { resolveBox, trustedHost } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
-  const host = await (await resolveBox({ runtime: trustedHost() }, {})).open({ signal: abortSignal })
+  const { resolveBox } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
+  const host = await (await resolveBox({ runtime: "trusted-host" }, {})).open({ signal: abortSignal })
   const input = {
     abortSignal,
     ...(args ? { args } : {}),

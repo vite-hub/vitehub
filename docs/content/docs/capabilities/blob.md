@@ -88,7 +88,6 @@ Declare the directories where a Harness Agent may write public artifacts. The Ag
 import { defineAgent } from '@vite-hub/agent'
 import { blob } from '@vite-hub/agent/capabilities'
 import { github } from '@vite-hub/agent/channels'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
 
 export default defineAgent({
   capabilities: [
@@ -97,7 +96,7 @@ export default defineAgent({
   channels: {
     github: github({ pullRequest: true }),
   },
-  driver: codexDriver(),
+  driver: 'codex',
   workspace: { mode: 'write' },
 })
 ```

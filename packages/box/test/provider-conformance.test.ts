@@ -2,10 +2,10 @@ import { posix } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { cloudflareBox, type CloudflareSandboxStub } from "../src/cloudflare.ts";
-import { resolveBox, type BoxFileEntry, type BoxRuntime } from "../src/index.ts";
+import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
+import { resolveBox, type BoxFileEntry } from "../src/index.ts";
 import {
-  vercelBox,
+  createVercelRuntime,
   type VercelFileStat,
   type VercelSandboxCommand,
   type VercelSandboxInstance,
@@ -190,7 +190,7 @@ function cloudflareFixture() {
     machine,
     name: "cloudflare",
     ports: [0],
-    runtime: cloudflareBox({
+    runtime: createCloudflareRuntime({
       getSandbox: () => stub,
       hostname: "box.example.com",
       namespace: { get: () => stub, idFromName: (name) => name },
@@ -259,7 +259,7 @@ function vercelFixture() {
     machine,
     name: "vercel",
     ports: [4321],
-    runtime: vercelBox({ create: async () => instance, ports: [4321] }),
+    runtime: createVercelRuntime({ create: async () => instance, ports: [4321] }),
   };
 }
 

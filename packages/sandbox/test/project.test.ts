@@ -8,7 +8,7 @@ import { resolveSandboxProject } from "../src/project.ts"
 import { bundleSandboxDefinition } from "../src/bundle.ts"
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import { createSandboxExecutionBox } from "../src/runtime/execution-box.ts"
-import { resolveBox, trustedHost } from "@vite-hub/box"
+import { resolveBox } from "@vite-hub/box"
 
 const roots: string[] = []
 
@@ -939,7 +939,7 @@ describe("resolveSandboxProject", () => {
     })
     expect(bundle.entry).toBe("sandboxes/image/index.ts.mjs")
     expect(bundle.project?.files).toHaveProperty("sandboxes/image/lib/helper.mts.mjs")
-    const box = await resolveBox({ runtime: trustedHost() }, {}, { requires: ["node", "pnpm"] })
+    const box = await resolveBox({ runtime: "trusted-host" }, {}, { requires: ["node", "pnpm"] })
     const session = await box.open()
     try {
       const execution = createSandboxExecutionBox(session, "cloudflare")

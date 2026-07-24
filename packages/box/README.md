@@ -12,13 +12,11 @@ pnpm add @vite-hub/box
 
 ```ts
 import { defineAgent } from "@vite-hub/agent";
-import { codexDriver } from "@vite-hub/agent/harness/codex";
-import { trustedHost } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
 export default defineAgent<any, { ref: string; remote: string; sha: string }>({
   box: {
-    runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
+    runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
     checkout: {
       ref: ({ input }) => input.options?.ref,
       remote: ({ input }) => input.options?.remote,
@@ -47,20 +45,20 @@ export default defineAgent<any, { ref: string; remote: string; sha: string }>({
     },
     requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
-  driver: codexDriver(),
+  driver: "codex",
 });
 ```
 
 Agent and Sandbox orchestration use the same active Interface under the hood. Direct callers can inspect preparation without resolving secrets, then open an invocation session:
 
 ```ts
-import { resolveBox, trustedHost } from "@vite-hub/box";
+import { resolveBox } from "@vite-hub/box";
 
 const box = await resolveBox(
   {
     env: { PROJECT_ENV: "test" },
     requires: ["node", "pnpm"],
-    runtime: trustedHost(),
+    runtime: "trusted-host",
   },
   {},
 );
@@ -82,14 +80,21 @@ try {
 
 Binary file reads and writes, directory operations, recursive listing, removal, and command execution are required across runtimes. Long-running processes and exposed ports are explicit optional capabilities through `session.spawn` and `session.ports`. `close()` is idempotent, and every operation rejects after closure.
 
-Hosted adapters use explicit subpath imports:
+Hosted runtimes use tagged values from the same root API:
 
 ```ts
-import { cloudflareBox } from "@vite-hub/box/cloudflare";
-import { vercelBox } from "@vite-hub/box/vercel";
+const cloudflare = await resolveBox({
+  runtime: { kind: "cloudflare", namespace: env.SANDBOX },
+}, {});
+
+const vercel = await resolveBox({
+  runtime: { kind: "vercel", ports: [3000] },
+}, {});
 ```
 
-`cloudflareBox()` preserves Durable Object idle reuse and bounds transient transport operations with retries and deadlines. `vercelBox({ ports })` exposes only the ports declared when the microVM is created. Both adapters reject host `cwd`; materialize a Workspace into their disposable working tree instead.
+Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.
+
+The Cloudflare runtime preserves Durable Object idle reuse and bounds transient transport operations with retries and deadlines. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their disposable working tree instead.
 
 `box.open({ initialize })` runs initialization inside runtime preparation. If initialization fails, a runtime must tear down the session and roll back state created for that failed boot.
 
@@ -111,7 +116,7 @@ The project may commit declarations, non-secret files, and ciphertext. Resolve p
 
 A file may live beneath a state target. The runtime attaches state first and projects the file afterward, so committed configuration wins on every boot while adjacent CLI-owned files remain writable.
 
-`trustedHost({ stateRoot })` requires a durable local path whenever state is declared. Keep it outside the checkout, workspace, build context, cache, and artifact directories. The runtime creates private children but does not change permissions on an existing caller-owned root.
+`{ kind: "trusted-host", stateRoot }` requires a durable local path whenever state is declared. Keep it outside the checkout, workspace, build context, cache, and artifact directories. The runtime creates private children but does not change permissions on an existing caller-owned root.
 
 ## Use generic requirement checks
 
@@ -125,20 +130,19 @@ requires: [
 ];
 ```
 
-Core does not contain provider names or auth-file formats. `codexDriver()` contributes its own generic `codex login status` check when it uses direct OpenAI authentication.
+Core does not contain provider names or auth-file formats. The `"codex"` Agent Driver contributes its own generic `codex login status` check when it uses direct OpenAI authentication.
 
 Requirement names, commands, and argv are inspectable declaration metadata. They verify or select executables, but they do not restrict filesystem access, network egress, inherited credentials, or child processes. Inspect `box.plan.executionAuthority` for those boundaries, and keep credentials in `env` or Home files rather than arguments.
 
 ## Run through Crabbox
 
 ```ts
-import { crabbox } from "@vite-hub/box/crabbox"
-
 box: {
-  runtime: crabbox({
+  runtime: {
+    kind: "crabbox",
     profile: "babysitter",
     stateRoot: "/var/lib/vitehub/boxes",
-  }),
+  },
   checkout: {
     ref: ({ input }) => input.options?.ref,
     remote: ({ input }) => input.options?.remote,
@@ -163,7 +167,7 @@ Commands must remain owned by their Box session. Daemonizing or escaping the ses
 
 ## Security boundary
 
-A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `box.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. Use `trustedHost()` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
+A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `box.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. Use `"trusted-host"` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
 
 Resolved environment values, file contents, state, and physical Home paths are excluded from `box.plan`. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 

@@ -1,14 +1,18 @@
 import { vitehub } from "vite-hub"
 import { defineAgent } from "vite-hub/agent"
+import type {
+  BuiltInAgentDriver,
+  BuiltInAgentDriverName,
+  ClaudeCodeDriverOptions,
+  CodexDriverOptions,
+} from "vite-hub/agent"
 import * as agentCloudflare from "vite-hub/agent/cloudflare"
 import * as agentEval from "vite-hub/agent/eval"
-import * as claudeCodeHarness from "vite-hub/agent/harness/claude-code"
-import * as codexHarness from "vite-hub/agent/harness/codex"
 import * as localHarnessSandbox from "vite-hub/agent/harness/local-sandbox"
 import * as agentServer from "vite-hub/agent/server"
 import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import * as authAgent from "vite-hub/auth/agent"
-import * as crabbox from "vite-hub/box/crabbox"
+import { resolveBox } from "vite-hub/box"
 import * as smtp from "vite-hub/email/drivers/smtp"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
@@ -29,17 +33,16 @@ export const contract = {
     runtime: false,
     driver: { run: () => ({ text: "typed" }) },
   }),
+  builtInAgent: defineAgent({ driver: "codex", runtime: false }),
+  box: resolveBox({ runtime: "trusted-host" }, {}),
   env: env({ default: "typed" }),
   extensions: [
     agentCloudflare,
     agentEval,
-    claudeCodeHarness,
-    codexHarness,
     localHarnessSandbox,
     agentServer,
     agentSqliteState,
     authAgent,
-    crabbox,
     smtp,
     markdownTemplate,
     scheduleDriver,
@@ -56,3 +59,8 @@ export const contract = {
   workflow: defineWorkflow(async ({ payload }: { payload: { marker: string } }) => payload.marker),
   workspace: defineWorkspace({ store: { provider: "memory" } }),
 }
+
+export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
+export const configuredCodex = { kind: "codex", reasoningEffort: "high" } satisfies BuiltInAgentDriver
+export const codexOptions = { model: "gpt-5.5" } satisfies CodexDriverOptions
+export const claudeCodeOptions = { maxTurns: 12 } satisfies ClaudeCodeDriverOptions

@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
-import { codexDriver } from "../src/harness/codex.ts"
+import { createCodexDriver } from "../src/harness/codex.ts"
 import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
 
 import type { HarnessV1SandboxProvider } from "@ai-sdk/harness"
@@ -16,7 +16,7 @@ const exec = promisify(execFile)
 
 describe("ViteHub Codex harness", () => {
   it("bootstraps inside the sandbox workspace with the supported bridge", async () => {
-    const harness = codexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+    const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
     const bootstrap = await harness.getBootstrap!()
     const bridgePackage = bootstrap.files.find(file => file.path.endsWith("package.json"))
     const bridge = bootstrap.files.find(file => file.path.endsWith("bridge.mjs"))
@@ -44,8 +44,8 @@ describe("ViteHub Codex harness", () => {
         platform: "node",
         stdin: {
           contents: `
-            import { codexDriver } from "../src/harness/codex.ts"
-            export const bootstrap = await codexDriver({ sandbox: false }).harness.getBootstrap()
+            import { createCodexDriver } from "../src/harness/codex.ts"
+            export const bootstrap = await createCodexDriver({ sandbox: false }).harness.getBootstrap()
           `,
           resolveDir: import.meta.dirname,
         },
@@ -73,7 +73,7 @@ describe("ViteHub Codex harness", () => {
       await writeFile(join(bin, "pnpm"), "#!/bin/sh\nprintf pnpm > \"$INSTALLER_MARKER\"\n")
       await Promise.all([chmod(join(bin, "corepack"), 0o755), chmod(join(bin, "pnpm"), 0o755)])
 
-      const harness = codexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+      const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
       const bootstrap = await harness.getBootstrap!()
       await exec("/bin/sh", ["-c", bootstrap.commands[1]!.command], {
         cwd: fixture,
@@ -89,7 +89,7 @@ describe("ViteHub Codex harness", () => {
 
   it("maps absolute bootstrap commands only in the local sandbox", async () => {
     const root = await mkdtemp(join(import.meta.dirname, ".codex-local-"))
-    const driver = codexDriver({ sandbox: { env: { PATH: process.env.PATH }, rootDir: root } })
+    const driver = createCodexDriver({ sandbox: { env: { PATH: process.env.PATH }, rootDir: root } })
     const provider = driver.sandbox as HarnessV1SandboxProvider
     let output = ""
 
@@ -110,7 +110,7 @@ describe("ViteHub Codex harness", () => {
 
   it("adapts a Box sandbox for Codex paths and direct OpenAI auth", async () => {
     const root = await mkdtemp(join(import.meta.dirname, ".codex-box-"))
-    const harness = codexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>
+    const harness = createCodexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>
     const adapt = harness[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: HarnessV1SandboxProvider) => HarnessV1SandboxProvider
     const provider = adapt(createLocalHarnessSandbox({
       env: {

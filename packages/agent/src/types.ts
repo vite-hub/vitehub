@@ -23,6 +23,7 @@ import type {
   WorkspaceRules,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
+import type { LocalHarnessSandboxOptions } from "./harness/local-sandbox.ts"
 
 export type {
   MaybePromise,
@@ -946,6 +947,84 @@ export interface AgentHarnessCredentialSource {
   source?: "ambient" | "explicit" | "none" | "unknown" | (string & {})
 }
 
+export interface CodexAuthOptions {
+  gateway?: {
+    apiKey?: string
+    baseUrl?: string
+  }
+  openai?: {
+    apiKey?: string
+    baseUrl?: string
+    organization?: string
+    project?: string
+  }
+  openaiCompatible?: {
+    apiKey?: string
+    baseUrl?: string
+    modelProviderName?: string
+    queryParamsJson?: string
+  }
+}
+
+export type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
+  | false
+  | LocalHarnessSandboxOptions
+  | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
+
+export interface CodexDriverOptions<CALL_OPTIONS = unknown> {
+  auth?: CodexAuthOptions
+  credentials?: AgentHarnessCredentialSource
+  env?: Record<string, string | undefined>
+  instructions?: AgentHarnessInstructions<AgentRuntimeConfig, CALL_OPTIONS>
+  model?: string
+  port?: number
+  reasoningEffort?: "low" | "medium" | "high"
+  sandbox?: CodexDriverSandboxOptions<CALL_OPTIONS>
+  startupTimeoutMs?: number
+  webSearch?: boolean
+  workDir?: AgentHarnessWorkDir<AgentRuntimeConfig, CALL_OPTIONS>
+}
+
+export interface ClaudeCodeAuthOptions {
+  anthropic?: {
+    apiKey?: string
+    authToken?: string
+    baseUrl?: string
+  }
+  gateway?: {
+    apiKey?: string
+    baseUrl?: string
+  }
+}
+
+export type ClaudeCodeThinkingConfig =
+  | {
+    display?: "summarized" | "omitted"
+    type: "adaptive" | "enabled"
+  }
+  | {
+    type: "disabled"
+  }
+
+export interface ClaudeCodeDriverOptions {
+  auth?: ClaudeCodeAuthOptions
+  credentials?: AgentHarnessCredentialSource
+  env?: Record<string, string | undefined>
+  maxTurns?: number
+  model?: string
+  port?: number
+  sandbox?: false | LocalHarnessSandboxOptions
+  startupTimeoutMs?: number
+  thinking?: ClaudeCodeThinkingConfig
+}
+
+export type BuiltInAgentDriverName = "claude-code" | "codex"
+
+export type BuiltInAgentDriver<CALL_OPTIONS = unknown> =
+  | BuiltInAgentDriverName
+  | ({ kind: "codex" } & CodexDriverOptions<CALL_OPTIONS>)
+  | ({ kind: "claude-code" } & ClaudeCodeDriverOptions)
+
 export type AgentHarnessSessionKey<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -995,6 +1074,7 @@ export interface AgentModelDriver<
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   harness?: never
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
+  kind?: never
   model: AgentModelResolver<TRuntimeConfig>
   permissionMode?: never
   permissions?: never
@@ -1013,6 +1093,7 @@ export interface AgentHarnessDriver<
   execution?: never
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
   instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  kind?: never
   model?: never
   permissionMode?: never
   permissions?: never
@@ -1032,6 +1113,7 @@ export interface AgentRunDriver<
   execution?: never
   harness?: never
   instructions?: never
+  kind?: never
   model?: never
   permissionMode?: never
   permissions?: never
@@ -1042,6 +1124,16 @@ export interface AgentRunDriver<
 }
 
 export type AgentDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+> =
+  | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS>
+  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  | BuiltInAgentDriver<CALL_OPTIONS>
+
+export type CustomAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
@@ -1103,8 +1195,9 @@ export type AgentSettings<
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
+  TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>,
 > = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput> & {
-  driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  driver: TDriver
 }
 
 export interface AgentDefinition<

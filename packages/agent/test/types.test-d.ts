@@ -694,15 +694,15 @@ describe("agent public types", () => {
       workspace: { commit: "chore: update workspace", mode: "write" },
     })
 
-    // @ts-expect-error workspace reference mode must be read or write
     defineAgent({
       driver: { model: {} as never },
+      // @ts-expect-error workspace reference mode must be read or write
       workspace: { name: "review", mode: "mutable" },
     })
 
-    // @ts-expect-error named workspace references cannot include colocated Workspace Definition options
     defineAgent({
       driver: { model: {} as never },
+      // @ts-expect-error named workspace references cannot include colocated Workspace Definition options
       workspace: { name: "review", sources: {} },
     })
 
@@ -809,6 +809,25 @@ describe("agent public types", () => {
     const _permissionModeDriver: AgentDriver = { harness: { provider: "codex" }, permissionMode: "allow-edits" }
 
     const _sandboxDriver: AgentDriver = { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } }
+    const _codexDriver: AgentDriver = "codex"
+    const _configuredCodexDriver: AgentDriver = { kind: "codex", model: "gpt-5.6-codex", reasoningEffort: "high" }
+    const _claudeCodeDriver: AgentDriver = "claude-code"
+    const _configuredClaudeCodeDriver: AgentDriver = { kind: "claude-code", maxTurns: 12, model: "claude-opus-4-6" }
+    void _codexDriver
+    void _configuredCodexDriver
+    void _claudeCodeDriver
+    void _configuredClaudeCodeDriver
+
+    // @ts-expect-error Unknown built-in Agent Driver names are rejected.
+    const _unknownBuiltInDriver: AgentDriver = "custom"
+    // @ts-expect-error Tagged built-ins cannot use an unknown kind.
+    const _unknownTaggedDriver: AgentDriver = { kind: "custom" }
+    // @ts-expect-error Built-in names are reserved and cannot be custom run drivers.
+    const _reservedCustomDriver: AgentDriver = { kind: "codex", run: () => "ok" }
+    void _unknownBuiltInDriver
+    void _unknownTaggedDriver
+    void _reservedCustomDriver
+
     defineAgent({
       cli: { capabilities: false },
       driver: { harness: { provider: "codex" } },
@@ -1480,7 +1499,6 @@ describe("agent public types", () => {
         } },
     })
 
-    // @ts-expect-error access source grants are checked against defineAgent({ workspace.sources })
     defineAgent({
       capabilities: [
         access({
@@ -1492,6 +1510,7 @@ describe("agent public types", () => {
         }),
       ],
       driver: { model: {} as never },
+      // @ts-expect-error access source grants are checked against defineAgent({ workspace.sources })
       workspace: {
         sources: {
           docs: file("AGENTS.md"),
@@ -1499,7 +1518,6 @@ describe("agent public types", () => {
       },
     })
 
-    // @ts-expect-error callback access source grants are checked against defineAgent({ workspace.sources })
     defineAgent({
       capabilities: () => [
         access({
@@ -1511,6 +1529,7 @@ describe("agent public types", () => {
         }),
       ] as const,
       driver: { model: {} as never },
+      // @ts-expect-error callback access source grants are checked against defineAgent({ workspace.sources })
       workspace: {
         sources: {
           docs: file("AGENTS.md"),
@@ -1585,8 +1604,8 @@ describe("agent public types", () => {
       driver: { model: {} as never },
     })
 
-    // @ts-expect-error Workspace Sources do not own access scopes.
     defineAgent({
+      // @ts-expect-error Workspace Sources do not own access scopes.
       workspace: {
         sources: {
           raw: {
@@ -1603,8 +1622,8 @@ describe("agent public types", () => {
       driver: { model: {} as never },
     })
 
-    // @ts-expect-error Wrapped Workspace Sources do not own access scopes.
     defineAgent({
+      // @ts-expect-error Wrapped Workspace Sources do not own access scopes.
       workspace: {
         sources: {
           wrapped: {
@@ -1639,8 +1658,8 @@ describe("agent public types", () => {
         },
       },
     })
-    // @ts-expect-error Capability-contributed Workspace Sources do not own access scopes.
     defineAgent({
+      // @ts-expect-error Capability-contributed Workspace Sources do not own access scopes.
       workspace: { sources: {} },
       capabilities: [capabilityWithScopedSource],
       driver: { model: {} as never },

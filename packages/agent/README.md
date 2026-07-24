@@ -24,7 +24,7 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-`codexDriver()` includes the exact AI SDK harness packages that ViteHub supports. For Claude Code, add its driver package:
+The built-in `"codex"` driver includes the exact AI SDK harness packages that ViteHub supports. For Claude Code, add its driver package:
 
 ```sh
 pnpm add @ai-sdk/harness-claude-code
@@ -69,16 +69,16 @@ Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver 
 ```ts
 // server/agents/codex/agent.ts
 import { defineAgent } from "@vite-hub/agent";
-import { codexDriver } from "@vite-hub/agent/harness/codex";
 import { file } from "@vite-hub/workspace";
 
 export default defineAgent({
-  driver: codexDriver({
+  driver: {
+    kind: "codex",
     instructions: "Review the exact pull request head before changing code.",
     model: "gpt-5.5",
     reasoningEffort: "low",
     workDir: "repositories/vitehub",
-  }),
+  },
   workspace: {
     mode: "write",
     sources: {
@@ -92,7 +92,7 @@ Put Agent-owned Skills under `server/agents/codex/skills/`; discovery materializ
 
 Put static Box Home files under `server/agents/codex/home/`; discovery embeds dotfiles and binary files into `box.home.files`. Use `box.home.state` for credentials or other files that must refresh or persist.
 
-For Claude Code, use `claudeCodeDriver()` from `@vite-hub/agent/harness/claude-code`. It accepts `createClaudeCode()` settings such as `auth`, `model`, and `maxTurns`. Set `sandbox: false` to skip the helper-configured sandbox and use the Agent Driver fallback.
+Use `driver: "codex"` or `driver: "claude-code"` for the defaults. Use a tagged value such as `{ kind: "claude-code", model, maxTurns }` when configuration is needed. The Claude Code default owns a local harness sandbox; use `{ kind: "claude-code", sandbox: false }` when a Box should own its process environment and working directory.
 
 `driver.harness` is the AI SDK harness adapter instance. Harness drivers use ViteHub's local harness sandbox by default on process-capable hosts and receive a Harness Workspace Session when the Agent has a Workspace. Cloudflare Agents and Deno require an explicit provider. The local sandbox is a tempdir-backed shell convenience, not OS/process isolation; pass a real harness sandbox provider through `driver.sandbox` when isolation matters. Harness sandbox provider setup is Agent Package runtime plumbing; use `driver.sandbox` when an Agent needs a specific harness process or session provider. `driver.workDir` selects a relative directory inside the sandbox default working directory. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`. `driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can be callbacks when one Agent Definition needs invocation-scoped harness setup. ViteHub resolves harness instructions before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the selected instructions for both generated and streamed turns. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. Colocated `skills/` files are merged into the Harness Workspace and supported global profile without replacing existing files. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. `skills()` remains available for Workspace-backed and external Source Skills and does not inject model instructions or Workspace Shell tools. Put repository-wide guidance in Workspace files such as `AGENTS.md`; use `driver.instructions` for invocation-specific harness policy.
 
@@ -102,13 +102,11 @@ Use a Box when a harness Agent should boot in one project-declared execution env
 
 ```ts
 import { defineAgent } from "@vite-hub/agent";
-import { codexDriver } from "@vite-hub/agent/harness/codex";
-import { trustedHost } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
 export default defineAgent<any, { ref: string; remote: string; sha: string }>({
   box: {
-    runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
+    runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
     checkout: {
       ref: ({ input }) => input.options?.ref,
       remote: ({ input }) => input.options?.remote,
@@ -133,13 +131,13 @@ export default defineAgent<any, { ref: string; remote: string; sha: string }>({
     },
     requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
-  driver: codexDriver(),
+  driver: "codex",
 });
 ```
 
 `checkout` fetches one invocation-resolved Git ref, verifies its full SHA, and runs the harness in an isolated detached checkout with normal commit and explicit-push behavior. The Box deletes it on completion or boot failure. Use `cwd` instead for a caller-owned authoritative directory; the two modes are mutually exclusive.
 
-`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists CLI refreshes under an exclusive session lease, and resolves its seed only when state does not exist. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. `codexDriver()` contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine `box.cwd` or `box.checkout` with Agent Workspace materialization.
+`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists CLI refreshes under an exclusive session lease, and resolves its seed only when state does not exist. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. The `"codex"` driver contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine `box.cwd` or `box.checkout` with Agent Workspace materialization.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 

@@ -123,7 +123,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
   if (subpath === "./package.json") return "package metadata"
   if (packageName === "@vite-hub/cli") return "framework tooling"
   if (/^(?:cli|nitro|nuxt|test|virtual|vite)(?:\/|$)/.test(path)) return "integration or test tooling"
-  if (/(?:^|\/)internal(?:\/|$)/.test(path)) return "internal implementation"
+  if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation"
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path)) return "direct provider adapter"
   if (consolidatedOwnerExports.has(specifier)) return "available from the feature root"
   if (lowLevelOwnerExports.has(specifier)) return "low-level package integration"

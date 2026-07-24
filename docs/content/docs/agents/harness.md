@@ -30,7 +30,7 @@ ViteHub owns the composition boundary around these layers. An [Agent Driver](/do
 
 Model vendors tune their agent harnesses alongside their models. A matched harness can evolve its tool protocol, context compaction, approval behavior, session lifecycle, and model-specific prompting without every ViteHub application rebuilding that work.
 
-ViteHub provides helpers for Codex and Claude Code through `codexDriver()` and `claudeCodeDriver()`. These helpers adapt the harness to ViteHub's Agent Driver, Workspace, Capability, inspection, and runtime-policy boundaries.
+ViteHub provides built-in Codex and Claude Code drivers through the `"codex"` and `"claude-code"` values. ViteHub adapts the selected harness to its Agent Driver, Workspace, Capability, inspection, and runtime-policy boundaries.
 
 Build a custom harness only when the task needs a materially different agent loop or runtime contract. For a bounded transformation, classification, structured response, or small application-owned tool loop, a model-backed driver is usually the smaller surface.
 
@@ -42,21 +42,20 @@ Build a custom harness only when the task needs a materially different agent loo
 
 ## Compose a harness-backed Agent
 
-Install the Agent Package and the harness adapter that matches the selected agent runtime:
+Install the Agent Package. It includes the supported Codex adapter:
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @ai-sdk/harness @ai-sdk/harness-codex
+pnpm add @vite-hub/agent
 ```
 
-Use the ViteHub driver helper, then attach Skills and Workspace context around it:
+Select the built-in driver, then attach Skills and Workspace context around it:
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { skills } from '@vite-hub/agent/capabilities'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
 
 export default defineAgent({
-  driver: codexDriver(),
+  driver: 'codex',
   workspace: {
     mode: 'write',
   },
@@ -75,6 +74,8 @@ Workspace, Box, and Sandbox surround harness execution for different reasons. Th
 - Use [Workspace context](/docs/agents/workspace-context) for model-visible files, Sources, scope, and writeback.
 - Use a [Box](/docs/agents/boxes) when the harness needs a prepared Home, environment, checkout, credentials, and executable checks. A trusted-host Box does not isolate untrusted code from the host.
 - Use `driver.sandbox` when a harness-backed Agent needs a process-capable or provider-specific harness session. The default local provider is a tempdir-backed shell convenience, not OS/process isolation. The separate [Sandbox primitive](/docs/server-primitives/sandbox) owns named isolated application work, and the [Sandbox Capability](/docs/capabilities/sandbox) can expose allowlisted Sandbox commands to an Agent.
+
+The `"claude-code"` default owns a local harness sandbox. When Claude Code should run inside a Box, select `{ kind: 'claude-code', sandbox: false }` so the Box owns the process environment and working directory.
 
 ## Next steps
 

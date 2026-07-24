@@ -4332,9 +4332,8 @@ describe("defineAgent workspace option", () => {
   it("resolves Box authority without treating executable selection as isolation", async () => {
     const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
-    const { trustedHost } = await import("@vite-hub/box")
     const agent = withExplicitWorkspaceName(defineAgent({
-      box: { runtime: trustedHost() },
+      box: { runtime: "trusted-host" },
       capabilities: [workspaceShell({ commands: "all", mode: "write" })],
       driver: { harness: {} },
       workspace: { mode: "write" },
@@ -4390,7 +4389,6 @@ describe("defineAgent workspace option", () => {
 
   it("reports unknown authority when a dynamic Box cannot resolve inspection input", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
-    const { trustedHost } = await import("@vite-hub/box")
     const resolveCwd = vi.fn(({ input }) => {
       const options = input.options as { worktreePath?: string } | undefined
       if (!options?.worktreePath) throw new Error("missing worktreePath")
@@ -4399,7 +4397,7 @@ describe("defineAgent workspace option", () => {
     const agent = withExplicitWorkspaceName(defineAgent({
       box: {
         cwd: resolveCwd,
-        runtime: trustedHost(),
+        runtime: "trusted-host",
       },
       driver: { harness: {} },
       workspace: { mode: "write" },
@@ -4515,6 +4513,50 @@ describe("defineAgent workspace option", () => {
       sandboxProvider: "local-test",
     })
     expect(metadata.config?.driver.executionAuthority).toBe(unknownExecutionAuthority)
+  })
+
+  it("preserves built-in provider identity in workspace Agent inspection metadata", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      driver: "claude-code",
+      workspace: { mode: "write" },
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(metadata.config?.driver.harness).toMatchObject({
+      provider: "claude-code",
+    })
+  })
+
+  it("preserves tagged Codex sandbox authority in non-workspace Agent inspection metadata", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const executionAuthority = {
+      credentials: "provisioned",
+      environment: "selected",
+      filesystem: { access: "read-write", scope: "sandbox" },
+      isolation: "container",
+      network: "restricted",
+      processes: "arbitrary",
+    } as const
+    const agent = defineAgent({
+      driver: {
+        kind: "codex",
+        sandbox: {
+          executionAuthority,
+          providerId: "remote-test",
+          specificationVersion: "harness-sandbox-v1",
+        } as never,
+      },
+    })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(metadata.config?.driver.harness).toMatchObject({
+      provider: "codex",
+      sandboxProvider: "remote-test",
+    })
+    expect(metadata.config?.driver.executionAuthority).toEqual(executionAuthority)
   })
 
   it("reports the resolved default local harness authority", async () => {

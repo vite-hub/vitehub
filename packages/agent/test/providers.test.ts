@@ -1768,15 +1768,13 @@ describe("agent Vite plugin", () => {
     })
   })
 
-  it("publishes the Codex harness driver subpath", async () => {
+  it("does not publish built-in Agent Driver factory subpaths", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       exports?: Record<string, unknown>
     }
 
-    expect(pkg.exports?.["./harness/codex"]).toEqual({
-      types: "./dist/harness/codex.d.ts",
-      import: "./dist/harness/codex.js",
-    })
+    expect(pkg.exports?.["./harness/codex"]).toBeUndefined()
+    expect(pkg.exports?.["./harness/claude-code"]).toBeUndefined()
   })
 
   it("publishes the internal generated Agent route handler subpath", async () => {

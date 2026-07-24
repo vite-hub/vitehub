@@ -7,22 +7,20 @@ icon: i-lucide-package-open
 
 A Box is the execution environment for a harness Agent. The project declares what the Box needs, and the runtime prepares one private Home and process environment before any harness bootstrap or command runs.
 
-Use `trustedHost()` when the Agent may use the current host's filesystem, processes, and installed executables. Use `crabbox()` to run the same Box declaration through Crabbox Static SSH. Neither runtime reads credentials or configuration from the machine's normal Home.
+Use `"trusted-host"` when the Agent may use the current host's filesystem, processes, and installed executables. Use `"crabbox"` to run the same Box declaration through Crabbox Static SSH. Add a `kind` tag when either runtime needs options. Neither runtime reads credentials or configuration from the machine's normal Home.
 
 ## Run Codex in an exact disposable checkout
 
-Install the Agent and Box packages with the Codex harness adapter:
+Install the Agent and Box packages. The Agent Package includes the supported Codex adapter:
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @vite-hub/box @ai-sdk/harness @ai-sdk/harness-codex
+pnpm add @vite-hub/agent @vite-hub/box
 ```
 
 Declare the checkout, immutable inputs, writable state, and validation checks together:
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from "@vite-hub/agent";
-import { codexDriver } from "@vite-hub/agent/harness/codex";
-import { trustedHost } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
 interface BabysitterRunOptions {
@@ -33,7 +31,7 @@ interface BabysitterRunOptions {
 
 export default defineAgent<any, BabysitterRunOptions>({
   box: {
-    runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
+    runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
     checkout: {
       ref: ({ input }) => input.options?.ref,
       remote: ({ input }) => input.options?.remote,
@@ -62,7 +60,7 @@ export default defineAgent<any, BabysitterRunOptions>({
     },
     requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
-  driver: codexDriver(),
+  driver: "codex",
 });
 ```
 
@@ -70,7 +68,7 @@ For every invocation, `checkout` fetches `ref` from `remote`, verifies the fetch
 
 Use `cwd` instead when the caller already owns an authoritative directory. `checkout` and `cwd` are mutually exclusive. Git is an implicit checkout requirement and appears in resolved Box metadata.
 
-The runtime creates an owner-only Home outside the checkout, sets the XDG directories beneath it, and exposes the same environment to Codex, Git, `gh`, MCP servers, and ordinary Box commands. `codexDriver()` uses `$HOME/.codex` directly and contributes `codex login status` automatically, so Codex refreshes remain in Box state.
+The runtime creates an owner-only Home outside the checkout, sets the XDG directories beneath it, and exposes the same environment to Codex, Git, `gh`, MCP servers, and ordinary Box commands. The `"codex"` driver uses `$HOME/.codex` directly and contributes `codex login status` automatically, so Codex refreshes remain in Box state.
 
 The example's committed `.vitehub/box/gitconfig` can configure Git without containing a token:
 
@@ -148,13 +146,12 @@ Requirement names, commands, and argv are inspectable declaration metadata, so k
 Crabbox accepts the same Box declaration:
 
 ```ts
-import { crabbox } from '@vite-hub/box/crabbox'
-
 box: {
-  runtime: crabbox({
+  runtime: {
+    kind: 'crabbox',
     profile: 'babysitter',
     stateRoot: '/var/lib/vitehub/boxes',
-  }),
+  },
   checkout: {
     ref: ({ input }) => input.options?.ref,
     remote: ({ input }) => input.options?.remote,
@@ -201,7 +198,7 @@ Do not copy a general user Home into Box state. It mixes unrelated credentials a
 
 Box `cwd` and `checkout` cannot be combined with Agent Workspace materialization because each owns the working tree. Omit both when an Agent Workspace should be materialized into a disposable Box session.
 
-Home and environment isolation do not isolate the filesystem, network, installed executables, or trusted project code. Use `trustedHost()` only when the Agent may act with the host user's authority.
+Home and environment isolation do not isolate the filesystem, network, installed executables, or trusted project code. Use `"trusted-host"` only when the Agent may act with the host user's authority.
 
 V1 deliberately stops at env values, Home files, writable directory state, generic Git checkout, and direct boot checks. Secret-manager registries, a ViteHub encryption format, live rotation, per-command credential narrowing, keychain forwarding, and provider-specific auth helpers can be added outside core or later when a concrete runtime needs them.
 

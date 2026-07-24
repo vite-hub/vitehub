@@ -13,21 +13,17 @@ Discovered Agent Definitions run as Workflows by default, and ViteHub selects th
 
 ## Define the Agent
 
-Start with one Agent Driver. A model-backed Agent uses `defineAgent({ driver: { model } })` and keeps model-facing instructions inside the driver object.
+Start with a built-in Agent Driver value when ViteHub owns the integration. Use `"codex"` or `"claude-code"` for its defaults, and add a `kind` tag when that driver needs options.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
-  driver: {
-    model: gateway('openai/gpt-5.1-mini'),
-    instructions: 'Answer support requests with short, concrete replies.',
-  },
+  driver: 'codex',
 })
 ```
 
-The driver object accepts exactly one concrete variant: `model`, `harness`, or `run`. Driver-specific options stay beside that variant key.
+Use a structural driver object when the application supplies a custom model, harness adapter, or run function. That object accepts exactly one concrete variant: `model`, `harness`, or `run`; driver-specific options stay beside the variant key.
 
 ## Agent Definition options
 
@@ -35,7 +31,7 @@ The driver object accepts exactly one concrete variant: `model`, `harness`, or `
 
 | Option | Type | Default | Purpose |
 | --- | --- | --- | --- |
-| `driver` | `AgentDriver` | Required | Selects exactly one model, harness, or custom-run execution path. |
+| `driver` | `AgentDriver` | Required | Selects a built-in Driver value or exactly one custom model, harness, or run execution path. |
 | `box` | `BoxDefinition` | None | Gives a harness driver an explicit execution environment, Home, checkout, and requirements. A Box replaces `driver.sandbox` and `driver.workDir`. |
 | `capabilities` | `AgentCapabilitiesInput` | `[]` | Attaches a static Capability list or an invocation-time resolver. |
 | `channels` | `Record<string, AgentChannelInput>` | None | Declares named Channel factories or definitions for reachability and delivery. |
@@ -59,7 +55,6 @@ Set `output.schema` when server code needs a typed value instead of provider res
 
 ```ts [server/agents/summary.ts]
 import { defineAgent } from '@vite-hub/agent'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
 import { object, string } from 'valibot'
 
 const summaryOutput = object({
@@ -68,7 +63,7 @@ const summaryOutput = object({
 })
 
 export default defineAgent({
-  driver: codexDriver(),
+  driver: 'codex',
   output: { schema: summaryOutput },
 })
 ```

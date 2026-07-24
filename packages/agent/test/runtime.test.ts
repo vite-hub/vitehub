@@ -7402,6 +7402,28 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Como Estas" })
   })
 
+  it("resolves built-in title drivers before creating the harness adapter", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValueOnce({ text: "Built In Title" })
+
+    const agent = defineAgent({
+      capabilities: [title({ driver: "codex" })],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "resolve the title driver" })],
+    })
+
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      harness: { harnessId: "codex" },
+    })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Built In Title" })
+  })
+
   it("generates titles from stream-result title drivers", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

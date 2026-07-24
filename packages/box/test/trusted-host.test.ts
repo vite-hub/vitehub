@@ -5,7 +5,8 @@ import { join, relative } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveBox, trustedHost } from "../src/index.ts";
+import { resolveBox } from "../src/index.ts";
+import { createTrustedHostRuntime } from "../src/internal/trusted-host.ts";
 import { boxProvider, type TestSession } from "./helpers.ts";
 
 const roots: string[] = [];
@@ -14,9 +15,9 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
 
-describe("trustedHost", () => {
+describe("createTrustedHostRuntime", () => {
   it("keeps the default workspace separate from runtime-owned paths", async () => {
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = (await boxProvider(box).createSession()) as
       TestSession & { root: string };
 
@@ -33,7 +34,7 @@ describe("trustedHost", () => {
   });
 
   it("reports dangling symlinks as existing files", async () => {
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await box.open();
 
     try {
@@ -56,7 +57,7 @@ describe("trustedHost", () => {
     await writeFile(join(workspace, "marker.txt"), "workspace");
 
     const box = await resolveBox(
-      { cwd: relative(process.cwd(), workspace), runtime: trustedHost() },
+      { cwd: relative(process.cwd(), workspace), runtime: createTrustedHostRuntime() },
       {},
     );
     const session = await boxProvider(box).createSession();
@@ -78,7 +79,7 @@ describe("trustedHost", () => {
           {
             cwd: "workspace",
             home: { files: { ".acme/credential": { from: "credential" } } },
-            runtime: trustedHost(),
+            runtime: createTrustedHostRuntime(),
           },
           {},
         );
@@ -139,7 +140,7 @@ describe("trustedHost", () => {
               },
             },
             requires: [{ command: "gh", args: ["auth", "status"] }],
-            runtime: trustedHost({ stateRoot }),
+            runtime: createTrustedHostRuntime({ stateRoot }),
           },
           {},
         ),
@@ -209,7 +210,7 @@ describe("trustedHost", () => {
             },
           },
         },
-        runtime: trustedHost({ stateRoot }),
+        runtime: createTrustedHostRuntime({ stateRoot }),
       },
       {},
     );
@@ -238,7 +239,7 @@ describe("trustedHost", () => {
         ...(project ? { files: { ".codex/config.toml": { contents: "projected" } } } : {}),
         state: { ".codex": { key: "portable-box-test/projections" } },
       },
-      runtime: trustedHost({ stateRoot }),
+      runtime: createTrustedHostRuntime({ stateRoot }),
     });
 
     const firstBox = await resolveBox(definition(true), {});
@@ -257,7 +258,7 @@ describe("trustedHost", () => {
     const stateRoot = join(root, "state");
     const withoutProjection = await resolveBox({
       home: { state: { ".codex": { key: "portable-box-test/directory-projection" } } },
-      runtime: trustedHost({ stateRoot }),
+      runtime: createTrustedHostRuntime({ stateRoot }),
     }, {});
     const first = (await boxProvider(withoutProjection).createSession()) as typeof sessionWithEnv;
     await mkdir(join(first.env.HOME, ".codex", "config.toml"));
@@ -268,7 +269,7 @@ describe("trustedHost", () => {
         files: { ".codex/config.toml": { contents: "projected" } },
         state: { ".codex": { key: "portable-box-test/directory-projection" } },
       },
-      runtime: trustedHost({ stateRoot }),
+      runtime: createTrustedHostRuntime({ stateRoot }),
     }, {});
     const second = (await boxProvider(withProjection).createSession()) as typeof sessionWithEnv;
     await expect(readFile(join(second.env.HOME, ".codex", "config.toml"), "utf8")).resolves.toBe("projected");
@@ -289,7 +290,7 @@ describe("trustedHost", () => {
           files: { ".codex/skills/review/SKILL.md": { contents: "projected" } },
           state: { ".codex": { key } },
         },
-        runtime: trustedHost({ stateRoot }),
+        runtime: createTrustedHostRuntime({ stateRoot }),
       },
       {},
     );
@@ -305,7 +306,7 @@ describe("trustedHost", () => {
     const box = await resolveBox(
       {
         home: { state: { ".codex": { key: "portable-box-test/lease" } } },
-        runtime: trustedHost({ stateRoot: join(root, "state") }),
+        runtime: createTrustedHostRuntime({ stateRoot: join(root, "state") }),
       },
       {},
     );
@@ -336,7 +337,7 @@ describe("trustedHost", () => {
             },
           },
         },
-        runtime: trustedHost({ stateRoot: join(root, "state") }),
+        runtime: createTrustedHostRuntime({ stateRoot: join(root, "state") }),
       },
       {},
     );
@@ -357,7 +358,7 @@ describe("trustedHost", () => {
 
   it("drops completed command process groups before teardown", async () => {
     if (process.platform === "win32") return;
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await boxProvider(box).createSession();
     await session.run({ command: "true" });
 
@@ -371,7 +372,7 @@ describe("trustedHost", () => {
   });
 
   it("closes completed command sessions idempotently", async () => {
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await boxProvider(box).createSession();
 
     await session.run({ command: "true" });
@@ -382,7 +383,7 @@ describe("trustedHost", () => {
   it("does not start commands with an already-aborted signal", async () => {
     const root = await temporaryRoot();
     const marker = join(root, "started");
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await boxProvider(box).createSession();
     const controller = new AbortController();
     controller.abort(new Error("cancelled"));
@@ -398,7 +399,7 @@ describe("trustedHost", () => {
     if (process.platform === "win32") return;
     const root = await temporaryRoot();
     const marker = join(root, "ready");
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await boxProvider(box).createSession();
     const controller = new AbortController();
     const reason = new Error("cancelled");
@@ -441,7 +442,7 @@ describe("trustedHost", () => {
             },
           },
         },
-        runtime: trustedHost({ stateRoot: join(root, "state") }),
+        runtime: createTrustedHostRuntime({ stateRoot: join(root, "state") }),
       },
       {},
     );
@@ -478,7 +479,7 @@ describe("trustedHost", () => {
           files: { ".acme/credential": { from: "credential" } },
           state: { ".state": { key } },
         },
-        runtime: trustedHost({ stateRoot: join(root, "state") }),
+        runtime: createTrustedHostRuntime({ stateRoot: join(root, "state") }),
       }) as const;
     const first = await resolveBox(definition("secret-one"), {});
     const rotated = await resolveBox(definition("secret-two"), {});
@@ -503,7 +504,7 @@ describe("trustedHost", () => {
       resolveBox(
         {
           env: { GH_TOKEN: () => undefined },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -525,7 +526,7 @@ describe("trustedHost", () => {
         {
           env: { ACME_TOKEN: "ready", AMBIENT_HOME: process.env.HOME || "" },
           requires: ["acme"],
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -545,7 +546,7 @@ describe("trustedHost", () => {
     await executable(bin, "acme", "exit 0");
 
     const box = await withEnvironment({ PATH: "", Path: bin }, () =>
-      resolveBox({ requires: ["acme"], runtime: trustedHost() }, {}),
+      resolveBox({ requires: ["acme"], runtime: createTrustedHostRuntime() }, {}),
     );
     const session = await withEnvironment(
       { PATH: "", Path: bin },
@@ -558,7 +559,7 @@ describe("trustedHost", () => {
     const box = await resolveBox(
       {
         requires: [{ command: "sh", args: ["-c", "test -f package.json"] }],
-        runtime: trustedHost(),
+        runtime: createTrustedHostRuntime(),
       },
       {},
     );
@@ -577,7 +578,7 @@ describe("trustedHost", () => {
       {
         cwd: workspace,
         requires: [{ command: "./bin/check", args: [] }],
-        runtime: trustedHost(),
+        runtime: createTrustedHostRuntime(),
       },
       {},
     );
@@ -591,7 +592,7 @@ describe("trustedHost", () => {
       resolveBox(
         {
           home: { files: { "../auth.json": { contents: "secret" } } },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -600,7 +601,7 @@ describe("trustedHost", () => {
       resolveBox(
         {
           env: { HOME: "/ambient" },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -609,7 +610,7 @@ describe("trustedHost", () => {
       resolveBox(
         {
           env: { CODEX_HOME: "/ambient" },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -620,7 +621,7 @@ describe("trustedHost", () => {
           home: {
             files: { ".config": { contents: "file" }, ".config/acme": { contents: "nested" } },
           },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -634,7 +635,7 @@ describe("trustedHost", () => {
               ".second": { key: "shared" },
             },
           },
-          runtime: trustedHost({ stateRoot: "/tmp/vitehub-duplicate-state-test" }),
+          runtime: createTrustedHostRuntime({ stateRoot: "/tmp/vitehub-duplicate-state-test" }),
         },
         {},
       ),
@@ -651,7 +652,7 @@ describe("trustedHost", () => {
               },
             },
           },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -668,7 +669,7 @@ describe("trustedHost", () => {
               },
             },
           },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -685,7 +686,7 @@ describe("trustedHost", () => {
               },
             },
           },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -702,7 +703,7 @@ describe("trustedHost", () => {
     const box = await resolveBox(
       {
         home: { state: { ".acme": { key: "portable-box-test/root-mode" } } },
-        runtime: trustedHost({ stateRoot }),
+        runtime: createTrustedHostRuntime({ stateRoot }),
       },
       {},
     );
@@ -717,7 +718,7 @@ describe("trustedHost", () => {
         {
           cwd: workspace,
           home: { state: { ".acme": { key: "portable-box-test/symlink-root" } } },
-          runtime: trustedHost({ stateRoot: join(linkedRoot, "state") }),
+          runtime: createTrustedHostRuntime({ stateRoot: join(linkedRoot, "state") }),
         },
         {},
       ),
@@ -729,7 +730,7 @@ describe("trustedHost", () => {
       resolveBox(
         {
           home: { state: { ".codex": { key: "codex" } } },
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -738,7 +739,7 @@ describe("trustedHost", () => {
       resolveBox(
         {
           home: { state: { ".codex": { key: "codex" } } },
-          runtime: trustedHost({ stateRoot: "relative" }),
+          runtime: createTrustedHostRuntime({ stateRoot: "relative" }),
         },
         {},
       ),

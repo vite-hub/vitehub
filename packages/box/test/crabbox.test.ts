@@ -7,8 +7,7 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { resolveBox } from "../src/index.ts"
-import { crabbox } from "../src/crabbox.ts"
-import { pruneWorkspaceForArchive, rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
+import { createCrabboxRuntime, pruneWorkspaceForArchive, rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
 import { boxProvider } from "./helpers.ts"
 
 const roots: string[] = []
@@ -18,14 +17,14 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-describe("crabbox", () => {
+describe("createCrabboxRuntime", () => {
   it("resolves a provider-neutral Box without serializing its runtime bridge", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
     await mkdir(workspace)
 
     const box = await resolveBox({
-      runtime: crabbox({ profile: "babysitter" }),
+      runtime: createCrabboxRuntime({ profile: "babysitter" }),
       requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
       cwd: ({ worktree }: { worktree: string }) => worktree,
     }, { worktree: workspace }, { requires: [
@@ -80,7 +79,7 @@ describe("crabbox", () => {
       async () => {
         const box = await resolveBox({
           checkout: { ref: "refs/heads/main", remote: repository, sha },
-          runtime: crabbox({ profile: "babysitter" }),
+          runtime: createCrabboxRuntime({ profile: "babysitter" }),
         }, {})
         expect(box.plan.workspace).toEqual({ state: "disposable", workDir: "workspace" })
         const session = await boxProvider(box).createSession()
@@ -141,7 +140,7 @@ describe("crabbox", () => {
             remote: repository,
             sha: "0".repeat(40),
           },
-          runtime: crabbox({ profile: "babysitter" }),
+          runtime: createCrabboxRuntime({ profile: "babysitter" }),
         }, {})
 
         await expect(
@@ -167,12 +166,12 @@ describe("crabbox", () => {
     await mkdir(workspace)
 
     await expect(resolveBox({
-      runtime: crabbox(),
+      runtime: createCrabboxRuntime(),
       requires: [""],
       cwd: workspace,
     }, {})).rejects.toThrow("Box requirements must be non-empty commands");
     await expect(resolveBox({
-      runtime: crabbox(),
+      runtime: createCrabboxRuntime(),
       requires: [null as never],
       cwd: workspace,
     }, {})).rejects.toThrow("Box requirements must be commands or direct command checks");
@@ -210,7 +209,7 @@ describe("crabbox", () => {
               },
             },
             requires: [{ command: "acme", args: ["auth", "status"] }],
-            runtime: crabbox({ profile: "babysitter", stateRoot }),
+            runtime: createCrabboxRuntime({ profile: "babysitter", stateRoot }),
           },
           {},
         );
@@ -242,7 +241,7 @@ describe("crabbox", () => {
           {
             cwd: workspace,
             home: { state: { ".acme": { key: "portable-box-test/acme" } } },
-            runtime: crabbox({ profile: "babysitter", stateRoot }),
+            runtime: createCrabboxRuntime({ profile: "babysitter", stateRoot }),
           },
           {},
         );
@@ -282,7 +281,7 @@ describe("crabbox", () => {
               },
             },
           },
-          runtime: crabbox({ profile: "babysitter", stateRoot }),
+          runtime: createCrabboxRuntime({ profile: "babysitter", stateRoot }),
         },
         {},
       );
@@ -319,7 +318,7 @@ describe("crabbox", () => {
             {
               cwd,
               home: { state: { ".acme": { key: "portable-box-test/shared-remote-state" } } },
-              runtime: crabbox({ profile: "babysitter", stateRoot }),
+              runtime: createCrabboxRuntime({ profile: "babysitter", stateRoot }),
             },
             {},
           );
@@ -353,7 +352,7 @@ describe("crabbox", () => {
         {
           cwd: workspace,
           home: { state: { ".acme": { key: "portable-box-test/non-directory" } } },
-          runtime: crabbox({ profile: "babysitter", stateRoot }),
+          runtime: createCrabboxRuntime({ profile: "babysitter", stateRoot }),
         },
         {},
       );
@@ -391,7 +390,7 @@ describe("crabbox", () => {
           {
             cwd: workspace,
             home: { state: { ".acme": { key: "portable-box-test/lost-remote-state" } } },
-            runtime: crabbox({ profile: "babysitter", stateRoot }),
+            runtime: createCrabboxRuntime({ profile: "babysitter", stateRoot }),
           },
           {},
         );
@@ -422,7 +421,7 @@ describe("crabbox", () => {
     await mkdir(workspace)
     await symlink(workspace, linkedWorkspace)
 
-    const box = await resolveBox({ runtime: crabbox(), cwd: linkedWorkspace }, {})
+    const box = await resolveBox({ runtime: createCrabboxRuntime(), cwd: linkedWorkspace }, {})
 
     expect(box.plan.workspace.path).toBe(await realpath(workspace))
   })
@@ -549,7 +548,7 @@ describe("crabbox", () => {
 
     await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({
-        runtime: crabbox({ network: "direct", profile: "babysitter", reclaim: true }),
+        runtime: createCrabboxRuntime({ network: "direct", profile: "babysitter", reclaim: true }),
         requires: ["codex", { command: "gh", args: ["auth", "status"] }, "pnpm"],
         cwd: workspace,
       }, {},
@@ -615,7 +614,7 @@ describe("crabbox", () => {
       CRABBOX_TEST_TUNNEL_PID: tunnelPid,
       PATH: `${bin}:${process.env.PATH || ""}`,
     }, async () => {
-      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
       const sandbox = boxProvider(box)
       const session = await sandbox.createSession()
 
@@ -650,7 +649,7 @@ describe("crabbox", () => {
     }, async () => {
       const sessions = await Promise.all(workspaces.map(async (workspace) => {
         const box = await resolveBox({
-          runtime: crabbox({ profile: "babysitter", reclaim: true }),
+          runtime: createCrabboxRuntime({ profile: "babysitter", reclaim: true }),
           cwd: workspace,
         }, {})
         return await boxProvider(box).createSession()
@@ -675,7 +674,7 @@ describe("crabbox", () => {
     await fakeCrabbox(bin)
 
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
-      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
       const sandbox = boxProvider(box)
       const first = await sandbox.createSession()
       let created = false
@@ -699,7 +698,7 @@ describe("crabbox", () => {
     await fakeCrabbox(bin)
 
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
-      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
       const sandbox = boxProvider(box)
       const first = await sandbox.createSession()
       const controller = new AbortController()
@@ -721,7 +720,7 @@ describe("crabbox", () => {
     await fakeCrabbox(bin)
 
     await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
-      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
       const session = await boxProvider(box).createSession()
 
       await expect(
@@ -751,7 +750,7 @@ describe("crabbox", () => {
     }, async () => {
       const sessions = await Promise.all(workspaces.map(async (workspace, index) => {
         const box = await resolveBox({
-          runtime: crabbox({ profile: "babysitter", reclaim: true }),
+          runtime: createCrabboxRuntime({ profile: "babysitter", reclaim: true }),
           cwd: workspace,
         }, {})
         return await boxProvider(box).createSession({
@@ -784,7 +783,7 @@ describe("crabbox", () => {
 
     await withEnvironment({ CRABBOX_TEST_STATE_LOG: stateLog, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({
-        runtime: crabbox({ profile: "babysitter" }),
+        runtime: createCrabboxRuntime({ profile: "babysitter" }),
         requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }],
             cwd: workspace,
       }, {})

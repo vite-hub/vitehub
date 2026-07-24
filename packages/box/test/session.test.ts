@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { resolveBox, trustedHost } from "../src/index.ts";
+import { resolveBox } from "../src/index.ts";
+import { createTrustedHostRuntime } from "../src/internal/trusted-host.ts";
 
 describe("BoxSession", () => {
   it("rejects runtimes that do not declare execution authority", async () => {
@@ -27,7 +28,7 @@ describe("BoxSession", () => {
   })
 
   it("provides one binary-safe file contract", async () => {
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await box.open();
 
     try {
@@ -54,7 +55,7 @@ describe("BoxSession", () => {
   });
 
   it("executes with explicit cwd, environment, timeout, and cancellation", async () => {
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await box.open();
 
     try {
@@ -91,7 +92,7 @@ describe("BoxSession", () => {
   it("uses an authoritative workspace as the public and default cwd", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vitehub-box-workspace-"));
     await writeFile(join(workspace, "package.json"), "{}");
-    const box = await resolveBox({ cwd: workspace, runtime: trustedHost() }, {});
+    const box = await resolveBox({ cwd: workspace, runtime: createTrustedHostRuntime() }, {});
     const session = await box.open();
 
     try {
@@ -107,7 +108,7 @@ describe("BoxSession", () => {
   });
 
   it("advertises optional process and port capabilities and closes idempotently", async () => {
-    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = await box.open({ id: "session-id" });
 
     expect(session.id).toBe("session-id");
@@ -139,7 +140,7 @@ describe("BoxSession", () => {
             },
           },
         },
-        runtime: trustedHost({ stateRoot }),
+        runtime: createTrustedHostRuntime({ stateRoot }),
       },
       {},
     );

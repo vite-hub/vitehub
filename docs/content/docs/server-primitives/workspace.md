@@ -376,11 +376,11 @@ Use a Workspace Session when execution should operate on a materialized file tre
 `session.exec()` requires an open Box Session. Workspace owns materialization, diff, commit, and rollback; Box owns the execution runtime and lifecycle.
 
 ```ts [server/tasks/test-docs.ts]
-import { resolveBox, trustedHost } from '@vite-hub/box'
+import { resolveBox } from '@vite-hub/box'
 import { useWorkspace } from '@vite-hub/workspace'
 
 export async function testDocs() {
-  const box = await resolveBox({ runtime: trustedHost() }, undefined)
+  const box = await resolveBox({ runtime: 'trusted-host' }, undefined)
   const host = await box.open()
   const session = await useWorkspace('docs', { mode: 'write' }).startSession({ host })
 

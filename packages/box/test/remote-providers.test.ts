@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cloudflareBox, resolveCloudflareBox, type CloudflareSandboxStub } from "../src/cloudflare.ts";
+import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveBox } from "../src/index.ts";
-import { resolveVercelBox, vercelBox, type VercelSandboxInstance } from "../src/vercel.ts";
+import { createVercelRuntime, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
 describe("remote Box providers", () => {
-  it("resolves a selected Cloudflare runtime without the public Box root", async () => {
+  it("resolves a selected Cloudflare runtime through the public Box root", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
-    const box = await resolveCloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }, ["node", "npm"]);
+    const box = await resolveBox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {}, { requires: ["node", "npm"] });
 
     expect(box.plan.requirements).toEqual([
       { command: "node", name: "node" },
@@ -20,10 +22,14 @@ describe("remote Box providers", () => {
     await session.close();
   });
 
-  it("normalizes authority from direct remote resolvers", async () => {
+  it("normalizes authority from tagged remote runtimes", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
-    const cloudflare = await resolveCloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }, []);
-    const vercel = await resolveVercelBox({ create: async () => vercelInstance() }, []);
+    const cloudflare = await resolveBox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const vercel = await resolveBox({
+      runtime: { create: async () => vercelInstance(), kind: "vercel" },
+    }, {});
 
     for (const box of [cloudflare, vercel]) {
       expect(Object.isFrozen(box.plan)).toBe(true);
@@ -43,7 +49,7 @@ describe("remote Box providers", () => {
       if (calls === 1) throw new Error("Durable Object reset while container is starting");
       return { exitCode: 0, stderr: "", stdout: "ready", success: true };
     });
-    const box = await resolveBox({ runtime: cloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const box = await resolveBox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await box.open();
 
     const result = session.exec("probe");
@@ -56,7 +62,7 @@ describe("remote Box providers", () => {
   it("bounds Cloudflare operations with a deadline", async () => {
     vi.useFakeTimers();
     const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
-    const box = await resolveBox({ runtime: cloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const box = await resolveBox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await box.open();
 
     const result = session.exec("probe");
@@ -71,7 +77,7 @@ describe("remote Box providers", () => {
     const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
     const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
     stub.destroy = async () => await cleanup;
-    const box = await resolveBox({ runtime: cloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const box = await resolveBox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await box.open();
     const controller = new AbortController();
 
@@ -87,7 +93,7 @@ describe("remote Box providers", () => {
     const controller = new AbortController();
     let received: AbortSignal | undefined;
     const box = await resolveBox({
-      runtime: vercelBox({
+      runtime: createVercelRuntime({
         async create(options) {
           received = options.signal;
           return await new Promise<VercelSandboxInstance>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true }));
@@ -116,7 +122,7 @@ describe("remote Box providers", () => {
     [{ subnets: { deny: ["10.0.0.0/8"] } }, "restricted"],
   ])("declares Vercel network authority for %j", async (networkPolicy, network) => {
     const box = await resolveBox({
-      runtime: vercelBox({
+      runtime: createVercelRuntime({
         create: async () => vercelInstance(),
         ...(networkPolicy === undefined ? {} : { networkPolicy }),
       }),
@@ -133,7 +139,7 @@ describe("remote Box providers", () => {
   it("keeps Cloudflare network authority explicit when the namespace policy is opaque", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
     const box = await resolveBox({
-      runtime: cloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }),
+      runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }),
     }, {});
 
     expect(box.plan.executionAuthority).toMatchObject({
@@ -146,7 +152,7 @@ describe("remote Box providers", () => {
 
   it("does not advertise undeclared Vercel ports", async () => {
     const instance = vercelInstance();
-    const box = await resolveBox({ runtime: vercelBox({ create: async () => instance }) }, {});
+    const box = await resolveBox({ runtime: createVercelRuntime({ create: async () => instance }) }, {});
     const session = await box.open();
 
     expect(session.ports).toBeUndefined();

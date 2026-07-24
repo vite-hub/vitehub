@@ -4,7 +4,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/],
+      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/],
       neverBundle: [
         "vite",
         "esbuild",
@@ -33,8 +33,6 @@ export default defineConfig({
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",
-      "src/harness/claude-code.ts",
-      "src/harness/codex.ts",
       "src/harness/local-sandbox.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",
