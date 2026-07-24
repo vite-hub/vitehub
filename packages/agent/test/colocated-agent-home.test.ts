@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { resolveBox, trustedHost } from "@vite-hub/box"
+import { resolveBox } from "@vite-hub/box"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../src/internal/colocated-agent-home.ts"
@@ -87,7 +87,7 @@ describe("colocated Agent Home", () => {
   })
 
   it("merges Home without hiding Agent settings or explicit collisions", () => {
-    const runtime = trustedHost()
+    const runtime = "trusted-host"
     const box = { home: { files: { "explicit.txt": { contents: "explicit" } } }, runtime }
     const settings = { box, driver: { harness: {} } }
     const agent = {
@@ -132,7 +132,7 @@ describe("colocated Agent Home", () => {
     await writeFile(join(root, "home", ".codex", "config.toml"), "model = 'codex'\n", "utf8")
     await writeFile(join(root, "home", ".gitconfig"), "[user]\nname = ViteHub\n", "utf8")
     const files = decodeColocatedAgentHome(readColocatedAgentHome(join(root, "agent.ts")))
-    const agent = withColocatedAgentHome({ box: { runtime: trustedHost() } }, files)
+    const agent = withColocatedAgentHome({ box: { runtime: "trusted-host" as const } }, files)
     const box = await resolveBox(agent.box, {})
     const session = await box.open()
 
