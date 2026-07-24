@@ -704,7 +704,7 @@ async function resolvedDriverMetadata<
   }
   if (driver.kind === "harness") {
     const resolvedDriver = driver.resolve
-      ? { kind: "harness" as const, ...await driver.resolve() }
+      ? { ...driver, ...await driver.resolve(), kind: "harness" as const }
       : driver
     const harness = harnessMetadata(resolvedDriver)
     return {

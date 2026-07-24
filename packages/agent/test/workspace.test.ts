@@ -4515,6 +4515,20 @@ describe("defineAgent workspace option", () => {
     expect(metadata.config?.driver.executionAuthority).toBe(unknownExecutionAuthority)
   })
 
+  it("preserves built-in provider identity in workspace Agent inspection metadata", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      driver: "claude-code",
+      workspace: { mode: "write" },
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(metadata.config?.driver.harness).toMatchObject({
+      provider: "claude-code",
+    })
+  })
+
   it("preserves tagged Codex sandbox authority in non-workspace Agent inspection metadata", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const executionAuthority = {
