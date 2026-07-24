@@ -155,7 +155,7 @@ describe("agent channels", () => {
     const contribution = await defaultWorkspace(context as never)
     if (!contribution) throw new Error("Missing default pull request Workspace source.")
     expect(contribution.sources?.vitehubGitHubPullRequest).toMatchObject({
-      materialize: "build",
+      materialize: "lazy",
       mount: { path: "portal" },
     })
     expect(contribution.sources).not.toHaveProperty("github")

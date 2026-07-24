@@ -1851,7 +1851,7 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
         sources: {
           vitehubGitHubPullRequest: githubSource({
             ...(token ? { auth: token } : {}),
-            materialize: "build",
+            materialize: "lazy",
             mount: { path: workspace.mount },
             ref: value.head!.sha!,
             repo: value.source!.repo!,
