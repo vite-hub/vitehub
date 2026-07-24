@@ -1,5 +1,5 @@
 import type { SandboxDefinitionOptions, VercelSandboxProviderOptions } from '../../module-types'
-import { resolveBox } from '@vite-hub/box'
+import { resolveVercelBox } from '@vite-hub/box/_internal/vercel'
 import { readNonEmptyEnv } from '../../internal/shared/env'
 
 type SandboxOptions = {
@@ -56,8 +56,9 @@ export async function resolveSandboxBox(options: SandboxOptions) {
   }
   return {
     provider: 'vercel' as const,
-    resolveBox: async (requirements: readonly string[]) => await resolveBox({
-      runtime: { kind: 'vercel', ...boxOptions },
-    }, {}, { requires: requirements }),
+    resolveBox: async (requirements: readonly string[]) => await resolveVercelBox(
+      boxOptions,
+      requirements,
+    ),
   }
 }

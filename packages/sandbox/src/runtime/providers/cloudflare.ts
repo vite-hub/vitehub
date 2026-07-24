@@ -1,4 +1,5 @@
-import { resolveBox, type CloudflareBoxOptions } from '@vite-hub/box'
+import type { CloudflareBoxOptions } from '@vite-hub/box'
+import { resolveCloudflareBox } from '@vite-hub/box/_internal/cloudflare'
 import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import type { CloudflareSandboxDefinitionProviderOptions, SandboxDefinitionOptions } from '../../module-types'
 
@@ -27,9 +28,8 @@ export async function resolveSandboxBox(options: SandboxOptions, context: { even
     closeAfterRun: options.provider.keepAlive === true,
     provider: 'cloudflare' as const,
     sandboxId: options.provider.sandboxId,
-    resolveBox: async (requirements: readonly string[]) => await resolveBox({
-      runtime: {
-        kind: 'cloudflare',
+    resolveBox: async (requirements: readonly string[]) => await resolveCloudflareBox(
+      {
         namespace: namespace as CloudflareBoxOptions['namespace'],
         sandboxId: options.provider.sandboxId,
         cloudflare: {
@@ -38,6 +38,7 @@ export async function resolveSandboxBox(options: SandboxOptions, context: { even
           normalizeId: options.provider.normalizeId,
         },
       },
-    }, {}, { requires: requirements }),
+      requirements,
+    ),
   }
 }

@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
@@ -63,15 +63,17 @@ describe("Box runtime selection", () => {
 
   it("loads optional provider peers only after their built-in runtime is opened", async () => {
     const dist = new URL("../dist/", import.meta.url);
-    const javascript = (await Promise.all(
-      (await readdir(dist))
-        .filter(file => file.endsWith(".js"))
-        .map(file => readFile(new URL(file, dist), "utf8")),
-    )).join("\n");
+    const [index, cloudflare, vercel] = await Promise.all([
+      readFile(new URL("index.js", dist), "utf8"),
+      readFile(new URL("internal/cloudflare.js", dist), "utf8"),
+      readFile(new URL("internal/vercel.js", dist), "utf8"),
+    ]);
 
-    expect(javascript).not.toMatch(/\b(?:from|import\()\s*["']@cloudflare\/sandbox["']/);
-    expect(javascript).not.toMatch(/\b(?:from|import\()\s*["']@vercel\/sandbox["']/);
-    expect(javascript).toContain(`const cloudflareSandboxPackage = "@cloudflare/sandbox"`);
-    expect(javascript).toContain(`const vercelSandboxPackage = "@vercel/sandbox"`);
+    expect(index).not.toContain("@cloudflare/sandbox");
+    expect(index).not.toContain("@vercel/sandbox");
+    expect(cloudflare).toMatch(/\bimport\(["']@cloudflare\/sandbox["']\)/);
+    expect(cloudflare).not.toContain("@vercel/sandbox");
+    expect(vercel).toMatch(/\bimport\(["']@vercel\/sandbox["']\)/);
+    expect(vercel).not.toContain("@cloudflare/sandbox");
   });
 });

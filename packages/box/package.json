@@ -25,6 +25,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./_internal/cloudflare": "./dist/internal/cloudflare.js",
+    "./_internal/vercel": "./dist/internal/vercel.js",
     "./package.json": "./package.json"
   },
   "scripts": {

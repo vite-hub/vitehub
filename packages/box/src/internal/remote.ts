@@ -1,10 +1,13 @@
 import type {
+  Box,
+  BoxOpenOptions,
   BoxPlan,
+  BoxRuntime,
   BoxRuntimeInput,
   BoxSession,
   ResolvedBoxRequirementInput,
 } from "../index.ts";
-import type { ExecutionAuthority } from "@vite-hub/runtime";
+import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 import { materializeGitCheckout } from "./git-checkout.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
@@ -14,6 +17,46 @@ interface RemoteRuntimeOptions {
   readonly runtime: string;
   readonly workspace?: string;
   readonly preserveWorkspace?: boolean;
+}
+
+export async function resolveRemoteBoxRuntime(
+  runtime: BoxRuntime,
+  requirements: readonly string[],
+): Promise<Box> {
+  const resolvedRequirements = requirements.map((command): ResolvedBoxRequirementInput => ({
+    args: [],
+    command,
+    name: command,
+  }));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(resolvedRequirements)),
+  );
+  const input: BoxRuntimeInput = {
+    identity: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join(""),
+    plan: {
+      env: {},
+      files: {},
+      state: [],
+    },
+    requirements: resolvedRequirements,
+  };
+  const prepared = await runtime.prepare(input);
+  const plan = Object.freeze({
+    ...prepared,
+    executionAuthority: normalizeExecutionAuthority(prepared.executionAuthority),
+  });
+
+  return Object.freeze({
+    async open(options?: BoxOpenOptions) {
+      options?.signal?.throwIfAborted();
+      return await runtime.open(input, {
+        ...options,
+        executionAuthority: plan.executionAuthority,
+      });
+    },
+    plan,
+  });
 }
 
 export function remoteBoxPlan(

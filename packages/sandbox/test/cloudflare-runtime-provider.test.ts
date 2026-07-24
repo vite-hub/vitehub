@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
-const { resolveBox } = vi.hoisted(() => ({
-  resolveBox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
+const { resolveCloudflareBox } = vi.hoisted(() => ({
+  resolveCloudflareBox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
 }))
 
-vi.mock("@vite-hub/box", () => ({ resolveBox }))
+vi.mock("@vite-hub/box/_internal/cloudflare", () => ({ resolveCloudflareBox }))
 
 import { resolveSandboxBox } from "../src/runtime/providers/cloudflare.ts"
 
@@ -24,13 +24,13 @@ describe("Cloudflare Sandbox runtime provider", () => {
 
     await provider.resolveBox(["node"])
     expect(provider.closeAfterRun).toBe(false)
-    expect(resolveBox).toHaveBeenCalledWith({
-      runtime: expect.objectContaining({
-        kind: "cloudflare",
+    expect(resolveCloudflareBox).toHaveBeenCalledWith(
+      expect.objectContaining({
         namespace,
         cloudflare: expect.objectContaining({ sleepAfter: "5m" }),
       }),
-    }, {}, { requires: ["node"] })
+      ["node"],
+    )
   })
 
   it("preserves an explicit idle shutdown override", async () => {
@@ -42,11 +42,12 @@ describe("Cloudflare Sandbox runtime provider", () => {
     })
 
     await provider.resolveBox(["node", "npm"])
-    expect(resolveBox).toHaveBeenCalledWith({
-      runtime: expect.objectContaining({
+    expect(resolveCloudflareBox).toHaveBeenCalledWith(
+      expect.objectContaining({
         cloudflare: expect.objectContaining({ sleepAfter: "30s" }),
       }),
-    }, {}, { requires: ["node", "npm"] })
+      ["node", "npm"],
+    )
   })
 
   it("closes a Box session when keepAlive disables idle shutdown", async () => {
