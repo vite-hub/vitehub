@@ -28,6 +28,18 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 Adapter-backed Channels deliver only the completed response by default. Set top-level `defineAgent({ messages: { stream: true } })` to opt every adapter Channel into draft and edit updates, or set `messages.stream` on an individual Channel to control progressive delivery for that destination. Web Chat routes return streaming HTTP responses independently of adapter delivery settings.
 
+Set `messages.filter` on an adapter-backed Channel to admit only supported incoming messages before Agent invocation. The filter receives the normalized current `Message` with the Channel callback context, run metadata, and thread controls; returning `false` ignores the delivery without starting the Agent or posting an error fallback.
+
+```ts
+telegram({
+  adapter,
+  messages: {
+    filter: ({ message }) =>
+      message.parts.length === 1 && message.parts[0]?.type === 'image',
+  },
+})
+```
+
 ## Deliver public commentary
 
 Adapter-backed Channels hide commentary by default. Set `messages.commentary` to `message` when an explicitly phased Agent stream should publish commentary as one best-effort progress message and deliver the final response as a separate message.

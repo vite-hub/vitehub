@@ -1944,6 +1944,18 @@ async function handleChatSdkMessage(
       ? messages.find(item => item.id === message.id)
       : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
+    const filter = options?.filter
+    if (filter) {
+      const [current] = uiMessagesToAgentMessages([currentMessage])
+      if (!current || !await filter({
+        ...context,
+        message: current,
+        run: input.run,
+        thread: {
+          post: async postedMessage => await postChatMessage(thread, postedMessage),
+        },
+      })) return
+    }
     input = { ...input, messages }
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) return

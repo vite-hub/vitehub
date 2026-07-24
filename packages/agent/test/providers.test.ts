@@ -3096,6 +3096,72 @@ describe("server helpers", () => {
     }))
   })
 
+  it("filters adapter messages before Agent invocation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const filter = vi.fn(async ({ message }) =>
+      message.parts.length === 1 && message.parts[0]?.type === "audio")
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: { filter, stream: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (message: Record<string, unknown>) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: message.message_id,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          ...message,
+        },
+      }),
+      method: "POST",
+    })
+
+    await handler(request({ message_id: 2006, text: "hello" }), "telegram", {
+      agentName: "support",
+      runtime: "vite",
+    })
+
+    expect(filter).toHaveBeenCalledWith(expect.objectContaining({
+      agentIdentity: { name: "support" },
+      message: expect.objectContaining({
+        parts: [expect.objectContaining({ text: "hello", type: "text" })],
+      }),
+      request: expect.any(Request),
+      run: expect.objectContaining({ messageId: "2006", origin: "telegram" }),
+      runtime: "vite",
+      thread: { post: expect.any(Function) },
+    }))
+    expect(run).not.toHaveBeenCalled()
+    expect(adapter.postMessage).not.toHaveBeenCalled()
+
+    await handler(request({
+      audio: { file_id: "audio-file" },
+      message_id: 2007,
+    }), "telegram", {
+      agentName: "support",
+      runtime: "vite",
+    })
+
+    expect(filter).toHaveBeenLastCalledWith(expect.objectContaining({
+      message: expect.objectContaining({
+        parts: [expect.objectContaining({ mediaType: "audio/ogg", type: "audio" })],
+      }),
+    }))
+    expect(run).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "accepted" })
+  })
+
   it("defaults adapter-backed Channels to final-only delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram, webChat } = await import("../src/channels.ts")

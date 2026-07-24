@@ -1455,6 +1455,17 @@ export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" |
 
 export type AgentMessageLockScope = "agent" | "channel" | "thread" | (string & {})
 
+export interface AgentMessageFilterContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  message: Message
+  thread: {
+    post: AgentChatSendMessage
+  }
+}
+
+export type AgentMessageFilter<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  (context: AgentMessageFilterContext<TRuntimeConfig>) => MaybePromise<boolean>
+
 export interface AgentChatFinishExtension {
   provider?: string
   run?: Partial<AgentRunMetadata>
@@ -1467,6 +1478,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   dedupeTtlMs?: number
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
