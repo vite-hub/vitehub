@@ -48,11 +48,10 @@ Install a Skill into the isolated Codex profile when Codex should discover it gl
 ```ts [server/agents/review.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { skills } from '@vite-hub/agent/capabilities'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
 import { github } from '@vite-hub/workspace'
 
 export default defineAgent({
-  driver: codexDriver(),
+  driver: 'codex',
   capabilities: [
     skills({
       path: 'skills/ponytail',

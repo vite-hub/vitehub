@@ -3,6 +3,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import type {
   AgentAdapterInstructions,
   AgentHarnessCredentialSource,
+  AgentHarnessDriver,
   AgentHarnessDriverInput,
   AgentHarnessInstructions,
   AgentHarnessSandboxProviderInput,
@@ -14,6 +15,8 @@ import type {
   AgentRunHandler,
   AgentRuntimeConfig,
   AgentSettings,
+  ClaudeCodeDriverOptions,
+  CodexDriverOptions,
 } from "../types.ts"
 import type { BoxRequirement } from "@vite-hub/box"
 
@@ -29,10 +32,13 @@ type NormalizedAgentDriver<
   }
   | {
     credentials?: AgentHarnessCredentialSource
-    harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
+    harness?: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
+    hasSandbox?: boolean
     instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
+    provider?: string
     requires?: readonly BoxRequirement[]
+    resolve?: () => Promise<AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>>
     sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
     workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS>
@@ -90,11 +96,93 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
 const harnessDriverKeys = new Set(["credentials", "harness", "instructions", "requires", "sandbox", "sessionKey", "workDir"])
 const runDriverKeys = new Set(["run"])
+const codexDriverKeys = new Set([
+  "auth",
+  "credentials",
+  "env",
+  "instructions",
+  "kind",
+  "model",
+  "port",
+  "reasoningEffort",
+  "sandbox",
+  "startupTimeoutMs",
+  "webSearch",
+  "workDir",
+])
+const claudeCodeDriverKeys = new Set([
+  "auth",
+  "credentials",
+  "env",
+  "kind",
+  "maxTurns",
+  "model",
+  "port",
+  "sandbox",
+  "startupTimeoutMs",
+  "thinking",
+])
 
 function validateHarnessSandboxProviderInput(value: unknown): void {
   if (value === undefined) return
   if (!value || (typeof value !== "object" && typeof value !== "function")) {
     throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be a harness sandbox provider object or resolver function.")
+  }
+}
+
+function once<T>(resolve: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined
+  return () => pending ??= resolve()
+}
+
+function normalizeBuiltInAgentDriver<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  name: "claude-code" | "codex",
+  value: Record<string, unknown>,
+): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
+  validateNoHarnessPermissionOption(value)
+  normalizeHarnessCredentialSource(value.credentials)
+
+  if (name === "codex") {
+    assertNoUnsupportedOptions(value, codexDriverKeys, `defineAgent({ driver: { kind: "codex" } })`)
+    const options = Object.fromEntries(
+      Object.entries(value).filter(([key]) => key !== "kind"),
+    ) as CodexDriverOptions<CALL_OPTIONS>
+    const resolve = once(async () => {
+      const { createCodexDriver } = await import("../harness/codex.ts")
+      return createCodexDriver(options) as AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
+    })
+    return {
+      credentials: options.credentials ?? { label: "Codex", source: "ambient" },
+      hasSandbox: options.sandbox !== false && (options.sandbox !== undefined || options.env !== undefined),
+      kind: "harness",
+      provider: "codex",
+      requires: [
+        options.auth === undefined
+          ? { name: "Codex", command: "codex", args: ["login", "status"] }
+          : "codex",
+      ],
+      resolve,
+      workDir: options.workDir as AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS> | undefined,
+    }
+  }
+
+  assertNoUnsupportedOptions(value, claudeCodeDriverKeys, `defineAgent({ driver: { kind: "claude-code" } })`)
+  const options = Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "kind"),
+  ) as ClaudeCodeDriverOptions
+  const resolve = once(async () => {
+    const { createClaudeCodeDriver } = await import("../harness/claude-code.ts")
+    return await createClaudeCodeDriver(options) as AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
+  })
+  return {
+    credentials: options.credentials ?? { label: "Claude Code", source: "ambient" },
+    hasSandbox: options.sandbox !== false,
+    kind: "harness",
+    provider: "claude-code",
+    resolve,
   }
 }
 
@@ -104,8 +192,20 @@ function normalizeExplicitAgentDriver<
 >(
   driver: unknown,
 ): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
+  if (typeof driver === "string") {
+    if (driver !== "codex" && driver !== "claude-code") {
+      throw new Error(`[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model }, { harness }, or { run } driver.`)
+    }
+    return normalizeBuiltInAgentDriver(driver, {})
+  }
   if (!isPlainObject(driver)) {
-    throw new TypeError("[vitehub] defineAgent({ driver }) must be an object.")
+    throw new TypeError("[vitehub] defineAgent({ driver }) must be a built-in name, tagged built-in configuration, or custom driver object.")
+  }
+  if (hasOwnDefined(driver, "kind")) {
+    if (driver.kind !== "codex" && driver.kind !== "claude-code") {
+      throw new Error(`[vitehub] Unknown Agent Driver kind "${String(driver.kind)}". Expected "codex" or "claude-code".`)
+    }
+    return normalizeBuiltInAgentDriver(driver.kind, driver)
   }
 
   validateNoHarnessPermissionOption(driver)
@@ -166,5 +266,5 @@ export function normalizeAgentDriver<
     return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
   }
 
-  throw new Error("[vitehub] Agent Driver is required. Expected defineAgent({ driver: { model } }), defineAgent({ driver: { harness } }), or defineAgent({ driver: { run } }).")
+  throw new Error("[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model }, { harness }, or { run } driver.")
 }

@@ -1,5 +1,5 @@
 import type { ViteHubError } from '@vite-hub/runtime'
-import type { VercelBoxNetworkPolicy, VercelBoxSource } from '@vite-hub/box/vercel'
+import type { VercelBoxNetworkPolicy, VercelBoxSource } from '@vite-hub/box'
 import type { SandboxProject } from './project'
 
 export type SandboxProvider = 'cloudflare' | 'vercel'

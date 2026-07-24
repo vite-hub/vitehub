@@ -189,18 +189,18 @@ Harness-backed drivers have two instruction surfaces with different lifetimes. A
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
 
 type ReviewOptions = {
   systemInstructions: string
   workDir: string
 }
 
-export default defineAgent({
-  driver: codexDriver<ReviewOptions>({
+export default defineAgent<any, ReviewOptions>({
+  driver: {
+    kind: 'codex',
     instructions: ({ input }) => input.options?.systemInstructions,
     workDir: ({ input }) => input.options?.workDir,
-  }),
+  },
 })
 ```
 

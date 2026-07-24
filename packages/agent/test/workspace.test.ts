@@ -4332,9 +4332,8 @@ describe("defineAgent workspace option", () => {
   it("resolves Box authority without treating executable selection as isolation", async () => {
     const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
-    const { trustedHost } = await import("@vite-hub/box")
     const agent = withExplicitWorkspaceName(defineAgent({
-      box: { runtime: trustedHost() },
+      box: { runtime: "trusted-host" },
       capabilities: [workspaceShell({ commands: "all", mode: "write" })],
       driver: { harness: {} },
       workspace: { mode: "write" },
@@ -4390,7 +4389,6 @@ describe("defineAgent workspace option", () => {
 
   it("reports unknown authority when a dynamic Box cannot resolve inspection input", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
-    const { trustedHost } = await import("@vite-hub/box")
     const resolveCwd = vi.fn(({ input }) => {
       const options = input.options as { worktreePath?: string } | undefined
       if (!options?.worktreePath) throw new Error("missing worktreePath")
@@ -4399,7 +4397,7 @@ describe("defineAgent workspace option", () => {
     const agent = withExplicitWorkspaceName(defineAgent({
       box: {
         cwd: resolveCwd,
-        runtime: trustedHost(),
+        runtime: "trusted-host",
       },
       driver: { harness: {} },
       workspace: { mode: "write" },

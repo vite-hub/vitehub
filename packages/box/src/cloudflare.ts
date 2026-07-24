@@ -1,9 +1,8 @@
-import type { Box, BoxFileEntry, BoxRuntime } from "./index.ts";
+import type { BoxFileEntry, BoxRuntime } from "./index.ts";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
 import {
   openRemoteBox,
   remoteBoxPlan,
-  resolveRemoteBoxRuntime,
   resolveRemoteEnvironment,
   shellQuote,
   snapshotStream,
@@ -16,6 +15,9 @@ import {
   cloudflareStopTimeout,
   withCloudflareRequest,
 } from "./internal/cloudflare-transport.ts";
+import { markBuiltInBoxRuntime } from "./internal/runtime.ts";
+
+const cloudflareSandboxPackage = "@cloudflare/sandbox";
 
 export interface CloudflareBoxOptions {
   cloudflare?: {
@@ -95,10 +97,10 @@ const cloudflareExecutionAuthority = {
   processes: "arbitrary",
 } as const satisfies ExecutionAuthority;
 
-export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
+export function createCloudflareRuntime(options: CloudflareBoxOptions): BoxRuntime {
   if (!options?.namespace)
-    throw new TypeError("[vitehub] cloudflareBox() requires a Durable Objects namespace.");
-  return {
+    throw new TypeError("[vitehub] The cloudflare Box runtime requires a Durable Objects namespace.");
+  return markBuiltInBoxRuntime({
     name: "cloudflare",
     async prepare(input) {
       return remoteBoxPlan(input, {
@@ -119,23 +121,16 @@ export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
         signal: openOptions?.signal,
       });
     },
-  };
-}
-
-export async function resolveCloudflareBox(
-  options: CloudflareBoxOptions,
-  requirements: readonly string[],
-): Promise<Box> {
-  return await resolveRemoteBoxRuntime(cloudflareBox(options), requirements);
+  });
 }
 
 async function loadCloudflareSandbox() {
   try {
-    const { getSandbox } = await import("@cloudflare/sandbox");
+    const { getSandbox } = await import(/* @vite-ignore */ cloudflareSandboxPackage);
     return getSandbox as unknown as NonNullable<CloudflareBoxOptions["getSandbox"]>;
   } catch (error) {
     throw new Error(
-      `[vitehub] cloudflareBox() requires @cloudflare/sandbox: ${error instanceof Error ? error.message : error}`,
+      `[vitehub] The cloudflare Box runtime requires @cloudflare/sandbox: ${error instanceof Error ? error.message : error}`,
     );
   }
 }

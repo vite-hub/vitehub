@@ -2,17 +2,19 @@ import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
 
-import type { Box, BoxFileEntry, BoxRuntime } from "./index.ts";
+import type { BoxFileEntry, BoxRuntime } from "./index.ts";
 import {
   collectProcessOutput,
   openRemoteBox,
   remoteBoxPlan,
-  resolveRemoteBoxRuntime,
   resolveRemoteEnvironment,
   shellQuote,
   snapshotStream,
 } from "./internal/remote.ts";
 import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
+import { markBuiltInBoxRuntime } from "./internal/runtime.ts";
+
+const vercelSandboxPackage = "@vercel/sandbox";
 
 export type VercelBoxSource =
   | { depth?: number; revision?: string; type: "git"; url: string }
@@ -101,10 +103,10 @@ export interface VercelFileStat {
   size: number;
 }
 
-export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
+export function createVercelRuntime(options: VercelBoxOptions = {}): BoxRuntime {
   const runtime = options.runtime ?? "node24";
   const executionAuthority = vercelExecutionAuthority(options.networkPolicy);
-  return {
+  return markBuiltInBoxRuntime({
     name: "vercel",
     async prepare(input) {
       return remoteBoxPlan(input, { executionAuthority, runtime: "vercel" });
@@ -142,7 +144,7 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
         signal: openOptions?.signal,
       });
     },
-  };
+  });
 }
 
 function vercelExecutionAuthority(
@@ -184,21 +186,14 @@ function hasEffectiveNetworkPolicy(
   return Boolean(networkPolicy.subnets?.allow?.length || networkPolicy.subnets?.deny?.length);
 }
 
-export async function resolveVercelBox(
-  options: VercelBoxOptions,
-  requirements: readonly string[],
-): Promise<Box> {
-  return await resolveRemoteBoxRuntime(vercelBox(options), requirements);
-}
-
 async function loadVercelSandbox() {
   try {
-    const { Sandbox } = await import("@vercel/sandbox");
+    const { Sandbox } = await import(/* @vite-ignore */ vercelSandboxPackage);
     return async (options: VercelSandboxCreateOptions) =>
       await Sandbox.create(options as Parameters<typeof Sandbox.create>[0]) as unknown as VercelSandboxInstance;
   } catch (error) {
     throw new Error(
-      `[vitehub] vercelBox() requires @vercel/sandbox: ${error instanceof Error ? error.message : error}`,
+      `[vitehub] The vercel Box runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}`,
     );
   }
 }
@@ -267,7 +262,7 @@ function createVercelSession(
     ...(ports?.length
       ? {
           async getPortUrl({ port, protocol = "http" }: { port: number; protocol?: "http" | "https" | "ws" }) {
-            if (!ports.includes(port)) throw new Error(`[vitehub] Vercel Box port ${port} was not declared in vercelBox({ ports }).`);
+            if (!ports.includes(port)) throw new Error(`[vitehub] Vercel Box port ${port} was not declared in runtime.ports.`);
             const url = new URL(instance.domain(port));
             url.protocol = protocol === "ws"
               ? url.protocol === "https:" ? "wss:" : "ws:"

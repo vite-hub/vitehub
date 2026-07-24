@@ -25,9 +25,6 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./cloudflare": "./dist/cloudflare.js",
-    "./crabbox": "./dist/crabbox.js",
-    "./vercel": "./dist/vercel.js",
     "./package.json": "./package.json"
   },
   "scripts": {

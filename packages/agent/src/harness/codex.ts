@@ -9,32 +9,18 @@ import { adaptCodexHarnessSandbox, stripGatewaySecrets, stripGitHubSecrets } fro
 
 import type { CodexHarnessSettings } from "@ai-sdk/harness-codex"
 import type {
-  AgentHarnessCredentialSource,
   AgentHarnessDriver,
-  AgentHarnessInstructions,
   AgentHarnessSandboxProviderInput,
-  AgentHarnessWorkDir,
   AgentRuntimeConfig,
+  CodexDriverOptions,
+  CodexDriverSandboxOptions,
 } from "../types.ts"
-
-type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
-  | false
-  | LocalHarnessSandboxOptions
-  | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
 
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 
-export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
-  credentials?: AgentHarnessCredentialSource
-  env?: Record<string, string | undefined>
-  instructions?: AgentHarnessInstructions<AgentRuntimeConfig, CALL_OPTIONS>
-  sandbox?: CodexDriverSandboxOptions<CALL_OPTIONS>
-  workDir?: AgentHarnessWorkDir<AgentRuntimeConfig, CALL_OPTIONS>
-}
-
-export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<CALL_OPTIONS> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS> {
+export function createCodexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<CALL_OPTIONS> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS> {
   const {
     credentials,
     env,

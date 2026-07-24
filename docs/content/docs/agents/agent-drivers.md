@@ -5,19 +5,21 @@ navigation.order: 22
 icon: i-lucide-cpu
 ---
 
-An Agent Driver selects how one Agent Invocation is processed. Every Agent Definition has one driver object with exactly one concrete key: `model`, `harness`, or `run`.
+An Agent Driver selects how one Agent Invocation is processed. Use `"codex"` or `"claude-code"` when ViteHub owns the integration, and use a tagged value such as `{ kind: 'codex', model: 'gpt-5.5' }` when a built-in needs options.
 
-The concrete key holds the implementation value directly. Driver-specific options are sibling fields on the same `driver` object.
+Use a structural `{ model }`, `{ harness }`, or `{ run }` object when the application supplies the implementation. Those custom variants are mutually exclusive, and their options are sibling fields on the same object.
 
 ## Choose a driver
 
 | Driver | Use it when | Driver-owned options |
 | --- | --- | --- |
-| `driver.model` | The Agent should call an AI SDK model through ViteHub model execution. | `instructions`, `execution` |
-| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `instructions`, `requires`, `sandbox`, `sessionKey`, `workDir` |
-| `driver.run` | The Agent should execute developer code directly. | none |
+| `"codex"` or `{ kind: "codex" }` | The Agent should use ViteHub's built-in Codex integration. | `auth`, `credentials`, `env`, `instructions`, `model`, `reasoningEffort`, `sandbox`, `webSearch`, `workDir` |
+| `"claude-code"` or `{ kind: "claude-code" }` | The Agent should use ViteHub's built-in Claude Code integration. | `auth`, `credentials`, `env`, `maxTurns`, `model`, `sandbox`, `thinking` |
+| `{ model }` | The Agent should call an application-supplied AI SDK model through ViteHub model execution. | `instructions`, `execution` |
+| `{ harness }` | The Agent should run through an application-supplied AI SDK harness adapter. | `credentials`, `instructions`, `requires`, `sandbox`, `sessionKey`, `workDir` |
+| `{ run }` | The Agent should execute application code directly. | none |
 
-Driver variants are mutually exclusive. A single Agent Definition cannot combine `driver.model` with `driver.run`, or `driver.harness` with model instructions.
+Custom driver variants are mutually exclusive. A single Agent Definition cannot combine `driver.model` with `driver.run`, or `driver.harness` with model instructions.
 
 ## Model-backed driver
 
@@ -64,24 +66,22 @@ Instrumentation callbacks run after the Agent and its Capabilities resolve their
 
 Use a harness-backed driver when the Agent should delegate execution to a harness adapter. ViteHub adapts the harness behind the Agent Harness Driver Contract and keeps permission policy under ViteHub runtime boundaries.
 
-Install the Agent Package with the harness adapter package you use.
+Install the Agent Package. The built-in Codex adapter is included; add an adapter package only when supplying a custom harness or selecting the optional Claude Code driver.
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @ai-sdk/harness @ai-sdk/harness-codex
+pnpm add @vite-hub/agent
 ```
 
 ```ts [server/agents/codex/agent.ts]
-import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    harness: createCodex({
-      model: 'gpt-5.5',
-      reasoningEffort: 'low',
-    }),
+    kind: 'codex',
     credentials: { label: 'local Codex', source: 'ambient' },
     instructions: 'Review the exact pull request head before changing code.',
+    model: 'gpt-5.5',
+    reasoningEffort: 'low',
     workDir: 'repositories/vitehub',
   },
 })
@@ -90,13 +90,13 @@ export default defineAgent({
 ViteHub resolves harness sandbox setup through the Agent Package runtime. Harness drivers use ViteHub's local harness sandbox by default on process-capable hosts. This is a tempdir-backed shell convenience, not OS/process isolation, and the default does not inherit application secrets from the host environment. Cloudflare Agents and Deno require a process-capable provider. When an Agent needs an isolated or provider-specific harness process, environment, or session provider, pass it through `driver.sandbox`:
 
 ```ts
-import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 import { createLocalHarnessSandbox } from '@vite-hub/agent/harness/local-sandbox'
 
 export default defineAgent({
   driver: {
-    harness: createCodex({ model: 'gpt-5.5' }),
+    kind: 'codex',
+    model: 'gpt-5.5',
     sandbox: () => createLocalHarnessSandbox({ rootDir: '/tmp' }),
   },
 })
@@ -104,9 +104,27 @@ export default defineAgent({
 
 `sandbox({ commands })` remains the Capability shape for model-facing command execution authority.
 
-Use a [Box](/docs/agents/boxes) instead of `driver.sandbox` and `driver.workDir` when the harness should receive an explicit execution environment, Home, working checkout, and boot requirements. `codexDriver()` contributes its Codex requirement automatically.
+Use a [Box](/docs/agents/boxes) instead of `driver.sandbox` and `driver.workDir` when the harness should receive an explicit execution environment, Home, working checkout, and boot requirements. The `"codex"` driver contributes its Codex requirement automatically.
 
 `driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can also be callbacks. Each callback receives the invocation `input`, `context`, `invoker`, and run metadata. Use callbacks when one Agent Definition needs invocation-scoped harness auth, instructions, sandbox setup, working directory, or session reuse.
+
+## Migrate built-in selectors
+
+Built-in Agent Drivers and Box runtimes are values on their existing definition fields. Remove provider-specific ViteHub imports, use a literal for defaults, and add a `kind` tag only when options are needed:
+
+```ts
+// Before
+driver: codexDriver({ model: 'gpt-5.5' })
+box: { runtime: trustedHost() }
+
+// After
+driver: { kind: 'codex', model: 'gpt-5.5' }
+box: { runtime: 'trusted-host' }
+```
+
+The removed Agent harness and Box provider subpaths no longer export selection factories. Custom drivers still use `{ model }`, `{ harness }`, or `{ run }`; custom Box runtimes still implement the `BoxRuntime` interface and cannot claim a built-in runtime name.
+
+The `"claude-code"` default owns a local harness sandbox, so combine Claude Code with a Box using `{ kind: 'claude-code', sandbox: false }`. The Box then owns the process environment and working directory.
 
 ViteHub resolves `driver.instructions` before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the invocation-specific instructions for generated and streamed turns. Session reuse keeps the harness adapter's normal instruction lifecycle. `driver.workDir` must resolve to a non-empty relative POSIX path inside the sandbox default working directory.
 
@@ -120,7 +138,7 @@ When a Capability should support harness execution with files, declare those fil
 | `harness` | harness adapter or callback | Required | Resolves the AI SDK harness adapter for the invocation. |
 | `credentials` | `{ label?, source? }` | None | Records non-secret credential provenance such as `ambient`, `explicit`, `none`, or `unknown`. |
 | `instructions` | `string` or callback | None | Supplies invocation-scoped instructions to the AI SDK `HarnessAgent`. |
-| `requires` | `readonly BoxRequirement[]` | `[]` | Declares environment requirements such as `codex`, `codex-cli`, `github`, or an app-owned requirement. Driver helpers can contribute these automatically. |
+| `requires` | `readonly BoxRequirement[]` | `[]` | Declares environment requirements such as `codex`, `codex-cli`, `github`, or an app-owned requirement. Built-in drivers contribute their requirements automatically. |
 | `sandbox` | provider object or callback | Local harness sandbox on process-capable hosts | Selects the harness process, environment, or session provider. Do not combine it with `box`. |
 | `sessionKey` | `string` or callback | None | Reuses the harness adapter's session identity when the adapter supports sessions. |
 | `workDir` | relative POSIX path or callback | Sandbox default working directory | Selects a working directory inside the harness sandbox. Do not combine it with `box`. |

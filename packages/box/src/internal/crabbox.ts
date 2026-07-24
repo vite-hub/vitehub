@@ -16,6 +16,7 @@ import type {
   ResolvedBoxRequirementInput,
 } from "../index.ts"
 import { materializeGitCheckout } from "./git-checkout.ts"
+import { markBuiltInBoxRuntime } from "./runtime.ts"
 import { createBoxSession, type RuntimeSession } from "./session.ts"
 
 export interface CrabboxOptions {
@@ -93,8 +94,8 @@ const crabboxExecutionAuthority = {
   processes: "arbitrary",
 } as const satisfies ExecutionAuthority
 
-export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
-  return {
+export function createCrabboxRuntime(options: CrabboxOptions = {}): BoxRuntime {
+  return markBuiltInBoxRuntime({
     name: "crabbox",
     async prepare(input) {
       const { workspace } = await resolveCrabboxInput(input, options)
@@ -142,15 +143,15 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
         posix.join(runtimeSession.defaultWorkingDirectory, "workspace"),
       )
     },
-  }
+  })
 }
 
 async function resolveCrabboxInput(input: BoxRuntimeInput, options: CrabboxOptions) {
   const cwd = input.cwd
-  if (!cwd && !input.checkout) throw new Error("[vitehub] crabbox() requires box.cwd or box.checkout.")
+  if (!cwd && !input.checkout) throw new Error("[vitehub] The crabbox runtime requires box.cwd or box.checkout.")
   if (input.plan.state.length && (!options.stateRoot || !posix.isAbsolute(options.stateRoot))) {
     throw new Error(
-      "[vitehub] crabbox({ stateRoot }) requires an absolute target path when box.home.state is declared.",
+      "[vitehub] The crabbox runtime requires an absolute stateRoot when box.home.state is declared.",
     )
   }
   if (

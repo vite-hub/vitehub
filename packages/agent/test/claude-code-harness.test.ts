@@ -50,11 +50,11 @@ vi.mock("@ai-sdk/harness-claude-code", () => ({
   createClaudeCode: createAiSdkClaudeCode,
 }))
 
-describe("claudeCodeDriver", () => {
+describe("createClaudeCodeDriver", () => {
   it("defaults to ambient Claude Code auth and local sandbox credentials", async () => {
-    const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
+    const { createClaudeCodeDriver } = await import("../src/harness/claude-code.ts")
 
-    const driver = claudeCodeDriver()
+    const driver = await createClaudeCodeDriver()
 
     expect(createAiSdkClaudeCode).toHaveBeenLastCalledWith({ auth: { anthropic: {} } })
     expect(driver).toMatchObject({
@@ -73,8 +73,8 @@ describe("claudeCodeDriver", () => {
     process.env.ANTHROPIC_BASE_URL = "https://host.example"
 
     try {
-      const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
-      const driver = claudeCodeDriver({ env: { EXTRA_CLAUDE_ENV: "1" } }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
+      const { createClaudeCodeDriver } = await import("../src/harness/claude-code.ts")
+      const driver = await createClaudeCodeDriver({ env: { EXTRA_CLAUDE_ENV: "1" } }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
       const session = await driver.sandbox?.createSession()
 
       try {
@@ -100,8 +100,8 @@ describe("claudeCodeDriver", () => {
     process.env.ANTHROPIC_API_KEY = "host-key"
 
     try {
-      const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
-      const driver = claudeCodeDriver({
+      const { createClaudeCodeDriver } = await import("../src/harness/claude-code.ts")
+      const driver = await createClaudeCodeDriver({
         auth: { anthropic: { apiKey: "explicit-auth-key" } },
         maxTurns: 3,
         model: "claude-sonnet-4-5",
@@ -129,9 +129,9 @@ describe("claudeCodeDriver", () => {
   })
 
   it("can defer the local Claude Code sandbox to the Agent Driver fallback", async () => {
-    const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
+    const { createClaudeCodeDriver } = await import("../src/harness/claude-code.ts")
 
-    const driver = claudeCodeDriver({ sandbox: false })
+    const driver = await createClaudeCodeDriver({ sandbox: false })
 
     expect(driver).not.toHaveProperty("sandbox")
   })
@@ -141,7 +141,7 @@ describe("createClaudeCode", () => {
   it("defaults to direct Anthropic auth so host AI Gateway env does not leak into Claude Code", async () => {
     const { createClaudeCode } = await import("../src/harness/claude-code.ts")
 
-    createClaudeCode()
+    await createClaudeCode()
 
     expect(createAiSdkClaudeCode).toHaveBeenLastCalledWith({ auth: { anthropic: {} } })
   })
@@ -149,7 +149,7 @@ describe("createClaudeCode", () => {
   it("preserves explicit Claude Code auth settings", async () => {
     const { createClaudeCode } = await import("../src/harness/claude-code.ts")
 
-    createClaudeCode({ auth: { gateway: { apiKey: "gateway-key" } }, maxTurns: 3 })
+    await createClaudeCode({ auth: { gateway: { apiKey: "gateway-key" } }, maxTurns: 3 })
 
     expect(createAiSdkClaudeCode).toHaveBeenLastCalledWith({
       auth: { gateway: { apiKey: "gateway-key" } },
@@ -159,7 +159,7 @@ describe("createClaudeCode", () => {
 
   it("publishes assistant error handling through the Claude Code bootstrap bridge", async () => {
     const { createClaudeCode } = await import("../src/harness/claude-code.ts")
-    const harness = createClaudeCode() as HarnessV1 & { getBootstrap: NonNullable<HarnessV1["getBootstrap"]> }
+    const harness = await createClaudeCode() as HarnessV1 & { getBootstrap: NonNullable<HarnessV1["getBootstrap"]> }
     const bootstrap = await harness.getBootstrap()
     const bridge = bootstrap.files.find(file => file.path.endsWith("/bridge.mjs"))?.content
 
@@ -170,7 +170,7 @@ describe("createClaudeCode", () => {
   it("surfaces empty zero-token Claude Code turns as harness errors", async () => {
     const { createClaudeCode } = await import("../src/harness/claude-code.ts")
     const events: HarnessV1StreamPart[] = []
-    const session = await (createClaudeCode() as HarnessV1).doStart({} as Parameters<HarnessV1["doStart"]>[0])
+    const session = await (await createClaudeCode() as HarnessV1).doStart({} as Parameters<HarnessV1["doStart"]>[0])
 
     await session.doPromptTurn({
       prompt: "hello",

@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus"
 
 export default defineConfig({
   pack: {
-    entry: ["src/index.ts", "src/cloudflare.ts", "src/crabbox.ts", "src/vercel.ts"],
+    entry: ["src/index.ts"],
     exports: {
       inlinedDependencies: false,
     },

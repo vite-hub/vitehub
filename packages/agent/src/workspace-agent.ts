@@ -44,6 +44,7 @@ import type {
   AgentInspectionModelMetadata,
   AgentInspectionToolDefinition,
   AgentInspectionWarning,
+  AgentDriver,
   AgentDriverKind,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
@@ -114,7 +115,8 @@ export type WorkspaceAgentOptions<
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
-> = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput> & {
+  TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>,
+> = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput, TDriver> & {
   name?: string
   workspace: WorkspaceAgentWorkspaceConfig<_Name>
 }
@@ -629,9 +631,11 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentInspectionHarnessMetadata | undefined {
+function harnessMetadata(driver: { credentials?: unknown, harness?: unknown, provider?: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentInspectionHarnessMetadata | undefined {
   const harness = isRecord(driver.harness) ? driver.harness : undefined
-  const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
+  const provider = typeof driver.provider === "string"
+    ? driver.provider
+    : harness ? stringField(harness, ["provider", "name"]) : undefined
   const sandboxProvider = isRecord(driver.sandbox) ? stringField(driver.sandbox, ["provider", "providerId"]) : undefined
   const credentials = isRecord(driver.credentials)
     ? {
@@ -699,9 +703,12 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver)
+    const resolvedDriver = driver.resolve
+      ? { kind: "harness" as const, ...await driver.resolve() }
+      : driver
+    const harness = harnessMetadata(resolvedDriver)
     return {
-      executionAuthority: await resolvedDriverExecutionAuthority(settings.box, driver, context),
+      executionAuthority: await resolvedDriverExecutionAuthority(settings.box, resolvedDriver, context),
       ...(harness ? { harness } : {}),
       kind: "harness",
     }

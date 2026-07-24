@@ -80,16 +80,14 @@ describe("Agent Box", () => {
     const originalPath = process.env.PATH
     process.env.PATH = [bin, originalPath].filter(Boolean).join(":")
     try {
-      const { trustedHost } = await import("@vite-hub/box")
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { workspaceShell } = await import("../src/capabilities.ts")
-      const { codexDriver } = await import("../src/harness/codex.ts")
       const workspaceName = `box-live-${Date.now()}`
       const agent = defineAgent({
         name: workspaceName,
-        box: { runtime: trustedHost({ stateRoot }) },
+        box: { runtime: { kind: "trusted-host", stateRoot } },
         capabilities: [workspaceShell({ commands: ["sh"], mode: "write" })],
-        driver: codexDriver(),
+        driver: "codex",
         workspace: {
           commit: "chore: save harness changes",
           mode: "write",
@@ -133,11 +131,9 @@ describe("Agent Box", () => {
     const originalPath = process.env.PATH
     process.env.PATH = [bin, originalPath].filter(Boolean).join(":")
     try {
-      const { trustedHost } = await import("@vite-hub/box")
       const { custom } = await import("@vite-hub/workspace")
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { skills } = await import("../src/capabilities.ts")
-      const { codexDriver } = await import("../src/harness/codex.ts")
       const agent = defineAgent<any, { worktreePath: string }>({
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
@@ -156,7 +152,7 @@ describe("Agent Box", () => {
             },
           },
           requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
-          runtime: trustedHost({ stateRoot }),
+          runtime: { kind: "trusted-host", stateRoot },
         },
         capabilities: [
           skills({
@@ -165,7 +161,7 @@ describe("Agent Box", () => {
             source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
           }),
         ],
-        driver: codexDriver(),
+        driver: "codex",
       })
 
       const result = await runAgent(agent, {
@@ -217,11 +213,9 @@ describe("Agent Box", () => {
     const originalPath = process.env.PATH
     process.env.PATH = [bin, originalPath].filter(Boolean).join(":")
     try {
-      const { trustedHost } = await import("@vite-hub/box")
       const { custom } = await import("@vite-hub/workspace")
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { skills } = await import("../src/capabilities.ts")
-      const { codexDriver } = await import("../src/harness/codex.ts")
       const agent = defineAgent({
         box: {
           checkout: { ref: "refs/heads/main", remote: repository, sha },
@@ -239,7 +233,7 @@ describe("Agent Box", () => {
             },
           },
           requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
-          runtime: trustedHost({ stateRoot }),
+          runtime: { kind: "trusted-host", stateRoot },
         },
         capabilities: [
           skills({
@@ -248,7 +242,7 @@ describe("Agent Box", () => {
             source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
           }),
         ],
-        driver: codexDriver(),
+        driver: "codex",
       })
 
       const result = await runAgent(agent, {
@@ -269,22 +263,20 @@ describe("Agent Box", () => {
   })
 
   it("rejects overlapping Box and harness execution configuration", async () => {
-    const { trustedHost } = await import("@vite-hub/box")
     const { defineAgent } = await import("../src/index.ts")
 
     expect(() => defineAgent({
-      box: { runtime: trustedHost() },
+      box: { runtime: "trusted-host" },
       driver: { harness: {}, sandbox: {} },
     })).toThrow("defineAgent({ box }) owns harness execution")
     expect(() => defineAgent({
-      box: { runtime: trustedHost() },
+      box: { runtime: "trusted-host" },
       driver: { harness: {}, workDir: "repository" },
     })).toThrow("defineAgent({ box }) owns harness execution")
   })
 
   it("preserves the harness work directory for custom runtimes with an authoritative path", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { codexDriver } = await import("../src/harness/codex.ts")
     const agent = defineAgent({
       box: {
         cwd: "/workspace",
@@ -306,7 +298,7 @@ describe("Agent Box", () => {
           },
         },
       },
-      driver: codexDriver(),
+      driver: "codex",
     })
 
     await expect(runAgent(agent, {
@@ -319,7 +311,6 @@ describe("Agent Box", () => {
 
   it("rejects Agent Workspace materialization over a Box-owned cwd", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { codexDriver } = await import("../src/harness/codex.ts")
     const agent = defineAgent({
       box: {
         cwd: "/workspace",
@@ -341,7 +332,7 @@ describe("Agent Box", () => {
           },
         },
       },
-      driver: codexDriver(),
+      driver: "codex",
       workspace: { mode: "write", store: { provider: "memory" } },
     })
 
@@ -354,7 +345,6 @@ describe("Agent Box", () => {
 
   it("materializes an Agent Workspace into an empty Box working tree", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { codexDriver } = await import("../src/harness/codex.ts")
     const agent = defineAgent({
       box: {
         runtime: {
@@ -375,7 +365,7 @@ describe("Agent Box", () => {
           },
         },
       },
-      driver: codexDriver(),
+      driver: "codex",
       workspace: { mode: "write", store: { provider: "memory" } },
     })
 

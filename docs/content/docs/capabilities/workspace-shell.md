@@ -29,13 +29,11 @@ Use read mode first, then switch to write mode when product behavior requires mu
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { trustedHost } from '@vite-hub/box'
 
 export default defineAgent({
-  box: { runtime: trustedHost() },
-  driver: codexDriver(),
+  box: { runtime: 'trusted-host' },
+  driver: 'codex',
   workspace,
   capabilities: [
     workspaceShell({
@@ -73,11 +71,11 @@ For a Linux-hosted Agent that intentionally owns its machine or container, confi
 
 ```ts [server/agents/operator.ts]
 export default defineAgent({
-  box: { runtime: trustedHost() },
+  box: { runtime: 'trusted-host' },
   capabilities: [
     workspaceShell({ commands: 'all', mode: 'write' }),
   ],
-  driver: codexDriver(),
+  driver: 'codex',
   workspace: {
     mode: 'write',
     store,

@@ -2,6 +2,34 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
+import type { CloudflareBoxOptions, CloudflareDurableObjectNamespace, CloudflareSandboxStub } from "./cloudflare.ts";
+import type { CrabboxOptions } from "./internal/crabbox.ts";
+import type { TrustedHostOptions } from "./internal/trusted-host.ts";
+import type {
+  VercelBoxNetworkPolicy,
+  VercelBoxOptions,
+  VercelBoxSource,
+  VercelFileStat,
+  VercelSandboxCommand,
+  VercelSandboxCreateOptions,
+  VercelSandboxInstance,
+} from "./vercel.ts";
+import { isBuiltInBoxRuntime } from "./internal/runtime.ts";
+
+export type {
+  CloudflareBoxOptions,
+  CloudflareDurableObjectNamespace,
+  CloudflareSandboxStub,
+  CrabboxOptions,
+  TrustedHostOptions,
+  VercelBoxNetworkPolicy,
+  VercelBoxOptions,
+  VercelBoxSource,
+  VercelFileStat,
+  VercelSandboxCommand,
+  VercelSandboxCreateOptions,
+  VercelSandboxInstance,
+};
 
 export type BoxRequirement =
   | string
@@ -44,8 +72,19 @@ export interface BoxDefinition<Context = unknown> {
   env?: Readonly<Record<string, BoxValue<string, Context>>>;
   home?: BoxHome<Context>;
   requires?: readonly BoxRequirement[];
-  runtime: BoxRuntime;
+  runtime: BoxRuntimeDefinition;
 }
+
+export type BuiltInBoxRuntimeName = "crabbox" | "trusted-host" | "vercel";
+
+export type BuiltInBoxRuntime =
+  | BuiltInBoxRuntimeName
+  | ({ kind: "crabbox" } & CrabboxOptions)
+  | ({ kind: "trusted-host" } & TrustedHostOptions)
+  | ({ kind: "cloudflare" } & CloudflareBoxOptions)
+  | ({ kind: "vercel" } & VercelBoxOptions);
+
+export type BoxRuntimeDefinition = BuiltInBoxRuntime | BoxRuntime;
 
 export interface BoxRuntime {
   readonly name: string;
@@ -215,6 +254,67 @@ export interface ResolveBoxOptions {
   requires?: readonly BoxRequirement[];
 }
 
+const reservedRuntimeNames = new Set([
+  "cloudflare",
+  "crabbox",
+  "trusted-host",
+  "vercel",
+]);
+
+async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
+  if (isBoxRuntime(value)) {
+    if (reservedRuntimeNames.has(value.name) && !isBuiltInBoxRuntime(value)) {
+      throw new Error(`[vitehub] Custom Box runtimes cannot use the reserved name "${value.name}". Select the built-in runtime by value instead.`);
+    }
+    return value;
+  }
+  if (typeof value === "string") {
+    if (value === "crabbox") {
+      const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
+      return createCrabboxRuntime();
+    }
+    if (value === "trusted-host") {
+      const { createTrustedHostRuntime } = await import("./internal/trusted-host.ts");
+      return createTrustedHostRuntime();
+    }
+    if (value === "vercel") {
+      const { createVercelRuntime } = await import("./vercel.ts");
+      return createVercelRuntime();
+    }
+    throw new Error(`[vitehub] Unknown Box runtime "${value}". Expected "crabbox", "trusted-host", "vercel", a tagged built-in configuration, or a custom runtime.`);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("[vitehub] Box requires an explicit built-in runtime value or custom runtime object.");
+  }
+
+  const { kind, ...options } = value as Record<string, unknown>;
+  if (kind === "crabbox") {
+    const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
+    return createCrabboxRuntime(options as CrabboxOptions);
+  }
+  if (kind === "trusted-host") {
+    const { createTrustedHostRuntime } = await import("./internal/trusted-host.ts");
+    return createTrustedHostRuntime(options as TrustedHostOptions);
+  }
+  if (kind === "cloudflare") {
+    const { createCloudflareRuntime } = await import("./cloudflare.ts");
+    return createCloudflareRuntime(options as unknown as CloudflareBoxOptions);
+  }
+  if (kind === "vercel") {
+    const { createVercelRuntime } = await import("./vercel.ts");
+    return createVercelRuntime(options as VercelBoxOptions);
+  }
+  throw new Error(`[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", or "vercel".`);
+}
+
+function isBoxRuntime(value: unknown): value is BoxRuntime {
+  if (!value || typeof value !== "object") return false;
+  const runtime = value as Partial<BoxRuntime>;
+  return typeof runtime.name === "string"
+    && typeof runtime.open === "function"
+    && typeof runtime.prepare === "function";
+}
+
 const reservedEnvironment = new Set([
   "CODEX_HOME",
   "HOME",
@@ -231,15 +331,9 @@ export async function resolveBox<Context>(
   context: Context,
   options: ResolveBoxOptions = {},
 ): Promise<Box> {
-  if (
-    !definition ||
-    typeof definition !== "object" ||
-    !definition.runtime ||
-    typeof definition.runtime.open !== "function" ||
-    typeof definition.runtime.prepare !== "function"
-  ) {
-    throw new TypeError("[vitehub] Box requires a runtime.");
-  }
+  if (!definition || typeof definition !== "object")
+    throw new TypeError("[vitehub] Box requires a definition.");
+  const runtime = await resolveBoxRuntime(definition.runtime);
   if (definition.cwd !== undefined && definition.checkout !== undefined) {
     throw new TypeError("[vitehub] Box checkout cannot be combined with cwd.");
   }
@@ -268,20 +362,20 @@ export async function resolveBox<Context>(
     plan,
     requirements,
   };
-  const prepared = await definition.runtime.prepare(input);
+  const prepared = await runtime.prepare(input);
   let executionAuthority: ExecutionAuthority;
   try {
     executionAuthority = normalizeExecutionAuthority(prepared.executionAuthority);
   } catch {
     throw new TypeError(
-      `[vitehub] Box runtime ${definition.runtime.name} must declare executionAuthority.`,
+      `[vitehub] Box runtime ${runtime.name} must declare executionAuthority.`,
     );
   }
   const boxPlan = Object.freeze({ ...prepared, executionAuthority });
   return Object.freeze({
     async open(options?: BoxOpenOptions) {
       options?.signal?.throwIfAborted();
-      return await definition.runtime.open(input, {
+      return await runtime.open(input, {
         ...options,
         executionAuthority: boxPlan.executionAuthority,
       });
@@ -564,5 +658,3 @@ async function resolveValue<T, Context>(
     ? await (value as (context: Context) => T | undefined | Promise<T | undefined>)(context)
     : value;
 }
-
-export { trustedHost, type TrustedHostOptions } from "./internal/trusted-host.ts";

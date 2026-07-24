@@ -118,6 +118,7 @@ import type {
   AgentDefinition,
   AgentDriverContribution,
   AgentDriverKind,
+  CustomAgentDriver,
   AgentFinishEvent,
   AgentFinishHookEvent,
   AgentFinishExtensions,
@@ -198,6 +199,8 @@ export type {
   AgentCapabilitiesResolverContext,
   AgentCallSettingsInstrumentation,
   AgentCallSettingsInstrumentationContext,
+  BuiltInAgentDriver,
+  BuiltInAgentDriverName,
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
@@ -366,6 +369,13 @@ export type {
   AgentToolResolver,
   AgentToolStep,
   AgentWaitUntil,
+  ClaudeCodeAuthOptions,
+  ClaudeCodeDriverOptions,
+  ClaudeCodeThinkingConfig,
+  CodexAuthOptions,
+  CodexDriverOptions,
+  CodexDriverSandboxOptions,
+  CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
   MaybeResolvable,
@@ -989,7 +999,7 @@ function defineBaseAgent<
   if (box && driver.kind !== "harness") {
     throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
   }
-  if (box && driver.kind === "harness" && (driver.sandbox !== undefined || driver.workDir !== undefined)) {
+  if (box && driver.kind === "harness" && (driver.hasSandbox || driver.sandbox !== undefined || driver.workDir !== undefined)) {
     throw new Error("[vitehub] defineAgent({ box }) owns harness execution. Move driver.sandbox and driver.workDir to the Box.")
   }
   const run = driver.kind === "run" ? driver.run : undefined
@@ -998,7 +1008,6 @@ function defineBaseAgent<
     : undefined
   const baseCapabilities = normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
-  const harnessDriver = driver.kind === "harness" ? driver : undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
   const chatCapability = getChatCapabilityOptions<TRuntimeConfig>(baseCapabilities)
   if (chatCapability && channelChat) {
@@ -1017,7 +1026,9 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "harness"
-        ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(harnessDriver as never)
+        ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(
+            (driver.resolve ? await driver.resolve() : driver) as never,
+          )
         : undefined
     if (!resolvedAdapter) {
       throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
@@ -1129,6 +1140,35 @@ export interface DefineAgent {
       CALL_OPTIONS,
       TInvokerProfile,
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
+      AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>,
+      TOutput,
+      CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>>
+    > = WorkspaceAgentOptions<
+      TRuntimeConfig,
+      Name,
+      CALL_OPTIONS,
+      TInvokerProfile,
+      AgentCapabilitiesInvocationContextValues<TCapabilities>,
+      AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>,
+      TOutput,
+      CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>>
+    >,
+  >(
+    options: TOptions & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, output?: AgentOutputDefinition<TOutput> } & ValidateWorkspaceAgentOptions<TOptions>,
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    Name extends WorkspaceName = WorkspaceName,
+    CALL_OPTIONS = unknown,
+    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+    TOutput = unknown,
+    const TOptions extends WorkspaceAgentOptions<
+      TRuntimeConfig,
+      Name,
+      CALL_OPTIONS,
+      TInvokerProfile,
+      AgentCapabilitiesInvocationContextValues<TCapabilities>,
       AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>
     > = WorkspaceAgentOptions<
       TRuntimeConfig,
@@ -1141,6 +1181,23 @@ export interface DefineAgent {
   >(
     options: TOptions & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, output?: AgentOutputDefinition<TOutput> } & ValidateWorkspaceAgentOptions<TOptions>,
   ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>, TOutput>
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    CALL_OPTIONS = unknown,
+    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
+    TOutput = unknown,
+  >(
+    options: AgentSettings<
+      TRuntimeConfig,
+      CALL_OPTIONS,
+      TInvokerProfile,
+      AgentCapabilitiesInvocationContextValues<TCapabilities>,
+      AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>,
+      TOutput,
+      CustomAgentDriver<TRuntimeConfig, CALL_OPTIONS, AgentCapabilitiesInvocationContextValues<TCapabilities>>
+    > & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never },
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,

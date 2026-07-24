@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const { resolveVercelBox } = vi.hoisted(() => ({
-  resolveVercelBox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
+const { resolveBox } = vi.hoisted(() => ({
+  resolveBox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
 }))
 
-vi.mock("@vite-hub/box/vercel", () => ({ resolveVercelBox }))
+vi.mock("@vite-hub/box", () => ({ resolveBox }))
 
 import { resolveSandboxBox } from "../src/runtime/providers/vercel.ts"
 
@@ -35,11 +35,14 @@ describe("resolveSandboxBox", () => {
     })
     expect(provider).toMatchObject({ provider: "vercel" })
     await provider.resolveBox(["node"])
-    expect(resolveVercelBox).toHaveBeenCalledWith(expect.objectContaining({
+    expect(resolveBox).toHaveBeenCalledWith({
+      runtime: expect.objectContaining({
+        kind: "vercel",
         token: "token-from-config",
         teamId: "team-from-env",
         projectId: "project-from-env",
-    }), ["node"])
+      }),
+    }, {}, { requires: ["node"] })
   })
 
   it("uses config credentials without process", async () => {
@@ -56,10 +59,13 @@ describe("resolveSandboxBox", () => {
     })
     expect(provider).toMatchObject({ provider: "vercel" })
     await provider.resolveBox(["node"])
-    expect(resolveVercelBox).toHaveBeenCalledWith(expect.objectContaining({
+    expect(resolveBox).toHaveBeenCalledWith({
+      runtime: expect.objectContaining({
+        kind: "vercel",
         token: "token-from-config",
         teamId: "team-from-config",
         projectId: "project-from-config",
-    }), ["node"])
+      }),
+    }, {}, { requires: ["node"] })
   })
 })

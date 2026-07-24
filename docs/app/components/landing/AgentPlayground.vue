@@ -17,8 +17,8 @@ type EnvironmentOption = {
 }
 
 const driverOptions = [
-  { code: "codexDriver()", icon: "i-simple-icons-openai", key: "codex", label: "Codex harness" },
-  { code: "claudeCodeDriver()", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code harness" },
+  { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex harness" },
+  { code: '"claude-code"', icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code harness" },
   { code: "{ model: gateway('openai/gpt-5.1-mini') }", icon: "i-simple-icons-vercel", key: "model", label: "Bare model · GPT-5.1 mini" },
   { code: "{ run: reviewPullRequest }", icon: "i-lucide-braces", key: "custom", label: "Custom runner" },
 ] as const

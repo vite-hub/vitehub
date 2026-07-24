@@ -6,7 +6,8 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveBox, trustedHost } from "../src/index.ts";
+import { resolveBox } from "../src/index.ts";
+import { createTrustedHostRuntime } from "../src/internal/trusted-host.ts";
 import { materializeGitCheckout } from "../src/internal/git-checkout.ts";
 import { boxProvider } from "./helpers.ts";
 
@@ -36,7 +37,7 @@ describe("Box checkout", () => {
             },
           },
         },
-        runtime: trustedHost(),
+        runtime: createTrustedHostRuntime(),
       },
       { ...repository, ref: "refs/heads/main" },
     );
@@ -90,7 +91,7 @@ describe("Box checkout", () => {
           remote: repository.remote,
           sha: "0".repeat(40),
         },
-        runtime: trustedHost(),
+        runtime: createTrustedHostRuntime(),
       },
       {},
     );
@@ -118,7 +119,7 @@ describe("Box checkout", () => {
           remote: "https://example.com/repository.git",
           sha: "0".repeat(40),
         },
-        runtime: trustedHost(),
+        runtime: createTrustedHostRuntime(),
       },
       {},
     );
@@ -145,7 +146,7 @@ describe("Box checkout", () => {
           remote: repository.remote,
           sha: repository.sha,
         },
-        runtime: trustedHost(),
+        runtime: createTrustedHostRuntime(),
       },
       {},
     );
@@ -211,7 +212,7 @@ describe("Box checkout", () => {
             sha: () => (++resolutions, "0".repeat(40)),
           },
           cwd: () => (++resolutions, process.cwd()),
-          runtime: trustedHost(),
+          runtime: createTrustedHostRuntime(),
         },
         {},
       ),
@@ -226,7 +227,7 @@ describe("Box checkout", () => {
         remote: "https://example.com/repository.git",
         sha,
       },
-      runtime: trustedHost(),
+      runtime: createTrustedHostRuntime(),
     });
 
     const first = await resolveBox(definition("0".repeat(40)), {});
