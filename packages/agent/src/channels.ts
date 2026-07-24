@@ -585,15 +585,14 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
 
   try {
     const appOptions = app ? githubAppOptions(app) || {} : {}
-    const token = await githubPullRequestMetadataToken(app, context, command.installationId)
-    if (!token) return fallback
+    const token = await githubPullRequestMetadataToken(app, context, command.installationId).catch(() => undefined)
     const fetcher = appOptions.fetch || fetch
     const headers = githubApiHeaders(token, appOptions.userAgent)
     const apiBaseUrl = appOptions.apiBaseUrl || "https://api.github.com"
     const [pullRequest, comments, files] = await Promise.all([
       githubApiJson(fetcher, command.pullRequestUrl, headers),
-      githubApiJsonPages(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`, headers, maxComments + 1),
-      githubApiJsonPages(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/pulls/${command.issueNumber}/files`, headers, maxFiles + 1),
+      token ? githubApiJsonPages(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`, headers, maxComments + 1) : [],
+      token ? githubApiJsonPages(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/pulls/${command.issueNumber}/files`, headers, maxFiles + 1) : [],
     ])
     const commentMetadata = Array.isArray(comments)
       ? comments.map(githubCommentMetadata).filter((comment): comment is GitHubPullRequestCommentMetadata => Boolean(comment))
@@ -948,10 +947,10 @@ function githubAppWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig>(
   return context => githubAppWebhookSecret(app, context)
 }
 
-function githubApiHeaders(token: string, userAgent?: string): Record<string, string> {
+function githubApiHeaders(token?: string, userAgent?: string): Record<string, string> {
   return {
     accept: "application/vnd.github+json",
-    authorization: `Bearer ${token}`,
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
     "content-type": "application/json",
     ...(userAgent ? { "user-agent": userAgent } : {}),
     "x-github-api-version": "2022-11-28",
