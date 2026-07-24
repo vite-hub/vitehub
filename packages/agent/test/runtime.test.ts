@@ -8326,6 +8326,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [progressSummary({
         execute: input => new Promise((resolve) => {
+          setTimeout(() => resolve("Stale progress."), 10)
           input.input.abortSignal?.addEventListener("abort", () => {
             aborted()
             resolve("")
@@ -8336,9 +8337,10 @@ describe("agent message protocol", () => {
       driver: { run: () => ({
           toUIMessageStream() {
             return new ReadableStream({
-              start(controller) {
+              async start(controller) {
                 controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
                 controller.enqueue({ finishReason: "stop", type: "finish" })
+                await new Promise(resolve => setTimeout(resolve, 20))
                 controller.close()
               },
             })
@@ -8349,9 +8351,13 @@ describe("agent message protocol", () => {
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Check inventory." })],
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    for await (const _chunk of stream) {}
+    const chunks = []
+    for await (const chunk of stream) chunks.push(chunk)
 
     expect(aborted).toHaveBeenCalledOnce()
+    expect(chunks).not.toContainEqual(expect.objectContaining({
+      type: "data-progress-summary",
+    }))
   })
 
   it("cleans up scheduled progress generation when the client cancels", async () => {

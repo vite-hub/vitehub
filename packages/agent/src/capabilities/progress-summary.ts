@@ -412,6 +412,10 @@ function withProgressSummaryStream(
   const observe = (chunk: unknown) => {
     const event = normalizeUiMessageStreamChunk(chunk)
     const type = eventType(event)
+    if (type === "finish") {
+      close()
+      return
+    }
     const phasedReasoning = isRecord(event)
       && event.phase === "reasoning"
       && (type === "text-start" || type === "text-delta")
