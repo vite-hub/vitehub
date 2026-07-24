@@ -318,6 +318,70 @@ describe("git capability", () => {
     })).rejects.toThrow("requires an exact head SHA")
   })
 
+  it("verifies an existing pull request checkout against the exact head SHA", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: 0,
+      stderr: "",
+      stdout: command === "git" && args.join(" ") === "rev-parse HEAD" ? `${pullRequestHeadSha}\n` : "",
+    }))
+    const { tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          head: { sha: pullRequestHeadSha },
+          number: 42,
+          source: {
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace/vitehub",
+    })
+    expect(session.exec).toHaveBeenNthCalledWith(2, "git", ["rev-parse", "HEAD"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
+  })
+
+  it("rejects an existing pull request checkout at a different head", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: 0,
+      stderr: "",
+      stdout: command === "git" && args.join(" ") === "rev-parse HEAD" ? `${"b".repeat(40)}\n` : "",
+    }))
+    const { tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          head: { sha: pullRequestHeadSha },
+          number: 42,
+          source: {
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).rejects.toThrow("does not match the expected SHA")
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("closes pull request sessions when checkout preparation fails", async () => {
     const session = gitSession()
     session.exec.mockImplementation(async (command: string, args: string[] = []) => ({

@@ -404,7 +404,13 @@ async function preparePullRequestGitSession(
 
   const cwd = `/workspace/${setup.mount}`
   const existing = await session.exec("git", ["rev-parse", "--is-inside-work-tree"], gitExecOptions(cwd, timeout))
-  if (existing.exitCode === 0) return false
+  if (existing.exitCode === 0) {
+    const head = await session.exec("git", ["rev-parse", "HEAD"], gitExecOptions(cwd, timeout))
+    if (head.exitCode !== 0 || head.stdout.trim().toLowerCase() !== setup.headSha) {
+      throw new Error("[vitehub] existing pull request checkout does not match the expected SHA.")
+    }
+    return false
+  }
 
   const baseTrackingRef = setup.baseRef ? gitRemoteBranchTrackingRef(setup.baseRef) : undefined
   const authHeader = await gitHubAuthHeader()
