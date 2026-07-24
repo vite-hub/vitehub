@@ -346,9 +346,11 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-targets-"))
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
+      await mkdir(join(root, "server", "agents", "support", "home", ".codex"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest.ts"), "export default {}", "utf8")
       await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ workspace: {} })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "home", ".codex", "config.toml"), "model = 'codex'\n", "utf8")
       const plugin = hubAgent()
       const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
@@ -373,6 +375,8 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain('registry["agent/support"]')
       expect(registry).toContain('agentIdentity: {"name":"support","workspace":"support"}')
       expect(registry).toContain("vitehubWithWorkspaceSourceRoot")
+      expect(registry).toContain("vitehubAgentWithColocatedHome")
+      expect(registry).toContain(Buffer.from("model = 'codex'\n").toString("base64"))
       expect(registry).toContain("vitehubWorkspaceDefinitionFromOptions")
       expect(registry).toContain(JSON.stringify(join(root, "server", "agents", "support", "workspace")))
       expect(registry).toContain(JSON.stringify("Use support instructions.\n"))
@@ -412,6 +416,7 @@ describe("agent Vite plugin", () => {
       expect(filteredRegistry).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
       expect(filteredRegistry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { blob: false, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
       expect(filteredRegistry).toContain('import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from "vite-hub/_internal/agent/server/internal"')
+      expect(filteredRegistry).toContain('import { agentWithColocatedHome as vitehubAgentWithColocatedHome } from "vite-hub/_internal/agent/runtime/workflow"')
       expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(filteredRegistry).toContain('import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"')
       expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
@@ -485,6 +490,17 @@ describe("agent Vite plugin", () => {
     invalidateModule.mockClear()
     await handleHotUpdate({
       file: "/app/server/agents/digest/skills/review/SKILL.md",
+      server: { moduleGraph: { getModuleById, invalidateModule } },
+    })
+
+    expect(invalidateModule).toHaveBeenCalledWith(registryModule)
+    expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+    expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
+    expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+
+    invalidateModule.mockClear()
+    await handleHotUpdate({
+      file: "/app/server/agents/digest/home/.codex/config.toml",
       server: { moduleGraph: { getModuleById, invalidateModule } },
     })
 

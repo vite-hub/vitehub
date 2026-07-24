@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -67,6 +67,19 @@ describe("colocated Agent Skills", () => {
     expect(readColocatedAgentSkills(join(root, "review.ts"))).toBeUndefined()
     await writeFile(join(root, "review", "index.ts"), "export default {}\n", "utf8")
     expect(readColocatedAgentSkills(join(root, "review", "index.ts"))).toBeDefined()
+  })
+
+  it("preserves support for a symlinked Skills root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-"))
+    roots.push(root)
+    await mkdir(join(root, "shared", "review"), { recursive: true })
+    await writeFile(join(root, "agent.ts"), "export default {}\n", "utf8")
+    await writeFile(join(root, "shared", "review", "SKILL.md"), "# Review\n", "utf8")
+    await symlink("shared", join(root, "skills"))
+
+    expect(readColocatedAgentSkills(join(root, "agent.ts"))).toHaveProperty(
+      "__vitehubAgentSkill:skills/review/SKILL.md",
+    )
   })
 
   it("does not treat a sibling Agent named skills as Skills owned by a flat Agent named agent", async () => {

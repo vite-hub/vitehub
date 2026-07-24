@@ -1,9 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
@@ -29,7 +30,6 @@ const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builti
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
-const folderAgentEntryPattern = /^(?:agent|index)\.(?:c|m)?[jt]s$/i
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: new (options: {
     buildTarget: "vercel-build-output-api"
@@ -162,13 +162,6 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   }, null, 2)}\n`, "utf8")
 }
 
-function isFolderAgentEntry(file: string): boolean {
-  if (!folderAgentEntryPattern.test(basename(file))) return false
-  return !(basename(file).toLowerCase().startsWith("agent.")
-    && basename(dirname(file)) === "agents"
-    && basename(dirname(dirname(file))) === "server")
-}
-
 function resolveWorkflowUserAppEntry(rootDir: string) {
   const names = getViteMode() === VITEHUB_MODES.workflow
     ? [...WORKFLOW_PRIORITY_NAMES, ...WORKFLOW_ENTRY_BASE_NAMES]
@@ -283,29 +276,35 @@ function readAgentInstructions(file: string): string | undefined {
 }
 
 function readAgentSkills(file: string): Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> | undefined {
-  if (!isFolderAgentEntry(file)) return undefined
-  const root = dirname(file)
-  const skillsRoot = join(root, "skills")
-  if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return undefined
-  const sources: Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> = {}
-  const visit = (directory: string) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      const target = join(directory, entry.name)
-      if (entry.isDirectory()) visit(target)
-      else if (entry.isFile()) {
-        const workspacePath = relative(root, target).replace(/\\/g, "/")
-        sources[`__vitehubAgentSkill:${workspacePath}`] = {
-          content: readFileSync(target).toString("base64"),
-          encoding: "base64",
-          materialize: "build",
-          mount: "",
-          workspacePath,
-        }
-      }
-    }
-  }
-  visit(skillsRoot)
-  return Object.keys(sources).length ? sources : undefined
+  const files = readColocatedAgentFiles(file, "skills")
+  if (!files) return
+  return Object.fromEntries(Object.entries(files).map(([path, source]) => {
+    const workspacePath = `skills/${path}`
+    return [
+      `__vitehubAgentSkill:${workspacePath}`,
+      {
+        ...source,
+        materialize: "build",
+        mount: "",
+        workspacePath,
+      },
+    ]
+  }))
+}
+
+function readAgentHome(file: string): Record<string, { contents: string, encoding: "base64" }> | undefined {
+  const files = readColocatedAgentFiles(file, "home", {
+    fileCountLimit: 1024,
+    fileSizeLimit: 1024 * 1024,
+    label: "Colocated Agent Home",
+    rejectUnsupportedEntries: true,
+    totalSizeLimit: 4 * 1024 * 1024,
+  })
+  if (!files) return
+  return Object.fromEntries(Object.entries(files).map(([target, source]) => [
+    target,
+    { contents: source.content, encoding: source.encoding },
+  ]))
 }
 
 function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
@@ -314,7 +313,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot("default" in loaded ? loaded.default : loaded, ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
+    `    const agent = agentWithColocatedHome(agentWithColocatedSkills(workspaceAgentWithSourceRoot("default" in loaded ? loaded.default : loaded, ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))}), ${JSON.stringify(readAgentHome(definition.handler))})`,
     `    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline) }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
@@ -380,7 +379,7 @@ function createWorkflowRegistryContents(
     ...(needsAgentRuntime
       ? [
           `import { runAgentInline } from ${JSON.stringify(agentImportBase)}`,
-          `import { agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
+          `import { agentWithColocatedHome, agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
           ...(installAgentWorkflowRuntime
             ? [`import { setAgentWorkflowRuntimeLoaders } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`]
             : []),

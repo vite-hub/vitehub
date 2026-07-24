@@ -197,6 +197,21 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("does not discover Agent-like files inside Agent Home trees", async () => {
+    const root = await createTempRoot("vitehub-agent-server-home-")
+    await mkdir(join(root, "server", "agents", "review", "home", "tools"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "agent.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "home", "agent.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "home", "tools", "index.ts"), "export default {}", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "review", source: "server-agents" }),
+    ])
+  })
+
   it("ignores eval definitions during server agent discovery", async () => {
     const root = await createTempRoot("vitehub-agent-server-eval-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
