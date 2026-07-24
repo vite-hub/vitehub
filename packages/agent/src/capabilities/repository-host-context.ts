@@ -364,12 +364,14 @@ function normalizedRun(value: unknown): PullRequestContextValue["run"] | undefin
 
 function normalizedSource(value: unknown): PullRequestContextValue["source"] | undefined {
   if (!isRecord(value)) return
-  const mount = maybeString(value.mount)
+  const checkout = typeof value.checkout === "boolean" ? value.checkout : undefined
+  const mount = typeof value.mount === "string" ? value.mount : undefined
   const ref = maybeString(value.ref)
   const repo = maybeString(value.repo)
-  if (!mount && !ref && !repo) return
+  if (checkout === undefined && mount === undefined && !ref && !repo) return
   return {
-    ...(mount ? { mount } : {}),
+    ...(checkout !== undefined ? { checkout } : {}),
+    ...(mount !== undefined ? { mount } : {}),
     ...(ref ? { ref } : {}),
     ...(repo ? { repo } : {}),
   }

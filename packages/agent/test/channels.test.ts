@@ -89,7 +89,7 @@ describe("agent channels", () => {
           files: [{ additions: 5, deletions: 2, filename: "src/app.ts", status: "modified" }],
           labels: ["review"],
           number: 42,
-          source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+          source: { checkout: false, mount: "", ref: "refs/pull/42/head", repo: "acme/app" },
           title: "Improve app",
         },
         repository: { fullName: "acme/app", name: "app", owner: "acme" },
@@ -117,7 +117,7 @@ describe("agent channels", () => {
       number: 42,
       provider: "github",
       repository: "acme/app",
-      source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+      source: { checkout: false, mount: "", ref: "refs/pull/42/head", repo: "acme/app" },
       title: "Improve app",
     })
     expect(() => pullRequest.read({ context: { get: () => undefined } })).toThrow("requires pull request invocation context")
