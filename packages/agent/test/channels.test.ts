@@ -154,29 +154,30 @@ describe("agent channels", () => {
     if (typeof defaultWorkspace !== "function") throw new Error("Missing default pull request Workspace contribution.")
     const contribution = await defaultWorkspace(context as never)
     if (!contribution) throw new Error("Missing default pull request Workspace source.")
-    expect(contribution.sources?.github).toMatchObject({
+    expect(contribution.sources?.vitehubGitHubPullRequest).toMatchObject({
       materialize: "build",
       mount: { path: "portal" },
     })
+    expect(contribution.sources).not.toHaveProperty("github")
     const rootChannel = github({ pullRequest: { workspace: true } })
     const rootWorkspace = rootChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
     if (typeof rootWorkspace !== "function") throw new Error("Missing root pull request Workspace contribution.")
     await expect(rootWorkspace(context as never)).resolves.toMatchObject({
-      sources: { github: { mount: { path: "" } } },
+      sources: { vitehubGitHubPullRequest: { mount: { path: "" } } },
     })
 
     const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
     const customWorkspace = customChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
     if (typeof customWorkspace !== "function") throw new Error("Missing custom pull request Workspace contribution.")
     await expect(customWorkspace(context as never)).resolves.toMatchObject({
-      sources: { github: { mount: { path: "repository" } } },
+      sources: { vitehubGitHubPullRequest: { mount: { path: "repository" } } },
     })
 
     const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
     const sourceMountWorkspace = sourceMountChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
     if (typeof sourceMountWorkspace !== "function") throw new Error("Missing source-mount pull request Workspace contribution.")
     await expect(sourceMountWorkspace(context as never)).resolves.toMatchObject({
-      sources: { github: { mount: { path: "legacy-repository" } } },
+      sources: { vitehubGitHubPullRequest: { mount: { path: "legacy-repository" } } },
     })
 
     const disabledChannel = github({ pullRequest: { workspace: false } })

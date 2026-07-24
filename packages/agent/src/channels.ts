@@ -1849,7 +1849,7 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
       const { github: githubSource } = await import("@vite-hub/workspace")
       return {
         sources: {
-          github: githubSource({
+          vitehubGitHubPullRequest: githubSource({
             ...(token ? { auth: token } : {}),
             materialize: "build",
             mount: { path: workspace.mount },
