@@ -19,8 +19,12 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
     bucketName,
     secretAccessKey: runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
   }, async resolved => (await importOptionalPeer<typeof import("files-sdk/r2")>("files-sdk/r2", resolved.driver, s3PeerInstall)).r2({
-    ...resolved,
+    accountId: resolved.accountId,
+    accessKeyId: resolved.accessKeyId,
     bucket: resolved.bucketName,
+    defaultUrlExpiresIn: resolved.defaultUrlExpiresIn,
+    publicBaseUrl: resolved.publicBaseUrl,
+    secretAccessKey: resolved.secretAccessKey,
   }))
 }
 
