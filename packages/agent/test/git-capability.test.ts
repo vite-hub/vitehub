@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process"
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
 import { describe, expect, it, vi } from "vitest"
 
 import { git } from "../src/capabilities.ts"
@@ -7,6 +12,7 @@ import type { AgentToolSet } from "../src/types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const pullRequestHeadSha = "a".repeat(40)
+const execFileAsync = promisify(execFile)
 
 function gitSession(options: { remotes?: string, status?: string } = {}) {
   const session = {
@@ -296,6 +302,107 @@ describe("git capability", () => {
     const setupScript = session.exec.mock.calls[1]?.[1]?.[1]
     expect(setupScript).toContain(`test "$(git rev-parse refs/vitehub/head)" = '${pullRequestHeadSha}'`)
     expect(session.exec).toHaveBeenNthCalledWith(3, "git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
+  })
+
+  it("prepares explicit root pull request checkouts without deleting Workspace artifacts", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: "",
+      stdout: command === "git" && args.join(" ") === "status --short" ? "ok\n" : "",
+    }))
+    const { startSession, tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          head: { sha: pullRequestHeadSha },
+          number: 42,
+          source: {
+            mount: "",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith(undefined)
+    expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--is-inside-work-tree"], expect.objectContaining({ cwd: "/workspace" }))
+    const setupScript = session.exec.mock.calls[1]?.[1]?.[1]
+    expect(setupScript).toContain("cd -- .")
+    expect(setupScript).toContain("git reset -q --hard refs/vitehub/head")
+    expect(setupScript).not.toContain("rm -rf")
+  })
+
+  it("attaches root Git metadata to an already materialized exact-head tree", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "vitehub-root-pr-"))
+    const source = join(fixture, "source")
+    const workspace = join(fixture, "workspace")
+    try {
+      await mkdir(source)
+      await mkdir(workspace)
+      await execFileAsync("git", ["init", "-q"], { cwd: source })
+      await writeFile(join(source, "README.md"), "exact head\n")
+      await execFileAsync("git", ["add", "README.md"], { cwd: source })
+      await execFileAsync("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@example.com", "commit", "-qm", "fixture"], { cwd: source })
+      const { stdout: headSha } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: source })
+
+      await copyFile(join(source, "README.md"), join(workspace, "README.md"))
+      await writeFile(join(workspace, "PULL_REQUEST.md"), "workspace artifact\n")
+      await execFileAsync("git", ["init", "-q"], { cwd: workspace })
+      await execFileAsync("git", ["remote", "add", "origin", source], { cwd: workspace })
+      await execFileAsync("git", ["fetch", "-q", "origin", `${headSha.trim()}:refs/vitehub/head`], { cwd: workspace })
+      await execFileAsync("git", ["reset", "-q", "--hard", "refs/vitehub/head"], { cwd: workspace })
+
+      expect(await readFile(join(workspace, "README.md"), "utf8")).toBe("exact head\n")
+      expect(await readFile(join(workspace, "PULL_REQUEST.md"), "utf8")).toBe("workspace artifact\n")
+      const { stdout: status } = await execFileAsync("git", ["status", "--porcelain"], { cwd: workspace })
+      expect(status).toBe("?? PULL_REQUEST.md\n")
+    }
+    finally {
+      await rm(fixture, { force: true, recursive: true })
+    }
+  })
+
+  it("does not prepare a pull request checkout when the channel disables it", async () => {
+    const session = gitSession()
+    const { startSession, tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          head: { ref: "feature", sha: pullRequestHeadSha },
+          number: 42,
+          source: {
+            checkout: false,
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith(undefined)
+    expect(session.exec).toHaveBeenCalledOnce()
+    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace" }))
   })
 
   it("requires an exact pull request head SHA", async () => {

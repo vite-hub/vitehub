@@ -1,6 +1,7 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { readPullRequestContext } from "./capabilities/repository-host-context.ts"
+import { defineCapability } from "./capability-runtime.ts"
 import {
   deliveryArtifactAttachments,
   deliveryArtifactMarkdownReferencePaths,
@@ -232,6 +233,7 @@ export interface GitHubPullRequestRunContext {
     metadata?: GitHubPullRequestMetadata
     number: number
     source: {
+      checkout?: boolean
       mount: string
       ref: string
       repo: string
@@ -316,6 +318,9 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   reply?: boolean | AgentChannelDeliveryFinishEffect
   sourceMount?: string
   threadId?: string
+  workspace?: boolean | {
+    mount?: string
+  }
 }
 
 export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
@@ -368,6 +373,40 @@ function maybeString(value: unknown): string | undefined {
 
 function maybeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+interface GitHubPullRequestWorkspacePolicy {
+  enabled: boolean
+  mount: string
+}
+
+function normalizeGitHubPullRequestWorkspaceMount(mount: string): string {
+  const normalized = mount.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")
+  const parts = normalized.split("/").filter(Boolean)
+  if (mount.startsWith("/") || /^[A-Za-z]:[\\/]/.test(mount) || parts.some(part => part === "." || part === "..") || parts[0] === ".git" || parts[0] === ".vitehub") {
+    throw new TypeError("[vitehub] GitHub pull request workspace mount must stay inside the Workspace.")
+  }
+  return parts.join("/")
+}
+
+function githubPullRequestWorkspacePolicy(
+  options: GitHubPullRequestCommentEventOptions,
+): GitHubPullRequestWorkspacePolicy {
+  if (options.workspace === false) {
+    return {
+      enabled: false,
+      mount: options.sourceMount ?? "",
+    }
+  }
+  const mount = options.workspace === true
+    ? ""
+    : typeof options.workspace === "object"
+      ? options.workspace.mount ?? ""
+      : options.sourceMount ?? "portal"
+  return {
+    enabled: true,
+    mount: normalizeGitHubPullRequestWorkspaceMount(mount),
+  }
 }
 
 function maybeStrings(value: unknown): string[] | undefined {
@@ -634,6 +673,7 @@ function githubPullRequestRunContext(
   metadata: GitHubPullRequestMetadataFields = {},
 ): GitHubPullRequestRunContext {
   const runId = command.deliveryId || `github:${command.repository}#${command.issueNumber}:comment:${command.commentId}`
+  const workspace = githubPullRequestWorkspacePolicy(options)
   const labels = maybeStrings(Array.isArray(payload?.issue?.labels)
     ? payload.issue.labels.map(label => isRecord(label) ? maybeString(label.name) : undefined)
     : undefined)
@@ -647,7 +687,8 @@ function githubPullRequestRunContext(
       ...(labels ? { labels } : {}),
       number: command.issueNumber,
       source: {
-        mount: options.sourceMount || command.repo,
+        ...(!workspace.enabled ? { checkout: false } : {}),
+        mount: workspace.enabled ? workspace.mount : options.sourceMount ?? command.repo,
         ref: `refs/pull/${command.issueNumber}/head`,
         repo: command.repository,
       },
@@ -1779,6 +1820,48 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+function githubPullRequestContextValue(input: GitHubPullRequestReadInvocation): PullRequestContextValue {
+  const value = pullRequest.read(input)
+  if (!value.source?.repo) throw new Error("[vitehub] GitHub pull request workspace requires a repository source.")
+  if (!value.source.ref) throw new Error("[vitehub] GitHub pull request workspace requires a source ref.")
+  if (!value.head?.sha) throw new Error("[vitehub] GitHub pull request workspace requires the exact head SHA.")
+  return value
+}
+
+function githubPullRequestInstallationId(value: PullRequestContextValue): number | undefined {
+  const installationId = value.trigger?.installationId
+  if (typeof installationId === "number") return installationId
+  if (typeof installationId !== "string" || !installationId) return
+  const parsed = Number(installationId)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntimeConfig>(
+  workspace: GitHubPullRequestWorkspacePolicy | undefined,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+): AgentCapabilityDefinition<TRuntimeConfig> | undefined {
+  if (!workspace?.enabled) return
+  return defineCapability({
+    id: "github-pull-request-workspace",
+    async workspace(context) {
+      const value = githubPullRequestContextValue(context)
+      const token = await githubPullRequestMetadataToken(app, context, githubPullRequestInstallationId(value))
+      const { github: githubSource } = await import("@vite-hub/workspace")
+      return {
+        sources: {
+          vitehubGitHubPullRequest: githubSource({
+            ...(token ? { auth: token } : {}),
+            materialize: "lazy",
+            mount: { path: workspace.mount },
+            ref: value.head!.sha!,
+            repo: value.source!.repo!,
+          }),
+        },
+      }
+    },
+  })
+}
+
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   kind: string,
   options: AgentChannelDefinitionOptions<TRuntimeConfig> = {},
@@ -1815,6 +1898,9 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 ): AgentChannelDefinition<TRuntimeConfig> {
   const { app: appOptions, pullRequest, ...channelOptions } = options
   const app = githubAppOptions(appOptions)
+  const pullRequestOptions = pullRequest === true ? {} : pullRequest || {}
+  const workspace = pullRequest ? githubPullRequestWorkspacePolicy(pullRequestOptions) : undefined
+  const workspaceCapability = githubPullRequestWorkspaceCapability(workspace, appOptions)
   const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = appOptions
     ? githubPullRequestEffects<TRuntimeConfig>({
         apiBaseUrl: app?.apiBaseUrl,
@@ -1827,6 +1913,10 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     : undefined
   return defineChannel("github", {
     ...channelOptions,
+    capabilities: [
+      ...(workspaceCapability ? [workspaceCapability] : []),
+      ...channelOptions.capabilities || [],
+    ],
     effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
     triggers: {

@@ -985,6 +985,36 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   return channels || (inputs as AgentChannels<TRuntimeConfig>)
 }
 
+function capabilitiesContributeWorkspace(capabilities: unknown): boolean {
+  return Array.isArray(capabilities)
+    && normalizeCapabilities(capabilities).some(capability => Boolean(capability.workspace))
+}
+
+function capabilitiesRequireWritableWorkspace(capabilities: unknown): boolean {
+  return Array.isArray(capabilities)
+    && normalizeCapabilities(capabilities).some(capability =>
+      capability.requires?.some(requirement => requirement.workspace?.mode === "write"),
+    )
+}
+
+function agentContributesWorkspace(options: {
+  capabilities?: unknown
+  channels?: AgentChannels
+}): boolean {
+  if (capabilitiesContributeWorkspace(options.capabilities)) return true
+  return Object.values(options.channels || {})
+    .some(channel => capabilitiesContributeWorkspace(channel.capabilities))
+}
+
+function agentRequiresWritableWorkspace(options: {
+  capabilities?: unknown
+  channels?: AgentChannels
+}): boolean {
+  if (capabilitiesRequireWritableWorkspace(options.capabilities)) return true
+  return Object.values(options.channels || {})
+    .some(channel => capabilitiesRequireWritableWorkspace(channel.capabilities))
+}
+
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1254,9 +1284,30 @@ function createWorkspaceAgentDefinition<
 }
 
 export const defineAgent: DefineAgent = ((options: unknown) => {
-  return isWorkspaceAgentOptions(options)
-    ? createWorkspaceAgentDefinition(options)
-    : defineBaseAgent(options as never)
+  const agentOptions = options as AgentSettings
+  const channels = normalizeAgentChannels(agentOptions.channels)
+  const normalizedOptions = channels === agentOptions.channels
+    ? agentOptions
+    : { ...agentOptions, channels }
+  if (isWorkspaceAgentOptions(normalizedOptions)) {
+    return createWorkspaceAgentDefinition(normalizedOptions)
+  }
+  return agentContributesWorkspace({
+    capabilities: normalizedOptions.capabilities,
+    channels,
+  })
+    ? createWorkspaceAgentDefinition({
+        ...normalizedOptions,
+        workspace: {
+          mode: agentRequiresWritableWorkspace({
+            capabilities: normalizedOptions.capabilities,
+            channels,
+          })
+            ? "write"
+            : "read",
+        },
+      })
+    : defineBaseAgent(normalizedOptions as never)
 }) as DefineAgent
 
 export async function resolveAgent<TContext extends AgentRuntimeContext>(
@@ -1582,7 +1633,8 @@ async function createAgentInvocationContext<
           run: context.run,
         })
       : []
-    const channelCapabilities = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel.capabilities || []
+    const activeChannel = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel
+    const channelCapabilities = activeChannel?.capabilities || []
     const resolvedCapabilityDefinitions = normalizeCapabilities([
       ...invocationResolvedCapabilities,
       ...(definition?.capabilities || []),

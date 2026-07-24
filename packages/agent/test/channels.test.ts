@@ -89,7 +89,7 @@ describe("agent channels", () => {
           files: [{ additions: 5, deletions: 2, filename: "src/app.ts", status: "modified" }],
           labels: ["review"],
           number: 42,
-          source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+          source: { checkout: false, mount: "", ref: "refs/pull/42/head", repo: "acme/app" },
           title: "Improve app",
         },
         repository: { fullName: "acme/app", name: "app", owner: "acme" },
@@ -117,10 +117,82 @@ describe("agent channels", () => {
       number: 42,
       provider: "github",
       repository: "acme/app",
-      source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+      source: { checkout: false, mount: "", ref: "refs/pull/42/head", repo: "acme/app" },
       title: "Improve app",
     })
     expect(() => pullRequest.read({ context: { get: () => undefined } })).toThrow("requires pull request invocation context")
+  })
+
+  it("configures pull request workspaces with portal, root, custom, and disabled policies", async () => {
+    const { github } = await import("../src/channels.ts")
+    const pullRequestContext = {
+      pullRequest: {
+        apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        head: { ref: "feature", sha: "a".repeat(40) },
+        number: 42,
+        source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/app" },
+      },
+      repository: { fullName: "acme/app", name: "app", owner: "acme" },
+      run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
+      trigger: {
+        action: "created",
+        actor: { login: "mona" },
+        args: "",
+        command: "/review",
+        comment: { id: 99 },
+        event: "issue_comment",
+      },
+    }
+    const context = {
+      context: {
+        get: (key: string) => key === "pullRequest" ? pullRequestContext : undefined,
+      },
+    }
+
+    const defaultChannel = github({ pullRequest: true })
+    const defaultWorkspace = defaultChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof defaultWorkspace !== "function") throw new Error("Missing default pull request Workspace contribution.")
+    const contribution = await defaultWorkspace(context as never)
+    if (!contribution) throw new Error("Missing default pull request Workspace source.")
+    expect(contribution.sources?.vitehubGitHubPullRequest).toMatchObject({
+      materialize: "lazy",
+      mount: { path: "portal" },
+    })
+    expect(contribution.sources).not.toHaveProperty("github")
+    const rootChannel = github({ pullRequest: { workspace: true } })
+    const rootWorkspace = rootChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof rootWorkspace !== "function") throw new Error("Missing root pull request Workspace contribution.")
+    await expect(rootWorkspace(context as never)).resolves.toMatchObject({
+      sources: { vitehubGitHubPullRequest: { mount: { path: "" } } },
+    })
+
+    const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
+    const customWorkspace = customChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof customWorkspace !== "function") throw new Error("Missing custom pull request Workspace contribution.")
+    await expect(customWorkspace(context as never)).resolves.toMatchObject({
+      sources: { vitehubGitHubPullRequest: { mount: { path: "repository" } } },
+    })
+
+    const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
+    const sourceMountWorkspace = sourceMountChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+    if (typeof sourceMountWorkspace !== "function") throw new Error("Missing source-mount pull request Workspace contribution.")
+    await expect(sourceMountWorkspace(context as never)).resolves.toMatchObject({
+      sources: { vitehubGitHubPullRequest: { mount: { path: "legacy-repository" } } },
+    })
+
+    const disabledChannel = github({ pullRequest: { workspace: false } })
+    expect(disabledChannel.capabilities).toEqual([])
+
+    const nonPullRequestChannel = github()
+    expect(nonPullRequestChannel.capabilities).toEqual([])
+  })
+
+  it("rejects pull request workspace mounts outside the Workspace", async () => {
+    const { github } = await import("../src/channels.ts")
+    expect(() => github({ pullRequest: { workspace: { mount: "../portal" } } }))
+      .toThrow("workspace mount must stay inside the Workspace")
+    expect(() => github({ pullRequest: { workspace: { mount: "C:\\portal" } } }))
+      .toThrow("workspace mount must stay inside the Workspace")
   })
 
   it("creates Discord adapters from provider defaults", async () => {
@@ -479,6 +551,7 @@ describe("agent channels", () => {
           files: [{ filename: "src/app.ts", status: "modified" }],
           head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
           number: 42,
+          source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/app" },
         },
       })
       expect(fetcher.mock.calls.map(([url]) => String(url))).not.toContain("https://api.github.test/app/installations/123/access_tokens")
@@ -487,6 +560,37 @@ describe("agent channels", () => {
       if (previousToken === undefined) delete process.env.VITEHUB_GITHUB_TOKEN
       else process.env.VITEHUB_GITHUB_TOKEN = previousToken
     }
+  })
+
+  it("marks disabled pull request workspaces in invocation context", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      app: {
+        fetch: (async () => Response.json({
+          base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+          head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
+        })) as typeof fetch,
+      },
+      pullRequest: { workspace: false },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+
+    const result = await trigger.invoke({
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    } as never, { payload: githubIssueCommentPayload() })
+    if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+
+    expect(result.input.context?.pullRequest).toMatchObject({
+      pullRequest: {
+        source: {
+          checkout: false,
+          mount: "app",
+        },
+      },
+    })
   })
 
   it("invokes GitHub PR dev trigger from context and raw payload", async () => {

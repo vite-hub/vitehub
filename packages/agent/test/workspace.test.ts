@@ -241,6 +241,60 @@ describe("defineAgent workspace option", () => {
     workspaceSourceRequestDescriptorPath.mockImplementation((source: string) => `.vitehub/sources/${source}.json`)
   })
 
+  it("infers Workspace Agents from static and normalized channel capabilities", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const workspaceCapability = defineCapability({
+      id: "review-workspace",
+      workspace: { sources: {} },
+    })
+    const writeWorkspaceCapability = defineCapability({
+      id: "write-review-workspace",
+      requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
+      workspace: { sources: {} },
+    })
+    const channelFactory = vi.fn(() => ({
+      capabilities: [workspaceCapability],
+      kind: "review",
+    }))
+
+    const staticAgent = defineAgent({
+      capabilities: [workspaceCapability],
+      driver: { run: () => "ok" },
+    })
+    const channelAgent = defineAgent({
+      channels: { review: channelFactory },
+      driver: { run: () => "ok" },
+    })
+    const writeAgent = defineAgent({
+      capabilities: [workspaceCapability, writeWorkspaceCapability],
+      driver: { run: () => "ok" },
+    })
+    const baseAgent = defineAgent({
+      driver: { run: () => "ok" },
+    })
+
+    expect(staticAgent).toMatchObject({
+      __vitehubWorkspaceAgent: true,
+      __vitehubWorkspaceAgentOptions: { workspace: { mode: "read" } },
+    })
+    expect(channelAgent).toMatchObject({
+      __vitehubWorkspaceAgent: true,
+      __vitehubWorkspaceAgentOptions: { workspace: { mode: "read" } },
+      channels: {
+        review: {
+          capabilities: [workspaceCapability],
+          kind: "review",
+        },
+      },
+    })
+    expect(writeAgent).toMatchObject({
+      __vitehubWorkspaceAgent: true,
+      __vitehubWorkspaceAgentOptions: { workspace: { mode: "write" } },
+    })
+    expect(channelFactory).toHaveBeenCalledOnce()
+    expect(baseAgent).not.toHaveProperty("__vitehubWorkspaceAgent")
+  })
+
   it("fails when a capability-required workspace path is missing", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

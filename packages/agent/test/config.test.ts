@@ -221,10 +221,10 @@ describe("agent config", () => {
     }
   })
 
-  it("does not let custom capabilities bypass explicit workspace with public metadata", async () => {
+  it("infers workspaces from custom contributions regardless of public metadata", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
 
-    expect(() => defineAgent({
+    expect(defineAgent({
       capabilities: [
         defineCapability({
           id: "custom",
@@ -244,7 +244,10 @@ describe("agent config", () => {
         }),
       ],
       driver: { run: () => "ok" },
-    })).toThrow("custom() requires an explicit workspace")
+    })).toMatchObject({
+      __vitehubWorkspaceAgent: true,
+      __vitehubWorkspaceAgentOptions: { workspace: {} },
+    })
   })
 
 })
