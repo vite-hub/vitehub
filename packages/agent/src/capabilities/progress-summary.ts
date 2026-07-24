@@ -2,7 +2,7 @@ import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
-import { normalizeAgentDriver } from "../internal/agent-driver.ts"
+import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
@@ -223,9 +223,7 @@ async function generateWithDriver(
   const instructions = options.instructions ?? defaultProgressSummaryInstructions
   const runContext = progressSummaryAdapterRunContext(context, input, prompt)
   if (driver.kind === "harness") {
-    const resolvedDriver = driver.resolve
-      ? { ...driver, ...await driver.resolve(), kind: "harness" as const }
-      : driver
+    const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
     const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
     return await resultText(await createHarnessAgentAdapter({ ...resolvedDriver, instructions } as never).generate(runContext as never))
   }

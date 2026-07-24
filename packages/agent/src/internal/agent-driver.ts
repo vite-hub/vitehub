@@ -266,6 +266,17 @@ function normalizeExplicitAgentDriver<
     kind: "run",
     run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
   }
+  }
+
+export async function resolveNormalizedHarnessDriver<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  driver: Extract<NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>, { kind: "harness" }>,
+): Promise<Extract<NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>, { kind: "harness" }>> {
+  return driver.resolve
+    ? { ...driver, ...await driver.resolve(), kind: "harness" }
+    : driver
 }
 
 export function normalizeAgentDriver<
