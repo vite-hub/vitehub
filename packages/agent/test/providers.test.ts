@@ -212,6 +212,7 @@ describe("agent Vite plugin", () => {
         `import { repositoryHostContext as context } from "@vite-hub/agent/capabilities"`,
         `const __vitehubRepositoryHostContextTemplate0 = "caller"`,
         `void __vitehubRepositoryHostContextTemplate0`,
+        `export const local = (context: (options: unknown) => unknown) => context({ materialize: "./IGNORED.template.md" })`,
         `export default () => [context({ materialize: "./PULL_REQUEST.template.md" })]`,
         ``,
       ].join("\n"), "utf8")
@@ -238,6 +239,7 @@ describe("agent Vite plugin", () => {
       const output = await readFile(outfile, "utf8")
       expect(output).toContain("# Pull request {{ pullRequest.number }}")
       expect(output).toContain('path: "PULL_REQUEST.md"')
+      expect(output).toContain('materialize: "./IGNORED.template.md"')
       expect(output).toMatch(/^"use server";/)
       expect(output).not.toContain("readFile")
       const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => [unknown] }

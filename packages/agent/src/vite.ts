@@ -733,6 +733,69 @@ function visitNodes(node: PositionedNode, visit: (node: PositionedNode) => void)
   }
 }
 
+function addBindingIdentifiers(value: unknown, bindings: Set<string>): void {
+  if (!isPositionedNode(value)) return
+  if (value.type === "Identifier" && typeof value.name === "string") {
+    bindings.add(value.name)
+    return
+  }
+  if (value.type === "Property") {
+    addBindingIdentifiers(value.value, bindings)
+    return
+  }
+  if (value.type === "RestElement") {
+    addBindingIdentifiers(value.argument, bindings)
+    return
+  }
+  if (value.type === "AssignmentPattern") {
+    addBindingIdentifiers(value.left, bindings)
+    return
+  }
+  for (const item of Array.isArray(value.elements) ? value.elements : []) addBindingIdentifiers(item, bindings)
+  for (const property of Array.isArray(value.properties) ? value.properties : []) addBindingIdentifiers(property, bindings)
+}
+
+function scopedBindings(node: PositionedNode): Set<string> {
+  const bindings = new Set<string>()
+  if (node.type.includes("Function")) {
+    addBindingIdentifiers(node.id, bindings)
+    for (const parameter of Array.isArray(node.params) ? node.params : []) addBindingIdentifiers(parameter, bindings)
+  }
+  if (node.type === "CatchClause") addBindingIdentifiers(node.param, bindings)
+  if (node.type === "Program" || node.type === "BlockStatement") {
+    for (const statement of Array.isArray(node.body) ? node.body : []) {
+      if (!isPositionedNode(statement)) continue
+      if (statement.type === "VariableDeclaration") {
+        for (const declaration of Array.isArray(statement.declarations) ? statement.declarations : []) {
+          if (isPositionedNode(declaration)) addBindingIdentifiers(declaration.id, bindings)
+        }
+      }
+      else if (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") {
+        addBindingIdentifiers(statement.id, bindings)
+      }
+    }
+  }
+  return bindings
+}
+
+function visitScopedNodes(
+  node: PositionedNode,
+  shadows: ReadonlySet<string>,
+  visit: (node: PositionedNode, shadows: ReadonlySet<string>) => void,
+): void {
+  const bindings = scopedBindings(node)
+  const nestedShadows = bindings.size ? new Set([...shadows, ...bindings]) : shadows
+  visit(node, nestedShadows)
+  for (const value of Object.values(node)) {
+    if (isPositionedNode(value)) visitScopedNodes(value, nestedShadows, visit)
+    else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isPositionedNode(item)) visitScopedNodes(item, nestedShadows, visit)
+      }
+    }
+  }
+}
+
 export function transformRepositoryHostContextMaterialization(
   code: string,
   parse: (code: string) => unknown,
@@ -774,13 +837,14 @@ export function transformRepositoryHostContextMaterialization(
   })
   if (!namedImports.size && !namespaceImports.size) return
 
-  visitNodes(program, (node) => {
+  visitScopedNodes(program, new Set(), (node, shadows) => {
     if (node.type !== "CallExpression") return
     const callee = node.callee
     const namedCall = isPositionedNode(callee)
       && callee.type === "Identifier"
       && typeof callee.name === "string"
       && namedImports.has(callee.name)
+      && !shadows.has(callee.name)
     const memberCall = isPositionedNode(callee)
       && callee.type === "MemberExpression"
       && callee.computed !== true
@@ -788,6 +852,7 @@ export function transformRepositoryHostContextMaterialization(
       && callee.object.type === "Identifier"
       && typeof callee.object.name === "string"
       && namespaceImports.has(callee.object.name)
+      && !shadows.has(callee.object.name)
       && isPositionedNode(callee.property)
       && callee.property.type === "Identifier"
       && callee.property.name === "repositoryHostContext"
