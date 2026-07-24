@@ -340,6 +340,7 @@ function withProgressSummaryStream(
     : stream
   const activeTools = new Map<string, string>()
   const completedTools: string[] = []
+  const activeReasoning = new Set<string>()
   const startedAt = Date.now()
   const intervalMs = Math.max(0, options.intervalMs ?? 10_000)
   let reasoningActive = false
@@ -420,8 +421,19 @@ function withProgressSummaryStream(
       && event.phase === "reasoning"
       && (type === "text-start" || type === "text-delta")
     if (type === "reasoning-delta" || type === "reasoning-summary-text-delta" || phasedReasoning) {
+      const id = eventToolId(event)
+      if (id) activeReasoning.add(id)
       reasoningActive = true
       dirty = true
+    }
+    else if (type === "reasoning-end" || type === "reasoning-summary-text-end") {
+      const id = eventToolId(event)
+      if (id) activeReasoning.delete(id)
+      reasoningActive = activeReasoning.size > 0
+    }
+    else if (type === "text-end") {
+      const id = eventToolId(event)
+      if (id && activeReasoning.delete(id)) reasoningActive = activeReasoning.size > 0
     }
     else if (type === "tool-input-start" || type === "tool-call" || type === "tool-input-available") {
       const id = eventToolId(event)

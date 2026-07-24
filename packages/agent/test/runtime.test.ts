@@ -8449,6 +8449,42 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("clears reasoning presence before later tool activity", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn((_input: unknown) => "Working through the request.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              async start(controller) {
+                controller.enqueue({ id: "reasoning-1", type: "reasoning-delta" })
+                await new Promise(resolve => setTimeout(resolve, 10))
+                controller.enqueue({ id: "reasoning-1", type: "reasoning-end" })
+                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                await new Promise(resolve => setTimeout(resolve, 10))
+                controller.close()
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Investigate the issue." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      reasoning: "Active",
+    }))
+    expect(execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      activeTools: ["inventory search"],
+      reasoning: undefined,
+    }))
+  })
+
   it("uses capability-owned instructions and Markdown templates with harness drivers", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
