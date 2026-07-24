@@ -57,6 +57,7 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentSettings,
+  AgentUIMessageStreamProjection,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceConfig,
   WorkspaceAgentWorkspaceOptions,
@@ -711,8 +712,25 @@ async function resolvedDriverMetadata<
 function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentInspectionConfigMetadata | undefined {
-  const driver = staticDriverMetadata(agentSettings(definition))
-  return driver ? { driver } : undefined
+  const settings = agentSettings(definition)
+  const driver = staticDriverMetadata(settings)
+  const uiMessageStream = typeof settings?.uiMessageStream === "function"
+    ? undefined
+    : settings?.uiMessageStream
+  return driver ? { driver, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
+}
+
+async function resolvedUiMessageStreamProjection<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
+): Promise<AgentUIMessageStreamProjection | undefined> {
+  const uiMessageStream = agentSettings(definition)?.uiMessageStream
+  return typeof uiMessageStream === "function"
+    ? await uiMessageStream(context)
+    : uiMessageStream
 }
 
 async function resolvedConfigMetadata<
@@ -723,7 +741,8 @@ async function resolvedConfigMetadata<
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentInspectionConfigMetadata | undefined> {
   const driver = await resolvedDriverMetadata(agentSettings(definition), context)
-  return driver ? { driver } : undefined
+  const uiMessageStream = await resolvedUiMessageStreamProjection(definition, context)
+  return driver ? { driver, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
 }
 
 function agentInspectionMetadata<
@@ -1447,6 +1466,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       invoker: selection.invoker,
     } as AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>
     const staticConfig = staticConfigMetadata(definition)
+    const uiMessageStream = await resolvedUiMessageStreamProjection(definition, context)
     const config = staticConfig && {
       driver: {
         ...staticConfig.driver,
@@ -1456,6 +1476,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
           context,
         ),
       },
+      ...(uiMessageStream ? { uiMessageStream } : {}),
     }
     return {
       files: [],

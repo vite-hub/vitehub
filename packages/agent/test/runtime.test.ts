@@ -8229,6 +8229,9 @@ describe("agent message protocol", () => {
       { id: "reasoning-1", type: "reasoning-start" },
       { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" },
       { id: "reasoning-1", type: "reasoning-end" },
+      { id: "reasoning-2", phase: "reasoning", type: "text-start" },
+      { delta: "private phased reasoning", id: "reasoning-2", type: "text-delta" },
+      { id: "reasoning-2", type: "text-end" },
       { id: "text-1", type: "text-start" },
       { delta: "public answer", id: "text-1", type: "text-delta" },
       { id: "text-1", type: "text-end" },
@@ -8272,7 +8275,10 @@ describe("agent message protocol", () => {
 
     expect(omitted).toEqual(chunks)
     expect(visible).toEqual(chunks)
-    expect(hiddenReasoning).toEqual(chunks.filter(chunk => !chunk.type.startsWith("reasoning-")))
+    expect(hiddenReasoning).toEqual(chunks.filter(chunk =>
+      !chunk.type.startsWith("reasoning-")
+      && chunk.id !== "reasoning-2",
+    ))
     expect(hiddenTools).toEqual(chunks.filter(chunk => !chunk.type.startsWith("tool-")))
     expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual([
       "visible",

@@ -195,10 +195,22 @@ function projectUiMessageStream(
   projection: AgentUIMessageStreamProjection | undefined,
 ): ReadableStream<unknown> {
   if (!projection) return stream
+  const reasoningTextIds = new Set<string>()
   return stream.pipeThrough(new TransformStream<unknown, unknown>({
     transform(chunk, controller) {
       const type = streamEventType(chunk)
-      if (projection.reasoning === "hidden" && type?.startsWith("reasoning-")) return
+      if (projection.reasoning === "hidden") {
+        if (type?.startsWith("reasoning-")) return
+        const text = chunk as { id?: unknown, phase?: unknown }
+        const id = typeof text.id === "string" ? text.id : undefined
+        if (type === "text-start" && id) {
+          reasoningTextIds.delete(id)
+          if (text.phase === "reasoning") reasoningTextIds.add(id)
+        }
+        const reasoning = text.phase === "reasoning" || Boolean(id && reasoningTextIds.has(id))
+        if (type === "text-end" && id) reasoningTextIds.delete(id)
+        if (reasoning) return
+      }
       if (projection.tools === "hidden" && type?.startsWith("tool-")) return
       controller.enqueue(chunk)
     },
@@ -216,17 +228,34 @@ function uiDataType(data: unknown): `data-${string}` {
 async function writeEventsToUiMessageStream(
   writer: AgentUIMessageStreamWriter,
   events: AsyncIterable<unknown>,
-  options: { onUsageRecord?: (usageRecord: AgentUsageRecord) => void } = {},
+  options: {
+    onUsageRecord?: (usageRecord: AgentUsageRecord) => void
+    projection?: AgentUIMessageStreamProjection
+  } = {},
 ) {
   const messageId = crypto.randomUUID()
   let textStarted = false
   let finished = false
+  const reasoningTextIds = new Set<string>()
   writer.write({ type: "start", messageId })
   for await (const event of events) {
     const usageRecord = usageRecordFromStreamChunk(event, events)
     if (usageRecord) options.onUsageRecord?.(usageRecord)
     const type = streamEventType(event)
     if (!type) continue
+    if (options.projection?.reasoning === "hidden") {
+      const text = event as { id?: unknown, phase?: unknown }
+      const id = typeof text.id === "string" ? text.id : undefined
+      if (type === "text-start" && id) {
+        reasoningTextIds.delete(id)
+        if (text.phase === "reasoning") reasoningTextIds.add(id)
+      }
+      const reasoning = type.startsWith("reasoning-")
+        || text.phase === "reasoning"
+        || Boolean(id && reasoningTextIds.has(id))
+      if (type === "text-end" && id) reasoningTextIds.delete(id)
+      if (reasoning) continue
+    }
     if (type === "text-delta") {
       const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
       if (typeof text !== "string" || !text) continue
@@ -288,6 +317,7 @@ export async function finalizeUiMessageStreamOutput(
       ? createAgentUIMessageStream({
           execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered, {
             onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
+            projection,
           }),
         })
       : createAgentUIMessageStream({

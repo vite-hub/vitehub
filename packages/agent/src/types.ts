@@ -1520,6 +1520,7 @@ export interface AgentInspectionDriverMetadata {
 
 export interface AgentInspectionConfigMetadata {
   driver: AgentInspectionDriverMetadata
+  uiMessageStream?: AgentUIMessageStreamProjection
 }
 
 export interface AgentInspectionMetadata {
