@@ -1,4 +1,5 @@
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
+import { createUIMessageStreamResponse } from "ai"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
@@ -21,6 +22,7 @@ import type {
 import type { Message } from "../messages.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
+type ToUIMessageStreamResponse = (...args: unknown[]) => Response
 
 export interface ProgressSummarySnapshot {
   activeTools: string[]
@@ -483,6 +485,7 @@ function isStreamResult(value: unknown): value is {
   fullStream?: AsyncIterable<unknown> | ReadableStream<unknown>
   stream?: AsyncIterable<unknown> | ReadableStream<unknown>
   toUIMessageStream?: ToUIMessageStream
+  toUIMessageStreamResponse?: ToUIMessageStreamResponse
 } {
   return isRecord(value)
     && (
@@ -511,6 +514,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
             return value
           }
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
+          const toUIMessageStreamResponse = result.toUIMessageStreamResponse && toUIMessageStream
           return cloneResult(result, {
             ...progressSummaryStreamOverrides(result, wrap),
             ...(toUIMessageStream
@@ -518,6 +522,17 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
                   toUIMessageStream: {
                     value: (...args: unknown[]) =>
                       wrap(toUIMessageStream(...args)),
+                    writable: true,
+                  },
+                }
+              : {}),
+            ...(toUIMessageStreamResponse
+              ? {
+                  toUIMessageStreamResponse: {
+                    value: (...args: unknown[]) => createUIMessageStreamResponse({
+                      ...(isRecord(args[0]) ? args[0] : {}),
+                      stream: wrap(toUIMessageStream(...args)) as ReadableStream<never>,
+                    }),
                     writable: true,
                   },
                 }

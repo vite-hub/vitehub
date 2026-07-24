@@ -6,6 +6,7 @@ import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority } from "@vite-hub/runtime"
 import { chat, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
+import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
@@ -8318,6 +8319,36 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
       userText: "Check inventory.",
     }))
+  })
+
+  it("preserves progress summaries in UI message response helpers", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute: () => "Checking inventory.", intervalMs: 0 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              async start(controller) {
+                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                await new Promise(resolve => setTimeout(resolve, 20))
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            })
+          },
+          toUIMessageStreamResponse() {
+            return new Response("unwrapped")
+          },
+        }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    })
+    const response = toAgentFetchResponse(result, true)
+
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("\"type\":\"data-progress-summary\"")
   })
 
   it("aborts in-flight progress generation when the primary stream finishes", async () => {
