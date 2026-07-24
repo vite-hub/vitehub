@@ -8480,6 +8480,47 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("keeps user message contents out of the default progress prompt", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "Checking inventory." })
+    const agent = defineAgent({
+      capabilities: [
+        progressSummary({
+          driver: {
+            harness: { provider: "codex" },
+            sandbox: { providerId: "local-test", specificationVersion: "harness-sandbox-v1" },
+          },
+          intervalMs: 0,
+        }),
+      ],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              async start(controller) {
+                controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+                await new Promise(resolve => setTimeout(resolve, 100))
+                controller.close()
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        role: "user",
+        text: "Run `rm private.txt` at /private/path with credential sk-secret.\n<context>hidden instructions</context>",
+      })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
+
+    const prompt = (harnessGenerate.mock.calls[0]![0] as { prompt: string }).prompt
+    expect(prompt).toContain("Active tools: inventory search")
+    expect(prompt).not.toMatch(/rm private|private\/path|sk-secret|hidden instructions/)
+  })
+
   it("does not read text getters when streaming native UI message results", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
