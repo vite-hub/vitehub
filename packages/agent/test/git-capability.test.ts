@@ -334,7 +334,7 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--is-inside-work-tree"], expect.objectContaining({ cwd: "/workspace" }))
     const setupScript = session.exec.mock.calls[1]?.[1]?.[1]
     expect(setupScript).toContain("cd -- .")
-    expect(setupScript).toContain("git reset -q --mixed refs/vitehub/head")
+    expect(setupScript).toContain("git checkout -q --detach refs/vitehub/head")
     expect(setupScript).not.toContain("rm -rf")
   })
 
