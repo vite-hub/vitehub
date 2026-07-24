@@ -419,6 +419,7 @@ describe("agent public types", () => {
               repository: "acme/app",
             },
           } satisfies RepositoryHostContextValue,
+          materialize: "./PULL_REQUEST.template.md",
         }),
         skills(),
         skills({ path: "skills/agent-browser", source: githubSource({ repo: "vercel/vercel-plugin", root: "skills/agent-browser" }) }),

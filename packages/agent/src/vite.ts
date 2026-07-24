@@ -7,6 +7,7 @@ import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deploym
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { markdownTemplateMaterializationPath } from "@vite-hub/markdown-template/vite"
 
 import { registerAgentInvocationStreamEndpoint } from "./vite/invocation-stream-endpoint.ts"
 import {
@@ -701,6 +702,198 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   const specifier = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
   return specifier.startsWith(".") ? specifier : `./${specifier}`
+}
+
+interface PositionedNode {
+  end: number
+  start: number
+  type: string
+  [key: string]: unknown
+}
+
+function isPositionedNode(value: unknown): value is PositionedNode {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && typeof (value as PositionedNode).type === "string"
+    && typeof (value as PositionedNode).start === "number"
+    && typeof (value as PositionedNode).end === "number",
+  )
+}
+
+function visitNodes(node: PositionedNode, visit: (node: PositionedNode) => void): void {
+  visit(node)
+  for (const value of Object.values(node)) {
+    if (isPositionedNode(value)) visitNodes(value, visit)
+    else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isPositionedNode(item)) visitNodes(item, visit)
+      }
+    }
+  }
+}
+
+function addBindingIdentifiers(value: unknown, bindings: Set<string>): void {
+  if (!isPositionedNode(value)) return
+  if (value.type === "Identifier" && typeof value.name === "string") {
+    bindings.add(value.name)
+    return
+  }
+  if (value.type === "Property") {
+    addBindingIdentifiers(value.value, bindings)
+    return
+  }
+  if (value.type === "RestElement") {
+    addBindingIdentifiers(value.argument, bindings)
+    return
+  }
+  if (value.type === "AssignmentPattern") {
+    addBindingIdentifiers(value.left, bindings)
+    return
+  }
+  for (const item of Array.isArray(value.elements) ? value.elements : []) addBindingIdentifiers(item, bindings)
+  for (const property of Array.isArray(value.properties) ? value.properties : []) addBindingIdentifiers(property, bindings)
+}
+
+function scopedBindings(node: PositionedNode): Set<string> {
+  const bindings = new Set<string>()
+  if (node.type.includes("Function")) {
+    addBindingIdentifiers(node.id, bindings)
+    for (const parameter of Array.isArray(node.params) ? node.params : []) addBindingIdentifiers(parameter, bindings)
+  }
+  if (node.type === "CatchClause") addBindingIdentifiers(node.param, bindings)
+  if (node.type === "Program" || node.type === "BlockStatement") {
+    for (const statement of Array.isArray(node.body) ? node.body : []) {
+      if (!isPositionedNode(statement)) continue
+      if (statement.type === "VariableDeclaration") {
+        for (const declaration of Array.isArray(statement.declarations) ? statement.declarations : []) {
+          if (isPositionedNode(declaration)) addBindingIdentifiers(declaration.id, bindings)
+        }
+      }
+      else if (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") {
+        addBindingIdentifiers(statement.id, bindings)
+      }
+    }
+  }
+  return bindings
+}
+
+function visitScopedNodes(
+  node: PositionedNode,
+  shadows: ReadonlySet<string>,
+  visit: (node: PositionedNode, shadows: ReadonlySet<string>) => void,
+): void {
+  const bindings = scopedBindings(node)
+  const nestedShadows = bindings.size ? new Set([...shadows, ...bindings]) : shadows
+  visit(node, nestedShadows)
+  for (const value of Object.values(node)) {
+    if (isPositionedNode(value)) visitScopedNodes(value, nestedShadows, visit)
+    else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isPositionedNode(item)) visitScopedNodes(item, nestedShadows, visit)
+      }
+    }
+  }
+}
+
+export function transformRepositoryHostContextMaterialization(
+  code: string,
+  parse: (code: string) => unknown,
+): string | undefined {
+  const program = parse(code)
+  if (!isPositionedNode(program)) return
+  const replacements: Array<{ end: number, start: number, value: string }> = []
+  const imports: string[] = []
+  const identifiers = new Set<string>()
+  const namedImports = new Set<string>()
+  const namespaceImports = new Set<string>()
+  let importPosition: number | undefined
+
+  visitNodes(program, (node) => {
+    if (node.type === "Identifier" && typeof node.name === "string") identifiers.add(node.name)
+    if (node.type !== "ImportDeclaration") return
+    const source = node.source
+    if (
+      !isPositionedNode(source)
+      || source.type !== "Literal"
+      || source.value !== "@vite-hub/agent/capabilities"
+      && source.value !== "vite-hub/agent/capabilities"
+    ) return
+    importPosition = Math.min(importPosition ?? node.start, node.start)
+    const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
+    for (const specifier of specifiers) {
+      if (!isPositionedNode(specifier)) continue
+      const local = specifier.local
+      if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") continue
+      if (specifier.type === "ImportNamespaceSpecifier") namespaceImports.add(local.name)
+      const imported = specifier.imported
+      if (
+        specifier.type === "ImportSpecifier"
+        && isPositionedNode(imported)
+        && imported.type === "Identifier"
+        && imported.name === "repositoryHostContext"
+      ) namedImports.add(local.name)
+    }
+  })
+  if (!namedImports.size && !namespaceImports.size) return
+
+  visitScopedNodes(program, new Set(), (node, shadows) => {
+    if (node.type !== "CallExpression") return
+    const callee = node.callee
+    const namedCall = isPositionedNode(callee)
+      && callee.type === "Identifier"
+      && typeof callee.name === "string"
+      && namedImports.has(callee.name)
+      && !shadows.has(callee.name)
+    const memberCall = isPositionedNode(callee)
+      && callee.type === "MemberExpression"
+      && callee.computed !== true
+      && isPositionedNode(callee.object)
+      && callee.object.type === "Identifier"
+      && typeof callee.object.name === "string"
+      && namespaceImports.has(callee.object.name)
+      && !shadows.has(callee.object.name)
+      && isPositionedNode(callee.property)
+      && callee.property.type === "Identifier"
+      && callee.property.name === "repositoryHostContext"
+    if (!namedCall && !memberCall) return
+    const argument = Array.isArray(node.arguments) ? node.arguments[0] : undefined
+    if (!isPositionedNode(argument) || argument.type !== "ObjectExpression") return
+    const properties = Array.isArray(argument.properties) ? argument.properties : []
+    for (const property of properties) {
+      if (!isPositionedNode(property) || property.type !== "Property" || property.computed === true) continue
+      const key = property.key
+      const name = isPositionedNode(key) && key.type === "Identifier"
+        ? key.name
+        : isPositionedNode(key) && key.type === "Literal"
+          ? key.value
+          : undefined
+      const value = property.value
+      if (name !== "materialize" || !isPositionedNode(value) || value.type !== "Literal" || typeof value.value !== "string") continue
+      let templateName = `__vitehubRepositoryHostContextTemplate${imports.length}`
+      while (identifiers.has(templateName)) templateName += "_"
+      identifiers.add(templateName)
+      const path = markdownTemplateMaterializationPath(value.value)
+      imports.push(`import ${templateName} from ${JSON.stringify(value.value)};`)
+      replacements.push({
+        end: value.end,
+        start: value.start,
+        value: `{ path: ${JSON.stringify(path)}, template: ${templateName} }`,
+      })
+    }
+  })
+
+  if (!replacements.length) return
+  replacements.push({
+    end: importPosition!,
+    start: importPosition!,
+    value: `${imports.join("\n")}\n`,
+  })
+  let transformed = code
+  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
+    transformed = transformed.slice(0, replacement.start) + replacement.value + transformed.slice(replacement.end)
+  }
+  return transformed
 }
 
 function generatedRuntimeHelpers(): string[] {
@@ -1507,6 +1700,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
+      const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+      const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
+        || /\/server\/agents\/.*\.(?:c|m)?[jt]s$/i.test(normalizedId)
+      if (agentDefinition) {
+        const materialization = transformRepositoryHostContextMaterialization(code, value => this.parse(value))
+        if (materialization) return materialization
+      }
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
       const definitions = discoverScheduledAgentDefinitions(resolved.root)
       return isScheduleRegistryId(id)

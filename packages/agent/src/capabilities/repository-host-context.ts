@@ -1,4 +1,4 @@
-import { defineCapability } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 import { requirePrimitive } from "./storage/shared.ts"
 
 import type {
@@ -11,6 +11,11 @@ import type {
 } from "../types.ts"
 import type { RepositoryHostClient, RepositoryHostProvider, RepositoryHostTarget } from "./repository-host.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+
+interface RepositoryHostContextMaterialization {
+  path: string
+  template: (context: Record<string, unknown>) => MaybePromise<string>
+}
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
@@ -182,6 +187,7 @@ export interface RepositoryHostContextOptions<
   context?: RepositoryHostContextInput | RepositoryHostContextResolver<TRuntimeConfig, Name>
   contextKey?: string
   id?: string
+  materialize?: string
   provider?: RepositoryHostProvider
   target?: RepositoryHostContextTarget | RepositoryHostContextTargetResolver<TRuntimeConfig, Name>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
@@ -888,6 +894,7 @@ function createRepositoryHostContext<
 >(
   options: RepositoryHostContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey } = {},
 ): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>> {
+  const materialization = options.materialize as string | RepositoryHostContextMaterialization | undefined
   const capabilityId = options.id || defaultRepositoryHostContextId
   const contextKey = options.contextKey || defaultRepositoryHostContextKey
   const recordedContexts = new WeakSet<AgentCapabilityContext<TRuntimeConfig, Name>["context"]>()
@@ -918,7 +925,7 @@ function createRepositoryHostContext<
     recordedContexts.add(context.context)
   }
 
-  return defineCapability({
+  return Object.assign(defineCapability({
     id: capabilityId,
     metadata: {
       contextKey,
@@ -927,7 +934,34 @@ function createRepositoryHostContext<
     prepare: recordContext,
     requires: options.target && !options.client ? [{ primitive: "repository-host" }] : undefined,
     triggers: options.triggers,
-  })
+    ...materialization
+      ? {
+          async workspace(context) {
+            if (typeof materialization === "string") {
+              throw new TypeError("[vitehub] repositoryHostContext() materialize paths require the ViteHub Agent plugin.")
+            }
+            await recordContext(context)
+            const value = context.context.get(contextKey)
+            if (value === undefined) return
+            if (!isAsyncRecord(value)) {
+              throw new Error("[vitehub] repositoryHostContext() could not resolve materialization data.")
+            }
+            return {
+              sources: {
+                [capabilityId]: {
+                  content: await materialization.template(await value.resolveAll()),
+                  materialize: "build",
+                  mount: "",
+                  workspacePath: materialization.path,
+                },
+              },
+            }
+          },
+        }
+      : {},
+  }), typeof materialization === "object"
+    ? { [workspaceMaterializationPathsSymbol]: [materialization.path] }
+    : {})
 }
 
 export const repositoryHostContext = Object.assign(createRepositoryHostContext, {

@@ -5,7 +5,11 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { Message } from "chat"
+import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
+import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
+
+import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
@@ -192,6 +196,111 @@ function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
 }
 
 describe("agent Vite plugin", () => {
+  it("bundles repository context templates into Vite builds", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(import.meta.dirname, ".repository-context-template-"))
+    const agents = join(root, "server", "agents")
+    const entry = join(agents, "reviewer.ts")
+    const template = join(agents, "PULL_REQUEST.template.md")
+    const outfile = join(root, "dist", "agent.mjs")
+    try {
+      await mkdir(agents, { recursive: true })
+      await writeFile(join(root, "package.json"), "{}", "utf8")
+      await writeFile(template, "# Pull request {{ pullRequest.number }}\n", "utf8")
+      await writeFile(entry, [
+        `"use server"`,
+        `import { repositoryHostContext as context } from "@vite-hub/agent/capabilities"`,
+        `const __vitehubRepositoryHostContextTemplate0 = "caller"`,
+        `void __vitehubRepositoryHostContextTemplate0`,
+        `export const local = (context: (options: unknown) => unknown) => context({ materialize: "./IGNORED.template.md" })`,
+        `export default () => [context({ materialize: "./PULL_REQUEST.template.md" })]`,
+        ``,
+      ].join("\n"), "utf8")
+
+      const runBuild = build as unknown as (config: unknown) => Promise<unknown>
+      const agentPlugin: unknown = hubAgent({ eval: false })
+      const markdownPlugin: unknown = hubMarkdownTemplate()
+      await runBuild({
+        build: {
+          emptyOutDir: true,
+          lib: { entry, fileName: () => "agent.mjs", formats: ["es"] },
+          minify: false,
+          outDir: join(root, "dist"),
+          rollupOptions: {
+            external: ["@vite-hub/agent/capabilities", "@vite-hub/markdown-template"],
+          },
+        },
+        logLevel: "silent",
+        plugins: [agentPlugin, markdownPlugin],
+        root,
+      })
+
+      await rm(template)
+      const output = await readFile(outfile, "utf8")
+      expect(output).toContain("# Pull request {{ pullRequest.number }}")
+      expect(output).toContain('path: "PULL_REQUEST.md"')
+      expect(output).toContain('materialize: "./IGNORED.template.md"')
+      expect(output).toMatch(/^"use server";/)
+      expect(output).not.toContain("readFile")
+      const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => [unknown] }
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [bundled.default()[0] as never],
+      }, {
+        capabilities: {},
+        memo: vi.fn(),
+        runtime: "unknown",
+        runtimeConfig: {},
+        waitUntil: vi.fn(),
+      }, {
+        context: {
+          pullRequest: {
+            pullRequest: {
+              apiUrl: "https://api.github.com/repos/acme/app/pulls/42",
+              number: 42,
+              source: {
+                mount: "app",
+                ref: "refs/pull/42/head",
+                repo: "acme/app",
+              },
+            },
+            repository: {
+              fullName: "acme/app",
+              name: "app",
+              owner: "acme",
+            },
+          },
+        } as never,
+      }, {
+        fs: {
+          exists: vi.fn(async () => false),
+          glob: vi.fn(async () => []),
+          list: vi.fn(async () => []),
+          materializeSources: vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] })),
+          readFile: vi.fn(async () => { throw new Error("missing") }),
+          search: vi.fn(async () => []),
+          stat: vi.fn(async () => { throw new Error("missing") }),
+        },
+        tools: {
+          inspect: vi.fn(() => ({})),
+          none: vi.fn(() => ({})),
+        },
+      } as never, "read", {
+        workspaceDefinition: {
+          name: "review",
+          sources: {},
+        },
+      })
+      expect(resolved.workspaceDefinition?.sources?.["repository-host-context"]).toMatchObject({
+        content: "# Pull request 42",
+        materialize: "build",
+        workspacePath: "PULL_REQUEST.md",
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 15_000)
+
   it("ignores generated ViteHub files in the Vite dev watcher", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
