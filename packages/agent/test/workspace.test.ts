@@ -247,6 +247,11 @@ describe("defineAgent workspace option", () => {
       id: "review-workspace",
       workspace: { sources: {} },
     })
+    const writeWorkspaceCapability = defineCapability({
+      id: "write-review-workspace",
+      requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
+      workspace: { sources: {} },
+    })
     const channelFactory = vi.fn(() => ({
       capabilities: [workspaceCapability],
       kind: "review",
@@ -260,23 +265,31 @@ describe("defineAgent workspace option", () => {
       channels: { review: channelFactory },
       driver: { run: () => "ok" },
     })
+    const writeAgent = defineAgent({
+      capabilities: [workspaceCapability, writeWorkspaceCapability],
+      driver: { run: () => "ok" },
+    })
     const baseAgent = defineAgent({
       driver: { run: () => "ok" },
     })
 
     expect(staticAgent).toMatchObject({
       __vitehubWorkspaceAgent: true,
-      __vitehubWorkspaceAgentOptions: { workspace: {} },
+      __vitehubWorkspaceAgentOptions: { workspace: { mode: "read" } },
     })
     expect(channelAgent).toMatchObject({
       __vitehubWorkspaceAgent: true,
-      __vitehubWorkspaceAgentOptions: { workspace: {} },
+      __vitehubWorkspaceAgentOptions: { workspace: { mode: "read" } },
       channels: {
         review: {
           capabilities: [workspaceCapability],
           kind: "review",
         },
       },
+    })
+    expect(writeAgent).toMatchObject({
+      __vitehubWorkspaceAgent: true,
+      __vitehubWorkspaceAgentOptions: { workspace: { mode: "write" } },
     })
     expect(channelFactory).toHaveBeenCalledOnce()
     expect(baseAgent).not.toHaveProperty("__vitehubWorkspaceAgent")

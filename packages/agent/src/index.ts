@@ -980,6 +980,13 @@ function capabilitiesContributeWorkspace(capabilities: unknown): boolean {
     && normalizeCapabilities(capabilities).some(capability => Boolean(capability.workspace))
 }
 
+function capabilitiesRequireWritableWorkspace(capabilities: unknown): boolean {
+  return Array.isArray(capabilities)
+    && normalizeCapabilities(capabilities).some(capability =>
+      capability.requires?.some(requirement => requirement.workspace?.mode === "write"),
+    )
+}
+
 function agentContributesWorkspace(options: {
   capabilities?: unknown
   channels?: AgentChannels
@@ -987,6 +994,15 @@ function agentContributesWorkspace(options: {
   if (capabilitiesContributeWorkspace(options.capabilities)) return true
   return Object.values(options.channels || {})
     .some(channel => capabilitiesContributeWorkspace(channel.capabilities))
+}
+
+function agentRequiresWritableWorkspace(options: {
+  capabilities?: unknown
+  channels?: AgentChannels
+}): boolean {
+  if (capabilitiesRequireWritableWorkspace(options.capabilities)) return true
+  return Object.values(options.channels || {})
+    .some(channel => capabilitiesRequireWritableWorkspace(channel.capabilities))
 }
 
 function defineBaseAgent<
@@ -1223,7 +1239,17 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
     capabilities: normalizedOptions.capabilities,
     channels,
   })
-    ? createWorkspaceAgentDefinition({ ...normalizedOptions, workspace: {} })
+    ? createWorkspaceAgentDefinition({
+        ...normalizedOptions,
+        workspace: {
+          mode: agentRequiresWritableWorkspace({
+            capabilities: normalizedOptions.capabilities,
+            channels,
+          })
+            ? "write"
+            : "read",
+        },
+      })
     : defineBaseAgent(normalizedOptions as never)
 }) as DefineAgent
 
