@@ -31,6 +31,38 @@ const keys = await docs.keys()
 const first = await docs.read(keys[0]!)
 ```
 
+Structured sources preserve record and metadata types through `useSource()`:
+
+```ts
+import type { Source } from "@vite-hub/source"
+
+interface Article {
+  author: string
+  cover: { key: string, mediaType: string }
+  title: string
+}
+
+interface ArticleMetadata {
+  revision: string
+}
+
+declare global {
+  interface ViteHubSourceMap {
+    articles: Source<`article_${string}`, Article, ArticleMetadata>
+  }
+}
+
+const article = await useSource("articles").get("article_123")
+article.data?.title
+article.metadata?.revision
+
+const articles = await useSource("articles").items()
+```
+
+Keep binary assets behind the Blob boundary and store a serializable reference in
+the record. This keeps ordinary record reads lazy while treating the structured
+data and its assets as one logical item.
+
 ## Used by
 
 [`@vite-hub/workspace`](../workspace/README.md) materializes Source output into workspace files. Use this package directly when you only need typed source loading and not a workspace file tree.

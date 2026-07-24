@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   clearSources,
   custom,
   defineSources,
   file,
+  registerSource,
   registerSources,
   useSource,
 } from "../src/index.ts"
@@ -43,7 +44,29 @@ describe("@vite-hub/source registry", () => {
     await expect(docs.exists("README.md")).resolves.toBe(true)
     await expect(docs.exists("missing.md" as any)).resolves.toBe(false)
     await expect(docs.list()).resolves.toEqual([{ key: "README.md", type: "file" }])
+    await expect(docs.items()).resolves.toMatchObject([{ key: "README.md" }])
     await expect(useSource("custom").get("data.json")).resolves.toMatchObject({ data: { ok: true } })
+  })
+
+  it("uses a source bulk reader when available", async () => {
+    const getItem = vi.fn()
+    const getItems = vi.fn(async () => [
+      { data: { title: "One" }, key: "one" },
+      { data: { title: "Two" }, key: "two" },
+    ])
+
+    registerSource("articles", custom({
+      name: "articles",
+      async getKeys() {
+        return ["one", "two"]
+      },
+      getItem,
+      getItems,
+    }))
+
+    await expect(useSource("articles").items()).resolves.toHaveLength(2)
+    expect(getItems).toHaveBeenCalledOnce()
+    expect(getItem).not.toHaveBeenCalled()
   })
 
   it("throws a source-specific error for missing registrations", () => {

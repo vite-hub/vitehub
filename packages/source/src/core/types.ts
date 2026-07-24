@@ -35,24 +35,32 @@ export interface SourceSearchHit {
   text: string
 }
 
-export interface SourceItem<TKey extends string = string> {
+export interface SourceItem<
+  TKey extends string = string,
+  TData = unknown,
+  TMetadata extends object = Record<string, unknown>,
+> {
   key: TKey
   path?: string
   content?: SourceContent
-  data?: unknown
+  data?: TData
   mediaType?: string
-  metadata?: Record<string, unknown>
+  metadata?: TMetadata
 }
 
-export interface Source<TKey extends string = string> {
+export interface Source<
+  TKey extends string = string,
+  TData = unknown,
+  TMetadata extends object = Record<string, unknown>,
+> {
   name: string
   cache?: false | SourceCacheOptions
   fingerprint?: unknown
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<TKey[]>
-  getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey>>
-  getItems?(ctx: SourceContext): Promise<SourceItem<TKey>[]>
-  getMeta?(key: TKey, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
+  getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>>
+  getItems?(ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>[]>
+  getMeta?(key: TKey, ctx: SourceContext): Promise<TMetadata | undefined>
   search?(query: SourceSearchQuery, ctx: SourceContext): Promise<SourceSearchHit[]>
   watch?: unknown[]
 }
@@ -68,23 +76,32 @@ declare global {
 
 export interface SourceMap extends ViteHubSourceMap {}
 
-type SourceKeyOf<TSource> = TSource extends Source<infer TKey> ? TKey : string
+type SourceKeyOf<TSource> = TSource extends Source<infer TKey, any, any> ? TKey : string
+type SourceDataOf<TSource> = TSource extends Source<any, infer TData, any> ? TData : unknown
+type SourceMetadataOf<TSource> = TSource extends Source<any, any, infer TMetadata> ? TMetadata : Record<string, unknown>
+type RegisteredSource<TName extends SourceName> =
+  TName extends keyof ViteHubSourceMap ? ViteHubSourceMap[TName] : Source
 
 export type SourceName = [keyof ViteHubSourceMap] extends [never] ? string : Extract<keyof ViteHubSourceMap, string>
 
 export type SourceKey<TName extends SourceName = SourceName> =
-  TName extends keyof ViteHubSourceMap
-    ? Extract<SourceKeyOf<ViteHubSourceMap[TName]>, string>
-    : string
+  Extract<SourceKeyOf<RegisteredSource<TName>>, string>
+
+export type SourceData<TName extends SourceName = SourceName> =
+  SourceDataOf<RegisteredSource<TName>>
+
+export type SourceMetadata<TName extends SourceName = SourceName> =
+  SourceMetadataOf<RegisteredSource<TName>>
 
 export interface SourceReader<TName extends SourceName = SourceName> {
   keys(): Promise<SourceKey<TName>[]>
-  get(key: SourceKey<TName>): Promise<SourceItem<SourceKey<TName>>>
+  get(key: SourceKey<TName>): Promise<SourceItem<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>>
+  items(): Promise<Array<SourceItem<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>>>
   read<TOptions extends ReadSourceOptions | undefined = undefined>(
     key: SourceKey<TName>,
     options?: TOptions
   ): Promise<ReadSourceResult<TOptions>>
-  meta(key: SourceKey<TName>): Promise<Record<string, unknown> | undefined>
+  meta(key: SourceKey<TName>): Promise<SourceMetadata<TName> | undefined>
   exists(key: SourceKey<TName>): Promise<boolean>
   list(prefix?: SourceKey<TName> | (string & {}) | ""): Promise<SourceListEntry<SourceKey<TName>>[]>
 }
