@@ -5,6 +5,7 @@ import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
+import { normalizeUiMessageStreamChunk } from "../stream-output.ts"
 
 import type {
   AgentAdapterRunContext,
@@ -409,23 +410,24 @@ function withProgressSummaryStream(
   }
 
   const observe = (chunk: unknown) => {
-    const type = eventType(chunk)
-    const phasedReasoning = isRecord(chunk)
-      && chunk.phase === "reasoning"
+    const event = normalizeUiMessageStreamChunk(chunk)
+    const type = eventType(event)
+    const phasedReasoning = isRecord(event)
+      && event.phase === "reasoning"
       && (type === "text-start" || type === "text-delta")
     if (type === "reasoning-delta" || type === "reasoning-summary-text-delta" || phasedReasoning) {
       reasoningActive = true
       dirty = true
     }
     else if (type === "tool-input-start" || type === "tool-call" || type === "tool-input-available") {
-      const id = eventToolId(chunk)
-      const name = eventToolName(chunk)
+      const id = eventToolId(event)
+      const name = eventToolName(event)
       if (id && name) activeTools.set(id, name)
       dirty = true
     }
     else if (type === "tool-result" || type === "tool-output-available" || type === "tool-error" || type === "tool-output-error") {
-      const id = eventToolId(chunk)
-      const name = eventToolName(chunk) || activeTools.get(id)
+      const id = eventToolId(event)
+      const name = eventToolName(event) || activeTools.get(id)
       if (id) activeTools.delete(id)
       if (name) completedTools.push(name)
       dirty = true

@@ -8220,9 +8220,16 @@ describe("agent message protocol", () => {
             return new ReadableStream({
               async start(controller) {
                 controller.enqueue({ delta: "Comparing /private/costs with credential sk-secret", type: "reasoning-delta" })
-                controller.enqueue({ id: "tool-1", toolName: "tool_portal_api", type: "tool-input-start" })
+                controller.enqueue({
+                  errorText: "An error occurred.",
+                  input: { argv: ["costs"] },
+                  toolCallId: "tool-1",
+                  toolMetadata: { vitehubCapabilityCli: true },
+                  toolName: "tool_portal_api",
+                  type: "tool-input-error",
+                })
                 await new Promise(resolve => setTimeout(resolve, 20))
-                controller.enqueue({ id: "tool-1", output: { internal: true }, toolName: "tool_portal_api", type: "tool-output-available" })
+                controller.enqueue({ output: { internal: true }, toolCallId: "tool-1", type: "tool-output-available" })
                 controller.enqueue({ delta: "answer", id: "text-1", type: "text-delta" })
                 controller.enqueue({ finishReason: "stop", type: "finish" })
                 controller.close()

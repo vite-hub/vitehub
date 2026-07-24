@@ -203,7 +203,7 @@ function isCapabilityCliInput(input: unknown): input is { argv: string[], input?
     && (record.json === undefined || typeof record.json === "boolean")
 }
 
-function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
+export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
   if (typeof chunk !== "object" || chunk === null) return chunk
   const record = chunk as Record<string, unknown>
   if (record.type !== "tool-input-error") return chunk
