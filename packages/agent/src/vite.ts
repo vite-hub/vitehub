@@ -723,7 +723,6 @@ function isPositionedNode(value: unknown): value is PositionedNode {
 
 function visitNodes(node: PositionedNode, visit: (node: PositionedNode) => void): void {
   visit(node)
-  if (node.type.includes("Function")) return
   for (const value of Object.values(node)) {
     if (isPositionedNode(value)) visitNodes(value, visit)
     else if (Array.isArray(value)) {
