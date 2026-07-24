@@ -351,7 +351,9 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
       await mkdir(join(root, "server", "agents", "support", "home", ".codex"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "digest.ts"), "export default {}", "utf8")
+      await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
+      await writeFile(join(root, "server", "agents", "digest", "instructions.md"), "Use digest instructions.\n", "utf8")
       await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ workspace: {} })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       await writeFile(join(root, "server", "agents", "support", "home", ".codex", "config.toml"), "model = 'codex'\n", "utf8")
@@ -375,6 +377,7 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
       expect(registry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { blob: vitehubBlob, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
       expect(registry).toContain('registry["agent/digest"]')
+      expect(registry).toContain('vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), "Use digest instructions.\\n")')
       expect(registry).not.toContain("withAgentDefaults")
       expect(registry).toContain('registry["agent/support"]')
       expect(registry).toContain('agentIdentity: {"name":"support","workspace":"support"}')
@@ -512,6 +515,47 @@ describe("agent Vite plugin", () => {
     expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
     expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
     expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+  })
+
+  it("regenerates Agent outputs when an imported instruction document changes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-instruction-update-"))
+    try {
+      const agentRoot = join(root, "server", "agents", "digest")
+      await mkdir(agentRoot, { recursive: true })
+      await writeFile(join(agentRoot, "agent.ts"), "export default {}", "utf8")
+      await writeFile(join(agentRoot, "instructions.md"), "@./tone.md\n", "utf8")
+      await writeFile(join(agentRoot, "tone.md"), "Use a concise tone.\n", "utf8")
+
+      const plugin = hubAgent({ eval: false })
+      const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
+      await configResolved({ command: "serve", plugins: [], root })
+      const generatedRouteModule = { id: "generated-route" }
+      const getModuleById = vi.fn((id: string) => id === join(root, ".vitehub/agent/chat-webhook-route.ts")
+        ? generatedRouteModule
+        : undefined)
+      const invalidateModule = vi.fn()
+      const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
+
+      await handleHotUpdate({
+        file: join(agentRoot, "tone.md"),
+        server: { moduleGraph: { getModuleById, invalidateModule } },
+      })
+
+      expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+
+      invalidateModule.mockClear()
+      await rm(join(agentRoot, "instructions.md"))
+      await handleHotUpdate({
+        file: join(agentRoot, "instructions.md"),
+        server: { moduleGraph: { getModuleById, invalidateModule } },
+      })
+
+      expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("materializes the MCP runtime package for Vercel build output", async () => {
@@ -1339,8 +1383,9 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-"))
     try {
-      await mkdir(join(root, "server", "agents"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent({ routes: { chat: true } })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { command: "serve", root } as never)
@@ -1349,7 +1394,8 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
-      expect(webhookRoute).toContain("withWorkspaceSourceRoot(resolveAgentModule")
+      expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
+      expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
       expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).toContain("const agentIdentities")
       expect(webhookRoute).toContain('"support": {"name":"support"}')
@@ -1791,7 +1837,7 @@ export default defineAgent({
 
       expect(denoServer).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
-      expect(denoServer).toContain("withWorkspaceSourceRoot(resolveAgentModule(agent0)")
+      expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
       expect(denoServer).toContain("workspaceRegistryEntry(\"support\", agent0")
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
