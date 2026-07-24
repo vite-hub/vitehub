@@ -11,15 +11,20 @@ export async function resolveVercelBox(
   options: VercelBoxOptions,
   requirements: readonly string[],
 ): Promise<Box> {
-  const { Sandbox } = await import("@vercel/sandbox");
+  const create = options.create ?? await loadVercelSandbox();
   return await resolveRemoteBoxRuntime(
     createVercelRuntime({
       ...options,
-      create: options.create ?? (async (createOptions: VercelSandboxCreateOptions) =>
-        await Sandbox.create(
-          createOptions as Parameters<typeof Sandbox.create>[0],
-        ) as unknown as VercelSandboxInstance),
+      create,
     }),
     requirements,
   );
+}
+
+async function loadVercelSandbox(): Promise<NonNullable<VercelBoxOptions["create"]>> {
+  const { Sandbox } = await import("@vercel/sandbox");
+  return async (createOptions: VercelSandboxCreateOptions) =>
+    await Sandbox.create(
+      createOptions as Parameters<typeof Sandbox.create>[0],
+    ) as unknown as VercelSandboxInstance;
 }

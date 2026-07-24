@@ -9,13 +9,17 @@ export async function resolveCloudflareBox(
   options: CloudflareBoxOptions,
   requirements: readonly string[],
 ): Promise<Box> {
-  const { getSandbox } = await import("@cloudflare/sandbox");
+  const getSandbox = options.getSandbox ?? await loadCloudflareSandbox();
   return await resolveRemoteBoxRuntime(
     createCloudflareRuntime({
       ...options,
-      getSandbox: options.getSandbox
-        ?? getSandbox as unknown as NonNullable<CloudflareBoxOptions["getSandbox"]>,
+      getSandbox,
     }),
     requirements,
   );
+}
+
+async function loadCloudflareSandbox(): Promise<NonNullable<CloudflareBoxOptions["getSandbox"]>> {
+  const { getSandbox } = await import("@cloudflare/sandbox");
+  return getSandbox as unknown as NonNullable<CloudflareBoxOptions["getSandbox"]>;
 }
