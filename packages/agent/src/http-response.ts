@@ -50,6 +50,44 @@ export function toAgentEventStreamResponse(stream: AsyncIterable<unknown>): Resp
   })
 }
 
+interface AgentUiMessageStreamResponseInit extends ResponseInit {
+  consumeSseStream?: (input: { stream: ReadableStream<string> }) => void
+  stream: ReadableStream<unknown>
+}
+
+export function toAgentUiMessageStreamResponse({
+  consumeSseStream,
+  headers,
+  stream,
+  ...init
+}: AgentUiMessageStreamResponseInit): Response {
+  let sseStream = stream.pipeThrough(new TransformStream<unknown, string>({
+    flush(controller) {
+      controller.enqueue("data: [DONE]\n\n")
+    },
+    transform(chunk, controller) {
+      controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`)
+    },
+  }))
+  if (consumeSseStream) {
+    const [responseStream, consumedStream] = sseStream.tee()
+    sseStream = responseStream
+    consumeSseStream({ stream: consumedStream })
+  }
+  const responseHeaders = new Headers({
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    "content-type": "text/event-stream",
+    "x-accel-buffering": "no",
+    "x-vercel-ai-ui-message-stream": "v1",
+  })
+  new Headers(headers).forEach((value, key) => responseHeaders.set(key, value))
+  return new Response(sseStream.pipeThrough(new TextEncoderStream()), {
+    ...init,
+    headers: responseHeaders,
+  })
+}
+
 export function toJsonSafeAgentResult(value: unknown) {
   if (typeof value !== "object" || value === null) {
     return value

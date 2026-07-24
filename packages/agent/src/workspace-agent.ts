@@ -25,7 +25,7 @@ import {
   composeInstructionDocument,
   resolveInstructionImports,
 } from "./instruction-composition.ts"
-import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "./internal/agent-driver.ts"
 
 import type {
   AgentAdapterMetadataContext,
@@ -703,9 +703,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const resolvedDriver = driver.resolve
-      ? { ...driver, ...await driver.resolve(), kind: "harness" as const }
-      : driver
+    const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
     const harness = harnessMetadata(resolvedDriver)
     return {
       executionAuthority: await resolvedDriverExecutionAuthority(settings.box, resolvedDriver, context),
