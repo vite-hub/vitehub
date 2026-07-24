@@ -315,7 +315,6 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   origin?: string
   reply?: boolean | AgentChannelDeliveryFinishEffect
   sourceMount?: string
-  sourceRef?: string
   threadId?: string
 }
 
@@ -649,7 +648,7 @@ function githubPullRequestRunContext(
       number: command.issueNumber,
       source: {
         mount: options.sourceMount || command.repo,
-        ref: options.sourceRef || `refs/pull/${command.issueNumber}/head`,
+        ref: `refs/pull/${command.issueNumber}/head`,
         repo: command.repository,
       },
       ...(maybeString(payload?.issue?.title) ? { title: maybeString(payload?.issue?.title) } : {}),

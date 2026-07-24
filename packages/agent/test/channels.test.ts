@@ -416,6 +416,7 @@ describe("agent channels", () => {
         pullRequest: {
           head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
           number: 42,
+          source: { ref: "refs/pull/42/head" },
         },
       })
     }
