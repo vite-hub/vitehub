@@ -130,6 +130,22 @@ function validateHarnessSandboxProviderInput(value: unknown): void {
   }
 }
 
+function configuredHarnessSandboxProvider<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  value: CodexDriverOptions<CALL_OPTIONS>["sandbox"],
+): AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined {
+  if (typeof value === "function") {
+    return value as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
+  }
+  if (!value || typeof value !== "object") return
+  const provider = value as { createSession?: unknown, specificationVersion?: unknown }
+  return typeof provider.createSession === "function" || provider.specificationVersion === "harness-sandbox-v1"
+    ? value as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
+    : undefined
+}
+
 function once<T>(resolve: () => Promise<T>): () => Promise<T> {
   let pending: Promise<T> | undefined
   return () => pending ??= resolve()
@@ -165,6 +181,7 @@ function normalizeBuiltInAgentDriver<
           : "codex",
       ],
       resolve,
+      sandbox: configuredHarnessSandboxProvider<TRuntimeConfig, CALL_OPTIONS>(options.sandbox),
       workDir: options.workDir as AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS> | undefined,
     }
   }

@@ -4515,6 +4515,36 @@ describe("defineAgent workspace option", () => {
     expect(metadata.config?.driver.executionAuthority).toBe(unknownExecutionAuthority)
   })
 
+  it("preserves tagged Codex sandbox authority in non-workspace Agent inspection metadata", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const executionAuthority = {
+      credentials: "provisioned",
+      environment: "selected",
+      filesystem: { access: "read-write", scope: "sandbox" },
+      isolation: "container",
+      network: "restricted",
+      processes: "arbitrary",
+    } as const
+    const agent = defineAgent({
+      driver: {
+        kind: "codex",
+        sandbox: {
+          executionAuthority,
+          providerId: "remote-test",
+          specificationVersion: "harness-sandbox-v1",
+        } as never,
+      },
+    })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(metadata.config?.driver.harness).toMatchObject({
+      provider: "codex",
+      sandboxProvider: "remote-test",
+    })
+    expect(metadata.config?.driver.executionAuthority).toEqual(executionAuthority)
+  })
+
   it("reports the resolved default local harness authority", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
