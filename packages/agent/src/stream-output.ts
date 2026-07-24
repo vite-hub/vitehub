@@ -1,7 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
 
-import type { AgentUsageRecord, MaybePromise } from "./types.ts"
+import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
 
 interface FinalizedStreamOutput<T> {
   deferFinish: boolean
@@ -190,6 +190,21 @@ export function normalizeUiMessageStream(stream: ReadableStream<unknown>): Reada
   }))
 }
 
+function projectUiMessageStream(
+  stream: ReadableStream<unknown>,
+  projection: AgentUIMessageStreamProjection | undefined,
+): ReadableStream<unknown> {
+  if (!projection) return stream
+  return stream.pipeThrough(new TransformStream<unknown, unknown>({
+    transform(chunk, controller) {
+      const type = streamEventType(chunk)
+      if (projection.reasoning === "hidden" && type?.startsWith("reasoning-")) return
+      if (projection.tools === "hidden" && type?.startsWith("tool-")) return
+      controller.enqueue(chunk)
+    },
+  }))
+}
+
 function uiDataType(data: unknown): `data-${string}` {
   const rawType = typeof data === "object" && data !== null && typeof (data as { type?: unknown }).type === "string"
     ? (data as { type: string }).type
@@ -258,6 +273,7 @@ export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
   finish: (outcome: StreamCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => MaybePromise<void>,
+  projection?: AgentUIMessageStreamProjection,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
@@ -266,7 +282,7 @@ export async function finalizeUiMessageStreamOutput(
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
   let streamedUsageRecord: AgentUsageRecord | undefined
-  const stream = normalizeUiMessageStream(hasUiMessageStream
+  const stream = projectUiMessageStream(normalizeUiMessageStream(hasUiMessageStream
     ? rendered.toUIMessageStream()
     : hasAsyncIterable
       ? createAgentUIMessageStream({
@@ -283,7 +299,7 @@ export async function finalizeUiMessageStreamOutput(
           writer.write({ type: "text-end", id: messageId })
           writer.write({ type: "finish", finishReason: "stop" })
         },
-  }))
+  })), projection)
   let streamedText = ""
   return {
     deferFinish: shouldWrapOutput,

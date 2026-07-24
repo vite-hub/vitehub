@@ -8222,6 +8222,65 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("projects reasoning and tool details per UI message stream invocation", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const chunks = [
+      { messageId: "assistant-1", type: "start" },
+      { id: "reasoning-1", type: "reasoning-start" },
+      { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" },
+      { id: "reasoning-1", type: "reasoning-end" },
+      { id: "text-1", type: "text-start" },
+      { delta: "public answer", id: "text-1", type: "text-delta" },
+      { id: "text-1", type: "text-end" },
+      { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" },
+      { output: "42", toolCallId: "tool-1", type: "tool-output-available" },
+      { finishReason: "stop", type: "finish" },
+    ]
+    const driver = {
+      run: () => ({
+        toUIMessageStream() {
+          return new ReadableStream<unknown>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk)
+              controller.close()
+            },
+          })
+        },
+      }),
+    }
+    const resolveProjection = vi.fn(({ input }) => {
+      if (input.prompt === "hide-reasoning") return { reasoning: "hidden" as const, tools: "full" as const }
+      if (input.prompt === "hide-tools") return { reasoning: "visible" as const, tools: "hidden" as const }
+      return { reasoning: "visible" as const, tools: "full" as const }
+    })
+    const agent = defineAgent({
+      driver,
+      uiMessageStream: resolveProjection,
+    })
+    const defaultAgent = defineAgent({ driver })
+    const collect = async (target: typeof agent, prompt: string) => {
+      const stream = await streamAgent(target, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const projected = []
+      for await (const chunk of stream) projected.push(chunk)
+      return projected
+    }
+
+    const omitted = await collect(defaultAgent, "omitted")
+    const visible = await collect(agent, "visible")
+    const hiddenReasoning = await collect(agent, "hide-reasoning")
+    const hiddenTools = await collect(agent, "hide-tools")
+
+    expect(omitted).toEqual(chunks)
+    expect(visible).toEqual(chunks)
+    expect(hiddenReasoning).toEqual(chunks.filter(chunk => !chunk.type.startsWith("reasoning-")))
+    expect(hiddenTools).toEqual(chunks.filter(chunk => !chunk.type.startsWith("tool-")))
+    expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual([
+      "visible",
+      "hide-reasoning",
+      "hide-tools",
+    ])
+  })
+
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {
     const { createUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

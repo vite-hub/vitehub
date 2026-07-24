@@ -344,6 +344,8 @@ export type {
   AgentUsageCredentialSource,
   AgentUsageCost,
   AgentUsageRecord,
+  AgentUIMessageStreamProjection,
+  AgentUIMessageStreamProjectionResolver,
   AgentWebhookRegistrationDefinition,
   AgentChannelWebhookRegistrationDefinition,
   AgentWorkflowRuntimeBinding,
@@ -982,7 +984,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, messages, name, output, runtime = defaultAgentWorkflowRuntime(), runEvents, version, workspace } = options
+  const { box, capabilities, cli, description, hooks, messages, name, output, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   if (box && driver.kind !== "harness") {
     throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
@@ -1045,6 +1047,7 @@ function defineBaseAgent<
     runtime,
     runEvents,
     run,
+    uiMessageStream,
     version,
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
@@ -2566,9 +2569,12 @@ async function executeAgentInvocation<
     const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
+      const projection = typeof definition?.uiMessageStream === "function"
+        ? await definition.uiMessageStream(invocation)
+        : definition?.uiMessageStream
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
         await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
-      })
+      }, projection)
     }
 
     const isStreamResult = hasTraceableStreamResult(rendered)
