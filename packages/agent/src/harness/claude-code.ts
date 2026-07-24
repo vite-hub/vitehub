@@ -10,14 +10,15 @@ import type {
   HarnessV1StreamPart,
 } from "@ai-sdk/harness"
 import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code"
-import type { AgentHarnessDriver, ClaudeCodeDriverOptions } from "../types.ts"
+import type { AgentHarnessDriver, AgentInvocationContextValues, AgentRuntimeConfig, ClaudeCodeDriverOptions } from "../types.ts"
 
 const claudeCodePackage = "@ai-sdk/harness-claude-code"
 
-export async function createClaudeCodeDriver(options: ClaudeCodeDriverOptions = {}): Promise<AgentHarnessDriver> {
+export async function createClaudeCodeDriver<TOutput = unknown>(options: ClaudeCodeDriverOptions<TOutput> = {}): Promise<AgentHarnessDriver<AgentRuntimeConfig, unknown, AgentInvocationContextValues, TOutput>> {
   const {
     credentials,
     env,
+    output,
     sandbox,
     ...settings
   } = options
@@ -25,6 +26,7 @@ export async function createClaudeCodeDriver(options: ClaudeCodeDriverOptions = 
   return {
     credentials: credentials ?? { label: "Claude Code", source: "ambient" },
     harness: await createClaudeCode(settings as ClaudeCodeHarnessSettings),
+    ...(output !== undefined ? { output } : {}),
     ...(sandbox === false
       ? {}
       : {

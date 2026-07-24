@@ -115,7 +115,7 @@ export type WorkspaceAgentOptions<
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
-  TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>,
+  TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>,
 > = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput, TDriver> & {
   name?: string
   workspace: WorkspaceAgentWorkspaceConfig<_Name>

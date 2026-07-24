@@ -971,12 +971,13 @@ export type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
   | LocalHarnessSandboxOptions
   | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
 
-export interface CodexDriverOptions<CALL_OPTIONS = unknown> {
+export interface CodexDriverOptions<CALL_OPTIONS = unknown, TOutput = unknown> {
   auth?: CodexAuthOptions
   credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
   instructions?: AgentHarnessInstructions<AgentRuntimeConfig, CALL_OPTIONS>
   model?: string
+  output?: AgentOutputDefinition<TOutput>
   port?: number
   reasoningEffort?: "low" | "medium" | "high"
   sandbox?: CodexDriverSandboxOptions<CALL_OPTIONS>
@@ -1006,12 +1007,13 @@ export type ClaudeCodeThinkingConfig =
     type: "disabled"
   }
 
-export interface ClaudeCodeDriverOptions {
+export interface ClaudeCodeDriverOptions<TOutput = unknown> {
   auth?: ClaudeCodeAuthOptions
   credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
   maxTurns?: number
   model?: string
+  output?: AgentOutputDefinition<TOutput>
   port?: number
   sandbox?: false | LocalHarnessSandboxOptions
   startupTimeoutMs?: number
@@ -1020,10 +1022,10 @@ export interface ClaudeCodeDriverOptions {
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
 
-export type BuiltInAgentDriver<CALL_OPTIONS = unknown> =
+export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   | BuiltInAgentDriverName
-  | ({ kind: "codex" } & CodexDriverOptions<CALL_OPTIONS>)
-  | ({ kind: "claude-code" } & ClaudeCodeDriverOptions)
+  | ({ kind: "codex" } & CodexDriverOptions<CALL_OPTIONS, TOutput>)
+  | ({ kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
 
 export type AgentHarnessSessionKey<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1069,6 +1071,7 @@ export type AgentHarnessSandboxProviderInput<
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TOutput = unknown,
 > {
   credentials?: never
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
@@ -1076,6 +1079,7 @@ export interface AgentModelDriver<
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
   model: AgentModelResolver<TRuntimeConfig>
+  output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
   run?: never
@@ -1088,6 +1092,7 @@ export interface AgentHarnessDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
 > {
   credentials?: AgentHarnessCredentialSource
   execution?: never
@@ -1095,6 +1100,7 @@ export interface AgentHarnessDriver<
   instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   kind?: never
   model?: never
+  output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
   requires?: readonly BoxRequirement[]
@@ -1108,6 +1114,7 @@ export interface AgentRunDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
 > {
   credentials?: never
   execution?: never
@@ -1115,6 +1122,7 @@ export interface AgentRunDriver<
   instructions?: never
   kind?: never
   model?: never
+  output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1127,20 +1135,22 @@ export type AgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
 > =
-  | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS>
-  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  | BuiltInAgentDriver<CALL_OPTIONS>
+  | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
+  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  | BuiltInAgentDriver<CALL_OPTIONS, TOutput>
 
 export type CustomAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
 > =
-  | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS>
-  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
+  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
+  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
 
 export interface AgentDefinitionCliOptions {
   capabilities?: boolean
@@ -1169,7 +1179,6 @@ type AgentSharedSettings<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
-  TOutput = unknown,
 > = {
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: TCapabilities
@@ -1180,7 +1189,6 @@ type AgentSharedSettings<
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
-  output?: AgentOutputDefinition<TOutput>
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1195,10 +1203,12 @@ export type AgentSettings<
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
-  TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>,
-> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput> & {
+  TDriver extends AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput> = AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>,
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
   driver: TDriver
 }
+
+declare const agentOutputType: unique symbol
 
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1207,6 +1217,7 @@ export interface AgentDefinition<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
+  [agentOutputType]?: TOutput
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
@@ -1217,7 +1228,6 @@ export interface AgentDefinition<
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
-  output?: AgentOutputDefinition<TOutput>
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
