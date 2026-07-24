@@ -1,4 +1,4 @@
-import { defineCapability } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 import { requirePrimitive } from "./storage/shared.ts"
 
 import type {
@@ -925,7 +925,7 @@ function createRepositoryHostContext<
     recordedContexts.add(context.context)
   }
 
-  return defineCapability({
+  return Object.assign(defineCapability({
     id: capabilityId,
     metadata: {
       contextKey,
@@ -942,6 +942,7 @@ function createRepositoryHostContext<
             }
             await recordContext(context)
             const value = context.context.get(contextKey)
+            if (value === undefined) return
             if (!isAsyncRecord(value)) {
               throw new Error("[vitehub] repositoryHostContext() could not resolve materialization data.")
             }
@@ -958,7 +959,9 @@ function createRepositoryHostContext<
           },
         }
       : {},
-  })
+  }), typeof materialization === "object"
+    ? { [workspaceMaterializationPathsSymbol]: [materialization.path] }
+    : {})
 }
 
 export const repositoryHostContext = Object.assign(createRepositoryHostContext, {
