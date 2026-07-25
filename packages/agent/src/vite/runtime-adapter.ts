@@ -2,11 +2,13 @@ import { existsSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { agentWithColocatedInstructions } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentHome } from "./colocated-agent-home.ts"
+import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -64,7 +66,13 @@ export async function loadViteAgent(
 ): Promise<LoadedViteAgent | undefined> {
   const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
   const agent = withColocatedAgentHome(
-    withColocatedAgentSkills(resolveAgentModule(module), colocatedSkills(definition.handler)),
+    withColocatedAgentSkills(
+      agentWithColocatedInstructions(
+        resolveAgentModule(module),
+        await readColocatedAgentInstructions(definition.handler),
+      ),
+      colocatedSkills(definition.handler),
+    ),
     colocatedHome(definition.handler),
   )
   if (!agent) return

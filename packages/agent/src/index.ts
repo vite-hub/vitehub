@@ -129,6 +129,7 @@ import type {
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
+  AgentModelDriver,
   AgentOutputDefinition,
   AgentModelResolver,
   AgentRegistry,
@@ -436,6 +437,7 @@ const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+const baseAgentDefinitionResolve = Symbol.for("vitehub.baseAgentDefinitionResolve")
 const baseAgentBoxRequirements = Symbol.for("vitehub.baseAgentBoxRequirements")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
 type WorkspaceSourceNames<TWorkspace> =
@@ -1111,6 +1113,9 @@ function defineBaseAgent<
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })
+  Object.defineProperty(definition, baseAgentDefinitionResolve, {
+    value: definition.resolve,
+  })
   return definition
 }
 
@@ -1310,6 +1315,36 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
       })
     : defineBaseAgent(normalizedOptions as never)
 }) as DefineAgent
+
+export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
+  if (!instructions || !hasAgentDefinition(agent)) return agent
+  const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
+  if (!settings || settings.workspace) return agent
+  const driver = normalizeAgentDriver(settings)
+  if (driver.kind !== "model" || driver.instructions !== undefined) return agent
+  const definition = defineAgent({
+    ...settings,
+    driver: {
+      ...(settings.driver as AgentModelDriver),
+      instructions,
+    },
+  } as never) as Agent
+  const decorations = Object.getOwnPropertyDescriptors(agent as object)
+  delete decorations.__vitehubAgentSettings
+  Reflect.deleteProperty(decorations, baseAgentResolve)
+  Reflect.deleteProperty(decorations, baseAgentModel)
+  Reflect.deleteProperty(decorations, baseAgentDriverKind)
+  Reflect.deleteProperty(decorations, baseAgentDefinitionResolve)
+  if (
+    (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown }).resolve
+    === (agent as AgentDefinition & { [baseAgentDefinitionResolve]?: unknown })[baseAgentDefinitionResolve]
+  ) {
+    delete decorations.resolve
+  }
+  Object.setPrototypeOf(definition as object, Object.getPrototypeOf(agent as object))
+  Object.defineProperties(definition as object, decorations)
+  return definition
+}
 
 export async function resolveAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,

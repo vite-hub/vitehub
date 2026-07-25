@@ -43,6 +43,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "  return Response.json({",
       "    agent: agent.description,",
       "    agentIdentity: options.agentIdentity,",
+      "    driverInstructions: agent.__vitehubAgentSettings?.driver?.instructions,",
       "    hasState: Boolean(state),",
       "    instructions: agent.sources?.__vitehubAgentInstructions?.content,",
       "    kind,",
@@ -123,11 +124,12 @@ async function createDeploymentRuntimeFixture(adapter: "deno" | "netlify" | "nit
       "import { defineAgent } from '@vite-hub/agent'",
       "export default defineAgent({",
       "  description: 'reviewer',",
-      "  driver: { run: async () => ({ text: 'reviewer' }) },",
+      "  driver: { model: {} },",
       "  runtime: false,",
       "})",
       "",
     ].join("\n"), "utf8")
+    await writeFile(join(reviewerRoot, "instructions.md"), "Review the deployment catalog.\n", "utf8")
   }
   if (adapter === "deno") {
     await mkdir(join(root, ".vitehub", "schedule"), { recursive: true })
@@ -276,6 +278,7 @@ describe("generated Agent deployment catalog", () => {
     await expect((await runtime!.request("reviewer", "chat")).json()).resolves.toMatchObject({
       agent: "reviewer",
       agentIdentity: { name: "reviewer" },
+      driverInstructions: "Review the deployment catalog.\n",
       kind: "chat",
       runtime: "vite",
     })
@@ -309,7 +312,10 @@ describe("generated Agent deployment catalog", () => {
     const sources = workspace.sources as Record<string, { content: string }> | undefined
     const skills = workspace[Symbol.for("vitehub.agent.colocatedSkills")] as Record<string, { content: Uint8Array }> | undefined
     const box = workspace.box as { home?: { files?: Record<string, { contents: Uint8Array }> } } | undefined
-    const settings = Object.getOwnPropertyDescriptor(workspace, "__vitehubAgentSettings")?.value as { box?: unknown } | undefined
+    const settings = Object.getOwnPropertyDescriptor(workspace, "__vitehubAgentSettings")?.value as {
+      box?: unknown
+      driver?: { instructions?: unknown }
+    } | undefined
 
     expect(workspace.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
     expect(sources?.__vitehubAgentInstructions).toMatchObject({
@@ -320,6 +326,7 @@ describe("generated Agent deployment catalog", () => {
     expect(new TextDecoder().decode(skills?.["__vitehubAgentSkill:skills/review/SKILL.md"]?.content)).toBe("# Review\n")
     expect(box?.home?.files?.[".codex/config.bin"]?.contents).toEqual(Uint8Array.from([0, 255, 42]))
     expect(settings?.box).toBe(box)
+    expect(settings?.driver?.instructions).toBeUndefined()
     await expect((await runtime!.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
       instructions: "Support the deployment catalog.\n",
       skill: "# Review\n",
