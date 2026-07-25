@@ -1,11 +1,10 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy"
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
 import { resolveConfigValue } from "../config-value.ts"
 
-import type { RuntimeDrizzleDatabaseConfig } from "../types.ts"
+import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
 interface D1PreparedStatement {
   bind: (...params: unknown[]) => {
@@ -19,8 +18,6 @@ interface D1DatabaseLike {
   batch: (statements: unknown[]) => Promise<Array<{ results: Record<string, unknown>[] }>>
   prepare: (query: string) => D1PreparedStatement
 }
-
-export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema>
 
 interface LibsqlClientFactory {
   createClient: (options: { authToken?: string, url: string }) => unknown

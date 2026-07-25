@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file -- selected through the package import's default condition
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 

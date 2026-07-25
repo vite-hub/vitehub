@@ -9,10 +9,9 @@ import databaseEntries from "#vitehub/database/databases"
 import {
   createDrizzleSqliteAdapter,
   isRemoteSqliteUrl,
-  type RuntimeDrizzleDatabase,
 } from "./drizzle-adapter.ts"
 
-import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 
 function resolveLocalSqliteUrl(url: string) {
   if (url === ":memory:" || isRemoteSqliteUrl(url)) {
