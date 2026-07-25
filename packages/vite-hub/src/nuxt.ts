@@ -66,21 +66,21 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     mode: nuxt.options.dev ? "development" : "production",
   } as const
   const serverDirs = nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined
-  let config: UserConfig & {
-    [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
-    [VITEHUB_SERVER_DIRS]?: string[]
-    nitro?: Record<string, unknown>
-  } = {
-    [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-    ...(serverDirs ? { [VITEHUB_SERVER_DIRS]: serverDirs } : {}),
-    build: {},
-    nitro: nitroConfig,
+  let config = mergeConfig({
     resolve: {
       alias: nuxt.options.alias,
     },
     root: nuxt.options.srcDir || nuxt.options.rootDir || process.cwd(),
-    server: {},
+  }, nuxt.options.vite ?? {}) as UserConfig & {
+    [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_SERVER_DIRS]?: string[]
+    nitro?: Record<string, unknown>
   }
+  config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+  if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
+  config.build ??= {}
+  config.nitro = nitroConfig
+  config.server ??= {}
 
   for (const plugin of plugins) {
     const handler = configHandler(plugin)

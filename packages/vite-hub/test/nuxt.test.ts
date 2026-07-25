@@ -258,6 +258,25 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it("replays configured Nuxt Vite options into Nitro hooks", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options.vite, {
+      root: "/tmp/vitehub-nuxt/custom-vite-root",
+      workspace: false,
+    })
+
+    viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook({})
+
+    expect(mocks.agentHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        root: "/tmp/vitehub-nuxt/custom-vite-root",
+        workspace: false,
+      }),
+      expect.anything(),
+    )
+  })
+
   it("does not concatenate complete Nitro arrays returned by config hooks", async () => {
     mocks.vitehub.mockReturnValue([
       {
