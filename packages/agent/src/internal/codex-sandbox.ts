@@ -1,6 +1,7 @@
 import type { AgentHarnessDriver, AgentHarnessSandboxProviderInput } from "../types.ts"
 
 const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
+const absoluteCodexBootstrapDir = "/tmp/harness/codex"
 const localCodexBootstrapDir = "tmp/harness/codex"
 
 function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, bootstrapDir?: string, codexHome?: string): T {
@@ -17,8 +18,14 @@ function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: 
       if (property === "run" || property === "spawn") {
         return (options: { command: string, env?: Record<string, string | undefined> }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
           ...options,
-          command: options.command.replaceAll("/tmp/harness/codex", anchoredBootstrapDir),
+          command: options.command.replaceAll(absoluteCodexBootstrapDir, anchoredBootstrapDir),
           ...(isolateHome ? { env: { ...options.env, CODEX_HOME: anchoredCodexHome } } : {}),
+        } as never)
+      }
+      if (property === "readTextFile" || property === "writeTextFile") {
+        return (options: { path: string }) => (target as T & Record<"readTextFile" | "writeTextFile", (options: never) => unknown>)[property]({
+          ...options,
+          path: options.path.replaceAll(absoluteCodexBootstrapDir, anchoredBootstrapDir),
         } as never)
       }
       const value = Reflect.get(target, property, receiver)
