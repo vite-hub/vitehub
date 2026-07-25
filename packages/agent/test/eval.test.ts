@@ -438,12 +438,24 @@ describe("agent eval", () => {
   it("applies model variants by replacing harness drivers for workspace agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
+    const validate = vi.fn((value: unknown) => ({ value }))
+    const output = {
+      schema: {
+        "~standard": {
+          validate,
+          vendor: "vitehub-test",
+          version: 1 as const,
+        },
+      },
+    }
     const variantModel = { id: "variant" }
+    agentGenerate.mockResolvedValue({ finishReason: "stop", text: "{\"ok\":true}" })
 
     defineEval({
       agent: defineAgent({
         driver: {
           harness: { provider: "codex" },
+          output,
         },
         workspace: {},
       }),
@@ -458,6 +470,7 @@ describe("agent eval", () => {
     expect(agentSettings.at(-1)).toMatchObject({
       model: variantModel,
     })
+    expect(validate).toHaveBeenCalledWith({ ok: true })
   })
 
   it("applies replacement instruction variants for base agents", async () => {

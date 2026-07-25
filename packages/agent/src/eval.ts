@@ -158,10 +158,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function variantModelDriver(variant: AgentEvalVariant): Record<string, unknown> {
+function variantModelDriver(
+  variant: AgentEvalVariant,
+  output?: unknown,
+): Record<string, unknown> {
   return {
     ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
     model: variant.model,
+    ...(output !== undefined ? { output } : {}),
   }
 }
 
@@ -180,7 +184,7 @@ function applyVariantToExplicitDriver(
     }
   }
   if ("harness" in driver && variant.model !== undefined) {
-    return variantModelDriver(variant)
+    return variantModelDriver(variant, driver.output)
   }
   throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
 }
