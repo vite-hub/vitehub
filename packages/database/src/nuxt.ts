@@ -67,19 +67,20 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     installVitePlugin(viteConfig, { ...resolvedOptions, projectRoot: root })
 
     const d1 = resolveDatabaseNuxtD1Options(resolvedOptions, nuxtOptions)
-    if (!d1) return
-
-    mergeNuxtContentConfig(nuxtOptions, d1)
-    mergeNitroCloudflareConfig(nuxtOptions, d1)
-
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
       hook("nitro:config", (config) => {
         if (!nuxtOptions.dev) mergeNitroHostedCondition(config)
-        mergeNitroRuntimeContentConfig(config, d1)
-        mergeNitroConfigCloudflareConfig(config, d1)
+        if (d1) {
+          mergeNitroRuntimeContentConfig(config, d1)
+          mergeNitroConfigCloudflareConfig(config, d1)
+        }
       })
     }
+
+    if (!d1) return
+    mergeNuxtContentConfig(nuxtOptions, d1)
+    mergeNitroCloudflareConfig(nuxtOptions, d1)
   } as DatabaseNuxtModule
 
   module.getMeta = () => ({

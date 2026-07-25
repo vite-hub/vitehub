@@ -43,8 +43,8 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
   }
 
   const name = options.name?.trim() || "default"
-  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
-    throw new TypeError("`defineDatabase().name` must use letters, numbers, dots, underscores, or dashes.")
+  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(name)) {
+    throw new TypeError("`defineDatabase().name` must be a normalized path using letters, numbers, dots, underscores, or dashes.")
   }
 
   const definition: DatabaseDefinition<TSchema> = {

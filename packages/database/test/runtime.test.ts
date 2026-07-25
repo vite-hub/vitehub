@@ -276,6 +276,16 @@ describe("database definition runtime", () => {
     expect(await database.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "definition note" }])
   })
 
+  it("accepts normalized nested database names", async () => {
+    const { defineDatabase } = await import("../src/definition.ts")
+    const database = defineDatabase({
+      name: "billing/archive",
+      schema: {},
+    })
+
+    expect(database.name).toBe("billing/archive")
+  })
+
   it("uses the definition's active Cloudflare binding in hosted mode", async () => {
     const binding = createFakeD1Binding()
     setActiveCloudflareEnv({ DB_ANALYTICS: binding })

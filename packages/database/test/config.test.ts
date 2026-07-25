@@ -16,8 +16,8 @@ async function createTempProject() {
 
 async function writeDefinition(rootDir: string, path: string, tables = "notes", options: { cloudflare?: string, connection?: string } = {}) {
   const file = join(rootDir, path)
-  const name = /(?:^|\/)src\/([^/]+)\.database\./.exec(path)?.[1]
-    ?? /(?:^|\/)server\/databases\/([^/]+)\/config\./.exec(path)?.[1]
+  const name = /(?:^|\/)src\/(.+)\.database\./.exec(path)?.[1]
+    ?? /(?:^|\/)server\/databases\/(.+)\/config\./.exec(path)?.[1]
     ?? "default"
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
@@ -61,6 +61,15 @@ describe("discoverDatabaseDefinitions", () => {
     expect(discoverDatabaseDefinitions(rootDir)).toEqual([
       expect.objectContaining({ handler: analytics, mode: "named", name: "analytics", tableNames: ["events"] }),
       expect.objectContaining({ handler: tenant, mode: "named", name: "tenant", tableNames: ["accounts"] }),
+    ])
+  })
+
+  it("discovers nested named database definitions", async () => {
+    const rootDir = await createTempProject()
+    const archive = await writeDefinition(rootDir, "server/databases/billing/archive/config.ts", "invoices")
+
+    expect(discoverDatabaseDefinitions(rootDir)).toEqual([
+      expect.objectContaining({ handler: archive, mode: "named", name: "billing/archive", tableNames: ["invoices"] }),
     ])
   })
 

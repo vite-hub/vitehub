@@ -213,6 +213,21 @@ describe("Database Nuxt integration", () => {
     })
   })
 
+  it("selects the hosted definition runtime in production without a D1 bridge", async () => {
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      rootDir: "/tmp/vitehub-db-nuxt-hosted",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = { exportConditions: ["node"] }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "node"])
+  })
+
   it("can be disabled from top-level Nuxt database config", async () => {
     const { nuxt } = createNuxt({
       database: false,
