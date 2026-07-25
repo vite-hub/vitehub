@@ -64,6 +64,19 @@ describe("discoverDatabaseDefinitions", () => {
     ])
   })
 
+  it("rejects a definition name that does not match its discovered identity", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/analytics/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ name: 'default', schema: {} })",
+      "",
+    ].join("\n"))
+
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow('must set `name: "analytics"`')
+  })
+
   it("discovers Vite default and suffix database definitions", async () => {
     const rootDir = await createTempProject()
     const analytics = await writeDefinition(rootDir, "src/analytics.database.ts", "events")

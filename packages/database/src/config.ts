@@ -167,6 +167,10 @@ function readDefinitionConnectionConfig(file: string) {
 }
 
 function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): DiscoveredDatabaseDefinition {
+  const configuredName = readStringValue(readDefinitionObjectBody(file), "name")?.trim() || "default"
+  if (configuredName !== name) {
+    throw new Error(`[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.`)
+  }
   return {
     handler: file,
     mode,

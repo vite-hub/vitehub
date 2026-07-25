@@ -50,7 +50,7 @@ export default defineDatabase({
     binding: 'DB',
     databaseName: 'app',
   },
-  tables: { notes },
+  schema: { notes },
 })
 ```
 

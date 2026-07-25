@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-file -- selected through the package import's default condition
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 
@@ -17,6 +16,7 @@ function resolveLocalUrl(url: string) {
   return url
 }
 
+/** @public Selected by the package import's default condition. */
 export function createDefinitionRuntime<TSchema extends Record<string, unknown>>(
   definition: DatabaseDefinition<TSchema>,
 ): RuntimeDrizzleDatabase<TSchema> {

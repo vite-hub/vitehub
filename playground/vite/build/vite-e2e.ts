@@ -1260,7 +1260,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
 
   await bundleEsmEntry(workerEntry, resolve(outputRoot, "index.js"), {
     alias: artifacts.alias,
-    conditions: ["workerd", "worker", "browser", "default"],
+    conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"],
     external: [
       "@vercel/blob",
       "@vercel/queue",
@@ -1362,6 +1362,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
 
   await bundleEsmEntry(sourceEntry, resolve(serverDir, "index.mjs"), {
     alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
+    conditions: ["vitehub-hosted", "node", "default"],
     external: [
       "askweb",
       "cloudflare:workers",
