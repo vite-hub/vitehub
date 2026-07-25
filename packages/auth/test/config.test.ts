@@ -62,6 +62,18 @@ describe("discoverAuthDefinition", () => {
     })
   })
 
+  it("discovers Auth from an explicit framework server directory", async () => {
+    const rootDir = await createTempProject()
+    const serverDir = join(rootDir, "backend")
+    const file = await writeAuth(rootDir, "backend/auth.ts", [])
+
+    expect(discoverAuthDefinition(join(rootDir, "app"), { serverDirs: [serverDir] })).toEqual({
+      handler: file,
+      name: "default",
+      source: "server-auth",
+    })
+  })
+
   it("rejects duplicate Auth Definitions", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [])

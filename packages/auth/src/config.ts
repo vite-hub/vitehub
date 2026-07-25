@@ -262,10 +262,14 @@ function readAuthSecondaryStorageConfig(body: string | undefined, allowRuntimeVa
   }
 }
 
-export function resolveAuthViteConfig(options?: AuthModuleOptions, rootDir: string = process.cwd()): ResolvedAuthViteConfig | undefined {
+export function resolveAuthViteConfig(
+  options?: AuthModuleOptions,
+  rootDir: string = process.cwd(),
+  discovery: { serverDirs?: string[] } = {},
+): ResolvedAuthViteConfig | undefined {
   if (options === false) return
 
-  const definition = discoverAuthDefinition(rootDir)
+  const definition = discoverAuthDefinition(rootDir, discovery)
   if (!definition) return
 
   const definitionObject = readDefinitionObjectBody(definition.handler)

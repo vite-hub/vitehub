@@ -1326,11 +1326,12 @@ async function generateAgentNetlifyFunctionRouteHandler(
 async function writeAgentWebhookRouteHandler(
   root: string,
   options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
@@ -1420,11 +1421,12 @@ async function generateAgentDiscordGatewayRouteHandler(
 async function writeAgentDiscordGatewayRouteHandler(
   root: string,
   options: { discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDiscordGatewayRouteHandler)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentDiscordGatewayRouteHandler(definitions, handlerPath, options), "utf8")
@@ -1527,11 +1529,12 @@ async function generateAgentDenoServer(
 async function writeAgentDenoServer(
   root: string,
   options: { chatRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDenoServer)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   const scheduleRegistryImport = options.schedule
     ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
@@ -1553,11 +1556,12 @@ async function writeAgentDenoServer(
 async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
   options: { chatRoute?: false | string, discordGatewayRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   const scheduleRegistryImport = options.schedule
     ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
@@ -1595,6 +1599,7 @@ async function writeNetlifyAgentProviderOutput(
   config: ResolvedConfig,
   options: ResolvedAgentModuleOptions,
   generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
+  serverDirs?: string[],
 ): Promise<void> {
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(config.root, {
     ...generatedOptions,
@@ -1602,7 +1607,7 @@ async function writeNetlifyAgentProviderOutput(
     discordGatewayRoute: options.routes.discordGateway,
     libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options, config),
     webhookRoute: options.routes.webhooks,
-  })
+  }, serverDirs)
   await writeProviderDeploymentOutputs({
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
@@ -1647,11 +1652,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let resolved: ResolvedConfig | undefined
+  let serverDirs: string[] | undefined
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
     const schedule = hasScheduleVitePlugin(config)
-    const hasHostedAgents = hasHostedAgentDefinitions(config.root)
+    const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     if (normalized && hasHostedAgents) {
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(config.root, {
@@ -1665,7 +1671,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        })
+        }, serverDirs)
       }
       else {
         await writeAgentWebhookRouteHandler(config.root, {
@@ -1681,7 +1687,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        })
+        }, serverDirs)
         if (normalized.routes.discordGateway) {
           await writeAgentDiscordGatewayRouteHandler(config.root, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
@@ -1694,7 +1700,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
             webhookRoute: normalized.routes.webhooks,
-          })
+          }, serverDirs)
         }
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
@@ -1708,7 +1714,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-          })
+          }, serverDirs)
         }
       }
     }
@@ -1791,7 +1797,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     config(config) {
       agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
-      const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(resolve(config.root || process.cwd()), serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
@@ -1877,7 +1883,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (!resolved || resolved.command !== "build") return
         const normalized = normalizeAgentOptions(agent)
         if (normalized && normalized.runtime === "deno") return
-        if (normalized && hasHostedAgentDefinitions(resolved.root) && isNetlifyHosting(resolved)) {
+        if (normalized && hasHostedAgentDefinitions(resolved.root, serverDirs) && isNetlifyHosting(resolved)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
             libsqlState: resolveLibsqlAgentState(normalized, resolved),
@@ -1888,7 +1894,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-          })
+          }, serverDirs)
         } else if (isNetlifyHosting(resolved)) {
           await cleanupNetlifyAgentProviderOutput(resolved)
         }

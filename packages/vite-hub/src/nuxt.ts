@@ -127,6 +127,10 @@ export default function viteHubNuxtModule(options: Parameters<typeof vitehub>[0]
   const installedPlugins = plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin)
 
   nuxt.options.vite ??= {}
+  const viteConfig = nuxt.options.vite as UserConfig & {
+    [VITEHUB_SERVER_DIRS]?: string[]
+  }
+  if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
   nuxt.options.vite.plugins = [
     ...plugins.filter(plugin => !existingNames.has(plugin.name)),
     ...existing,

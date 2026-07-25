@@ -153,6 +153,9 @@ describe("ViteHub Nuxt integration", () => {
 
     viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
+    expect((nuxt.options.vite as typeof nuxt.options.vite & {
+      [VITEHUB_SERVER_DIRS]?: string[]
+    })[VITEHUB_SERVER_DIRS]).toEqual(["/tmp/vitehub-nuxt/custom-server"])
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
