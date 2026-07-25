@@ -4177,7 +4177,9 @@ describe("defineAgent workspace option", () => {
 
     expect(toolResolver).toHaveBeenCalledTimes(1)
     const resolvedShell = (agentSettings.at(-1)?.tools as { shell?: typeof shell } | undefined)?.shell
-    expect(resolvedShell).toEqual(expect.objectContaining({ inputSchema: {} }))
+    expect(resolvedShell).toEqual(expect.objectContaining({
+      inputSchema: { schema: {}, type: "json-schema" },
+    }))
     await resolvedShell?.execute({ command: "rg defineAgent" })
     expect(shell.execute).toHaveBeenCalledWith({ command: "rg defineAgent" })
   })
