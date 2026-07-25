@@ -45,6 +45,7 @@ interface GenerateProviderOutputsOptions {
 
 interface GeneratedDBArtifacts {
   cloudflareWorkerFile: string
+  definitionDefaultsFile: string
   generatedDir: string
   runtimeModuleFiles: Record<DBProvider, string>
   vercelServerFile: string
@@ -118,8 +119,13 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
   })
   const entryFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
   const runtimeModuleFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
+  const definitionDefaultsFile = resolve(generatedDir, "definition-defaults.mjs")
 
-  await Promise.all(providerEntrySpecs.map(async (spec) => {
+  await Promise.all([writeFile(
+    definitionDefaultsFile,
+    `export default ${JSON.stringify(runtimeConfig.definitionDefaults)}\n`,
+    "utf8",
+  ), ...providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const runtimeModuleFile = resolve(generatedDir, `${spec.name}-runtime.mjs`)
     entryFiles[spec.name] = entryFile
@@ -128,10 +134,11 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
       writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry), "utf8"),
       writeFile(runtimeModuleFile, renderRuntimeModule(runtimeModuleFile, runtimeConfig), "utf8"),
     ])
-  }))
+  })])
 
   return {
     cloudflareWorkerFile: entryFiles.cloudflare,
+    definitionDefaultsFile,
     generatedDir,
     runtimeModuleFiles,
     vercelServerFile: entryFiles.vercel,
@@ -219,6 +226,7 @@ function createCloudflareOutput({ artifacts, providerOutput, provisionState, run
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       alias: {
+        "#vitehub/database/definition-defaults": artifacts.definitionDefaultsFile,
         "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.cloudflare,
         ...(blobRuntime ? { "@vite-hub/blob": blobRuntime } : {}),
       },
@@ -243,6 +251,7 @@ function createVercelOutput({ artifacts, providerOutput, runtimeConfig, serverFu
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       alias: {
+        "#vitehub/database/definition-defaults": artifacts.definitionDefaultsFile,
         "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.vercel,
         ...(blobRuntime ? { "@vite-hub/blob": blobRuntime } : {}),
       },

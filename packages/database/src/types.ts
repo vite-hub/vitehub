@@ -119,6 +119,9 @@ export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseCon
 export interface ResolvedDBViteConfig {
   databaseNames: string[]
   databases: Record<string, ResolvedDrizzleDatabaseConfig>
+  definitionDefaults: {
+    connection?: DatabaseConnectionConfig
+  }
   definitions: DiscoveredDatabaseDefinition[]
   generatedDrizzleConfigFile: string
   generatedDrizzleConfigFilesByDatabase: Record<string, string>

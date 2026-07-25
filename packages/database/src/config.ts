@@ -339,6 +339,9 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
   return {
     databaseNames: definitions.map(definition => definition.name),
     databases,
+    definitionDefaults: {
+      ...(options && options.connection ? { connection: options.connection } : {}),
+    },
     definitions,
     generatedDrizzleConfigFile: createGeneratedDefinitionPath(rootDir, {
       fileName: "drizzle.config.ts",
