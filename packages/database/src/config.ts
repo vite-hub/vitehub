@@ -340,6 +340,9 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
     databaseNames: definitions.map(definition => definition.name),
     databases,
     definitionDefaults: {
+      ...(options && options.driver === "d1"
+        ? { cloudflare: { binding: options.binding } }
+        : {}),
       ...(options && options.connection ? { connection: options.connection } : {}),
     },
     definitions,

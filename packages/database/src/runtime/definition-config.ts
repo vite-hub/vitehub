@@ -14,9 +14,10 @@ function defaultUrl(name: string) {
 }
 
 export function runtimeConfig(definition: DatabaseDefinition): RuntimeDrizzleDatabaseConfig {
+  const cloudflare = definition.cloudflare ?? definitionDefaults.cloudflare
   return {
-    ...(definition.cloudflare
-      ? { cloudflare: { ...definition.cloudflare, binding: definition.cloudflare.binding || defaultBinding(definition.name) } }
+    ...(cloudflare
+      ? { cloudflare: { ...cloudflare, binding: cloudflare.binding || defaultBinding(definition.name) } }
       : {}),
     connection: {
       authToken: definition.connection?.authToken ?? definitionDefaults.connection?.authToken,

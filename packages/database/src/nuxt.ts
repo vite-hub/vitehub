@@ -142,6 +142,18 @@ function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOpti
   if ("cli" in options) {
     viteOptions.cli = options.cli
   }
+  if (options.connection) {
+    viteOptions.connection = options.connection
+  }
+  if (options.driver === "d1") {
+    viteOptions.driver = "d1"
+    viteOptions.binding = options.binding
+    viteOptions.databaseId = options.databaseId
+    viteOptions.databaseName = options.databaseName
+    viteOptions.local = options.local
+    viteOptions.migrationsTable = options.migrationsTable
+    viteOptions.previewDatabaseId = options.previewDatabaseId
+  }
   return Object.keys(viteOptions).length ? viteOptions : undefined
 }
 
@@ -207,7 +219,7 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
     : typeof nuxtOptions.nitro?.preset === "string"
       ? nuxtOptions.nitro.preset
       : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return getHostingProvider(preset)
+  return getHostingProvider(preset) ?? (typeof preset === "string" && /^deno(?:-|$)/.test(preset) ? "deno" : undefined)
 }
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {

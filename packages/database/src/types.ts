@@ -60,6 +60,7 @@ export interface DatabaseIntegrationOptions {
 }
 
 export type DatabaseNuxtIntegrationOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
+  connection?: DatabaseConnectionConfig
   projectRoot?: string
 }
 
@@ -120,6 +121,7 @@ export interface ResolvedDBViteConfig {
   databaseNames: string[]
   databases: Record<string, ResolvedDrizzleDatabaseConfig>
   definitionDefaults: {
+    cloudflare?: CloudflareD1BindingConfig
     connection?: DatabaseConnectionConfig
   }
   definitions: DiscoveredDatabaseDefinition[]

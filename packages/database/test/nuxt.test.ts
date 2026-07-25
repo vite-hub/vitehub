@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest"
 
 import { hubDb } from "../src/nuxt.ts"
 
+import type { Plugin } from "vite"
+
 function createNuxt(options: Record<string, unknown>) {
   const hooks: Record<string, ((value: Record<string, unknown>) => Promise<void> | void)[]> = {}
   return {
@@ -243,6 +245,47 @@ describe("Database Nuxt integration", () => {
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "node"])
+  })
+
+  it("selects the hosted definition runtime for Deno deployments", async () => {
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      nitro: { preset: "deno-deploy" },
+      rootDir: "/tmp/vitehub-db-nuxt-deno",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = { exportConditions: ["deno"] }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "deno"])
+  })
+
+  it("propagates the Nuxt D1 binding to direct definition defaults", async () => {
+    const { nuxt } = createNuxt({
+      database: {
+        binding: "CONTENT_DB",
+        driver: "d1",
+      },
+      rootDir: "/tmp/vitehub-db-nuxt-binding",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      database: undefined,
+      root: "/tmp/vitehub-db-nuxt-binding",
+    })
+    const id = await (plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>)(
+      "#vitehub/database/definition-defaults",
+    )
+    const code = await (plugin.load as (id: string) => string | undefined | Promise<string | undefined>)(id!)
+
+    expect(code).toContain('"binding":"CONTENT_DB"')
   })
 
   it("preserves the local definition runtime for production Node builds", async () => {
