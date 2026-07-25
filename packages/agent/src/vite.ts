@@ -678,14 +678,17 @@ async function readColocatedAgentInstructions(handler: string): Promise<string |
   })
 }
 
-function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFromOptions: string): string[] {
+function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFromOptions: string, typescript = false): string[] {
+  const parameters = typescript
+    ? "<Agent extends AgentInput>(agent: Agent, sourceRootDir: string, colocatedInstructions: string | undefined, colocatedSkills: ViteHubEncodedColocatedSkills | undefined): Agent"
+    : "(agent, sourceRootDir, colocatedInstructions, colocatedSkills)"
   return [
-    `function ${name}(agent, sourceRootDir, colocatedInstructions, colocatedSkills) {`,
+    `function ${name}${parameters} {`,
     "  const skills = Object.fromEntries(Object.entries(colocatedSkills || {}).map(([key, source]) => {",
     "    const { encoding, content, ...options } = source",
     "    return [key, encoding === 'base64' ? { ...options, content: Uint8Array.from(atob(content), byte => byte.charCodeAt(0)) } : source]",
     "  }))",
-    "  const resolvedAgent = Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent",
+    `  const resolvedAgent = ${typescript ? "(" : ""}Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent${typescript ? ") as Agent & Partial<WorkspaceAgentDefinition>" : ""}`,
     "  if (resolvedAgent !== agent) Object.defineProperty(resolvedAgent, Symbol.for('vitehub.agent.colocatedSkills'), { configurable: true, enumerable: true, value: skills })",
     "  const options = resolvedAgent?.__vitehubWorkspaceAgentOptions",
     "  const workspace = options?.workspace",
@@ -696,8 +699,8 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "    : { ...workspace.sources, ...existingSources }",
     "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
     "  const resolvedSourceRootDir = workspace.sourceRootDir ?? resolvedAgent.sourceRootDir ?? sourceRootDir",
-    "  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",
-    `  return { ...resolvedAgent, ...${workspaceDefinitionFromOptions}(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }`,
+    `  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }${typescript ? " as WorkspaceAgentOptions" : ""}`,
+    `  return { ...resolvedAgent, ...${workspaceDefinitionFromOptions}(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }${typescript ? " as unknown as Agent" : ""}`,
     "}",
   ]
 }
@@ -901,21 +904,34 @@ export function transformRepositoryHostContextMaterialization(
 
 function generatedRuntimeHelpers(): string[] {
   return [
-    "function waitUntilFromValue(value) {",
-    "  return value && typeof value === 'object' && typeof value.waitUntil === 'function' ? value.waitUntil.bind(value) : undefined",
+    "type ViteHubGeneratedCloudflare = { context?: unknown, env?: Record<string, unknown> }",
+    "type ViteHubGeneratedEvent = H3Event & {",
+    "  context: H3Event['context'] & {",
+    "    _platform?: { cloudflare?: ViteHubGeneratedCloudflare }",
+    "    cloudflare?: ViteHubGeneratedCloudflare",
+    "  }",
+    "  env?: Record<string, unknown>",
+    "  node?: { req?: { runtime?: { cloudflare?: ViteHubGeneratedCloudflare } } }",
     "}",
     "",
-    "function waitUntilFromEvent(event) {",
-    "  return waitUntilFromValue(event)",
-    "    || waitUntilFromValue(event.context)",
-    "    || waitUntilFromValue(event.context?.cloudflare?.context)",
-    "    || waitUntilFromValue(event.context?._platform?.cloudflare?.context)",
-    "    || waitUntilFromValue(event.node?.req?.runtime?.cloudflare?.context)",
+    "function waitUntilFromValue(value: unknown): AgentWaitUntil | undefined {",
+    "  const candidate = value as { waitUntil?: AgentWaitUntil } | undefined",
+    "  return value && typeof value === 'object' && typeof candidate?.waitUntil === 'function' ? candidate.waitUntil.bind(value) : undefined",
     "}",
     "",
-    "function cloudflareFromEvent(event) {",
-    "  const env = event.env || event.context?.cloudflare?.env || event.context?._platform?.cloudflare?.env || event.node?.req?.runtime?.cloudflare?.env",
-    "  const context = event.context?.cloudflare?.context || event.context?._platform?.cloudflare?.context || event.node?.req?.runtime?.cloudflare?.context",
+    "function waitUntilFromEvent(event: H3Event) {",
+    "  const runtimeEvent = event as ViteHubGeneratedEvent",
+    "  return waitUntilFromValue(runtimeEvent)",
+    "    || waitUntilFromValue(runtimeEvent.context)",
+    "    || waitUntilFromValue(runtimeEvent.context?.cloudflare?.context)",
+    "    || waitUntilFromValue(runtimeEvent.context?._platform?.cloudflare?.context)",
+    "    || waitUntilFromValue(runtimeEvent.node?.req?.runtime?.cloudflare?.context)",
+    "}",
+    "",
+    "function cloudflareFromEvent(event: H3Event): ViteHubGeneratedCloudflare | undefined {",
+    "  const runtimeEvent = event as ViteHubGeneratedEvent",
+    "  const env = runtimeEvent.env || runtimeEvent.context?.cloudflare?.env || runtimeEvent.context?._platform?.cloudflare?.env || runtimeEvent.node?.req?.runtime?.cloudflare?.env",
+    "  const context = runtimeEvent.context?.cloudflare?.context || runtimeEvent.context?._platform?.cloudflare?.context || runtimeEvent.node?.req?.runtime?.cloudflare?.context",
     "  return env && typeof env === 'object' ? { env, ...(context ? { context } : {}) } : undefined",
     "}",
   ]
@@ -924,8 +940,8 @@ function generatedRuntimeHelpers(): string[] {
 function generatedCloudflareChatStateHelper(): string[] {
   return [
     "",
-    "function chatStateFromCloudflare(cloudflare) {",
-    `  const namespace = cloudflare?.env?.${defaultCloudflareAgentStateBinding}`,
+    "function chatStateFromCloudflare(cloudflare: ViteHubGeneratedCloudflare | undefined) {",
+    `  const namespace = cloudflare?.env?.${defaultCloudflareAgentStateBinding} as ViteHubAgentStateDurableObjectNamespace | undefined`,
     "  return namespace ? createCloudflareAgentState({ namespace }) : undefined",
     "}",
   ]
@@ -1034,12 +1050,14 @@ async function generateAgentDeploymentCatalog(
     agentImportBase: string
     channelHandlers?: boolean
     chatHandlers?: boolean
+    typescript?: boolean
     workspaceImportBase: string
     workspaceRuntimeImport?: string
   },
 ): Promise<GeneratedAgentDeploymentCatalog> {
   const channelHandlers = options.channelHandlers !== false
   const chatHandlers = channelHandlers && options.chatHandlers !== false
+  const typescript = options.typescript === true
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
@@ -1067,7 +1085,7 @@ async function generateAgentDeploymentCatalog(
 
   return {
     imports: [
-      `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
+      `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
       `import { agentWithColocatedHome } from ${JSON.stringify(subpath(options.agentImportBase, "runtime/workflow"))}`,
       ...(channelHandlers
         ? [`import { ${chatHandlers ? "createChannelChatRouteHandler, " : ""}createChannelWebhookRouteHandler${chatHandlers ? ", hasChannelChatRoute" : ""} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
@@ -1077,22 +1095,34 @@ async function generateAgentDeploymentCatalog(
       ...entries.map(entry => entry.import),
     ],
     setup: [
-      "function resolveAgentModule(module) {",
-      "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
+      ...(typescript
+        ? [
+            "type ViteHubEncodedColocatedSkills = Record<string, { content: string, encoding: 'base64', [key: string]: unknown }>",
+            "",
+          ]
+        : []),
+      `function resolveAgentModule(module${typescript ? ": AgentRegistryModule" : ""})${typescript ? ": AgentInput" : ""} {`,
+      "  const agent = module && typeof module === 'object' && 'default' in module ? module.default : module",
+      ...(typescript
+        ? [
+            "  if (!agent) throw new TypeError('[vitehub] Generated Agent module does not export an Agent definition.')",
+          ]
+        : []),
+      `  return agent${typescript ? " as AgentInput" : ""}`,
       "}",
       "",
       ...(chatHandlers
         ? [
-            "function resolveChatRouteOptions(module) {",
+            `function resolveChatRouteOptions(module${typescript ? ": AgentRegistryModule & { chatRoute?: unknown }" : ""})${typescript ? ": Parameters<typeof createChannelChatRouteHandler>[1]" : ""} {`,
             "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
-            "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+            `  return chatRoute && typeof chatRoute === 'object' ? chatRoute${typescript ? " as Parameters<typeof createChannelChatRouteHandler>[1]" : ""} : undefined`,
             "}",
             "",
           ]
         : []),
-      ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions"),
+      ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions", typescript),
       "",
-      "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, colocatedSkills, colocatedHome) {",
+      `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}, colocatedHome${typescript ? ": Parameters<typeof agentWithColocatedHome>[1]" : ""}) {`,
       "  const agent = agentWithColocatedHome(withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions, colocatedSkills), colocatedHome)",
       "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
       "  return [name, async () => ({ ...module, default: agent })]",
@@ -1103,15 +1133,15 @@ async function generateAgentDeploymentCatalog(
         ? [`setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`, ""]
         : []),
       `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
-      `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
+      `const agentIdentities${typescript ? ": Record<string, AgentHostIdentity>" : ""} = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
       ...(channelHandlers
         ? [
             ...(chatHandlers
               ? [
-                  `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
+                  `const agentModules${typescript ? ": Record<string, AgentRegistryModule & { chatRoute?: unknown }>" : ""} = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
                   "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
                 ]
-              : ["const chatHandlers = {}"]),
+              : [`const chatHandlers = {}${typescript ? " as Record<string, never>" : ""}`]),
             "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
           ]
         : []),
@@ -1134,6 +1164,7 @@ async function generateAgentWebhookRouteHandler(
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
     chatHandlers: Boolean(options.chatRoute),
+    typescript: true,
     workspaceImportBase,
     workspaceRuntimeImport: subpath(workspaceImportBase, "runtime"),
   })
@@ -1147,17 +1178,22 @@ async function generateAgentWebhookRouteHandler(
 
   return [
     ...deploymentCatalog.imports,
-    ...(options.cloudflareState ? [`import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`] : []),
+    ...(options.cloudflareState
+      ? [
+          `import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
+          `import type { ViteHubAgentStateDurableObjectNamespace } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
+        ]
+      : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
+    "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody, type H3Event } from 'h3'",
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
     ...deploymentCatalog.setup,
-    "async function toRequest(event) {",
+    "async function toRequest(event: H3Event) {",
     "  const body = await readRawBody(event)",
     "  return new Request(getRequestURL(event), {",
     "    body: body || undefined,",
@@ -1179,12 +1215,24 @@ async function generateAgentWebhookRouteHandler(
     "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
     "  const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
     `  const webhook = ${webhookSelector}`,
-    "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
-    "  if (!handler) {",
+    "  if (!agent) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
     "  const cloudflare = cloudflareFromEvent(event)",
-    `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
+    "  if (isWebhookRoute) {",
+    "    const handler = webhookHandlers[agent]",
+    "    if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
+    `    return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) })`,
+    "  }",
+    ...(options.chatRoute
+      ? [
+          "  const handler = chatHandlers[agent]",
+          "  if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
+          `  return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
+        ]
+      : [
+          "  throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
+        ]),
     "})",
     "",
   ].join("\n")
@@ -1306,6 +1354,7 @@ async function generateAgentDiscordGatewayRouteHandler(
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
     channelHandlers: false,
+    typescript: true,
     workspaceImportBase,
     workspaceRuntimeImport: definitions.some(definition => definition.workspace)
       ? subpath(workspaceImportBase, "runtime")
@@ -1318,7 +1367,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    "import { createError, defineEventHandler, getRequestHeader, getRequestHeaders, getRequestURL, getRouterParam } from 'h3'",
+    "import { createError, defineEventHandler, getRequestHeader, getRequestHeaders, getRequestURL, getRouterParam, type H3Event } from 'h3'",
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
@@ -1398,6 +1447,7 @@ async function generateAgentDenoServer(
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
     agentImportBase,
     chatHandlers: Boolean(options.chatRoute),
+    typescript: true,
     workspaceImportBase,
     workspaceRuntimeImport: definitions.some(definition => definition.workspace)
       ? subpath(workspaceImportBase, "runtime")

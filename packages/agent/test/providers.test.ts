@@ -1,8 +1,10 @@
 import { createHmac } from "node:crypto"
+import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import { Message } from "chat"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
@@ -23,6 +25,8 @@ vi.mock("@vite-hub/internal/build/deployment-output", () => ({
 }))
 
 vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+
+const execFileAsync = promisify(execFile)
 
 function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
@@ -1350,29 +1354,83 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const agentIdentities")
       expect(webhookRoute).toContain('"support": {"name":"support"}')
       expect(webhookRoute).not.toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
-      expect(webhookRoute).toContain("async function toRequest(event)")
+      expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
       expect(webhookRoute).toContain("const body = await readRawBody(event)")
       expect(webhookRoute).not.toContain("return event.request")
-      expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
-      expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare)")
-      expect(webhookRoute).toContain("function resolveChatRouteOptions(module)")
+      expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
+      expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
+      expect(webhookRoute).toContain("function resolveChatRouteOptions(module:")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(webhookRoute).not.toContain("state: chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("runtime: 'vite'")
-      expect(webhookRoute).toContain("const agentModules")
+      expect(webhookRoute).toContain("const agentModules: Record<string, AgentRegistryModule & { chatRoute?: unknown }>")
       expect(webhookRoute).toContain("const chatHandlers")
       expect(webhookRoute).toContain("filter(([, agent]) => hasChannelChatRoute(agent))")
       expect(webhookRoute).toContain("createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))")
       expect(webhookRoute).toContain("const webhookHandlers")
       expect(webhookRoute).toContain("const webhookRoutePattern")
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
-      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook")
+      expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
       expect(webhookRoute).not.toContain("@vite-hub/schedule/runtime")
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
   })
+
+  it("writes generated Nitro handlers that compile under strict TypeScript", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-routes-types-"))
+    try {
+      await mkdir(join(root, "server", "agents", "calories"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "calories", "agent.ts"), `
+import { defineAgent } from "@vite-hub/agent"
+import { telegram } from "@vite-hub/agent/channels"
+
+export default defineAgent({
+  channels: {
+    telegram: telegram({
+      adapter: () => ({}) as never,
+      messages: {
+        concurrency: "parallel",
+        stream: true,
+      },
+      webhooks: { id: "telegram" },
+    }),
+  },
+  driver: {
+    run: async () => undefined,
+  },
+})
+`, "utf8")
+      await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+        extends: resolve(import.meta.dirname, "../tsconfig.json"),
+        include: [
+          ".vitehub/agent/chat-webhook-route.ts",
+          "server/agents/**/*.ts",
+        ],
+      }, null, 2)}\n`, "utf8")
+
+      const plugin = hubAgent({ eval: false })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
+      }
+
+      const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+      expect(generatedRoute).not.toContain("@ts-nocheck")
+      await execFileAsync(process.execPath, [
+        resolve(import.meta.dirname, "../../../node_modules/typescript/bin/tsc"),
+        "--noEmit",
+        "-p",
+        join(root, "tsconfig.json"),
+      ], { cwd: root }).catch((error: { stderr?: string, stdout?: string }) => {
+        throw new Error([error.stdout, error.stderr].filter(Boolean).join("\n"))
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 30_000)
 
   it("writes generated Cloudflare state helpers for Cloudflare hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -1390,7 +1448,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).not.toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("const chatHandlers = {}")
-      expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare:")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
     }
     finally {
@@ -1527,7 +1585,7 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
-        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+        expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })")
       }
       finally {
         await rm(root, { force: true, recursive: true })
@@ -1549,7 +1607,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).not.toContain("runtime: 'vite'")
-      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })")
     }
     finally {
       await rm(root, { force: true, recursive: true })

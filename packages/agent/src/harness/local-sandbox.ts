@@ -27,8 +27,12 @@ interface LocalHarnessSandboxSession extends HarnessV1NetworkSandboxSession {
   readonly rootDir: string
 }
 
-const localHarnessOwnerName = `owner-${process.pid}-${randomUUID()}`
+let localHarnessOwnerName: string | undefined
 const localHarnessOwnerPattern = /^owner-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+function getLocalHarnessOwnerName() {
+  return localHarnessOwnerName ??= `owner-${process.pid}-${randomUUID()}`
+}
 
 function stringEnv(env: Record<string, string | undefined>): Record<string, string> {
   return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
@@ -46,7 +50,7 @@ function isProcessAlive(pid: number) {
 
 async function managedRootDir(sessionId: string | undefined) {
   const parent = join(tmpdir(), "vitehub-harness")
-  const owner = join(parent, localHarnessOwnerName)
+  const owner = join(parent, getLocalHarnessOwnerName())
   await mkdir(owner, { recursive: true })
 
   const entries = await readdir(parent, { withFileTypes: true })
