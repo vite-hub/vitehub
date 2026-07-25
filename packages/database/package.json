@@ -42,6 +42,7 @@
     "./nuxt": "./dist/nuxt.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
+    "./runtime/state": "./dist/runtime/state.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
     "./runtime/virtual-databases": "./dist/runtime/virtual-databases.js",
     "./runtime/virtual-schema": "./dist/runtime/virtual-schema.js",

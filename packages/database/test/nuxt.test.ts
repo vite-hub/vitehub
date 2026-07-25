@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it } from "vitest"
 
 import { hubDb } from "../src/nuxt.ts"
@@ -33,6 +35,7 @@ describe("Database Nuxt integration", () => {
       dev: false,
       modules: ["@nuxt/content"],
       nitro: {
+        preset: "cloudflare_module",
         cloudflare: {
           wrangler: {
             d1_databases: [
@@ -100,6 +103,7 @@ describe("Database Nuxt integration", () => {
         wrangler: {},
       },
       exportConditions: ["workerd"],
+      handlers: [],
       runtimeConfig: {
         content: {},
       },
@@ -119,6 +123,13 @@ describe("Database Nuxt integration", () => {
         },
       },
       exportConditions: ["vitehub-hosted", "workerd"],
+      handlers: [
+        {
+          handler: ".vitehub/nitro/database/middleware.ts",
+          middleware: true,
+          route: "/**",
+        },
+      ],
       runtimeConfig: {
         content: {
           database: {
@@ -128,6 +139,8 @@ describe("Database Nuxt integration", () => {
         },
       },
     })
+    await expect(readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8"))
+      .resolves.toContain("setActiveCloudflareEnv")
   })
 
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
@@ -216,6 +229,7 @@ describe("Database Nuxt integration", () => {
   it("selects the hosted definition runtime in production without a D1 bridge", async () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
+      nitro: { preset: "vercel" },
       rootDir: "/tmp/vitehub-db-nuxt-hosted",
       vite: {},
     })
@@ -226,6 +240,22 @@ describe("Database Nuxt integration", () => {
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "node"])
+  })
+
+  it("preserves the local definition runtime for production Node builds", async () => {
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      nitro: { preset: "node-server" },
+      rootDir: "/tmp/vitehub-db-nuxt-node",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = { exportConditions: ["node"] }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.exportConditions).toEqual(["node"])
   })
 
   it("can be disabled from top-level Nuxt database config", async () => {

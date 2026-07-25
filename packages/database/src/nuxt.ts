@@ -1,6 +1,8 @@
 import { resolve } from "node:path"
 
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
@@ -10,6 +12,7 @@ import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./ty
 import type { Plugin } from "vite"
 
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
+const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 
 type NuxtModuleDependencies = Record<string, {
   defaults?: Record<string, unknown>
@@ -69,8 +72,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     const d1 = resolveDatabaseNuxtD1Options(resolvedOptions, nuxtOptions)
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
-      hook("nitro:config", (config) => {
-        if (!nuxtOptions.dev) mergeNitroHostedCondition(config)
+      hook("nitro:config", async (config) => {
+        const provider = resolveNitroHostingProvider(config, nuxtOptions)
+        if (!nuxtOptions.dev && (provider || d1)) mergeNitroHostedCondition(config)
+        if (!nuxtOptions.dev && provider === "cloudflare") {
+          await installNitroCloudflareEnvBridge(config, root)
+        }
         if (d1) {
           mergeNitroRuntimeContentConfig(config, d1)
           mergeNitroConfigCloudflareConfig(config, d1)
@@ -192,6 +199,34 @@ function mergeNitroHostedCondition(config: Record<string, unknown>) {
   if (!conditions.includes("vitehub-hosted")) {
     config.exportConditions = ["vitehub-hosted", ...conditions]
   }
+}
+
+function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOptions: NuxtLike["options"]) {
+  const preset = typeof config.preset === "string"
+    ? config.preset
+    : typeof nuxtOptions.nitro?.preset === "string"
+      ? nuxtOptions.nitro.preset
+      : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
+  return getHostingProvider(preset)
+}
+
+async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
+  const handlers = Array.isArray(config.handlers) ? [...config.handlers] : []
+  if (!handlers.some(handler => isRecord(handler) && handler.handler === generatedNitroDatabaseMiddleware)) {
+    handlers.unshift({ handler: generatedNitroDatabaseMiddleware, middleware: true, route: "/**" })
+  }
+  config.handlers = handlers
+  await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
+    "import { env as vitehubEnv } from 'cloudflare:workers'",
+    "import { defineMiddleware } from 'nitro'",
+    "import { setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
+    "",
+    "export default defineMiddleware((event) => {",
+    "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
+    "  setActiveCloudflareEnv(target.env ?? target.context?.cloudflare?.env ?? target.context?._platform?.cloudflare?.env ?? target.req?.runtime?.cloudflare?.env ?? vitehubEnv)",
+    "})",
+    "",
+  ].join("\n"))
 }
 
 function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {

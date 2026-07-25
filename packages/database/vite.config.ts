@@ -24,6 +24,7 @@ export default defineConfig({
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
       "src/runtime/hosted.ts",
+      "src/runtime/state.ts",
       "src/runtime/virtual-databases.ts",
       "src/runtime/virtual-schema.ts",
       "src/runtime/vercel-vite.ts",
