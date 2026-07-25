@@ -190,24 +190,14 @@ function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: Resolve
   const nitro = ensureRecord(config, "nitro")
   const cloudflare = ensureRecord(nitro, "cloudflare")
   const wrangler = ensureRecord(cloudflare, "wrangler")
-  wrangler.d1_databases = mergeD1BindingsOnce(wrangler.d1_databases, d1.d1Database)
+  wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, [d1.d1Database])
 }
 
 function mergeNitroConfigCloudflareConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {
   if (!d1.d1Database) return
   const cloudflare = ensureRecord(config, "cloudflare")
   const wrangler = ensureRecord(cloudflare, "wrangler")
-  wrangler.d1_databases = mergeD1BindingsOnce(wrangler.d1_databases, d1.d1Database)
-}
-
-function mergeD1BindingsOnce(current: unknown, binding: NonNullable<ResolvedDatabaseNuxtD1Options["d1Database"]>) {
-  return mergeCloudflareD1Bindings(current, [binding]).filter((candidate, index, bindings) =>
-    bindings.findIndex(existing =>
-      existing.binding === candidate.binding
-      && existing.database_id === candidate.database_id
-      && existing.database_name === candidate.database_name,
-    ) === index,
-  )
+  wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, [d1.d1Database])
 }
 
 function hasNuxtContentModule(modules: unknown[] | undefined) {

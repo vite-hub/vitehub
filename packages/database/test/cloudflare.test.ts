@@ -140,10 +140,20 @@ describe("Cloudflare D1 binding projections", () => {
   it("replaces generated D1 bindings by binding name when merging with host config", () => {
     expect(mergeCloudflareD1Bindings([
       {
+        binding: "BEFORE",
+        database_id: "before-id",
+        database_name: "before-db",
+      },
+      {
         binding: "DB",
         database_id: "old-id",
         database_name: "old-db",
         preview_database_id: "old-preview-id",
+      },
+      {
+        binding: "DB",
+        database_id: "duplicate-id",
+        database_name: "duplicate-db",
       },
       {
         binding: "OTHER",
@@ -157,6 +167,11 @@ describe("Cloudflare D1 binding projections", () => {
         database_name: "new-db",
       },
     ])).toEqual([
+      {
+        binding: "BEFORE",
+        database_id: "before-id",
+        database_name: "before-db",
+      },
       {
         binding: "DB",
         database_id: "new-id",
