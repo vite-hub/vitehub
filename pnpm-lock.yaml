@@ -56,7 +56,7 @@ catalogs:
       specifier: ^4.34.0
       version: 4.34.0
     chat:
-      specifier: ^4.34.0
+      specifier: 4.34.0
       version: 4.34.0
     chat-state-cloudflare-do:
       specifier: ^0.2.0
