@@ -507,7 +507,12 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
     handleHotUpdate(context) {
       const file = normalize(context.file).replace(/\\/g, "/")
-      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/schedules\/.*\.(?:c|m)?[jt]s$/i.test(file)) {
+      const scheduleRoots = (serverDirs ?? [resolve(projectRoot ?? resolved?.root ?? context.server.config.root, "server")])
+        .map(directory => `${resolve(directory, "schedules").replace(/\\/g, "/")}/`)
+      const serverSchedule = scheduleRoots.some(directory =>
+        file.startsWith(directory) && /\.(?:c|m)?[jt]s$/i.test(file.slice(directory.length)),
+      )
+      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(file) && !serverSchedule) {
         return
       }
 

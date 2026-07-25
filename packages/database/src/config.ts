@@ -237,12 +237,6 @@ function getDefaultCloudflareBindingName(name: string) {
 }
 
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition) {
-  if (definition.source === "server-database-default") {
-    return relative(rootDir, resolve(rootDir, "server", "databases", "migrations"))
-  }
-  if (definition.source === "server-databases-named") {
-    return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
-  }
   return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
 }
 

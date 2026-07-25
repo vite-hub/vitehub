@@ -140,6 +140,16 @@ describe("resolveDBViteConfig", () => {
     })
   })
 
+  it("resolves default migrations from a forwarded server directory", async () => {
+    const rootDir = await createTempProject()
+    const serverDir = join(rootDir, "backend")
+    await writeDefinition(rootDir, "backend/databases/config.ts")
+
+    const resolved = resolveDBViteConfig(undefined, rootDir, { serverDirs: [serverDir] })
+
+    expect(resolved?.databases.default.migrationsDir).toBe("backend/databases/migrations")
+  })
+
   it("uses the integration connection when the definition does not select a host", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
