@@ -1,3 +1,5 @@
+import definitionDefaults from "#vitehub/database/definition-defaults"
+
 import type { DatabaseDefinition, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
 function defaultBinding(name: string) {
@@ -8,8 +10,7 @@ function defaultBinding(name: string) {
 
 function defaultUrl(name: string) {
   if (name === "default") return "file:.vitehub/data/database/sqlite.db"
-  const filename = name.replace(/[^a-z0-9._-]+/gi, "-") || "database"
-  return `file:.vitehub/data/database/${filename}.sqlite.db`
+  return `file:.vitehub/data/database/${name}.sqlite.db`
 }
 
 export function runtimeConfig(definition: DatabaseDefinition): RuntimeDrizzleDatabaseConfig {
@@ -17,7 +18,10 @@ export function runtimeConfig(definition: DatabaseDefinition): RuntimeDrizzleDat
     ...(definition.cloudflare
       ? { cloudflare: { ...definition.cloudflare, binding: definition.cloudflare.binding || defaultBinding(definition.name) } }
       : {}),
-    connection: { ...definition.connection, url: definition.connection?.url ?? defaultUrl(definition.name) },
+    connection: {
+      authToken: definition.connection?.authToken ?? definitionDefaults.connection?.authToken,
+      url: definition.connection?.url ?? definitionDefaults.connection?.url ?? defaultUrl(definition.name),
+    },
     drizzle: definition.drizzle,
     name: definition.name,
   }

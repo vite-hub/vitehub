@@ -9,7 +9,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-runtime"],
+      neverBundle: ["vite", "esbuild", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
       onlyBundle: false,
     },
     entry: [
@@ -21,6 +21,7 @@ export default defineConfig({
       "src/virtual.ts",
       "src/vite.ts",
       "src/runtime/cloudflare-vite.ts",
+      "src/runtime/definition-defaults.ts",
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
       "src/runtime/hosted.ts",

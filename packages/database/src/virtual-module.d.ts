@@ -10,3 +10,10 @@ declare module "#vitehub/database/databases" {
   }>
   export default databases
 }
+
+declare module "#vitehub/database/definition-defaults" {
+  const defaults: {
+    connection?: import("./types.ts").DatabaseConnectionConfig
+  }
+  export default defaults
+}

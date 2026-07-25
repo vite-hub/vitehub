@@ -273,6 +273,7 @@ describe("database definition runtime", () => {
 
     expect(database.name).toBe("default")
     expect(database.schema).toBe(defaultSchema)
+    expect((database as unknown as { dialect: unknown }).dialect).not.toBe("sqlite")
     expect(await database.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "definition note" }])
   })
 
@@ -284,6 +285,9 @@ describe("database definition runtime", () => {
     })
 
     expect(database.name).toBe("billing/archive")
+
+    const { runtimeConfig } = await import("../src/runtime/definition-config.ts")
+    expect(runtimeConfig(database).connection?.url).toBe("file:.vitehub/data/database/billing/archive.sqlite.db")
   })
 
   it("uses the definition's active Cloudflare binding in hosted mode", async () => {
@@ -293,7 +297,6 @@ describe("database definition runtime", () => {
     const { createDefinitionRuntime } = await import("../src/runtime/definition-hosted.ts")
     const database = createDefinitionRuntime({
       cloudflare: { binding: "DB_ANALYTICS" },
-      dialect: "sqlite",
       drizzle: {},
       name: "analytics",
       schema: analyticsSchema,

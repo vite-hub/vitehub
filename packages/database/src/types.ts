@@ -74,7 +74,6 @@ export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknow
 export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
-  dialect: DatabaseDialect
   drizzle: DatabaseDrizzleOptions
   name: string
   schema: TSchema

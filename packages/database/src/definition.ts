@@ -50,7 +50,6 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
   const definition: DatabaseDefinition<TSchema> = {
     ...(options.cloudflare ? { cloudflare: options.cloudflare } : {}),
     ...(options.connection ? { connection: options.connection } : {}),
-    dialect: "sqlite",
     drizzle: casing ? { casing } : {},
     name,
     schema: options.schema,
