@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Message } from "chat"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
@@ -203,7 +204,8 @@ describe("agent Vite plugin", () => {
   it("bundles repository context templates into Vite builds", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(import.meta.dirname, ".repository-context-template-"))
-    const agents = join(root, "server", "agents")
+    const serverDir = join(root, "backend")
+    const agents = join(serverDir, "agents")
     const entry = join(agents, "reviewer.ts")
     const template = join(agents, "PULL_REQUEST.template.md")
     const outfile = join(root, "dist", "agent.mjs")
@@ -225,6 +227,7 @@ describe("agent Vite plugin", () => {
       const agentPlugin: unknown = hubAgent({ eval: false })
       const markdownPlugin: unknown = hubMarkdownTemplate()
       await runBuild({
+        [VITEHUB_SERVER_DIRS]: [serverDir],
         build: {
           emptyOutDir: true,
           lib: { entry, fileName: () => "agent.mjs", formats: ["es"] },
@@ -474,6 +477,8 @@ describe("agent Vite plugin", () => {
     const nitroRegistryModule = { id: "nitro-registry" }
     const generatedRouteModule = { id: "generated-route" }
     const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => void
+    config({ __vitehubServerDirs: ["/app/backend"] })
     await configResolved({ command: "serve", plugins: [], root: "/app" })
     const modules = new Map<string, object>([
       ["\0#vitehub/schedule/registry", registryModule],
@@ -486,8 +491,8 @@ describe("agent Vite plugin", () => {
     const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
 
     await handleHotUpdate({
-      file: "/app/server/agents/digest.ts",
-      server: { moduleGraph: { getModuleById, invalidateModule } },
+      file: "/app/backend/agents/digest.ts",
+      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
@@ -496,8 +501,8 @@ describe("agent Vite plugin", () => {
 
     invalidateModule.mockClear()
     await handleHotUpdate({
-      file: "/app/server/agents/digest/skills/review/SKILL.md",
-      server: { moduleGraph: { getModuleById, invalidateModule } },
+      file: "/app/backend/agents/digest/skills/review/SKILL.md",
+      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
@@ -507,8 +512,8 @@ describe("agent Vite plugin", () => {
 
     invalidateModule.mockClear()
     await handleHotUpdate({
-      file: "/app/server/agents/digest/home/.codex/config.toml",
-      server: { moduleGraph: { getModuleById, invalidateModule } },
+      file: "/app/backend/agents/digest/home/.codex/config.toml",
+      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)

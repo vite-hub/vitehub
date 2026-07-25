@@ -180,17 +180,16 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
   }
 }
 
-function discoverServerDatabases(rootDir: string) {
-  const serverDir = resolve(rootDir, "server")
+function discoverServerDatabases(rootDir: string, serverDirs = [resolve(rootDir, "server")]) {
   return discoverDefinitions<DiscoveredDatabaseDefinition>("database", [
-    createDirectoryDefinitionSource("server-database-default", [serverDir], "databases", {
+    createDirectoryDefinitionSource("server-database-default", serverDirs, "databases", {
       normalizeName(directory, file) {
         if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
         return dirname(file).replace(/\\/g, "/") === directory.replace(/\\/g, "/") ? "default" : undefined
       },
       createDefinition: ({ file, name }) => createDatabaseDefinition("server-database-default", file, name, "default"),
     }),
-    createDirectoryDefinitionSource("server-databases-named", [serverDir], "databases", {
+    createDirectoryDefinitionSource("server-databases-named", serverDirs, "databases", {
       normalizeName(directory, file) {
         if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
         const name = relative(directory, dirname(file)).replace(/\\/g, "/")
@@ -217,8 +216,8 @@ function discoverViteDatabases(rootDir: string) {
   return [...defaultDefinitions, ...suffixDefinitions]
 }
 
-export function discoverDatabaseDefinitions(rootDir: string): DiscoveredDatabaseDefinition[] {
-  const definitions = [...discoverServerDatabases(rootDir), ...discoverViteDatabases(rootDir)]
+export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
+  const definitions = [...discoverServerDatabases(rootDir, options.serverDirs), ...discoverViteDatabases(rootDir)]
     .filter((definition, index, all) => all.findIndex(item => item.handler === definition.handler) === index)
   const hasDefault = definitions.some(definition => definition.mode === "default")
   const hasNamed = definitions.some(definition => definition.mode === "named")
@@ -242,12 +241,6 @@ function getDefaultCloudflareBindingName(name: string) {
 }
 
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition) {
-  if (definition.source === "server-database-default") {
-    return relative(rootDir, resolve(rootDir, "server", "databases", "migrations"))
-  }
-  if (definition.source === "server-databases-named") {
-    return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
-  }
   return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
 }
 
@@ -309,10 +302,14 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
   })
 }
 
-export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = process.cwd()): ResolvedDBViteConfig | undefined {
+export function resolveDBViteConfig(
+  options?: DBModulePublicOptions,
+  rootDir = process.cwd(),
+  discovery: { serverDirs?: string[] } = {},
+): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir)
+  const definitions = discoverDatabaseDefinitions(rootDir, discovery)
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {}

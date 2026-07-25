@@ -46,14 +46,20 @@ interface NitroVercelConfig {
   plugins?: unknown
 }
 
+export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
+export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
+
 function includesNitroVitePlugin(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(includesNitroVitePlugin)
   if (!value || typeof value !== "object") return false
   return "name" in value && value.name === "nitro:main"
 }
 
-export function hasNitroVitePlugin(config: { plugins?: unknown }): boolean {
-  return includesNitroVitePlugin(config.plugins)
+export function hasNitroConfigContext(config: {
+  [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+  plugins?: unknown
+}): boolean {
+  return config[VITEHUB_NITRO_CONFIG_CONTEXT] === true || includesNitroVitePlugin(config.plugins)
 }
 
 export function resolveNitroVercelFunctionName(
@@ -62,7 +68,7 @@ export function resolveNitroVercelFunctionName(
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const preset = config.nitro?.preset || env.NITRO_PRESET || env.SERVER_PRESET
-  const nitro = Boolean(preset) || hasNitroVitePlugin(config)
+  const nitro = Boolean(preset) || hasNitroConfigContext(config)
   const clientOutDir = config.environments?.client?.build?.outDir
   const vercel = preset
     ? preset.startsWith("vercel")

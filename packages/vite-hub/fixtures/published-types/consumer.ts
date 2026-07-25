@@ -17,6 +17,7 @@ import type { BoxDefinition } from "vite-hub/box"
 import * as smtp from "vite-hub/email/drivers/smtp"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
+import viteHubNuxtModule from "vite-hub/nuxt"
 import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
 import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
@@ -45,6 +46,7 @@ export const appFacingModules = [
   workspaceServer,
 ]
 
+export const nuxtModule = viteHubNuxtModule
 export const builtInAgent = defineAgent({ driver: "codex", runtime: false })
 export const builtInBox = { runtime: "trusted-host" } satisfies BoxDefinition
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName

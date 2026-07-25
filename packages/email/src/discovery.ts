@@ -9,13 +9,14 @@ export interface DiscoveredEmailDefinition {
 
 const emailDefinitionExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
-export function discoverEmailDefinition(root: string): DiscoveredEmailDefinition | undefined {
+export function discoverEmailDefinition(root: string, options: { serverDirs?: string[] } = {}): DiscoveredEmailDefinition | undefined {
+  const serverDirs = options.serverDirs ?? [resolve(root, "server")]
   const definitions = emailDefinitionExtensions.flatMap(extension => [
-    {
-      handler: resolve(root, "server", `email${extension}`),
+    ...serverDirs.map(serverDir => ({
+      handler: resolve(serverDir, `email${extension}`),
       name: "default" as const,
       source: "server-email" as const,
-    },
+    })),
     {
       handler: resolve(root, `server.email${extension}`),
       name: "default" as const,

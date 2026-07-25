@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createWorkspaceRegistryContents, discoverServerWorkspaceDefinitions } from "../src/build/discovery.ts"
+import { createWorkspaceRegistryContents, discoverServerWorkspaceDefinitions, discoverViteWorkspaceDefinitions } from "../src/build/discovery.ts"
 
 const tempDirs: string[] = []
 
@@ -20,6 +20,20 @@ afterEach(async () => {
 })
 
 describe("discoverServerWorkspaceDefinitions", () => {
+  it("uses forwarded server directories for Vite discovery", async () => {
+    const root = await createRoot()
+    const serverDir = join(root, "backend")
+    await mkdir(join(serverDir, "workspaces"), { recursive: true })
+    await writeFile(join(serverDir, "workspaces", "docs.ts"), "export default {}\n", "utf8")
+
+    expect(discoverViteWorkspaceDefinitions(root, { serverDirs: [serverDir] })).toEqual([
+      expect.objectContaining({
+        handler: join(serverDir, "workspaces", "docs.ts"),
+        name: "docs",
+      }),
+    ])
+  })
+
   it("discovers directory workspaces from config files and ignores nested source files inside them", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "workspaces", "data-sources"), { recursive: true })

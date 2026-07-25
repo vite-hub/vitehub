@@ -202,6 +202,7 @@ interface GenerateProviderOutputsOptions {
   importBase?: string
   providerImportAliases?: Record<string, string>
   rootDir: string
+  serverDirs?: string[]
   serverFunctionName?: string
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
@@ -511,12 +512,13 @@ async function writeProviderEntries(
   rootDir: string,
   workflow: WorkflowModuleOptions | undefined,
   importBases: WorkflowImportBases = {},
+  serverDirs?: string[],
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const definitions = discoverWorkflowDefinitions({ rootDir })
+  const definitions = discoverWorkflowDefinitions({ rootDir, serverDirs })
   const providerDefinitions = definitions
   const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
@@ -650,7 +652,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  })
+  }, options.serverDirs)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"

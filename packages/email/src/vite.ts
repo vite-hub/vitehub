@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverEmailDefinition } from "./discovery.ts"
 
@@ -43,11 +43,12 @@ function isEmailDefinitionFile(file: string): boolean {
 export function hubEmail(options: EmailVitePluginOptions = {}): EmailVitePlugin {
   let resolved: ResolvedConfig | undefined
   let definition: DiscoveredEmailDefinition | undefined
+  let serverDirs: string[] | undefined
 
   function refresh(): DiscoveredEmailDefinition | undefined {
     const viteRoot = resolve(resolved?.root ?? process.cwd())
     const projectRoot = resolveViteHubProjectRoot(viteRoot, { projectRoot: options.projectRoot })
-    definition = discoverEmailDefinition(projectRoot)
+    definition = discoverEmailDefinition(projectRoot, { serverDirs })
     return definition
   }
 
@@ -59,6 +60,7 @@ export function hubEmail(options: EmailVitePluginOptions = {}): EmailVitePlugin 
       refresh,
     },
     config(config) {
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       return {
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }

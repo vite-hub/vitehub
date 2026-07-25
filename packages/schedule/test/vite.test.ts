@@ -3,9 +3,10 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
@@ -33,6 +34,34 @@ describe("Vite schedule integration", () => {
     const plugin = hubSchedule()
 
     expect(plugin.enforce).toBe("pre")
+  })
+
+  it("invalidates registries for updates under a forwarded server directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-hmr-"))
+    const serverDir = join(root, "backend")
+    const plugin = hubSchedule()
+    await (plugin.config as (config: Record<PropertyKey, unknown>, env: { command: "serve", mode: string }) => unknown)({
+      [VITEHUB_SERVER_DIRS]: [serverDir],
+      root,
+    }, { command: "serve", mode: "development" })
+    resolvePluginConfig(plugin, root)
+    const registry = {}
+    const targets = {}
+    const invalidateModule = vi.fn()
+
+    ;(plugin.handleHotUpdate as (context: Record<string, unknown>) => unknown)({
+      file: join(serverDir, "schedules", "daily.ts"),
+      server: {
+        config: { root },
+        moduleGraph: {
+          getModuleById: (id: string) => id.includes("targets") ? targets : registry,
+          invalidateModule,
+        },
+      },
+    })
+
+    expect(invalidateModule).toHaveBeenCalledWith(registry)
+    expect(invalidateModule).toHaveBeenCalledWith(targets)
   })
 
   it("registers runtime-only targets without emitting static provider output", async () => {

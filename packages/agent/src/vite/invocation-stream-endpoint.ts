@@ -1,6 +1,7 @@
 import { join } from "node:path"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
@@ -278,9 +279,12 @@ async function installServerAgentWorkspaceRegistry(
 }
 
 async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocationStreamEntry[]> {
+  const serverDirs = (server.config as typeof server.config & {
+    [VITEHUB_SERVER_DIRS]?: string[]
+  })[VITEHUB_SERVER_DIRS] ?? [join(server.config.root, "server")]
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(server.config.root, "server")],
+    scanDirs: serverDirs,
   })
   const loaded = []
   for (const definition of definitions) {

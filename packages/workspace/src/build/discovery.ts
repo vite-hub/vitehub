@@ -82,9 +82,9 @@ function createWorkspaceDefinition(source: string, file: string, name: string): 
   return { handler: file, name, path: file, source, sourceRootDir: resolveWorkspaceSourceRoot(file) }
 }
 
-function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
-  const workspacesDir = resolve(rootDir, "server", "workspaces")
-  const agentsDir = resolve(rootDir, "server", "agents")
+function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "server")): WorkspaceDefinitionCatalogSource[] {
+  const workspacesDir = resolve(serverDir, "workspaces")
+  const agentsDir = resolve(serverDir, "agents")
   const directoryWorkspaceDirs = collectDirectoriesWithConfig(workspacesDir)
 
   const normalizeDirectoryName = (workspacesRoot: string, file: string) => {
@@ -110,7 +110,7 @@ function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSourc
   }
 
   return [
-    createDirectoryDefinitionSource("server-workspaces-directory-config", [resolve(rootDir, "server")], "workspaces", {
+    createDirectoryDefinitionSource("server-workspaces-directory-config", [serverDir], "workspaces", {
       includeHidden: true,
       normalizeName: normalizeDirectoryName,
       createDefinition: ({ file, name }) => {
@@ -120,7 +120,7 @@ function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSourc
         return createWorkspaceDefinition("server-workspaces-directory-config", file, name)
       },
     }),
-    createDirectoryDefinitionSource("server-agent-workspaces", [resolve(rootDir, "server")], "agents", {
+    createDirectoryDefinitionSource("server-agent-workspaces", [serverDir], "agents", {
       includeHidden: true,
       normalizeName(_agentsRoot, file) {
         if (!workspaceAgentPattern.test(basename(file))) return
@@ -130,7 +130,7 @@ function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSourc
       },
       createDefinition: ({ file, name }) => createWorkspaceDefinition("server-agent-workspaces", file, name),
     }),
-    createDirectoryDefinitionSource("server-workspaces", [resolve(rootDir, "server")], "workspaces", {
+    createDirectoryDefinitionSource("server-workspaces", [serverDir], "workspaces", {
       normalizeName: normalizeFlatName,
       createDefinition: ({ file, name }) => createWorkspaceDefinition("server-workspaces", file, name),
     }),
@@ -149,11 +149,14 @@ export function discoverServerWorkspaceDefinitions(rootDir: string): DiscoveredW
   return discoverDefinitions("workspace", [...serverWorkspaceSource(rootDir)])
 }
 
-export function discoverViteWorkspaceDefinitions(rootDir: string, options: { serverRootDir?: string } = {}): DiscoveredWorkspaceDefinition[] {
+export function discoverViteWorkspaceDefinitions(rootDir: string, options: { serverDirs?: string[], serverRootDir?: string } = {}): DiscoveredWorkspaceDefinition[] {
+  const serverRoot = options.serverRootDir || rootDir
+  const serverSources = options.serverDirs?.flatMap(serverDir => serverWorkspaceSource(serverRoot, serverDir))
+    ?? serverWorkspaceSource(serverRoot)
   return mergeDefinitions(
     "workspace",
     discoverDefinitions("workspace", [...viteWorkspaceSource(rootDir)]),
-    discoverDefinitions("workspace", [...serverWorkspaceSource(options.serverRootDir || rootDir)]),
+    discoverDefinitions("workspace", serverSources),
   )
 }
 

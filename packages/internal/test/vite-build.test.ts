@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest"
 
-import { hasNitroVitePlugin, resolveNitroVercelFunctionName } from "../src/build/vite.ts"
+import {
+  hasNitroConfigContext,
+  resolveNitroVercelFunctionName,
+  VITEHUB_NITRO_CONFIG_CONTEXT,
+} from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
   it("distinguishes the Nitro host plugin from ViteHub bridge plugins", () => {
-    expect(hasNitroVitePlugin({ plugins: [{ name: "nitro:main" }] })).toBe(true)
-    expect(hasNitroVitePlugin({ plugins: [[false, [{ name: "nitro:main" }]]] })).toBe(true)
-    expect(hasNitroVitePlugin({ plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/queue/vite" }] })).toBe(false)
-    expect(hasNitroVitePlugin({ plugins: [[{ name: "@vite-hub/blob/vite" }]] })).toBe(false)
+    expect(hasNitroConfigContext({ plugins: [{ name: "nitro:main" }] })).toBe(true)
+    expect(hasNitroConfigContext({ plugins: [[false, [{ name: "nitro:main" }]]] })).toBe(true)
+    expect(hasNitroConfigContext({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true })).toBe(true)
+    expect(hasNitroConfigContext({ plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/queue/vite" }] })).toBe(false)
+    expect(hasNitroConfigContext({ plugins: [[{ name: "@vite-hub/blob/vite" }]] })).toBe(false)
   })
 
   it("isolates provider functions when Nitro owns the Vercel output", () => {

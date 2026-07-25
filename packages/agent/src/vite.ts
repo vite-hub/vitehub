@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { markdownTemplateMaterializationPath } from "@vite-hub/markdown-template/vite"
 
@@ -283,10 +283,10 @@ function isScheduleRegistryId(id: string): boolean {
   return id.replace(/\\/g, "/").split("?", 1)[0]!.endsWith(generatedScheduleRuntimeRegistrySuffix)
 }
 
-function discoverScheduledAgentDefinitions(root: string): DiscoveredAgentDefinition[] {
+function discoverScheduledAgentDefinitions(root: string, serverDirs = [join(root, "server")]): DiscoveredAgentDefinition[] {
   const definitions = [
     ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: root }),
-    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] }),
+    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs }),
   ]
   const unique = new Map<string, DiscoveredAgentDefinition>()
   for (const definition of definitions) {
@@ -299,9 +299,9 @@ function discoverScheduledAgentDefinitions(root: string): DiscoveredAgentDefinit
   return [...unique.values()]
 }
 
-async function isColocatedAgentInstructionDependency(root: string, file: string): Promise<boolean> {
+async function isColocatedAgentInstructionDependency(root: string, file: string, serverDirs?: string[]): Promise<boolean> {
   const target = resolve(file)
-  for (const definition of discoverScheduledAgentDefinitions(root)) {
+  for (const definition of discoverScheduledAgentDefinitions(root, serverDirs)) {
     const dependencies = new Set<string>()
     await readColocatedAgentInstructions(definition.handler, { dependencies })
     if (dependencies.has(target)) return true
@@ -309,10 +309,10 @@ async function isColocatedAgentInstructionDependency(root: string, file: string)
   return false
 }
 
-function hasHostedAgentDefinitions(root: string): boolean {
+function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")]): boolean {
   return discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   }).length > 0
 }
 
@@ -1326,11 +1326,12 @@ async function generateAgentNetlifyFunctionRouteHandler(
 async function writeAgentWebhookRouteHandler(
   root: string,
   options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
@@ -1420,11 +1421,12 @@ async function generateAgentDiscordGatewayRouteHandler(
 async function writeAgentDiscordGatewayRouteHandler(
   root: string,
   options: { discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDiscordGatewayRouteHandler)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentDiscordGatewayRouteHandler(definitions, handlerPath, options), "utf8")
@@ -1527,11 +1529,12 @@ async function generateAgentDenoServer(
 async function writeAgentDenoServer(
   root: string,
   options: { chatRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDenoServer)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   const scheduleRegistryImport = options.schedule
     ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
@@ -1553,11 +1556,12 @@ async function writeAgentDenoServer(
 async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
   options: { chatRoute?: false | string, discordGatewayRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  serverDirs = [join(root, "server")],
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   })
   const scheduleRegistryImport = options.schedule
     ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
@@ -1595,6 +1599,7 @@ async function writeNetlifyAgentProviderOutput(
   config: ResolvedConfig,
   options: ResolvedAgentModuleOptions,
   generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
+  serverDirs?: string[],
 ): Promise<void> {
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(config.root, {
     ...generatedOptions,
@@ -1602,7 +1607,7 @@ async function writeNetlifyAgentProviderOutput(
     discordGatewayRoute: options.routes.discordGateway,
     libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options, config),
     webhookRoute: options.routes.webhooks,
-  })
+  }, serverDirs)
   await writeProviderDeploymentOutputs({
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
@@ -1647,11 +1652,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let resolved: ResolvedConfig | undefined
+  let serverDirs: string[] | undefined
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
     const schedule = hasScheduleVitePlugin(config)
-    const hasHostedAgents = hasHostedAgentDefinitions(config.root)
+    const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     if (normalized && hasHostedAgents) {
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(config.root, {
@@ -1665,7 +1671,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        })
+        }, serverDirs)
       }
       else {
         await writeAgentWebhookRouteHandler(config.root, {
@@ -1681,7 +1687,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        })
+        }, serverDirs)
         if (normalized.routes.discordGateway) {
           await writeAgentDiscordGatewayRouteHandler(config.root, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
@@ -1694,7 +1700,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
             webhookRoute: normalized.routes.webhooks,
-          })
+          }, serverDirs)
         }
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
@@ -1708,7 +1714,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-          })
+          }, serverDirs)
         }
       }
     }
@@ -1726,13 +1732,19 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
+      const agentRoots = (serverDirs ?? [join(resolved?.root ?? context.server.config.root, "server")])
+        .map(directory => `${resolve(directory).replace(/\\/g, "/")}/agents/`)
+      const relativeAgentPath = agentRoots
+        .filter(directory => file.startsWith(directory))
+        .map(directory => file.slice(directory.length))
+        .find(path => /\.(?:c|m)?[jt]s$/i.test(path) || /\/(?:home|skills)\/.*$/i.test(path))
       const instructionUpdate = Boolean(
         resolved?.root
         && /\.md$/i.test(file)
-        && await isColocatedAgentInstructionDependency(resolved.root, file),
+        && await isColocatedAgentInstructionDependency(resolved.root, file, serverDirs),
       )
-      if (!instructionUpdate && !/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/agents\/.*(?:\.(?:c|m)?[jt]s|\/(?:home|skills)\/.*)$/i.test(file)) return
-      const colocatedResourceUpdate = instructionUpdate || /\/server\/agents\/.*\/(?:home|skills)\/.*$/i.test(file)
+      if (!instructionUpdate && !/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !relativeAgentPath) return
+      const colocatedResourceUpdate = instructionUpdate || Boolean(relativeAgentPath && /\/(?:home|skills)\/.*$/i.test(relativeAgentPath))
       if (resolved && colocatedResourceUpdate) {
         await writeGeneratedAgentOutputs(resolved)
       }
@@ -1757,14 +1769,18 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
       const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+      const serverAgentDefinition = (serverDirs ?? [join(resolved.root, "server")]).some((directory) => {
+        const agentRoot = `${resolve(directory, "agents").replace(/\\/g, "/")}/`
+        return normalizedId.startsWith(agentRoot) && /\.(?:c|m)?[jt]s$/i.test(normalizedId.slice(agentRoot.length))
+      })
       const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
-        || /\/server\/agents\/.*\.(?:c|m)?[jt]s$/i.test(normalizedId)
+        || serverAgentDefinition
       if (agentDefinition) {
         const materialization = transformRepositoryHostContextMaterialization(code, value => this.parse(value))
         if (materialization) return materialization
       }
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
-      const definitions = discoverScheduledAgentDefinitions(resolved.root)
+      const definitions = discoverScheduledAgentDefinitions(resolved.root, serverDirs)
       return isScheduleRegistryId(id)
         ? await transformScheduleRegistry(
             code,
@@ -1791,7 +1807,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     config(config) {
       agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
-      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(resolve(config.root || process.cwd())))
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(resolve(config.root || process.cwd()), serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
       const nitroHandlers = [
@@ -1876,7 +1893,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (!resolved || resolved.command !== "build") return
         const normalized = normalizeAgentOptions(agent)
         if (normalized && normalized.runtime === "deno") return
-        if (normalized && hasHostedAgentDefinitions(resolved.root) && isNetlifyHosting(resolved)) {
+        if (normalized && hasHostedAgentDefinitions(resolved.root, serverDirs) && isNetlifyHosting(resolved)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
             libsqlState: resolveLibsqlAgentState(normalized, resolved),
@@ -1887,7 +1904,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-          })
+          }, serverDirs)
         } else if (isNetlifyHosting(resolved)) {
           await cleanupNetlifyAgentProviderOutput(resolved)
         }

@@ -1,4 +1,4 @@
-import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment } from '@vite-hub/internal/build/vite'
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { basename, dirname, normalize, relative } from 'pathe'
 
@@ -243,7 +243,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     config: { nitro?: unknown, plugins?: unknown, root?: string },
     prepared: Awaited<ReturnType<typeof prepareCurrentSandboxRuntime>>,
   ) {
-    if (!prepared.cloudflare || !hasNitroVitePlugin(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
+    if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
       return false
     config.nitro = await configureCloudflareSandboxNitro(
       config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],

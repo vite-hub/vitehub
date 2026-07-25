@@ -5,7 +5,7 @@ import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
@@ -394,8 +394,8 @@ function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | Wor
   return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
 }
 
-function discoverDefinitions(roots: WorkspacePluginRoots) {
-  return discoverViteWorkspaceDefinitions(roots.viteRoot, { serverRootDir: roots.projectRoot })
+function discoverDefinitions(roots: WorkspacePluginRoots, serverDirs?: string[]) {
+  return discoverViteWorkspaceDefinitions(roots.viteRoot, { serverDirs, serverRootDir: roots.projectRoot })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -825,9 +825,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   let manifest: WorkspaceBuildState["manifest"] = { workspaces: [] }
   let registryContents = "export default {}\n"
   let server: ViteDevServer | undefined
+  let serverDirs: string[] | undefined
 
   async function refreshManifest(roots: WorkspacePluginRoots) {
-    const definitions = discoverDefinitions(roots)
+    const definitions = discoverDefinitions(roots, serverDirs)
     const state = await refreshWorkspaceBuildState(roots.projectRoot, definitions)
     manifest = state.manifest
     registryContents = state.registryContents
@@ -856,6 +857,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       getWorkspaces: () => manifest.workspaces,
     },
     async config(config, env) {
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const workspaceOptions = stripWorkspaceInternalOptions(
         (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
       )
@@ -876,7 +878,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           },
         },
       }
-      const definitions = normalized ? discoverDefinitions(roots) : []
+      const definitions = normalized ? discoverDefinitions(roots, serverDirs) : []
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
@@ -936,7 +938,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       await refreshManifest(roots)
       if (resolved.command !== "build" || !assetsRegistryFile) return
 
-      const definitions = discoverDefinitions(roots)
+      const definitions = discoverDefinitions(roots, serverDirs)
       await syncWorkspaceBuildAssets(definitions, roots.projectRoot, resolvedOptions, assetsRegistryFile)
     },
     closeBundle: {
@@ -948,7 +950,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
           viteRoot: viteRoot || resolve(resolved.root),
         }
-        const definitions = discoverDefinitions(roots)
+        const definitions = discoverDefinitions(roots, serverDirs)
         await Promise.all(definitions.map(async (definition) => {
           definition.source = await readFile(definition.path, "utf8")
         }))

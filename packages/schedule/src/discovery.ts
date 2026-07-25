@@ -46,7 +46,7 @@ function normalizeDirectoryScheduleName(directory: string, file: string) {
 }
 
 export function discoverScheduleDefinitions(options:
-  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[], serverRootDir?: string }
+  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[], serverDirs?: string[], serverRootDir?: string }
   | { mode: "server-schedules", scanDirs: string[] }
 ): DiscoveredScheduleDefinition[] {
   if (options.mode === "server-schedules") {
@@ -60,7 +60,7 @@ export function discoverScheduleDefinitions(options:
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverRoots = resolveDefinitionScanRoots(options.serverRootDir || options.rootDir, options.scanDirs)
-  const serverScanDirs = serverRoots.map(root => resolve(root, "server"))
+  const serverScanDirs = options.serverDirs ?? serverRoots.map(root => resolve(root, "server"))
 
   return mergeDefinitions(
     "schedule",

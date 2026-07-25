@@ -1,7 +1,7 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
@@ -61,7 +61,7 @@ function hasNitroVitePluginOption(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasNitroVitePluginOption)
   return Boolean(value)
     && typeof value === "object"
-    && hasNitroVitePlugin({ plugins: [value as { name: string }] })
+    && hasNitroConfigContext({ plugins: [value as { name: string }] })
 }
 
 function mergeNitroExternal(value: unknown, addition: string): unknown {
@@ -268,7 +268,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       rootDir = config.root
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      cloudflareOwnedByNitro = (nitroOwned || hasNitroVitePlugin(config)) && isNitroCloudflareHost(configuredNitro)
+      cloudflareOwnedByNitro = (nitroOwned || hasNitroConfigContext(config)) && isNitroCloudflareHost(configuredNitro)
       const blobConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
         configuredNitro,

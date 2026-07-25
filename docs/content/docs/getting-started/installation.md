@@ -41,6 +41,19 @@ export default defineConfig({
 })
 ```
 
+In Nuxt, register the framework module. It installs the same Vite integrations
+and carries their Nitro configuration through Nuxt's lifecycle.
+
+```ts [nuxt.config.ts]
+import viteHubNuxt from "vite-hub/nuxt"
+
+export default defineNuxtConfig({
+  modules: [
+    [viteHubNuxt, { preset: "node" }],
+  ],
+})
+```
+
 Import application APIs from explicit feature subpaths.
 
 ```ts [server/agents/support.ts]

@@ -115,6 +115,7 @@ for libraries, focused integrations, and advanced composition.
 | Import path | Use |
 | --- | --- |
 | `vite-hub` | Canonical application import for `vitehub()`. |
+| `vite-hub/nuxt` | Register the framework Nuxt module and carry Vite integration configuration into Nitro. |
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |

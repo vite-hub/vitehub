@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import {
   markdownTemplateFileSuffix,
@@ -76,8 +76,7 @@ async function loadBundledMarkdownTemplate(path: string): Promise<BundledMarkdow
   }
 }
 
-async function createMarkdownTemplateCatalog(root: string, runtimeImport: string): Promise<MarkdownTemplateCatalogState> {
-  const templatesRoot = resolve(root, "server", "templates")
+async function createMarkdownTemplateCatalog(templatesRoot: string, runtimeImport: string): Promise<MarkdownTemplateCatalogState> {
   const entries: Record<string, BundledMarkdownTemplateCatalogEntry> = Object.create(null)
   const watchFiles = new Set<string>()
 
@@ -125,6 +124,7 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
   const runtimeImport = options.runtimeImport || markdownTemplateRuntimeSpecifier
   const runtimeAlias = options.runtimeImport ? undefined : fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
   let root = process.cwd()
+  let serverDirs: string[] | undefined
   let templatesRoot = resolve(root, "server", "templates")
   let registryPath = resolve(root, markdownTemplateRegistryPath)
   let catalogTypesPath = resolve(root, ".vitehub", "types", "templates.d.ts")
@@ -135,7 +135,7 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
   }
 
   const refreshCatalog = async () => {
-    catalog = await createMarkdownTemplateCatalog(root, runtimeImport)
+    catalog = await createMarkdownTemplateCatalog(templatesRoot, runtimeImport)
     await Promise.all([
       writeFileIfChanged(registryPath, catalog.code),
       writeFileIfChanged(catalogTypesPath, renderMarkdownTemplateCatalogTypes(catalog.names)),
@@ -145,7 +145,8 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
   return {
     name: "@vite-hub/markdown-template/vite",
     enforce: "pre",
-    config() {
+    config(config) {
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       if (!runtimeAlias) return
       return {
         resolve: {
@@ -183,7 +184,7 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
     },
     async configResolved(config) {
       root = resolveViteHubProjectRoot(config.root)
-      templatesRoot = resolve(root, "server", "templates")
+      templatesRoot = resolve(serverDirs?.[0] ?? resolve(root, "server"), "templates")
       registryPath = resolve(root, markdownTemplateRegistryPath)
       catalogTypesPath = resolve(root, ".vitehub", "types", "templates.d.ts")
       const typesPath = resolve(root, ".vitehub", "types", "markdown-template.d.ts")

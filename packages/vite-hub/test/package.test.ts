@@ -165,7 +165,7 @@ describe("framework package contract", () => {
       .filter(({ source }) => !exportedForwarders.has(source))
       .map(({ subpath }) => subpath)
       .sort(),
-    ).toEqual([".", "./_internal/kv/runtime/disabled-upstash"])
+    ).toEqual([".", "./_internal/kv/runtime/disabled-upstash", "./nuxt"])
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
