@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+
 import type { PluginOption } from "vite"
 
 const mocks = vi.hoisted(() => ({
@@ -8,11 +10,21 @@ const mocks = vi.hoisted(() => ({
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
     },
   })),
-  outputHook: vi.fn(),
-  queueNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
+  existingQueueConfig: vi.fn(),
+  existingQueueNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
     queues: {
       handlers: [{ handler: "custom-server/queues/email.ts" }],
+    },
+  })),
+  outputHook: vi.fn(),
+  queueNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
+    ...nitro,
+    unexpectedQueue: true,
+  })),
+  sandboxHook: vi.fn((config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }) => ({
+    nitro: {
+      sandbox: config[VITEHUB_NITRO_CONFIG_CONTEXT],
     },
   })),
   vitehub: vi.fn(),
@@ -48,8 +60,11 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
 describe("ViteHub Nuxt integration", () => {
   beforeEach(() => {
     mocks.objectHook.mockClear()
+    mocks.existingQueueConfig.mockClear()
+    mocks.existingQueueNitroConfig.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
+    mocks.sandboxHook.mockClear()
     mocks.vitehub.mockReset()
     mocks.vitehub.mockReturnValue([
       false,
@@ -69,6 +84,9 @@ describe("ViteHub Nuxt integration", () => {
             },
             preset: "cloudflare_module",
           }
+          ;(config as Record<string, unknown>).queue = {
+            namePrefix: "vitehub-nuxt-",
+          }
         },
       }],
       {
@@ -79,6 +97,10 @@ describe("ViteHub Nuxt integration", () => {
             createNitroConfig: mocks.queueNitroConfig,
           },
         },
+      },
+      {
+        name: "@vite-hub/sandbox/vite",
+        config: mocks.sandboxHook,
       },
       {
         name: "vite-hub/object-hook",
@@ -94,8 +116,23 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("installs flattened ViteHub plugins and applies their config hooks to Nitro", async () => {
-    const existingPlugin = { name: "vite-hub/object-hook" }
+    const existingPlugin = {
+      name: "vite-hub/object-hook",
+      config: {
+        handler: mocks.objectHook,
+      },
+    }
+    const existingQueuePlugin = {
+      name: "@vite-hub/queue/vite",
+      config: mocks.existingQueueConfig,
+      vitehub: {
+        queue: {
+          createNitroConfig: mocks.existingQueueNitroConfig,
+        },
+      },
+    }
     const { nuxt, runNitroConfigHook } = createNuxt(true, [[
+      existingQueuePlugin,
       existingPlugin,
       { name: "vite-hub/deployment-output" },
     ]])
@@ -104,7 +141,8 @@ describe("ViteHub Nuxt integration", () => {
 
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
-      expect.objectContaining({ name: "@vite-hub/queue/vite" }),
+      expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
+      existingQueuePlugin,
       existingPlugin,
     ])
 
@@ -123,12 +161,25 @@ describe("ViteHub Nuxt integration", () => {
     }
     await runNitroConfigHook(nitroConfig)
 
-    expect(mocks.queueNitroConfig).toHaveBeenCalledWith({
+    expect(mocks.existingQueueConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queue: { namePrefix: "vitehub-nuxt-" },
+      }),
+      expect.anything(),
+    )
+    expect(mocks.existingQueueNitroConfig).toHaveBeenCalledWith({
       nitro: expect.objectContaining({ preset: "cloudflare_module" }),
       projectRoot: "/tmp/vitehub-nuxt",
       root: "/tmp/vitehub-nuxt/app",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
+    expect(mocks.queueNitroConfig).not.toHaveBeenCalled()
+    expect(mocks.sandboxHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      }),
+      expect.anything(),
+    )
     expect(mocks.objectHook).toHaveBeenCalledWith(
       expect.objectContaining({
         nitro: expect.objectContaining({ preset: "cloudflare_module" }),
@@ -155,6 +206,7 @@ describe("ViteHub Nuxt integration", () => {
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
       },
+      sandbox: true,
     })
   })
 

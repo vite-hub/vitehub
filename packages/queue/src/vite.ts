@@ -1,6 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
@@ -200,7 +200,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       queue = config.queue ?? queue
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const configuredNitroConfig = cloneNitroConfig(configuredNitro)
-      nitroOwnsCloudflareWorker = hasNitroVitePlugin(config) && resolveNitroHosting(configuredNitroConfig) === "cloudflare" && supportsCloudflareQueues(configuredNitroConfig)
+      nitroOwnsCloudflareWorker = hasNitroConfigContext(config) && resolveNitroHosting(configuredNitroConfig) === "cloudflare" && supportsCloudflareQueues(configuredNitroConfig)
       configuredDefinitions = discoverQueueDefinitions({ rootDir: config.root })
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root, configuredDefinitions)
       ;(config as { nitro?: unknown }).nitro = nitro
@@ -209,7 +209,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = resolveNitroHosting(nitro)
       nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
-      validatesNitroDefinitions = hasNitroVitePlugin(config) && nitroQueue !== false
+      validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
       await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions)
     },
     configEnvironment(name, config) {

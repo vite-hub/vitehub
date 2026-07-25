@@ -9,7 +9,7 @@ import {
   shouldSkipViteProviderBuild,
   useComposedProviderOutput,
 } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { normalizePath } from "vite"
@@ -161,7 +161,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const nitroCloudflare = resolveNitroHosting(configuredNitro) === "cloudflare"
-      cloudflareOwnedByNitro = hasNitroVitePlugin(config) && nitroCloudflare
+      cloudflareOwnedByNitro = hasNitroConfigContext(config) && nitroCloudflare
       provider = resolveProvider(rateLimit, config.command, configuredNitro)!
       collectDeclarations()
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(

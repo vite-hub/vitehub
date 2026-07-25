@@ -1,3 +1,4 @@
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
@@ -63,7 +64,11 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     isSsrBuild: true,
     mode: nuxt.options.dev ? "development" : "production",
   } as const
-  let config: UserConfig & { nitro?: Record<string, unknown> } = {
+  let config: UserConfig & {
+    [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    nitro?: Record<string, unknown>
+  } = {
+    [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
     build: {},
     nitro: nitroConfig,
     root: nuxt.options.srcDir || nuxt.options.rootDir || process.cwd(),
@@ -71,6 +76,15 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   }
 
   for (const plugin of plugins) {
+    const handler = configHandler(plugin)
+    if (handler) {
+      const result = await handler.call({} as never, config, environment)
+      if (result) {
+        config = mergeConfig(config, result)
+        config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+      }
+    }
+
     const createQueueNitroConfig = queueNitroConfigHandler(plugin)
     if (createQueueNitroConfig) {
       const projectRoot = nuxt.options.rootDir || process.cwd()
@@ -80,13 +94,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
         root: nuxt.options.srcDir || projectRoot,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
       })
-      continue
     }
-
-    const handler = configHandler(plugin)
-    if (!handler) continue
-    const result = await handler.call({} as never, config, environment)
-    if (result) config = mergeConfig(config, result)
   }
 
   if (config.nitro) Object.assign(nitroConfig, config.nitro)
@@ -105,11 +113,17 @@ export default function viteHubNuxtModule(options: Parameters<typeof vitehub>[0]
       .map(plugin => plugin.name)
       .filter(Boolean),
   )
+  const existingPluginsByName = new Map(
+    flattenPlugins(existing)
+      .filter(plugin => plugin.name)
+      .map(plugin => [plugin.name, plugin]),
+  )
+  const installedPlugins = plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin)
 
   nuxt.options.vite ??= {}
   nuxt.options.vite.plugins = [
     ...plugins.filter(plugin => !existingNames.has(plugin.name)),
     ...existing,
   ] as PluginOption[]
-  nuxt.hook?.("nitro:config", config => applyNitroConfig(plugins, config, nuxt))
+  nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
 }
