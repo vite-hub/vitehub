@@ -167,6 +167,17 @@ describe("provider deployment outputs", () => {
     await writeVercelOutput()
     expect(existsSync(join(cloudflareDir, "wrangler.json"))).toBe(true)
     expect(existsSync(copiedCloudflareDir)).toBe(false)
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        staticOutputDir: clientDir,
+      },
+    })
+    expect(existsSync(join(cloudflareDir, "wrangler.json"))).toBe(true)
   })
 
   it("forwards keyed array ownership through composed Cloudflare output", async () => {

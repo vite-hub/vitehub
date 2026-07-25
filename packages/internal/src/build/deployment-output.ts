@@ -218,7 +218,7 @@ async function copyVercelClientOutput(rootDir: string, clientDir: string, static
     && !isAbsolute(outputRelativePath)
 
   await copyClientOutput(clientDir, staticOutputDir)
-  if (!excludesCloudflareOutput) return
+  if (resolve(clientDir) === resolve(staticOutputDir) || !excludesCloudflareOutput) return
 
   try {
     await readFile(resolve(cloudflareOutputRoot, "wrangler.json"))
