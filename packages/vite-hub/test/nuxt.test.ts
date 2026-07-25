@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { PluginOption } from "vite"
 
 const mocks = vi.hoisted(() => ({
-  objectHook: vi.fn(() => ({
+  objectHook: vi.fn((config: { nitro?: Record<string, unknown> }) => ({
     nitro: {
+      ...config.nitro,
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
     },
   })),
@@ -18,12 +19,20 @@ const mocks = vi.hoisted(() => ({
     },
   })),
   outputHook: vi.fn(),
+  agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }) => ({
+    nitro: {
+      ...config.nitro,
+      handlers: config[VITEHUB_SERVER_DIRS]?.map(serverDir => ({ handler: `${serverDir}/agents/support.ts` })),
+      modules: ["agent-module"],
+    },
+  })),
   queueNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
     unexpectedQueue: true,
   })),
-  sandboxHook: vi.fn((config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }) => ({
+  sandboxHook: vi.fn((config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean, nitro?: Record<string, unknown> }) => ({
     nitro: {
+      ...config.nitro,
       sandbox: config[VITEHUB_NITRO_CONFIG_CONTEXT],
     },
   })),
@@ -60,6 +69,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
 describe("ViteHub Nuxt integration", () => {
   beforeEach(() => {
     mocks.objectHook.mockClear()
+    mocks.agentHook.mockClear()
     mocks.existingQueueConfig.mockClear()
     mocks.existingQueueNitroConfig.mockClear()
     mocks.outputHook.mockClear()
@@ -89,6 +99,10 @@ describe("ViteHub Nuxt integration", () => {
           }
         },
       }],
+      {
+        name: "@vite-hub/agent/vite",
+        config: mocks.agentHook,
+      },
       {
         name: "@vite-hub/queue/vite",
         config: vi.fn(),
@@ -141,6 +155,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
+      expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
       existingQueuePlugin,
       existingPlugin,
@@ -174,6 +189,12 @@ describe("ViteHub Nuxt integration", () => {
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
     expect(mocks.queueNitroConfig).not.toHaveBeenCalled()
+    expect(mocks.agentHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        [VITEHUB_SERVER_DIRS]: ["/tmp/vitehub-nuxt/custom-server"],
+      }),
+      expect.anything(),
+    )
     expect(mocks.sandboxHook).toHaveBeenCalledWith(
       expect.objectContaining({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
@@ -202,11 +223,43 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
+      modules: ["agent-module"],
       preset: "cloudflare_module",
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
       },
       sandbox: true,
+    })
+  })
+
+  it("does not concatenate complete Nitro arrays returned by config hooks", async () => {
+    mocks.vitehub.mockReturnValue([
+      {
+        name: "vite-hub/first",
+        config: () => ({
+          nitro: {
+            modules: ["first"],
+          },
+        }),
+      },
+      {
+        name: "vite-hub/second",
+        config: (config: { nitro?: Record<string, unknown> }) => ({
+          nitro: {
+            ...config.nitro,
+            modules: [...((config.nitro?.modules as string[] | undefined) ?? []), "second"],
+          },
+        }),
+      },
+    ])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig = {}
+
+    viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig).toEqual({
+      modules: ["first", "second"],
     })
   })
 

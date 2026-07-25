@@ -1,4 +1,4 @@
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
@@ -64,11 +64,14 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     isSsrBuild: true,
     mode: nuxt.options.dev ? "development" : "production",
   } as const
+  const serverDirs = nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined
   let config: UserConfig & {
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
   } = {
     [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+    ...(serverDirs ? { [VITEHUB_SERVER_DIRS]: serverDirs } : {}),
     build: {},
     nitro: nitroConfig,
     root: nuxt.options.srcDir || nuxt.options.rootDir || process.cwd(),
@@ -80,8 +83,11 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     if (handler) {
       const result = await handler.call({} as never, config, environment)
       if (result) {
-        config = mergeConfig(config, result)
+        const { nitro, ...viteConfig } = result as UserConfig & { nitro?: Record<string, unknown> }
+        config = mergeConfig(config, viteConfig)
+        if (nitro) config.nitro = nitro as Record<string, unknown>
         config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+        if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
       }
     }
 

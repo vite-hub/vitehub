@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { markdownTemplateMaterializationPath } from "@vite-hub/markdown-template/vite"
 
@@ -309,10 +309,10 @@ async function isColocatedAgentInstructionDependency(root: string, file: string)
   return false
 }
 
-function hasHostedAgentDefinitions(root: string): boolean {
+function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")]): boolean {
   return discoverAgentDefinitions({
     mode: "server-agents",
-    scanDirs: [join(root, "server")],
+    scanDirs: serverDirs,
   }).length > 0
 }
 
@@ -1791,7 +1791,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     config(config) {
       agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
-      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(resolve(config.root || process.cwd())))
+      const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(resolve(config.root || process.cwd()), serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
       const nitroHandlers = [
