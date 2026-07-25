@@ -9,9 +9,18 @@ type NuxtLike = {
   options: {
     dev?: boolean
     rootDir?: string
+    serverDir?: string
+    srcDir?: string
     vite?: UserConfig
   }
 }
+
+type QueueNitroConfigHandler = (options: {
+  nitro: Record<string, unknown>
+  projectRoot: string
+  root: string
+  serverDirs?: string[]
+}) => Promise<Record<string, unknown>>
 
 function flattenPlugins(options: readonly unknown[]): Plugin[] {
   const plugins: Plugin[] = []
@@ -25,6 +34,16 @@ function flattenPlugins(options: readonly unknown[]): Plugin[] {
 function configHandler(plugin: Plugin) {
   if (typeof plugin.config === "function") return plugin.config
   return plugin.config?.handler
+}
+
+function queueNitroConfigHandler(plugin: Plugin): QueueNitroConfigHandler | undefined {
+  return (plugin as Plugin & {
+    vitehub?: {
+      queue?: {
+        createNitroConfig?: QueueNitroConfigHandler
+      }
+    }
+  }).vitehub?.queue?.createNitroConfig
 }
 
 function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
@@ -47,11 +66,23 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   let config: UserConfig & { nitro?: Record<string, unknown> } = {
     build: {},
     nitro: nitroConfig,
-    root: nuxt.options.rootDir || process.cwd(),
+    root: nuxt.options.srcDir || nuxt.options.rootDir || process.cwd(),
     server: {},
   }
 
   for (const plugin of plugins) {
+    const createQueueNitroConfig = queueNitroConfigHandler(plugin)
+    if (createQueueNitroConfig) {
+      const projectRoot = nuxt.options.rootDir || process.cwd()
+      config.nitro = await createQueueNitroConfig({
+        nitro: config.nitro || {},
+        projectRoot,
+        root: nuxt.options.srcDir || projectRoot,
+        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      })
+      continue
+    }
+
     const handler = configHandler(plugin)
     if (!handler) continue
     const result = await handler.call({} as never, config, environment)
