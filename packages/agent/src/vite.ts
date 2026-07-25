@@ -1769,8 +1769,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
       const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+      const serverAgentDefinition = (serverDirs ?? [join(resolved.root, "server")]).some((directory) => {
+        const agentRoot = `${resolve(directory, "agents").replace(/\\/g, "/")}/`
+        return normalizedId.startsWith(agentRoot) && /\.(?:c|m)?[jt]s$/i.test(normalizedId.slice(agentRoot.length))
+      })
       const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
-        || /\/server\/agents\/.*\.(?:c|m)?[jt]s$/i.test(normalizedId)
+        || serverAgentDefinition
       if (agentDefinition) {
         const materialization = transformRepositoryHostContextMaterialization(code, value => this.parse(value))
         if (materialization) return materialization
