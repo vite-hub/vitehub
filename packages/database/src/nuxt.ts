@@ -216,6 +216,9 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
     handlers.unshift({ handler: generatedNitroDatabaseMiddleware, middleware: true, route: "/**" })
   }
   config.handlers = handlers
+  const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
+  rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
+  config.rollupConfig = rollupConfig
   await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
     "import { defineMiddleware } from 'nitro'",
@@ -227,6 +230,16 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
     "})",
     "",
   ].join("\n"))
+}
+
+function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
 }
 
 function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {

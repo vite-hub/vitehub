@@ -130,6 +130,9 @@ describe("Database Nuxt integration", () => {
           route: "/**",
         },
       ],
+      rollupConfig: {
+        external: ["cloudflare:workers"],
+      },
       runtimeConfig: {
         content: {
           database: {
