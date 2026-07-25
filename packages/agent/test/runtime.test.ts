@@ -3087,6 +3087,91 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("normalizes raw JSON Schema tool inputs for AI SDK agents", async () => {
+    const agentSettings: Record<string, unknown>[] = []
+    const rawJsonSchema = {
+      additionalProperties: false,
+      properties: { query: { type: "string" } },
+      required: ["query"],
+      type: "object",
+    } as const
+    const standardSchema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => rawJsonSchema,
+          output: () => rawJsonSchema,
+        },
+        validate: (input: unknown) => ({ value: input }),
+        vendor: "test",
+        version: 1 as const,
+      },
+    }
+    const wrappedJsonSchema = { jsonSchema: rawJsonSchema }
+    const jsonSchema = vi.fn(schema => ({ jsonSchema: schema }))
+    loadAiSdk.mockResolvedValue({
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema,
+      ToolLoopAgent: class {
+        constructor(settings: Record<string, unknown>) {
+          agentSettings.push(settings)
+        }
+
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+      },
+    })
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "schema-tools",
+          tools: {
+            defaultSchema: {
+              execute: () => "ok",
+              name: "defaultSchema",
+            },
+            rawJsonSchema: {
+              execute: () => "ok",
+              inputSchema: rawJsonSchema,
+              name: "rawJsonSchema",
+            },
+            standardSchema: {
+              execute: () => "ok",
+              inputSchema: standardSchema,
+              name: "standardSchema",
+            },
+            wrappedJsonSchema: {
+              execute: () => "ok",
+              inputSchema: wrappedJsonSchema as never,
+              name: "wrappedJsonSchema",
+            },
+          },
+        }),
+      ],
+      driver: { model: {} as never },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+
+    const tools = agentSettings[0]!.tools as Record<string, { inputSchema: unknown }>
+    expect(tools.rawJsonSchema!.inputSchema).toEqual({ jsonSchema: rawJsonSchema })
+    expect(tools.standardSchema!.inputSchema).toBe(standardSchema)
+    expect(tools.wrappedJsonSchema!.inputSchema).toBe(wrappedJsonSchema)
+    expect(tools.defaultSchema!.inputSchema).toEqual({
+      jsonSchema: {
+        additionalProperties: false,
+        properties: {},
+        type: "object",
+      },
+    })
+    expect(jsonSchema).toHaveBeenCalledTimes(2)
+  })
+
   it("resolves provider callbacks only at model invocation with byte limits", async () => {
     const generate = vi.fn(async (_input: unknown) => ({ finishReason: "stop", text: "ok" }))
     loadAiSdk.mockResolvedValue({

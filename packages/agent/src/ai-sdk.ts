@@ -54,6 +54,7 @@ import type {
 } from "./types.ts"
 import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import type { JSONSchema7 } from "json-schema"
 
 export interface AiSdkAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -741,15 +742,25 @@ const defaultToolInputSchemaJson = {
   type: "object",
 } as const
 
-function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools, createDefaultToolInputSchema: () => unknown): TTools {
+function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools, createJsonSchema: (schema: JSONSchema7) => unknown): TTools {
   if (!tools) return tools
   let defaultToolInputSchema: unknown
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     const record = tool as { inputSchema?: unknown, type?: unknown } | undefined
-    if (!record || typeof record !== "object" || record.type === "provider" || record.type === "provider-defined" || record.inputSchema != null) {
+    if (!record || typeof record !== "object" || record.type === "provider" || record.type === "provider-defined") {
       return [name, tool]
     }
-    defaultToolInputSchema ??= createDefaultToolInputSchema()
+    if (record.inputSchema != null) {
+      const inputSchema = record.inputSchema
+      if (typeof inputSchema !== "object" || inputSchema === null || "~standard" in inputSchema || "jsonSchema" in inputSchema) {
+        return [name, tool]
+      }
+      return [name, {
+        ...record,
+        inputSchema: createJsonSchema(inputSchema as JSONSchema7),
+      }]
+    }
+    defaultToolInputSchema ??= createJsonSchema(defaultToolInputSchemaJson)
     return [name, {
       ...record,
       inputSchema: defaultToolInputSchema,
@@ -991,7 +1002,7 @@ async function createAgent(
   const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, []), fallbackCapture), () => jsonSchema(defaultToolInputSchemaJson))
+  }, []), fallbackCapture), jsonSchema)
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,
