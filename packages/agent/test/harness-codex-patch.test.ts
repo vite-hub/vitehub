@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createCodexDriver } from "../src/harness/codex.ts"
 import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
@@ -106,6 +106,44 @@ describe("ViteHub Codex harness", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("maps Codex bootstrap text files into the sandbox workspace", async () => {
+    const readTextFile = vi.fn(async () => "ready")
+    const run = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "ready" }))
+    const writeTextFile = vi.fn(async () => undefined)
+    const rawSession = {
+      defaultWorkingDirectory: "/workspace",
+      readTextFile,
+      restricted: () => rawSession,
+      run,
+      writeTextFile,
+    }
+    const harness = createCodexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>
+    const adapt = harness[Symbol.for("vitehub.harnessSandboxAdapter")] as (
+      provider: HarnessV1SandboxProvider,
+    ) => HarnessV1SandboxProvider
+    const provider = adapt({
+      createSession: async () => rawSession,
+      specificationVersion: "harness-sandbox-v1",
+    } as unknown as HarnessV1SandboxProvider)
+    const session = await provider.createSession()
+
+    await session.writeTextFile({ content: "ready", path: "/tmp/harness/codex/marker" })
+    await session.restricted().readTextFile({ path: "/tmp/harness/codex/marker" })
+    await session.run({ command: "cat /tmp/harness/codex/marker" })
+
+    expect(writeTextFile).toHaveBeenCalledWith({
+      content: "ready",
+      path: "/workspace/tmp/harness/codex/marker",
+    })
+    expect(readTextFile).toHaveBeenCalledWith({
+      path: "/workspace/tmp/harness/codex/marker",
+    })
+    expect(run).toHaveBeenCalledWith({
+      command: "cat /workspace/tmp/harness/codex/marker",
+      env: { CODEX_HOME: "/workspace/tmp/harness/codex-home" },
+    })
   })
 
   it("adapts a Box sandbox for Codex paths and direct OpenAI auth", async () => {
