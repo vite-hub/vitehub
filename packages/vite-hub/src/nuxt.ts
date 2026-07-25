@@ -128,7 +128,13 @@ export default function viteHubNuxtModule(options: Parameters<typeof vitehub>[0]
       .filter(plugin => plugin.name)
       .map(plugin => [plugin.name, plugin]),
   )
-  const installedPlugins = plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin)
+  const installedPlugins = [
+    ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
+    ...flattenPlugins(existing).filter(plugin =>
+      (plugin.name.startsWith("@vite-hub/") || plugin.name.startsWith("vite-hub/"))
+      && !plugins.some(candidate => candidate.name === plugin.name),
+    ),
+  ]
 
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & {

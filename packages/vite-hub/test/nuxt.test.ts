@@ -18,6 +18,12 @@ const mocks = vi.hoisted(() => ({
       handlers: [{ handler: "custom-server/queues/email.ts" }],
     },
   })),
+  existingOwnerConfig: vi.fn((config: { nitro?: Record<string, unknown> }) => ({
+    nitro: {
+      ...config.nitro,
+      ownerPlugin: true,
+    },
+  })),
   outputHook: vi.fn(),
   agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }) => ({
     nitro: {
@@ -75,6 +81,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.agentHook.mockClear()
     mocks.existingQueueConfig.mockClear()
     mocks.existingQueueNitroConfig.mockClear()
+    mocks.existingOwnerConfig.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
@@ -148,8 +155,13 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
     }
+    const existingOwnerPlugin = {
+      name: "@vite-hub/auth/vite",
+      config: mocks.existingOwnerConfig,
+    }
     const { nuxt, runNitroConfigHook } = createNuxt(true, [[
       existingQueuePlugin,
+      existingOwnerPlugin,
       existingPlugin,
       { name: "vite-hub/deployment-output" },
     ]])
@@ -164,6 +176,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
       existingQueuePlugin,
+      existingOwnerPlugin,
       existingPlugin,
     ])
 
@@ -195,6 +208,7 @@ describe("ViteHub Nuxt integration", () => {
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
     expect(mocks.queueNitroConfig).not.toHaveBeenCalled()
+    expect(mocks.existingOwnerConfig).toHaveBeenCalledOnce()
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
         [VITEHUB_SERVER_DIRS]: ["/tmp/vitehub-nuxt/custom-server"],
@@ -233,6 +247,7 @@ describe("ViteHub Nuxt integration", () => {
           observability: { enabled: true },
         },
       },
+      ownerPlugin: true,
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",

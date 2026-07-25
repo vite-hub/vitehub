@@ -110,7 +110,7 @@ function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "se
   }
 
   return [
-    createDirectoryDefinitionSource("server-workspaces-directory-config", [resolve(rootDir, "server")], "workspaces", {
+    createDirectoryDefinitionSource("server-workspaces-directory-config", [serverDir], "workspaces", {
       includeHidden: true,
       normalizeName: normalizeDirectoryName,
       createDefinition: ({ file, name }) => {
@@ -120,7 +120,7 @@ function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "se
         return createWorkspaceDefinition("server-workspaces-directory-config", file, name)
       },
     }),
-    createDirectoryDefinitionSource("server-agent-workspaces", [resolve(rootDir, "server")], "agents", {
+    createDirectoryDefinitionSource("server-agent-workspaces", [serverDir], "agents", {
       includeHidden: true,
       normalizeName(_agentsRoot, file) {
         if (!workspaceAgentPattern.test(basename(file))) return
@@ -130,7 +130,7 @@ function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "se
       },
       createDefinition: ({ file, name }) => createWorkspaceDefinition("server-agent-workspaces", file, name),
     }),
-    createDirectoryDefinitionSource("server-workspaces", [resolve(rootDir, "server")], "workspaces", {
+    createDirectoryDefinitionSource("server-workspaces", [serverDir], "workspaces", {
       normalizeName: normalizeFlatName,
       createDefinition: ({ file, name }) => createWorkspaceDefinition("server-workspaces", file, name),
     }),
