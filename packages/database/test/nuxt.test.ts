@@ -187,6 +187,52 @@ describe("Database Nuxt integration", () => {
     })
   })
 
+  it("deduplicates D1 bindings already merged into Nuxt and Nitro config", async () => {
+    const binding = {
+      binding: "DB",
+      database_id: "content-id",
+      database_name: "content-db",
+    }
+    const { hooks, nuxt } = createNuxt({
+      database: {
+        driver: "d1",
+        databaseId: "content-id",
+        databaseName: "content-db",
+      },
+      dev: false,
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            d1_databases: [binding, binding],
+          },
+        },
+      },
+      rootDir: "/tmp/vitehub-db-nuxt-deduplicated",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    expect(nuxt.options.nitro).toMatchObject({
+      cloudflare: {
+        wrangler: {
+          d1_databases: [binding],
+        },
+      },
+    })
+
+    const nitroConfig = {
+      cloudflare: {
+        wrangler: {
+          d1_databases: [binding, binding],
+        },
+      },
+    }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.cloudflare.wrangler.d1_databases).toEqual([binding])
+  })
+
   it("does not emit an invalid Wrangler D1 binding when the resource is incomplete", async () => {
     const { nuxt } = createNuxt({
       database: {

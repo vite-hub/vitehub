@@ -161,13 +161,23 @@ export function mergeCloudflareD1Bindings(
   current: unknown,
   generated: CloudflareD1WranglerBinding[],
 ): CloudflareD1WranglerBinding[] {
-  const bindings = Array.isArray(current)
-    ? current.filter(isCloudflareD1WranglerBinding).map(binding => ({ ...binding }))
-    : []
+  const bindings: CloudflareD1WranglerBinding[] = []
+  const bindingNames = new Set<string>()
+
+  if (Array.isArray(current)) {
+    for (const binding of current) {
+      if (isCloudflareD1WranglerBinding(binding) && !bindingNames.has(binding.binding)) {
+        bindings.push({ ...binding })
+        bindingNames.add(binding.binding)
+      }
+    }
+  }
 
   for (const binding of generated) {
     const index = bindings.findIndex(item => item.binding === binding.binding)
-    if (index === -1) bindings.push(binding)
+    if (index === -1) {
+      bindings.push(binding)
+    }
     else bindings[index] = { ...binding }
   }
 
