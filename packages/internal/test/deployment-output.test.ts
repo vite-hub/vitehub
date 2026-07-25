@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -134,6 +134,39 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       kv_namespaces: [{ binding: "SETTINGS", id: "namespace-id" }],
     })
+  })
+
+  it("excludes nested Cloudflare output from every Vercel static copy", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const clientDir = join(rootDir, "dist")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const vercelStaticDir = join(createDefaultVercelOutputRoot(rootDir), "static")
+    const copiedCloudflareDir = join(vercelStaticDir, relative(clientDir, cloudflareDir))
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "<!doctype html>\n")
+    await writeFile(join(cloudflareDir, "wrangler.json"), "{}\n")
+
+    const writeVercelOutput = () => writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+      },
+    })
+
+    await writeVercelOutput()
+    expect(existsSync(join(vercelStaticDir, "index.html"))).toBe(true)
+    expect(existsSync(copiedCloudflareDir)).toBe(false)
+
+    await writeVercelOutput()
+    expect(existsSync(join(cloudflareDir, "wrangler.json"))).toBe(true)
+    expect(existsSync(copiedCloudflareDir)).toBe(false)
   })
 
   it("forwards keyed array ownership through composed Cloudflare output", async () => {

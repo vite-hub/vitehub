@@ -1,7 +1,7 @@
 import { hash } from "node:crypto"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, getProviderRuntimeModule, getVercelRuntimePackages, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -459,26 +459,6 @@ function createVercelOutput(
   }
 }
 
-async function removeCloudflareOutputFromVercelStatic(rootDir: string, clientOutDir: string) {
-  const clientDir = resolve(rootDir, clientOutDir)
-  const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
-  const outputRelativePath = relative(clientDir, cloudflareOutputRoot)
-  if (!outputRelativePath
-    || outputRelativePath === ".."
-    || outputRelativePath.startsWith(`..${sep}`)
-    || isAbsolute(outputRelativePath)) return
-
-  try {
-    await readFile(resolve(cloudflareOutputRoot, "wrangler.json"))
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
-  }
-
-  await rm(resolve(createDefaultVercelOutputRoot(rootDir), "static", outputRelativePath), { force: true, recursive: true })
-}
-
 interface VercelQueueOutputState {
   digest: string
   serverFunctionName: string
@@ -604,7 +584,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
         .filter(serverFunctionName => !createVercel || serverFunctionName !== vercelFunctionName)
         .map(serverFunctionName => rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", serverFunctionName), { force: true, recursive: true })))
       if (createVercel) {
-        await removeCloudflareOutputFromVercelStatic(options.rootDir, options.clientOutDir)
         const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName)
         await copyVercelRuntimePackages({
           packages: getVercelRuntimePackages(options.providerOutput, "blob"),
