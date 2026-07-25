@@ -1394,8 +1394,26 @@ export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig =
   onDirectMessage?: (args: { message: { text: string } } & AgentChatEventHookArgs<TRuntimeConfig>) => MaybePromise<void>
 }
 
+type AgentChatVersionBoundAdapterMethod =
+  | "fetchChannelMessages"
+  | "fetchMessage"
+  | "fetchMessages"
+  | "initialize"
+  | "listThreads"
+  | "parseMessage"
+
+// Chat SDK messages and instances carry private state, so keep version-bound values opaque at this boundary.
+export type AgentChatPlatformAdapter = Omit<Adapter, AgentChatVersionBoundAdapterMethod> & {
+  fetchChannelMessages?: (...args: Parameters<NonNullable<Adapter["fetchChannelMessages"]>>) => Promise<unknown>
+  fetchMessage?: (...args: Parameters<NonNullable<Adapter["fetchMessage"]>>) => Promise<unknown>
+  fetchMessages: (...args: Parameters<Adapter["fetchMessages"]>) => Promise<unknown>
+  initialize: (chat: never) => Promise<void>
+  listThreads?: (...args: Parameters<NonNullable<Adapter["listThreads"]>>) => Promise<unknown>
+  parseMessage: (raw: never) => unknown
+}
+
 export type AgentChatPlatformResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<Adapter, AgentCallbackContext<TRuntimeConfig>>
+  MaybeResolvable<AgentChatPlatformAdapter, AgentCallbackContext<TRuntimeConfig>>
 
 export type AgentChatPlatformsResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<Record<string, AgentChatPlatformResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>

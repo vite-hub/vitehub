@@ -413,7 +413,13 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
       banner: `// ${cloudflareBlobWorkerMarker}`,
-      conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"],
+      conditions: [
+        ...(databaseRuntime ? ["vitehub-hosted"] : []),
+        "workerd",
+        "worker",
+        "browser",
+        "default",
+      ],
       external: [
         "@aws-sdk/client-s3",
         "@aws-sdk/s3-presigned-post",
@@ -502,7 +508,7 @@ function createVercelOutput(
         "@vite-hub/blob": artifacts.runtimeModuleFiles.vercel,
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
-      conditions: ["vitehub-hosted", "node", "default"],
+      conditions: databaseRuntime ? ["vitehub-hosted", "node", "default"] : undefined,
       external: [
         "files-sdk",
         "files-sdk/akamai",

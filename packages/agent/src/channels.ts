@@ -20,6 +20,7 @@ import type {
   AgentCapabilityDefinition,
   AgentChatFinishExtension,
   AgentChatMessage,
+  AgentChatPlatformAdapter,
   AgentChannelDefinition,
   AgentChannelTriggerContext,
   AgentChannelDeliveryEffectContext,
@@ -1673,11 +1674,11 @@ function addDiscordThreadTitleSupport(adapter: Adapter, options: DiscordAdapterO
   })
 }
 
-function isAdapter(value: unknown): value is Adapter {
+function isAdapter(value: unknown): value is AgentChatPlatformAdapter {
   return isRecord(value) && typeof value.postMessage === "function"
 }
 
-function isResolver(value: unknown): value is { resolve: (context: AgentCallbackContext) => MaybePromise<Adapter> } {
+function isResolver(value: unknown): value is { resolve: (context: AgentCallbackContext) => MaybePromise<AgentChatPlatformAdapter> } {
   return isRecord(value) && typeof value.resolve === "function"
 }
 

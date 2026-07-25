@@ -1,0 +1,13 @@
+{
+  "name": "agent-published-chat-adapter-types-consumer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@chat-adapter/telegram": "4.35.0",
+    "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3"
+  }
+}

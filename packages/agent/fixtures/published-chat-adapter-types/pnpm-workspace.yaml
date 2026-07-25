@@ -1,0 +1,8 @@
+overrides:
+  "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz"
+  "@vite-hub/box": "file:./vite-hub-box-0.0.1.tgz"
+  "@vite-hub/markdown-template": "file:./vite-hub-markdown-template-0.0.1.tgz"
+  "@vite-hub/rate-limit": "file:./vite-hub-rate-limit-0.0.1.tgz"
+  "@vite-hub/runtime": "file:./vite-hub-runtime-0.0.1.tgz"
+  "@vite-hub/source": "file:./vite-hub-source-0.0.1.tgz"
+  "@vite-hub/workspace": "file:./vite-hub-workspace-0.0.1.tgz"

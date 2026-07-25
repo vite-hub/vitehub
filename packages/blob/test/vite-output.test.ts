@@ -103,6 +103,47 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
+async function createHostedDatabaseRuntimeFixture(rootDir: string, options: { localNodeImport?: boolean } = {}) {
+  const packageDir = join(rootDir, "node_modules", "vitehub-hosted-fixture")
+  const runtimeFile = join(rootDir, "database-runtime.mjs")
+  await mkdir(join(rootDir, "src"), { recursive: true })
+  await mkdir(packageDir, { recursive: true })
+  await writeFile(join(rootDir, "src", "server.ts"), [
+    'import { databaseRuntimeMarker } from "@vite-hub/database/drizzle"',
+    "export default async () => new Response(databaseRuntimeMarker)",
+    "",
+  ].join("\n"), "utf8")
+  await writeFile(join(packageDir, "package.json"), JSON.stringify({
+    exports: {
+      ".": {
+        "vitehub-hosted": "./hosted.mjs",
+        default: "./local.mjs",
+      },
+    },
+    name: "vitehub-hosted-fixture",
+    type: "module",
+  }), "utf8")
+  await writeFile(join(packageDir, "hosted.mjs"), 'export default "hosted-database-runtime-marker"\n', "utf8")
+  await writeFile(join(packageDir, "local.mjs"), [
+    options.localNodeImport ? 'import "node:fs"' : "",
+    'export default "local-database-runtime-marker"',
+    "",
+  ].join("\n"), "utf8")
+  await writeFile(runtimeFile, [
+    'import databaseRuntimeMarker from "vitehub-hosted-fixture"',
+    "export { databaseRuntimeMarker }",
+    "",
+  ].join("\n"), "utf8")
+  return {
+    runtimeModuleFilesByProduct: {
+      database: {
+        cloudflare: runtimeFile,
+        vercel: runtimeFile,
+      },
+    },
+  } satisfies ComposedProviderOutput
+}
+
 beforeAll(async () => {
   await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
@@ -286,6 +327,38 @@ describe("Vite provider outputs", () => {
     const vercelServer = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(cloudflareWorker).toContain("image/jpeg")
     expect(vercelServer).toContain("image/jpeg")
+  })
+
+  it("selects hosted Database definitions in Blob-owned Cloudflare output", { timeout: 15_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-hosted-database-cloudflare-")
+    const providerOutput = await createHostedDatabaseRuntimeFixture(rootDir, { localNodeImport: true })
+
+    await generateProviderOutputs({
+      blob: { bucketName: "assets", driver: "cloudflare-r2" },
+      clientOutDir: "dist",
+      providerOutput,
+      rootDir,
+    })
+
+    const cloudflareWorker = await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")
+    expect(cloudflareWorker).toContain("hosted-database-runtime-marker")
+    expect(cloudflareWorker).not.toContain("local-database-runtime-marker")
+  })
+
+  it("selects hosted Database definitions in Blob-owned Vercel output", { timeout: 15_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-hosted-database-vercel-")
+    const providerOutput = await createHostedDatabaseRuntimeFixture(rootDir)
+
+    await generateProviderOutputs({
+      blob: { bucketName: "assets", driver: "cloudflare-r2" },
+      clientOutDir: "dist",
+      providerOutput,
+      rootDir,
+    })
+
+    const vercelServer = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+    expect(vercelServer).toContain("hosted-database-runtime-marker")
+    expect(vercelServer).not.toContain("local-database-runtime-marker")
   })
 
   it("copies Vercel static output from Vite's default dist directory", async () => {

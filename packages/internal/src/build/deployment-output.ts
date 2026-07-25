@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
@@ -209,6 +209,28 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   await Promise.all(writes)
 }
 
+async function copyVercelClientOutput(rootDir: string, clientDir: string, staticOutputDir: string): Promise<void> {
+  const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  const outputRelativePath = relative(clientDir, cloudflareOutputRoot)
+  const excludesCloudflareOutput = outputRelativePath
+    && outputRelativePath !== ".."
+    && !outputRelativePath.startsWith(`..${sep}`)
+    && !isAbsolute(outputRelativePath)
+
+  await copyClientOutput(clientDir, staticOutputDir)
+  if (resolve(clientDir) === resolve(staticOutputDir) || !excludesCloudflareOutput) return
+
+  try {
+    await readFile(resolve(cloudflareOutputRoot, "wrangler.json"))
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+
+  await rm(resolve(staticOutputDir, outputRelativePath), { force: true, recursive: true })
+}
+
 async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
@@ -231,7 +253,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     ),
     writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
     staticIndex
-      ? copyClientOutput(clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
+      ? copyVercelClientOutput(options.rootDir, clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
       : Promise.resolve(),
   ])
 }
