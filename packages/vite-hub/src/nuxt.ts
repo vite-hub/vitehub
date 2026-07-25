@@ -8,6 +8,7 @@ import type { Plugin, PluginOption, UserConfig } from "vite"
 type NuxtLike = {
   hook?: (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) => void
   options: {
+    alias?: Record<string, string>
     dev?: boolean
     rootDir?: string
     serverDir?: string
@@ -74,6 +75,9 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     ...(serverDirs ? { [VITEHUB_SERVER_DIRS]: serverDirs } : {}),
     build: {},
     nitro: nitroConfig,
+    resolve: {
+      alias: nuxt.options.alias,
+    },
     root: nuxt.options.srcDir || nuxt.options.rootDir || process.cwd(),
     server: {},
   }

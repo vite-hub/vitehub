@@ -412,7 +412,7 @@ function discoverFlatServerWorkflowDefinitions(scanDirs: string[], source: NonNu
 }
 
 export function discoverWorkflowDefinitions(options:
-  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
+  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[], serverDirs?: string[] }
   | { mode: "server-workflows", scanDirs: string[] }
 ): DiscoveredWorkflowDefinition[] {
   if (options.mode === "server-workflows") {
@@ -424,7 +424,7 @@ export function discoverWorkflowDefinitions(options:
   }
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
-  const serverScanDirs = roots.map(root => resolve(root, "server"))
+  const serverScanDirs = options.serverDirs ?? roots.map(root => resolve(root, "server"))
   const folderDefinitions = discoverWorkflowFolders(serverScanDirs, "server-workflows")
 
   return mergeDefinitions(

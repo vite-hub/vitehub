@@ -50,6 +50,9 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       if (name === "nitro:config") nitroConfigHook = callback
     },
     options: {
+      alias: {
+        "~": "/tmp/vitehub-nuxt/app",
+      },
       dev,
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
@@ -207,6 +210,11 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.objectHook).toHaveBeenCalledWith(
       expect.objectContaining({
         nitro: expect.objectContaining({ preset: "cloudflare_module" }),
+        resolve: {
+          alias: {
+            "~": "/tmp/vitehub-nuxt/app",
+          },
+        },
         root: "/tmp/vitehub-nuxt/app",
       }),
       {

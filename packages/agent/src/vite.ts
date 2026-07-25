@@ -283,10 +283,10 @@ function isScheduleRegistryId(id: string): boolean {
   return id.replace(/\\/g, "/").split("?", 1)[0]!.endsWith(generatedScheduleRuntimeRegistrySuffix)
 }
 
-function discoverScheduledAgentDefinitions(root: string): DiscoveredAgentDefinition[] {
+function discoverScheduledAgentDefinitions(root: string, serverDirs = [join(root, "server")]): DiscoveredAgentDefinition[] {
   const definitions = [
     ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: root }),
-    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] }),
+    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs }),
   ]
   const unique = new Map<string, DiscoveredAgentDefinition>()
   for (const definition of definitions) {
@@ -1770,7 +1770,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (materialization) return materialization
       }
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
-      const definitions = discoverScheduledAgentDefinitions(resolved.root)
+      const definitions = discoverScheduledAgentDefinitions(resolved.root, serverDirs)
       return isScheduleRegistryId(id)
         ? await transformScheduleRegistry(
             code,
