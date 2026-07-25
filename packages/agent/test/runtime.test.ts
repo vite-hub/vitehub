@@ -3273,6 +3273,41 @@ describe("agent message protocol", () => {
       }],
     }))
 
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    const detectedImageFetch = vi.fn(async () => new Blob([pngBytes], { type: "application/octet-stream" }))
+    const imageDetectionAgent = defineAgent({
+      driver: {
+        execution: { attachments: { maxBytes: 12 } },
+        model: "attachment-model" as never,
+      },
+    })
+    await runAgent(imageDetectionAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ fetchData: detectedImageFetch, mediaType: "image/jpeg", type: "image" }],
+        role: "user",
+      })],
+    })
+    expect(generate).toHaveBeenLastCalledWith(expect.objectContaining({
+      messages: [{
+        content: [{ image: pngBytes.buffer, mediaType: "image/png", type: "image" }],
+        role: "user",
+      }],
+    }))
+
+    const rawBase64Image = btoa(String.fromCharCode(...pngBytes))
+    await runAgent(imageDetectionAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ data: rawBase64Image, mediaType: "image/jpeg", type: "image" }],
+        role: "user",
+      })],
+    })
+    expect(generate).toHaveBeenLastCalledWith(expect.objectContaining({
+      messages: [{
+        content: [{ image: rawBase64Image, mediaType: "image/png", type: "image" }],
+        role: "user",
+      }],
+    }))
+
     const currentIdlessFetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const staleIdlessFetchData = vi.fn(async () => new Uint8Array([4, 5, 6]))
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {

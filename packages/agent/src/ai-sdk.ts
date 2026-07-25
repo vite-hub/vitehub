@@ -322,6 +322,35 @@ function attachmentDataByteLength(data: AttachmentData | undefined): number | un
   if (typeof data === "string") return new TextEncoder().encode(data).byteLength
 }
 
+function resolvedImageMediaType(data: AttachmentData): string | undefined {
+  if (data instanceof Blob && data.type.startsWith("image/")) return data.type
+  if (typeof data === "string") {
+    const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
+    if (dataUrlMediaType) return dataUrlMediaType
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data) || data.length % 4 !== 0) return
+    try {
+      const decoded = atob(data.slice(0, Math.min(data.length, 24)))
+      return resolvedImageMediaType(Uint8Array.from(decoded, character => character.charCodeAt(0)))
+    }
+    catch {
+      return
+    }
+  }
+  const bytes = data instanceof ArrayBuffer
+    ? new Uint8Array(data)
+    : data instanceof Uint8Array ? data : undefined
+  if (!bytes) return
+  const startsWith = (signature: number[], offset = 0) =>
+    signature.every((byte, index) => bytes[offset + index] === byte)
+  if (startsWith([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) return "image/png"
+  if (startsWith([0xFF, 0xD8, 0xFF])) return "image/jpeg"
+  if (startsWith([0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) || startsWith([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])) return "image/gif"
+  if (startsWith([0x42, 0x4D])) return "image/bmp"
+  if (startsWith([0x52, 0x49, 0x46, 0x46]) && startsWith([0x57, 0x45, 0x42, 0x50], 8)) return "image/webp"
+  if (startsWith([0x49, 0x49, 0x2A, 0x00]) || startsWith([0x4D, 0x4D, 0x00, 0x2A])) return "image/tiff"
+  if (startsWith([0x00, 0x00, 0x01, 0x00])) return "image/x-icon"
+}
+
 function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | undefined, maxBytes: number): void {
   if (typeof byteLength === "number" && byteLength > maxBytes) {
     throw new Error(`[vitehub] ${part.type} attachment is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).`)
@@ -339,7 +368,10 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
   const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved
   const { fetchData: _fetchData, ...rest } = part
-  return { byteLength, part: { ...rest, data } }
+  const mediaType = part.type === "image"
+    ? resolvedImageMediaType(resolved) ?? resolvedImageMediaType(data)
+    : undefined
+  return { byteLength, part: { ...rest, data, ...(mediaType ? { mediaType } : {}) } }
 }
 
 function channelCurrentMessageId(context: AgentAdapterRunContext): string | null | undefined {

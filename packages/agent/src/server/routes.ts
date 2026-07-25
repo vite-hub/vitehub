@@ -1395,6 +1395,23 @@ const chatTextAttachmentMaxBytes = 8 * 1024 * 1024
 const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
 const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
 const chatTextAttachmentOversizeMessage = `[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`
+const imageAttachmentMimeTypes: Record<string, string> = {
+  avif: "image/avif",
+  gif: "image/gif",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  png: "image/png",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+}
+
+function imageAttachmentMediaType(attachment: Attachment): string | undefined {
+  if (attachment.data instanceof Blob && attachment.data.type.startsWith("image/")) return attachment.data.type
+  for (const path of [attachment.name, attachment.url]) {
+    const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
+    if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
+  }
+}
 
 function isTextAttachment(attachment: Attachment): boolean {
   if (attachment.type !== "file") return false
@@ -1504,14 +1521,16 @@ async function textPartFromAttachment(attachment: Attachment, index: number, opt
 }
 
 function attachmentPartFromAttachment(attachment: Attachment, index: number): AttachmentPart | undefined {
-  const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType
+  const declaredMediaType = typeof attachment.mimeType === "string" && attachment.mimeType
     ? attachment.mimeType
     : undefined
-  const type = mediaType?.startsWith("audio/") || (attachment.type === "audio" && !mediaType)
+  const type = declaredMediaType?.startsWith("audio/") || (attachment.type === "audio" && !declaredMediaType)
     ? "audio"
-    : mediaType?.startsWith("image/")
+    : declaredMediaType?.startsWith("image/") || (attachment.type === "image" && !declaredMediaType)
       ? "image"
       : "file"
+  const mediaType = declaredMediaType
+    ?? (type === "image" ? imageAttachmentMediaType(attachment) : undefined)
   const data = isAttachmentData(attachment.data) ? attachment.data : undefined
   const fetchData = typeof attachment.fetchData === "function"
     ? async () => {
@@ -1530,7 +1549,7 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
     fetchData,
     fetchMetadata: attachment.fetchMetadata,
     id: `attachment-${index + 1}`,
-    mediaType: mediaType ?? (type === "audio" ? "audio/ogg" : "application/octet-stream"),
+    mediaType: mediaType ?? (type === "audio" ? "audio/ogg" : type === "image" ? "image/jpeg" : "application/octet-stream"),
     name: attachment.name,
     size: attachment.size,
     type,

@@ -41,7 +41,7 @@ const optionalMessageAdapterRuntimeExternals = [
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
-function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, secret?: string } = {}) {
+function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
@@ -63,7 +63,7 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
       const chat = rawMessage.chat as { id?: number | string } | undefined
       const from = rawMessage.from as { email?: string, id?: number | string, is_bot?: boolean, mail?: string, userPrincipalName?: string, username?: string } | undefined
       const document = rawMessage.document as { content?: string, file_id?: string, file_name?: string, file_size?: number, mime_type?: string, url?: string } | undefined
-      const photos = rawMessage.photo as Array<{ file_id?: string, file_size?: number, height?: number, width?: number }> | undefined
+      const photos = rawMessage.photo as Array<{ file_id?: string, file_name?: string, file_size?: number, height?: number, url?: string, width?: number }> | undefined
       const photo = photos?.at(-1)
       const date = typeof rawMessage.date === "number"
         ? new Date(rawMessage.date * 1000)
@@ -100,11 +100,15 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
               }]
           : typeof photo?.file_id === "string"
             ? [{
-                fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
+                ...(options.photoData
+                  ? { data: options.photoData }
+                  : { fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])) }),
                 fetchMetadata: { fileId: photo.file_id },
                 height: photo.height,
+                name: photo.file_name,
                 size: photo.file_size,
                 type: "image",
+                url: photo.url,
                 width: photo.width,
               }]
           : [],
@@ -3873,14 +3877,50 @@ describe("server helpers", () => {
           expect.objectContaining({
             fetchData: expect.any(Function),
             fetchMetadata: { fileId: "large-photo" },
-            mediaType: "application/octet-stream",
+            mediaType: "image/jpeg",
             size: 3,
-            type: "file",
+            type: "image",
           }),
         ],
       })],
     }))
     expect(attachmentFetchData).not.toHaveBeenCalled()
+  })
+
+  it("derives missing image MIME types from attachment metadata", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ photoData: new Blob(["image"], { type: "application/octet-stream" }) })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: { telegram: telegram({ adapter: () => adapter as never }) },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 44,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1014,
+          photo: [{ file_id: "image", file_name: "screenshot.png", url: "https://example.com/screenshot.png" }],
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [expect.objectContaining({
+          mediaType: "image/png",
+          type: "image",
+        })],
+      })],
+    }))
   })
 
   it("preserves generic attachment URLs as typed references", async () => {
