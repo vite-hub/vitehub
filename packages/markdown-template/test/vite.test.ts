@@ -164,6 +164,30 @@ describe("hubMarkdownTemplate", () => {
     await expect(bundled.default()).resolves.toBe("Review ViteHub.")
   }, 15_000)
 
+  it("discovers named templates from a forwarded server directory", async () => {
+    const root = await createRoot()
+    const templates = join(root, "backend", "templates")
+    const entry = join(root, "entry.ts")
+    await mkdir(templates, { recursive: true })
+    await writeFile(join(templates, "prompt.md"), "Custom server directory.\n", "utf8")
+    await writeFile(entry, 'export { renderTemplate } from "#vitehub/templates"\n', "utf8")
+
+    await build({
+      __vitehubServerDirs: [join(root, "backend")],
+      build: {
+        emptyOutDir: true,
+        lib: { entry, fileName: () => "entry.mjs", formats: ["es"] },
+        outDir: join(root, "dist"),
+      },
+      logLevel: "silent",
+      plugins: [hubMarkdownTemplate()],
+      root,
+    } as Parameters<typeof build>[0])
+
+    await expect(readFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "utf8"))
+      .resolves.toContain("Custom server directory.")
+  }, 15_000)
+
   it("uses the project root when Vite runs from app", async () => {
     const root = await createRoot()
     const app = join(root, "app")

@@ -299,9 +299,9 @@ function discoverScheduledAgentDefinitions(root: string, serverDirs = [join(root
   return [...unique.values()]
 }
 
-async function isColocatedAgentInstructionDependency(root: string, file: string): Promise<boolean> {
+async function isColocatedAgentInstructionDependency(root: string, file: string, serverDirs?: string[]): Promise<boolean> {
   const target = resolve(file)
-  for (const definition of discoverScheduledAgentDefinitions(root)) {
+  for (const definition of discoverScheduledAgentDefinitions(root, serverDirs)) {
     const dependencies = new Set<string>()
     await readColocatedAgentInstructions(definition.handler, { dependencies })
     if (dependencies.has(target)) return true
@@ -1732,13 +1732,19 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
+      const agentRoots = (serverDirs ?? [join(resolved?.root ?? context.server.config.root, "server")])
+        .map(directory => `${resolve(directory).replace(/\\/g, "/")}/agents/`)
+      const relativeAgentPath = agentRoots
+        .filter(directory => file.startsWith(directory))
+        .map(directory => file.slice(directory.length))
+        .find(path => /\.(?:c|m)?[jt]s$/i.test(path) || /\/(?:home|skills)\/.*$/i.test(path))
       const instructionUpdate = Boolean(
         resolved?.root
         && /\.md$/i.test(file)
-        && await isColocatedAgentInstructionDependency(resolved.root, file),
+        && await isColocatedAgentInstructionDependency(resolved.root, file, serverDirs),
       )
-      if (!instructionUpdate && !/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/agents\/.*(?:\.(?:c|m)?[jt]s|\/(?:home|skills)\/.*)$/i.test(file)) return
-      const colocatedResourceUpdate = instructionUpdate || /\/server\/agents\/.*\/(?:home|skills)\/.*$/i.test(file)
+      if (!instructionUpdate && !/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !relativeAgentPath) return
+      const colocatedResourceUpdate = instructionUpdate || Boolean(relativeAgentPath && /\/(?:home|skills)\/.*$/i.test(relativeAgentPath))
       if (resolved && colocatedResourceUpdate) {
         await writeGeneratedAgentOutputs(resolved)
       }

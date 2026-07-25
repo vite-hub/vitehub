@@ -474,6 +474,8 @@ describe("agent Vite plugin", () => {
     const nitroRegistryModule = { id: "nitro-registry" }
     const generatedRouteModule = { id: "generated-route" }
     const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => void
+    config({ __vitehubServerDirs: ["/app/backend"] })
     await configResolved({ command: "serve", plugins: [], root: "/app" })
     const modules = new Map<string, object>([
       ["\0#vitehub/schedule/registry", registryModule],
@@ -486,8 +488,8 @@ describe("agent Vite plugin", () => {
     const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
 
     await handleHotUpdate({
-      file: "/app/server/agents/digest.ts",
-      server: { moduleGraph: { getModuleById, invalidateModule } },
+      file: "/app/backend/agents/digest.ts",
+      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
@@ -496,8 +498,8 @@ describe("agent Vite plugin", () => {
 
     invalidateModule.mockClear()
     await handleHotUpdate({
-      file: "/app/server/agents/digest/skills/review/SKILL.md",
-      server: { moduleGraph: { getModuleById, invalidateModule } },
+      file: "/app/backend/agents/digest/skills/review/SKILL.md",
+      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
@@ -507,8 +509,8 @@ describe("agent Vite plugin", () => {
 
     invalidateModule.mockClear()
     await handleHotUpdate({
-      file: "/app/server/agents/digest/home/.codex/config.toml",
-      server: { moduleGraph: { getModuleById, invalidateModule } },
+      file: "/app/backend/agents/digest/home/.codex/config.toml",
+      server: { config: { root: "/app" }, moduleGraph: { getModuleById, invalidateModule } },
     })
 
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
