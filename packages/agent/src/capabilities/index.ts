@@ -145,6 +145,7 @@ export type {
   AgentChatMessage,
   AgentChatMessageHookArgs,
   AgentChatOptions,
+  AgentChatPlatformAdapter,
   AgentChatPlatformResolver,
   AgentChatPlatformsResolver,
   AgentChatSendMessage,
