@@ -20,15 +20,19 @@ async function createTempProject() {
 
 async function writeDefinition(rootDir: string, path: string, table = "notes", options: { cloudflare?: string, connection?: string } = {}) {
   const file = join(rootDir, path)
+  const name = /(?:^|\/)src\/([^/]+)\.database\./.exec(path)?.[1]
+    ?? /(?:^|\/)server\/databases\/([^/]+)\/config\./.exec(path)?.[1]
+    ?? "default"
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${table} = sqliteTable('${table}', { title: text('title') })`,
     "export default defineDatabase({",
+    `  name: ${JSON.stringify(name)},`,
     ...(options.cloudflare ? ["  cloudflare: {", options.cloudflare, "  },"] : []),
     ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
-    `  tables: { ${table} },`,
+    `  schema: { ${table} },`,
     "})",
     "",
   ].join("\n"))
@@ -45,6 +49,23 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
+  it("exposes integration connection defaults to direct definitions", async () => {
+    const plugin = hubDb({
+      connection: {
+        authToken: "token",
+        url: "libsql://database.example.turso.io",
+      },
+    })
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    await configResolved({ database: undefined, root: await createTempProject() } as never)
+
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const id = await resolveId("#vitehub/database/definition-defaults")
+
+    expect(await load(id!)).toContain("libsql://database.example.turso.io")
+  })
+
   it("resolves discovered database definitions and writes generated artifacts", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
@@ -251,7 +272,7 @@ describe("hubDb", () => {
       "import { defineDatabase } from '@vite-hub/database'",
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "const tasks = sqliteTable('tasks', { title: text('title') })",
-      "export default defineDatabase({ tables: { tasks } })",
+      "export default defineDatabase({ schema: { tasks } })",
       "",
     ].join("\n"))
     await handleHotUpdate({

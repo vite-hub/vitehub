@@ -1,6 +1,10 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it } from "vitest"
 
 import { hubDb } from "../src/nuxt.ts"
+
+import type { Plugin } from "vite"
 
 function createNuxt(options: Record<string, unknown>) {
   const hooks: Record<string, ((value: Record<string, unknown>) => Promise<void> | void)[]> = {}
@@ -33,6 +37,7 @@ describe("Database Nuxt integration", () => {
       dev: false,
       modules: ["@nuxt/content"],
       nitro: {
+        preset: "cloudflare_module",
         cloudflare: {
           wrangler: {
             d1_databases: [
@@ -99,6 +104,8 @@ describe("Database Nuxt integration", () => {
       cloudflare: {
         wrangler: {},
       },
+      exportConditions: ["workerd"],
+      handlers: [],
       runtimeConfig: {
         content: {},
       },
@@ -117,6 +124,17 @@ describe("Database Nuxt integration", () => {
           ],
         },
       },
+      exportConditions: ["vitehub-hosted", "workerd"],
+      handlers: [
+        {
+          handler: ".vitehub/nitro/database/middleware.ts",
+          middleware: true,
+          route: "/**",
+        },
+      ],
+      rollupConfig: {
+        external: ["cloudflare:workers"],
+      },
       runtimeConfig: {
         content: {
           database: {
@@ -126,6 +144,8 @@ describe("Database Nuxt integration", () => {
         },
       },
     })
+    await expect(readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8"))
+      .resolves.toContain("setActiveCloudflareEnv")
   })
 
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
@@ -209,6 +229,79 @@ describe("Database Nuxt integration", () => {
     expect(nuxt.options.vite).toMatchObject({
       plugins: [existingPlugin],
     })
+  })
+
+  it("selects the hosted definition runtime in production without a D1 bridge", async () => {
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      nitro: { preset: "vercel" },
+      rootDir: "/tmp/vitehub-db-nuxt-hosted",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = { exportConditions: ["node"] }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "node"])
+  })
+
+  it("selects the hosted definition runtime for Deno deployments", async () => {
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      nitro: { preset: "deno-deploy" },
+      rootDir: "/tmp/vitehub-db-nuxt-deno",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = { exportConditions: ["deno"] }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "deno"])
+  })
+
+  it("propagates the Nuxt D1 binding to direct definition defaults", async () => {
+    const { nuxt } = createNuxt({
+      database: {
+        binding: "CONTENT_DB",
+        driver: "d1",
+      },
+      rootDir: "/tmp/vitehub-db-nuxt-binding",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      database: undefined,
+      root: "/tmp/vitehub-db-nuxt-binding",
+    })
+    const id = await (plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>)(
+      "#vitehub/database/definition-defaults",
+    )
+    const code = await (plugin.load as (id: string) => string | undefined | Promise<string | undefined>)(id!)
+
+    expect(code).toContain('"binding":"CONTENT_DB"')
+  })
+
+  it("preserves the local definition runtime for production Node builds", async () => {
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      nitro: { preset: "node-server" },
+      rootDir: "/tmp/vitehub-db-nuxt-node",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = { exportConditions: ["node"] }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.exportConditions).toEqual(["node"])
   })
 
   it("can be disabled from top-level Nuxt database config", async () => {

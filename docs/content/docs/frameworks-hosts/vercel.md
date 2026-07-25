@@ -63,7 +63,7 @@ export default defineDatabase({
     databaseName: process.env.CLOUDFLARE_D1_DATABASE_NAME,
     http: true,
   },
-  tables: { notes },
+  schema: { notes },
 })
 ```
 

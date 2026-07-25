@@ -22,8 +22,9 @@ async function createApp() {
   await writeFile(join(dir, "config.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "export default defineDatabase({",
+    "  name: 'primary',",
     "  cloudflare: { binding: 'DB', databaseName: 'vitehub-playground-db' },",
-    "  tables: {},",
+    "  schema: {},",
     "})",
     "",
   ].join("\n"), "utf8")

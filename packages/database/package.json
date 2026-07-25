@@ -28,6 +28,11 @@
   "types": "./dist/index.d.ts",
   "imports": {
     "#vitehub/database/databases": "./dist/runtime/virtual-databases.js",
+    "#vitehub/database/definition-defaults": "./dist/runtime/definition-defaults.js",
+    "#vitehub/database/definition-runtime": {
+      "vitehub-hosted": "./dist/runtime/definition-hosted.js",
+      "default": "./dist/runtime/definition-local.js"
+    },
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {
@@ -38,6 +43,7 @@
     "./nuxt": "./dist/nuxt.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
+    "./runtime/state": "./dist/runtime/state.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
     "./runtime/virtual-databases": "./dist/runtime/virtual-databases.js",
     "./runtime/virtual-schema": "./dist/runtime/virtual-schema.js",

@@ -47,9 +47,10 @@ async function writeDatabaseDefinition(rootDir: string, name: string, options: {
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${table} = sqliteTable('${name}_items', { title: text('title') })`,
     "export default defineDatabase({",
+    `  name: ${JSON.stringify(name)},`,
     ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
     ...(options.cloudflare ? ["  cloudflare: {", options.cloudflare, "  },"] : []),
-    `  tables: { ${table} },`,
+    `  schema: { ${table} },`,
     "})",
     "",
   ].join("\n"))
@@ -313,7 +314,9 @@ describe("Vite db provider outputs", () => {
     })
 
     expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare")).toContain("cloudflare-runtime.mjs")
+    expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")).toContain("definition-defaults.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toContain("vercel-runtime.mjs")
+    expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
   })
 
   it("composes direct Blob and Database provider output in either plugin order", async () => {

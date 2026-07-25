@@ -42,7 +42,7 @@ export const notes = sqliteTable('notes', {
 })
 
 export default defineDatabase({
-  tables: { notes },
+  schema: { notes },
 })
 ```
 
@@ -102,7 +102,7 @@ export const notes = sqliteTable('notes', {
 })
 
 export default defineDatabase({
-  tables: { notes },
+  schema: { notes },
 })
 ```
 
@@ -114,7 +114,8 @@ A project uses either one Default Database or a set of Named Databases. Do not m
 
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
-| `tables` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. |
+| `name` | `string` | Named Databases only | Runtime identity. Must match the discovered file or directory name. |
+| `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. |
 | `connection.url` | `DatabaseConfigValue` | No | SQLite/libSQL connection URL. Defaults to `.vitehub/data/database/sqlite.db` for a Default Database. |
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
 | `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB` for Default Database and `DB_<NAME>` for Named Databases. |
@@ -153,7 +154,8 @@ const events = sqliteTable('events', {
 })
 
 export default defineDatabase({
-  tables: { events },
+  name: 'analytics',
+  schema: { events },
 })
 ```
 
@@ -190,7 +192,7 @@ export default defineDatabase({
     databaseName: process.env.CLOUDFLARE_D1_DATABASE_NAME,
     http: true,
   },
-  tables: { notes },
+  schema: { notes },
 })
 ```
 
@@ -209,7 +211,7 @@ export default defineDatabase({
       url: process.env.D1_HTTP_URL,
     },
   },
-  tables: { notes },
+  schema: { notes },
 })
 ```
 

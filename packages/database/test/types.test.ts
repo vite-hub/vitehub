@@ -44,7 +44,7 @@ describe("types", () => {
         databaseId: env({ source: env.source("CLOUDFLARE_D1_DATABASE_ID") }),
         http: true,
       },
-      tables: {},
+      schema: {},
     })
     const proxied = defineDatabase({
       cloudflare: {
@@ -54,7 +54,7 @@ describe("types", () => {
           url: env({ source: env.source("D1_HTTP_URL") }),
         },
       },
-      tables: {},
+      schema: {},
     })
 
     expectTypeOf(direct.cloudflare?.http).toEqualTypeOf<true | CloudflareD1HttpConfig | undefined>()

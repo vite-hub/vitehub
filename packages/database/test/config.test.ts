@@ -16,15 +16,19 @@ async function createTempProject() {
 
 async function writeDefinition(rootDir: string, path: string, tables = "notes", options: { cloudflare?: string, connection?: string } = {}) {
   const file = join(rootDir, path)
+  const name = /(?:^|\/)src\/(.+)\.database\./.exec(path)?.[1]
+    ?? /(?:^|\/)server\/databases\/(.+)\/config\./.exec(path)?.[1]
+    ?? "default"
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${tables} = sqliteTable('${tables}', { title: text('title') })`,
     "export default defineDatabase({",
+    `  name: ${JSON.stringify(name)},`,
     ...(options.cloudflare ? ["  cloudflare: {", options.cloudflare, "  },"] : []),
     ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
-    `  tables: { ${tables} },`,
+    `  schema: { ${tables} },`,
     "})",
     "",
   ].join("\n"))
@@ -60,6 +64,28 @@ describe("discoverDatabaseDefinitions", () => {
     ])
   })
 
+  it("discovers nested named database definitions", async () => {
+    const rootDir = await createTempProject()
+    const archive = await writeDefinition(rootDir, "server/databases/billing/archive/config.ts", "invoices")
+
+    expect(discoverDatabaseDefinitions(rootDir)).toEqual([
+      expect.objectContaining({ handler: archive, mode: "named", name: "billing/archive", tableNames: ["invoices"] }),
+    ])
+  })
+
+  it("rejects a definition name that does not match its discovered identity", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/analytics/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ name: 'default', schema: {} })",
+      "",
+    ].join("\n"))
+
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow('must set `name: "analytics"`')
+  })
+
   it("discovers Vite default and suffix database definitions", async () => {
     const rootDir = await createTempProject()
     const analytics = await writeDefinition(rootDir, "src/analytics.database.ts", "events")
@@ -78,10 +104,10 @@ describe("discoverDatabaseDefinitions", () => {
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "const ignored = sqliteTable('ignored', { title: text('title') })",
       "const notes = sqliteTable('notes', { title: text('title') })",
-      "const decoy = { tables: { ignored } }",
+      "const decoy = { schema: { ignored } }",
       "defineDatabase(decoy)",
       "export default defineDatabase({",
-      "  tables: { notes },",
+      "  schema: { notes },",
       "})",
       "",
     ].join("\n"))

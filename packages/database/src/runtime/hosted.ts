@@ -1,12 +1,9 @@
 import { createClient } from "@libsql/client/http"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql/http"
 
-import {
-  createDrizzleSqliteAdapter,
-  type RuntimeDrizzleDatabase,
-} from "./drizzle-adapter.ts"
+import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 
-import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 
 export type { RuntimeDrizzleDatabase }
 

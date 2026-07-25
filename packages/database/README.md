@@ -24,7 +24,7 @@ import { defineDatabase } from "@vite-hub/database"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 export default defineDatabase({
-  tables: {
+  schema: {
     notes: sqliteTable("notes", {
       id: integer("id").primaryKey({ autoIncrement: true }),
       title: text("title").notNull(),
@@ -55,9 +55,11 @@ export default defineConfig({
 
 ## Vite Integration
 
-Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions.
+Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions.
 
 `@vite-hub/database/drizzle` is resolved by the Vite integration for server code and provider output. Plain `node` execution of files that import it is not a supported local runtime path.
+
+`defineDatabase()` also returns the typed Drizzle database, so application code can import a definition directly and query it without another runtime factory.
 
 ## Nuxt D1 host wiring
 

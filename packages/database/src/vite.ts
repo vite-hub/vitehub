@@ -17,12 +17,14 @@ import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
+const DB_VIRTUAL_DEFINITION_DEFAULTS_ID = "#vitehub/database/definition-defaults"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 
 const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
 const DB_INTERNAL_VIRTUAL_DATABASES_ID = "virtual:vitehub/database/databases"
 const RESOLVED_DB_VIRTUAL_SCHEMA_ID = `\0${DB_VIRTUAL_SCHEMA_ID}`
 const RESOLVED_DB_VIRTUAL_DATABASES_ID = `\0${DB_VIRTUAL_DATABASES_ID}`
+const RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID = `\0${DB_VIRTUAL_DEFINITION_DEFAULTS_ID}`
 const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/drizzle\.js$/
 
 export interface DBVitePluginAPI {
@@ -43,6 +45,7 @@ const mergeNoExternal = createNoExternalMerger(dbPackageName)
 function resolveDatabaseVirtualId(id: string) {
   if (id === DB_VIRTUAL_SCHEMA_ID || id === DB_INTERNAL_VIRTUAL_SCHEMA_ID) return RESOLVED_DB_VIRTUAL_SCHEMA_ID
   if (id === DB_VIRTUAL_DATABASES_ID || id === DB_INTERNAL_VIRTUAL_DATABASES_ID) return RESOLVED_DB_VIRTUAL_DATABASES_ID
+  if (id === DB_VIRTUAL_DEFINITION_DEFAULTS_ID) return RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID
 }
 
 function rewriteDrizzleVirtualImports(code: string) {
@@ -176,6 +179,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     load(id) {
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
       if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig)
+      if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
+        const options = resolvedOptions()
+        return `export default ${JSON.stringify({
+          ...(options && options.driver === "d1" ? { cloudflare: { binding: options.binding } } : {}),
+          ...(options && options.connection ? { connection: options.connection } : {}),
+        })}\n`
+      }
     },
     async closeBundle() {
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {

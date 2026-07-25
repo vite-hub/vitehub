@@ -1,11 +1,10 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy"
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
 import { resolveConfigValue } from "../config-value.ts"
 
-import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
 interface D1PreparedStatement {
   bind: (...params: unknown[]) => {
@@ -20,8 +19,6 @@ interface D1DatabaseLike {
   prepare: (query: string) => D1PreparedStatement
 }
 
-export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema>
-
 interface LibsqlClientFactory {
   createClient: (options: { authToken?: string, url: string }) => unknown
   drizzle: (config: { casing?: "snake_case" | "camelCase", client: unknown, schema: Record<string, unknown> }) => unknown
@@ -32,7 +29,7 @@ interface DrizzleSqliteAdapterOptions {
   libsql: LibsqlClientFactory
   requireRemoteUrl: boolean
   resolveLocalUrl?: (url: string) => string
-  missingConnectionMessage: (config: ResolvedDrizzleDatabaseConfig) => string
+  missingConnectionMessage: (config: RuntimeDrizzleDatabaseConfig) => string
 }
 
 interface D1HttpQuery {
@@ -89,7 +86,7 @@ function isD1HttpPayload(value: unknown): value is D1HttpPayload {
     || (Array.isArray(result) && result.every(item => Boolean(item) && typeof item === "object" && !Array.isArray(item)))
 }
 
-function resolveCloudflareD1HttpConnection(config: ResolvedDrizzleDatabaseConfig, databaseId: string) {
+function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig, databaseId: string) {
   const http = config.cloudflare?.http
   if (!http) return
 
@@ -169,7 +166,7 @@ export function isRemoteSqliteUrl(url: string) {
 }
 
 export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknown>>(
-  config: ResolvedDrizzleDatabaseConfig,
+  config: RuntimeDrizzleDatabaseConfig,
   schema: TSchema,
   options: DrizzleSqliteAdapterOptions,
 ) {

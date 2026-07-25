@@ -20,6 +20,10 @@ dynamicallyLoaded = [
   "packages/kv/test/**/*.test-d.ts",
   "packages/database/test/**/*.test-d.ts",
   "packages/database/test/e2e.mjs",
+  # Selected through @vite-hub/database's conditional package import.
+  "packages/database/src/runtime/definition-local.ts",
+  # Package-import fallback replaced by the Database Vite virtual module.
+  "packages/database/src/runtime/definition-defaults.ts",
   "packages/env/test/**/*.test-d.ts",
   "packages/auth/test/**/*.test-d.ts",
   "packages/email/test/**/*.test-d.ts",

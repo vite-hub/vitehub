@@ -7,6 +7,7 @@ const notes = sqliteTable("notes", {
 })
 
 export default defineDatabase({
+  name: "primary",
   cloudflare: {
     binding: "DB",
     databaseName: process.env.VITEHUB_D1_DATABASE_NAME || "vitehub-playground-db",
@@ -17,5 +18,5 @@ export default defineDatabase({
     authToken: process.env.TURSO_AUTH_TOKEN,
     url: process.env.TURSO_DATABASE_URL,
   },
-  tables: { notes },
+  schema: { notes },
 })

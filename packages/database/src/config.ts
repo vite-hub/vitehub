@@ -72,7 +72,7 @@ function readObjectKeys(body: string | undefined) {
 }
 
 function readDatabaseTableNames(file: string) {
-  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "tables")))
+  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema")))
 }
 
 function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
@@ -167,6 +167,10 @@ function readDefinitionConnectionConfig(file: string) {
 }
 
 function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): DiscoveredDatabaseDefinition {
+  const configuredName = readStringValue(readDefinitionObjectBody(file), "name")?.trim() || "default"
+  if (configuredName !== name) {
+    throw new Error(`[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.`)
+  }
   return {
     handler: file,
     mode,
@@ -335,6 +339,12 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
   return {
     databaseNames: definitions.map(definition => definition.name),
     databases,
+    definitionDefaults: {
+      ...(options && options.driver === "d1"
+        ? { cloudflare: { binding: options.binding } }
+        : {}),
+      ...(options && options.connection ? { connection: options.connection } : {}),
+    },
     definitions,
     generatedDrizzleConfigFile: createGeneratedDefinitionPath(rootDir, {
       fileName: "drizzle.config.ts",
