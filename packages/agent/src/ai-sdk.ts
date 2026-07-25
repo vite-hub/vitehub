@@ -10,6 +10,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
+import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   applyAgentToolPolicies,
@@ -994,7 +995,10 @@ async function createAgent(
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const instructions = await composeInstructions(
-    context.instructions ?? await resolveInstructions(options, metadataContext),
+    joinInstructions(
+      context.instructions ?? await resolveInstructions(options, metadataContext),
+      agentOutputInstructions(context.output),
+    ),
     metadataContext,
     context.workspaceInstructionBindings,
   )

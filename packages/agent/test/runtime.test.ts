@@ -288,6 +288,15 @@ describe("agent message protocol", () => {
     } as never)).toThrowError("defineAgent({ harnessSandbox }) is no longer supported")
   })
 
+  it("rejects structured output at the agent root", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      driver: { run: () => "{}" },
+      output: { schema: {} },
+    } as never)).toThrowError("defineAgent({ output }) is no longer supported")
+  })
+
   it("runs agent input hooks once before driver execution and can abort", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const run = vi.fn(() => "ok")
@@ -1449,8 +1458,7 @@ describe("agent message protocol", () => {
       },
     }
     const agent = defineAgent({
-      driver: { harness: { provider: "codex" } },
-      output: { schema },
+      driver: { harness: { provider: "codex" }, output: { schema } },
       runtime: false,
     })
 
@@ -1459,19 +1467,58 @@ describe("agent message protocol", () => {
     expect(harnessAgentSettings.at(-1)?.instructions).toContain('"title"')
   })
 
+  it("guides model Drivers with configured structured output", async () => {
+    const agentSettings: Record<string, unknown>[] = []
+    loadAiSdk.mockResolvedValue({
+      isStepCount: () => () => false,
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        constructor(settings: Record<string, unknown>) {
+          agentSettings.push(settings)
+        }
+
+        async generate() {
+          return { text: "{\"title\":\"Weekly sync\"}" }
+        }
+      },
+    })
+    const schema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({ properties: { title: { type: "string" } }, required: ["title"], type: "object" }),
+          output: () => ({ type: "number" }),
+        },
+        validate: (value: unknown) => ({ value: value as { title: string } }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { model: {} as never, output: { schema } },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
+    expect(agentSettings.at(-1)?.instructions).toContain("Return only one valid JSON value")
+    expect(agentSettings.at(-1)?.instructions).toContain('"title"')
+  })
+
   it("rejects malformed JSON from structured harness results", async () => {
     const { ViteHubError } = await import("@vite-hub/runtime")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValueOnce({ text: "hello" })
     const agent = defineAgent({
-      driver: { harness: { provider: "codex" } },
-      output: {
-        schema: {
-          "~standard": {
-            validate: (value: unknown) => ({ value: value as { text: string } }),
-            vendor: "vitehub-test",
-            version: 1,
+      driver: {
+        harness: { provider: "codex" },
+        output: {
+          schema: {
+            "~standard": {
+              validate: (value: unknown) => ({ value: value as { text: string } }),
+              vendor: "vitehub-test",
+              version: 1,
+            },
           },
         },
       },

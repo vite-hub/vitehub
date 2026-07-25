@@ -23,7 +23,7 @@ export default defineAgent({
 })
 ```
 
-Use a structural driver object when the application supplies a custom model, harness adapter, or run function. That object accepts exactly one concrete variant: `model`, `harness`, or `run`; driver-specific options stay beside the variant key.
+Use a structural driver object when the application supplies a custom model, harness adapter, or run function. That object accepts exactly one concrete variant: `model`, `harness`, or `run`; execution options such as `instructions` and `output` stay beside the variant key.
 
 ## Agent Definition options
 
@@ -41,7 +41,6 @@ Use a structural driver object when the application supplies a custom model, har
 | `invoker` | `AgentInvokerOptions` | None | Configures Agent Actor profiles and resolution through the current `invoker`-named API. |
 | `messages` | `AgentMessageChannelSettings` | Channel defaults | Applies shared commentary, delivery, concurrency, session, state, and transcript settings across adapter-backed Channels. |
 | `name` | `string` | Discovered identity | Supplies an explicit Definition name for direct metadata and Workspace naming. Discovered host identity still comes from the file or folder path. |
-| `output` | `AgentOutputDefinition` | None | Decodes and validates structured Agent output with a Standard Schema. |
 | `runtime` | `false \| workflow(name?)` | Discovered Workflow | Disables hosted Workflow execution or selects an explicit Workflow binding. Direct calls without discovered Agent identity remain inline. |
 | `runEvents` | `AgentRunEvents` | None | Publishes and reads durable events scoped to the current Agent Invocation run. |
 | `version` | `string` | None | Adds a Definition version to generated and Agent inspection metadata. |
@@ -51,7 +50,7 @@ The resolved `AgentDefinition` also exposes runtime-owned `resolve()` and, when 
 
 ## Declare structured output
 
-Set `output.schema` when server code needs a typed value instead of provider result plumbing. The schema uses [Standard Schema](https://standardschema.dev/), so the Agent Invocation decodes the final JSON, validates it once, and returns the inferred output value.
+Set `driver.output.schema` when server code needs a typed value instead of provider result plumbing. The schema uses [Standard Schema](https://standardschema.dev/), so the Agent Invocation decodes the selected Driver's final JSON, validates it once, and returns the inferred output value.
 
 ```ts [server/agents/summary.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -63,8 +62,10 @@ const summaryOutput = object({
 })
 
 export default defineAgent({
-  driver: 'codex',
-  output: { schema: summaryOutput },
+  driver: {
+    kind: 'codex',
+    output: { schema: summaryOutput },
+  },
 })
 ```
 

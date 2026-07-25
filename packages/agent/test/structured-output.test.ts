@@ -48,9 +48,8 @@ describe("Agent structured output", () => {
       }
     }
     const agent = defineAgent({
-      driver: { run: () => new HarnessResult() },
+      driver: { output: { schema: summarySchema() }, run: () => new HarnessResult() },
       hooks: { "agent:finish": finish },
-      output: { schema: summarySchema() },
       runtime: false,
     })
 
@@ -65,8 +64,7 @@ describe("Agent structured output", () => {
 
   it("reports malformed JSON with a stable ViteHub-owned error", async () => {
     const agent = defineAgent({
-      driver: { run: () => "not json" },
-      output: { schema: summarySchema() },
+      driver: { output: { schema: summarySchema() }, run: () => "not json" },
       runtime: false,
     })
 
@@ -87,15 +85,17 @@ describe("Agent structured output", () => {
   it("preserves custom schema failures exactly", async () => {
     const cause = new Error("private validator failure")
     const agent = defineAgent({
-      driver: { run: () => ({ summary: "Decisions", title: "Weekly sync" }) },
-      output: {
-        schema: {
-          "~standard": {
-            validate: () => Promise.reject(cause),
-            vendor: "vitehub-test",
-            version: 1,
+      driver: {
+        output: {
+          schema: {
+            "~standard": {
+              validate: () => Promise.reject(cause),
+              vendor: "vitehub-test",
+              version: 1,
+            },
           },
         },
+        run: () => ({ summary: "Decisions", title: "Weekly sync" }),
       },
       runtime: false,
     })
@@ -107,8 +107,7 @@ describe("Agent structured output", () => {
     const cause = new Error("private model getter")
     const result = new Proxy({}, { has: () => { throw cause } })
     const agent = defineAgent({
-      driver: { run: () => result },
-      output: { schema: summarySchema() },
+      driver: { output: { schema: summarySchema() }, run: () => result },
       runtime: false,
     })
 
@@ -121,15 +120,17 @@ describe("Agent structured output", () => {
     const cause = new Error("private issue getter")
     const issue = Object.defineProperty({}, "path", { get: () => { throw cause } })
     const agent = defineAgent({
-      driver: { run: () => "{}" },
-      output: {
-        schema: {
-          "~standard": {
-            validate: () => ({ issues: [issue as never] }),
-            vendor: "vitehub-test",
-            version: 1,
+      driver: {
+        output: {
+          schema: {
+            "~standard": {
+              validate: () => ({ issues: [issue as never] }),
+              vendor: "vitehub-test",
+              version: 1,
+            },
           },
         },
+        run: () => "{}",
       },
       runtime: false,
     })
@@ -152,8 +153,7 @@ describe("Agent structured output", () => {
       },
     }
     const agent = defineAgent({
-      driver: { run: () => ({ text: "hello" }) },
-      output: { schema },
+      driver: { output: { schema }, run: () => ({ text: "hello" }) },
       runtime: false,
     })
 
@@ -173,8 +173,7 @@ describe("Agent structured output", () => {
       },
     }
     const agent = defineAgent({
-      driver: { run: () => ({ text: "42" }) },
-      output: { schema },
+      driver: { output: { schema }, run: () => ({ text: "42" }) },
       runtime: false,
     })
 
@@ -183,8 +182,7 @@ describe("Agent structured output", () => {
 
   it("decodes AgentRunResult text from custom drivers", async () => {
     const agent = defineAgent({
-      driver: { run: () => ({ text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}" }) },
-      output: { schema: summarySchema() },
+      driver: { output: { schema: summarySchema() }, run: () => ({ text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}" }) },
       runtime: false,
     })
 
@@ -197,12 +195,12 @@ describe("Agent structured output", () => {
   it("materializes and validates structured custom driver streams", async () => {
     const agent = defineAgent({
       driver: {
+        output: { schema: summarySchema() },
         run: async function* () {
           yield { text: "{\"summary\":\"Dec", type: "text-delta" as const }
           yield { text: "isions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
         },
       },
-      output: { schema: summarySchema() },
       runtime: false,
     })
 
@@ -221,8 +219,7 @@ describe("Agent structured output", () => {
       },
     }
     const agent = defineAgent({
-      driver: { run: () => stream },
-      output: { schema: summarySchema() },
+      driver: { output: { schema: summarySchema() }, run: () => stream },
       runtime: false,
     })
     const result = runAgentInline(agent, runtime(), { abortSignal: controller.signal })
@@ -235,13 +232,13 @@ describe("Agent structured output", () => {
   it("materializes structured stream-result wrappers", async () => {
     const agent = defineAgent({
       driver: {
+        output: { schema: summarySchema() },
         run: () => ({
           stream: (async function* () {
             yield { text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
           })(),
         }),
       },
-      output: { schema: summarySchema() },
       runtime: false,
     })
 
@@ -255,13 +252,13 @@ describe("Agent structured output", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       driver: {
+        output: { schema: summarySchema() },
         run: async function* () {
           yield { text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
           yield { type: "usage" as const, usageRecord: { usage: { totalTokens: 3 } } }
         },
       },
       hooks: { "agent:finish": finish },
-      output: { schema: summarySchema() },
       runtime: false,
     })
 
@@ -274,11 +271,11 @@ describe("Agent structured output", () => {
   it("preserves raw custom driver streams", async () => {
     const agent = defineAgent({
       driver: {
+        output: { schema: summarySchema() },
         run: async function* () {
           yield { text: "not json", type: "text-delta" as const }
         },
       },
-      output: { schema: summarySchema() },
       runtime: false,
     })
 
@@ -296,8 +293,7 @@ describe("Agent structured output", () => {
     })()
     const wrapper = { stream }
     const agent = defineAgent({
-      driver: { run: () => wrapper },
-      output: { schema: summarySchema() },
+      driver: { output: { schema: summarySchema() }, run: () => wrapper },
       runtime: false,
     })
 
@@ -311,13 +307,13 @@ describe("Agent structured output", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       driver: {
+        output: { schema: summarySchema() },
         run: () => ({
           text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}",
           usageRecord: { usage: { totalTokens: 3 } },
         }),
       },
       hooks: { "agent:finish": finish },
-      output: { schema: summarySchema() },
       runtime: false,
     })
 
@@ -331,6 +327,7 @@ describe("Agent structured output", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       driver: {
+        output: { schema: summarySchema() },
         run: async function* () {
           yield { text: "{\"summary\":\"Decisions\",", type: "text-delta" as const }
           yield { text: "\"title\":\"Weekly sync\"}", type: "text-delta" as const }
@@ -338,7 +335,6 @@ describe("Agent structured output", () => {
         },
       },
       hooks: { "agent:finish": finish },
-      output: { schema: summarySchema() },
       runtime: false,
     })
 
@@ -353,8 +349,7 @@ describe("Agent structured output", () => {
 
   it("reports Standard Schema failures separately from JSON decoding", async () => {
     const agent = defineAgent({
-      driver: { run: () => "{\"title\":42}" },
-      output: { schema: summarySchema() },
+      driver: { output: { schema: summarySchema() }, run: () => "{\"title\":42}" },
       runtime: false,
     })
 

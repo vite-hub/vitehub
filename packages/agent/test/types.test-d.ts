@@ -119,8 +119,7 @@ describe("agent public types", () => {
       },
     } satisfies StandardSchemaV1<unknown, { summary: string, title: string }>
     const agent = defineAgent({
-      driver: { run: () => "{}" },
-      output: { schema },
+      driver: { output: { schema }, run: () => "{}" },
       runtime: false,
     })
     const result = runAgentInline(agent, {} as AgentRuntimeContext, {})

@@ -11,6 +11,7 @@ import type { CodexHarnessSettings } from "@ai-sdk/harness-codex"
 import type {
   AgentHarnessDriver,
   AgentHarnessSandboxProviderInput,
+  AgentInvocationContextValues,
   AgentRuntimeConfig,
   CodexDriverOptions,
   CodexDriverSandboxOptions,
@@ -20,11 +21,12 @@ const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 
-export function createCodexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<CALL_OPTIONS> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS> {
+export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
   const {
     credentials,
     env,
     instructions,
+    output,
     sandbox,
     workDir,
     ...settings
@@ -43,6 +45,7 @@ export function createCodexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOp
     credentials: credentials ?? { label: "Codex", source: "ambient" },
     harness: createViteHubCodex({ ...settings, auth, model }, defaultOpenAIAuth),
     ...(instructions !== undefined ? { instructions } : {}),
+    ...(output !== undefined ? { output } : {}),
     requires: [
       defaultOpenAIAuth ? { name: "Codex", command: "codex", args: ["login", "status"] } : "codex",
     ],

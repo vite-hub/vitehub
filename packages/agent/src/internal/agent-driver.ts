@@ -12,6 +12,7 @@ import type {
   AgentInvokerProfile,
   AgentModelExecutionOptions,
   AgentModelResolver,
+  AgentOutputDefinition,
   AgentRunHandler,
   AgentRuntimeConfig,
   AgentSettings,
@@ -23,12 +24,14 @@ import type { BoxRequirement } from "@vite-hub/box"
 type NormalizedAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TOutput = unknown,
 > =
   | {
     execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "model"
     model: AgentModelResolver<TRuntimeConfig>
+    output?: AgentOutputDefinition<TOutput>
   }
   | {
     credentials?: AgentHarnessCredentialSource
@@ -36,6 +39,7 @@ type NormalizedAgentDriver<
     hasSandbox?: boolean
     instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
+    output?: AgentOutputDefinition<TOutput>
     provider?: string
     requires?: readonly BoxRequirement[]
     resolve?: () => Promise<AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>>
@@ -45,6 +49,7 @@ type NormalizedAgentDriver<
   }
   | {
     kind: "run"
+    output?: AgentOutputDefinition<TOutput>
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 
@@ -93,9 +98,9 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
   }
 }
 
-const modelDriverKeys = new Set(["execution", "instructions", "model"])
-const harnessDriverKeys = new Set(["credentials", "harness", "instructions", "requires", "sandbox", "sessionKey", "workDir"])
-const runDriverKeys = new Set(["run"])
+const modelDriverKeys = new Set(["execution", "instructions", "model", "output"])
+const harnessDriverKeys = new Set(["credentials", "harness", "instructions", "output", "requires", "sandbox", "sessionKey", "workDir"])
+const runDriverKeys = new Set(["output", "run"])
 const codexDriverKeys = new Set([
   "auth",
   "credentials",
@@ -103,6 +108,7 @@ const codexDriverKeys = new Set([
   "instructions",
   "kind",
   "model",
+  "output",
   "port",
   "reasoningEffort",
   "sandbox",
@@ -117,6 +123,7 @@ const claudeCodeDriverKeys = new Set([
   "kind",
   "maxTurns",
   "model",
+  "output",
   "port",
   "sandbox",
   "startupTimeoutMs",
@@ -174,6 +181,7 @@ function normalizeBuiltInAgentDriver<
       credentials: options.credentials ?? { label: "Codex", source: "ambient" },
       hasSandbox: options.sandbox !== false && (options.sandbox !== undefined || options.env !== undefined),
       kind: "harness",
+      output: options.output,
       provider: "codex",
       requires: [
         options.auth === undefined
@@ -198,6 +206,7 @@ function normalizeBuiltInAgentDriver<
     credentials: options.credentials ?? { label: "Claude Code", source: "ambient" },
     hasSandbox: options.sandbox !== false,
     kind: "harness",
+    output: options.output,
     provider: "claude-code",
     resolve,
   }
@@ -238,6 +247,7 @@ function normalizeExplicitAgentDriver<
       instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
       kind: "model",
       model: driver.model as AgentModelResolver<TRuntimeConfig>,
+      output: driver.output as AgentOutputDefinition | undefined,
     }
   }
   if (keys[0] === "harness") {
@@ -251,6 +261,7 @@ function normalizeExplicitAgentDriver<
       harness: driver.harness as AgentHarnessDriverInput,
       instructions: driver.instructions as AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS> | undefined,
       kind: "harness",
+      output: driver.output as AgentOutputDefinition | undefined,
       requires: driver.requires as readonly BoxRequirement[] | undefined,
       sandbox: driver.sandbox as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
       sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
@@ -264,6 +275,7 @@ function normalizeExplicitAgentDriver<
   }
   return {
     kind: "run",
+    output: driver.output as AgentOutputDefinition | undefined,
     run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
   }
   }
@@ -289,6 +301,9 @@ export function normalizeAgentDriver<
   const record = options as Record<string, unknown>
   if (hasOwnDefined(record, "harnessSandbox")) {
     throw new Error("[vitehub] defineAgent({ harnessSandbox }) is no longer supported. Move the provider to defineAgent({ driver: { harness, sandbox } }); sandbox({ commands }) remains the model-facing command execution Capability.")
+  }
+  if (hasOwnDefined(record, "output")) {
+    throw new Error("[vitehub] defineAgent({ output }) is no longer supported. Move it to defineAgent({ driver: { output } }).")
   }
   if (hasOwnDefined(record, "driver")) {
     return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
