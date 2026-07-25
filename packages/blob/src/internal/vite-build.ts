@@ -395,6 +395,7 @@ async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | R
 function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts, providerOutput: ComposedProviderOutput | undefined): CloudflareProviderDeploymentOutput {
   const resolved = resolveBlobConfig(blob, "cloudflare")
   const databaseRuntime = getProviderRuntimeModule(providerOutput, "database", "cloudflare")
+  const databaseDefinitionDefaults = getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")
 
   const wranglerConfig: CloudflareBlobConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
@@ -410,6 +411,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       alias: {
         "@vite-hub/blob/content-type": resolveRuntimeModule("content-type"),
         "@vite-hub/blob": artifacts.runtimeModuleFiles.cloudflare,
+        ...(databaseDefinitionDefaults ? { "#vitehub/database/definition-defaults": databaseDefinitionDefaults } : {}),
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
       banner: `// ${cloudflareBlobWorkerMarker}`,
@@ -499,6 +501,7 @@ function createVercelOutput(
   serverFunctionName?: string,
 ): VercelProviderDeploymentOutput {
   const databaseRuntime = getProviderRuntimeModule(providerOutput, "database", "vercel")
+  const databaseDefinitionDefaults = getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")
 
   return {
     bundleEntry: artifacts.vercelServerFile,
@@ -506,6 +509,7 @@ function createVercelOutput(
       alias: {
         "@vite-hub/blob/content-type": resolveRuntimeModule("content-type"),
         "@vite-hub/blob": artifacts.runtimeModuleFiles.vercel,
+        ...(databaseDefinitionDefaults ? { "#vitehub/database/definition-defaults": databaseDefinitionDefaults } : {}),
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
       conditions: databaseRuntime ? ["vitehub-hosted", "node", "default"] : undefined,

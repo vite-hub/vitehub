@@ -105,6 +105,7 @@ async function createWorkspaceTempDir(prefix: string) {
 
 async function createHostedDatabaseRuntimeFixture(rootDir: string, options: { localNodeImport?: boolean } = {}) {
   const packageDir = join(rootDir, "node_modules", "vitehub-hosted-fixture")
+  const definitionDefaultsFile = join(rootDir, "database-definition-defaults.mjs")
   const runtimeFile = join(rootDir, "database-runtime.mjs")
   await mkdir(join(rootDir, "src"), { recursive: true })
   await mkdir(packageDir, { recursive: true })
@@ -130,15 +131,20 @@ async function createHostedDatabaseRuntimeFixture(rootDir: string, options: { lo
     "",
   ].join("\n"), "utf8")
   await writeFile(runtimeFile, [
-    'import databaseRuntimeMarker from "vitehub-hosted-fixture"',
-    "export { databaseRuntimeMarker }",
+    'import selectedRuntimeMarker from "vitehub-hosted-fixture"',
+    'import definitionDefaults from "#vitehub/database/definition-defaults"',
+    "const connectionUrl = definitionDefaults.connection?.url",
+    "export const databaseRuntimeMarker = `${selectedRuntimeMarker}:${connectionUrl}`",
     "",
   ].join("\n"), "utf8")
+  await writeFile(definitionDefaultsFile, 'export default { connection: { url: "libsql://composed.example" } }\n', "utf8")
   return {
     runtimeModuleFilesByProduct: {
       database: {
         cloudflare: runtimeFile,
+        "cloudflare-definition-defaults": definitionDefaultsFile,
         vercel: runtimeFile,
+        "vercel-definition-defaults": definitionDefaultsFile,
       },
     },
   } satisfies ComposedProviderOutput
@@ -342,6 +348,7 @@ describe("Vite provider outputs", () => {
 
     const cloudflareWorker = await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")
     expect(cloudflareWorker).toContain("hosted-database-runtime-marker")
+    expect(cloudflareWorker).toContain("libsql://composed.example")
     expect(cloudflareWorker).not.toContain("local-database-runtime-marker")
   })
 
@@ -358,6 +365,7 @@ describe("Vite provider outputs", () => {
 
     const vercelServer = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(vercelServer).toContain("hosted-database-runtime-marker")
+    expect(vercelServer).toContain("libsql://composed.example")
     expect(vercelServer).not.toContain("local-database-runtime-marker")
   })
 

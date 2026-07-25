@@ -278,8 +278,18 @@ function getSupportedProviderRuntimeModules(
   provisionState: ProvisionState,
 ): Record<string, string> {
   return {
-    ...(shouldCreateCloudflareOutput(runtimeConfig, provisionState) ? { cloudflare: artifacts.runtimeModuleFiles.cloudflare } : {}),
-    ...(shouldCreateVercelOutput(runtimeConfig) ? { vercel: artifacts.runtimeModuleFiles.vercel } : {}),
+    ...(shouldCreateCloudflareOutput(runtimeConfig, provisionState)
+      ? {
+          cloudflare: artifacts.runtimeModuleFiles.cloudflare,
+          "cloudflare-definition-defaults": artifacts.definitionDefaultsFile,
+        }
+      : {}),
+    ...(shouldCreateVercelOutput(runtimeConfig)
+      ? {
+          vercel: artifacts.runtimeModuleFiles.vercel,
+          "vercel-definition-defaults": artifacts.definitionDefaultsFile,
+        }
+      : {}),
   }
 }
 

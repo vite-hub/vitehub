@@ -314,7 +314,9 @@ describe("Vite db provider outputs", () => {
     })
 
     expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare")).toContain("cloudflare-runtime.mjs")
+    expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")).toContain("definition-defaults.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toContain("vercel-runtime.mjs")
+    expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
   })
 
   it("composes direct Blob and Database provider output in either plugin order", async () => {
