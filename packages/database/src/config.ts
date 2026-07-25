@@ -72,7 +72,7 @@ function readObjectKeys(body: string | undefined) {
 }
 
 function readDatabaseTableNames(file: string) {
-  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "tables")))
+  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema")))
 }
 
 function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {

@@ -4,6 +4,7 @@ export type {
   CloudflareD1HttpConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
+  Database,
   DatabaseDefinition,
   DatabaseDefinitionOptions,
   DatabaseDialect,
@@ -18,5 +19,7 @@ export type {
   ResolvedCloudflareD1BindingConfig,
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
+  RuntimeDrizzleDatabase,
+  RuntimeDrizzleDatabaseConfig,
   RuntimeEnvDeclarationLike,
 } from "./types.ts"

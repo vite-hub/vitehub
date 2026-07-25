@@ -20,15 +20,19 @@ async function createTempProject() {
 
 async function writeDefinition(rootDir: string, path: string, table = "notes", options: { cloudflare?: string, connection?: string } = {}) {
   const file = join(rootDir, path)
+  const name = /(?:^|\/)src\/([^/]+)\.database\./.exec(path)?.[1]
+    ?? /(?:^|\/)server\/databases\/([^/]+)\/config\./.exec(path)?.[1]
+    ?? "default"
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${table} = sqliteTable('${table}', { title: text('title') })`,
     "export default defineDatabase({",
+    `  name: ${JSON.stringify(name)},`,
     ...(options.cloudflare ? ["  cloudflare: {", options.cloudflare, "  },"] : []),
     ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
-    `  tables: { ${table} },`,
+    `  schema: { ${table} },`,
     "})",
     "",
   ].join("\n"))
@@ -251,7 +255,7 @@ describe("hubDb", () => {
       "import { defineDatabase } from '@vite-hub/database'",
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "const tasks = sqliteTable('tasks', { title: text('title') })",
-      "export default defineDatabase({ tables: { tasks } })",
+      "export default defineDatabase({ schema: { tasks } })",
       "",
     ].join("\n"))
     await handleHotUpdate({

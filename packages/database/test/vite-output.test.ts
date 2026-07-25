@@ -47,9 +47,10 @@ async function writeDatabaseDefinition(rootDir: string, name: string, options: {
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${table} = sqliteTable('${name}_items', { title: text('title') })`,
     "export default defineDatabase({",
+    `  name: ${JSON.stringify(name)},`,
     ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
     ...(options.cloudflare ? ["  cloudflare: {", options.cloudflare, "  },"] : []),
-    `  tables: { ${table} },`,
+    `  schema: { ${table} },`,
     "})",
     "",
   ].join("\n"))

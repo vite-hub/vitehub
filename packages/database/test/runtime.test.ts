@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { build } from "esbuild"
 
 import { createDbCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 
@@ -250,6 +251,66 @@ describe("drizzle runtime", () => {
     const { databases } = await import("../src/runtime/drizzle-runtime.ts")
 
     expect(() => databases.analytics.db.run).toThrow("Database \"analytics\" requires a Cloudflare D1 binding or `db.connection.url`.")
+  })
+})
+
+describe("database definition runtime", () => {
+  it("returns a local database from defineDatabase", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-definition-"))
+    const { defineDatabase } = await import("../src/definition.ts")
+    const database = defineDatabase({
+      connection: { url: `file:${join(tempDir, "definition.sqlite")}` },
+      schema: defaultSchema,
+    })
+
+    await database.run(sql`
+      create table notes (
+        id integer primary key autoincrement,
+        title text not null
+      )
+    `)
+    await database.insert(defaultSchema.notes).values({ title: "definition note" })
+
+    expect(database.name).toBe("default")
+    expect(database.schema).toBe(defaultSchema)
+    expect(await database.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "definition note" }])
+  })
+
+  it("uses the definition's active Cloudflare binding in hosted mode", async () => {
+    const binding = createFakeD1Binding()
+    setActiveCloudflareEnv({ DB_ANALYTICS: binding })
+
+    const { createDefinitionRuntime } = await import("../src/runtime/definition-hosted.ts")
+    const database = createDefinitionRuntime({
+      cloudflare: { binding: "DB_ANALYTICS" },
+      dialect: "sqlite",
+      drizzle: {},
+      name: "analytics",
+      schema: analyticsSchema,
+    })
+
+    expect((database as { $client?: unknown }).$client).toBe(binding)
+  })
+
+  it("bundles the hosted definition runtime without Node filesystem imports", async () => {
+    const result = await build({
+      bundle: true,
+      conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"],
+      external: ["node:async_hooks"],
+      format: "esm",
+      platform: "neutral",
+      stdin: {
+        contents: 'import { defineDatabase } from "@vite-hub/database"; export const database = defineDatabase({ schema: {} })',
+        resolveDir: import.meta.dirname,
+        sourcefile: "hosted-database-definition.ts",
+      },
+      write: false,
+    })
+    const output = result.outputFiles[0]!.text
+
+    expect(output).toContain("Hosted database")
+    expect(output).not.toContain("node:fs")
+    expect(output).not.toContain("node:path")
   })
 })
 

@@ -8,7 +8,7 @@ import { renderConfigValueExpression } from "../config-value.ts"
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 function createTableExports(definition: DiscoveredDatabaseDefinition, definitionVariable: string) {
-  return definition.tableNames.map(tableName => `export const ${tableName} = ${definitionVariable}.tables[${JSON.stringify(tableName)}]`)
+  return definition.tableNames.map(tableName => `export const ${tableName} = ${definitionVariable}.schema[${JSON.stringify(tableName)}]`)
 }
 
 function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition) {
@@ -17,7 +17,7 @@ function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDataba
     `import ${definitionVariable} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     "",
     ...createTableExports(definition, definitionVariable),
-    `export const schema = ${definitionVariable}.tables`,
+    `export const schema = ${definitionVariable}.schema`,
     "export default schema",
     "",
   ].join("\n")

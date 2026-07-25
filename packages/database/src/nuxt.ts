@@ -75,6 +75,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
       hook("nitro:config", (config) => {
+        if (!nuxtOptions.dev) mergeNitroHostedCondition(config)
         mergeNitroRuntimeContentConfig(config, d1)
         mergeNitroConfigCloudflareConfig(config, d1)
       })
@@ -183,6 +184,13 @@ function mergeNitroRuntimeContentConfig(config: Record<string, unknown>, d1: Res
   const runtimeConfig = ensureRecord(config, "runtimeConfig")
   const content = ensureRecord(runtimeConfig, "content")
   content.database = d1.contentDatabase
+}
+
+function mergeNitroHostedCondition(config: Record<string, unknown>) {
+  const conditions = Array.isArray(config.exportConditions) ? config.exportConditions : []
+  if (!conditions.includes("vitehub-hosted")) {
+    config.exportConditions = ["vitehub-hosted", ...conditions]
+  }
 }
 
 function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {

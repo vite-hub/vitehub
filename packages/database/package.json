@@ -28,6 +28,10 @@
   "types": "./dist/index.d.ts",
   "imports": {
     "#vitehub/database/databases": "./dist/runtime/virtual-databases.js",
+    "#vitehub/database/definition-runtime": {
+      "vitehub-hosted": "./dist/runtime/definition-hosted.js",
+      "default": "./dist/runtime/definition-local.js"
+    },
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {

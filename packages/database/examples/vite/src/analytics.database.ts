@@ -7,6 +7,7 @@ const analyticsEvents = sqliteTable("analytics_events", {
 })
 
 export default defineDatabase({
+  name: "analytics",
   cloudflare: {
     binding: "DB_ANALYTICS",
     databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
@@ -16,5 +17,5 @@ export default defineDatabase({
     authToken: process.env.TURSO_AUTH_TOKEN,
     url: process.env.TURSO_ANALYTICS_DATABASE_URL || "libsql://analytics.example.turso.io",
   },
-  tables: { analyticsEvents },
+  schema: { analyticsEvents },
 })

@@ -1,3 +1,5 @@
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
+
 export type DrizzleCasing = "snake_case" | "camelCase"
 export type DatabaseDialect = "sqlite"
 
@@ -61,20 +63,25 @@ export type DatabaseNuxtIntegrationOptions = false | DatabaseIntegrationOptions 
   projectRoot?: string
 }
 
-export interface DatabaseDefinitionOptions<TTables extends Record<string, unknown> = Record<string, unknown>> {
+export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   drizzle?: DatabaseDrizzleOptions
-  tables: TTables
+  name?: string
+  schema: TSchema
 }
 
-export interface DatabaseDefinition<TTables extends Record<string, unknown> = Record<string, unknown>> {
+export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   dialect: DatabaseDialect
   drizzle: DatabaseDrizzleOptions
-  tables: TTables
+  name: string
+  schema: TSchema
 }
+
+export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema>
+export type Database<TSchema extends Record<string, unknown> = Record<string, unknown>> = DatabaseDefinition<TSchema> & RuntimeDrizzleDatabase<TSchema>
 
 export interface DiscoveredDatabaseDefinition {
   handler: string
@@ -94,15 +101,19 @@ export interface ResolvedCloudflareD1BindingConfig {
   migrationsTable?: string
 }
 
-export interface ResolvedDrizzleDatabaseConfig {
-  cloudflare?: ResolvedCloudflareD1BindingConfig
+export interface RuntimeDrizzleDatabaseConfig {
+  cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
-  dialect: DatabaseDialect
   drizzle: DatabaseDrizzleOptions
+  name: string
+}
+
+export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseConfig {
+  cloudflare?: ResolvedCloudflareD1BindingConfig
+  dialect: DatabaseDialect
   generatedSchemaFile: string
   migrationsDir: string
   mode: "default" | "named"
-  name: string
   orm: "drizzle"
 }
 

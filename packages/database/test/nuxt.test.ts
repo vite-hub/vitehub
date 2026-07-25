@@ -99,6 +99,7 @@ describe("Database Nuxt integration", () => {
       cloudflare: {
         wrangler: {},
       },
+      exportConditions: ["workerd"],
       runtimeConfig: {
         content: {},
       },
@@ -117,6 +118,7 @@ describe("Database Nuxt integration", () => {
           ],
         },
       },
+      exportConditions: ["vitehub-hosted", "workerd"],
       runtimeConfig: {
         content: {
           database: {

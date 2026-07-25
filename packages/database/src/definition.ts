@@ -1,8 +1,10 @@
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { DatabaseDefinition, DatabaseDefinitionOptions } from "./types.ts"
+import { createDefinitionRuntime } from "#vitehub/database/definition-runtime"
 
-const allowedDefinitionKeys = new Set(["cloudflare", "connection", "drizzle", "tables"])
+import type { Database, DatabaseDefinition, DatabaseDefinitionOptions } from "./types.ts"
+
+const allowedDefinitionKeys = new Set(["cloudflare", "connection", "drizzle", "name", "schema"])
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!isPlainObject(value)) {
@@ -10,9 +12,9 @@ function assertPlainObject(value: unknown, label: string): asserts value is Reco
   }
 }
 
-export function defineDatabase<TTables extends Record<string, unknown>>(
-  options: DatabaseDefinitionOptions<TTables>,
-): DatabaseDefinition<TTables> {
+export function defineDatabase<TSchema extends Record<string, unknown>>(
+  options: DatabaseDefinitionOptions<TSchema>,
+): Database<TSchema> {
   assertPlainObject(options, "defineDatabase()")
 
   const unknownKey = Object.keys(options).find(key => !allowedDefinitionKeys.has(key))
@@ -20,7 +22,7 @@ export function defineDatabase<TTables extends Record<string, unknown>>(
     throw new TypeError(`\`defineDatabase()\` does not support the "${unknownKey}" option.`)
   }
 
-  assertPlainObject(options.tables, "defineDatabase().tables")
+  assertPlainObject(options.schema, "defineDatabase().schema")
 
   if (typeof options.cloudflare !== "undefined") {
     assertPlainObject(options.cloudflare, "defineDatabase().cloudflare")
@@ -40,13 +42,24 @@ export function defineDatabase<TTables extends Record<string, unknown>>(
     throw new TypeError("`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.")
   }
 
-  return {
+  const name = options.name?.trim() || "default"
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
+    throw new TypeError("`defineDatabase().name` must use letters, numbers, dots, underscores, or dashes.")
+  }
+
+  const definition: DatabaseDefinition<TSchema> = {
     ...(options.cloudflare ? { cloudflare: options.cloudflare } : {}),
     ...(options.connection ? { connection: options.connection } : {}),
     dialect: "sqlite",
-    drizzle: {
-      ...(casing ? { casing } : {}),
-    },
-    tables: options.tables,
+    drizzle: casing ? { casing } : {},
+    name,
+    schema: options.schema,
   }
+  const runtime = createDefinitionRuntime(definition)
+
+  return new Proxy(definition as Database<TSchema>, {
+    get(target, property, receiver) {
+      return Reflect.has(target, property) ? Reflect.get(target, property, receiver) : Reflect.get(runtime, property)
+    },
+  })
 }
