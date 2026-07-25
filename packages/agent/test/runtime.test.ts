@@ -5706,6 +5706,22 @@ describe("agent message protocol", () => {
     })).not.toThrow()
   })
 
+  it("accepts channel-local message filters across multiple message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram, webChat } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => ({}) as never,
+          messages: { filter: () => false },
+        }),
+        web: webChat(),
+      },
+      driver: { run: () => "ok" },
+    })).not.toThrow()
+  })
+
   it("applies channel-local message settings for one message-shaped channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
@@ -5738,7 +5754,7 @@ describe("agent message protocol", () => {
         web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options other than commentary or stream are only supported when an Agent defines one message-shaped Channel")
+    })).toThrow("Channel-local messages options other than commentary, filter, or stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {
