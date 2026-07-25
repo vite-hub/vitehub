@@ -6,9 +6,11 @@ import type {
   ReadSourceResult,
   Source,
   SourceContext,
+  SourceData,
   SourceItem,
   SourceKey,
   SourceListEntry,
+  SourceMetadata,
   SourceName,
   SourceReader,
 } from "./types.ts"
@@ -30,10 +32,12 @@ export function registerSources<const TSources extends Record<string, Source>>(s
   return sources
 }
 
-export function getRegisteredSource<TName extends SourceName>(name: TName): Source<SourceKey<TName>> {
+export function getRegisteredSource<TName extends SourceName>(
+  name: TName,
+): Source<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>> {
   const source = sourceRegistry.get(name)
   if (!source) throw sourceNotFoundError(name)
-  return source as Source<SourceKey<TName>>
+  return source as Source<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>
 }
 
 export function clearSources(): void {
@@ -90,7 +94,9 @@ export function useSource<TName extends SourceName>(
     return await source.getKeys(ctx)
   }
 
-  async function get(key: SourceKey<TName>): Promise<SourceItem<SourceKey<TName>>> {
+  async function get(
+    key: SourceKey<TName>,
+  ): Promise<SourceItem<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>> {
     await ensurePrepared()
     return await source.getItem(key, ctx)
   }
@@ -98,6 +104,11 @@ export function useSource<TName extends SourceName>(
   return {
     keys,
     get,
+    async items() {
+      await ensurePrepared()
+      if (source.getItems) return await source.getItems(ctx)
+      return await Promise.all((await keys()).map(get))
+    },
     async read<TOptions extends ReadSourceOptions | undefined = undefined>(
       key: SourceKey<TName>,
       options?: TOptions,
