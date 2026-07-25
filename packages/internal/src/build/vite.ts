@@ -46,8 +46,8 @@ interface NitroVercelConfig {
   plugins?: unknown
 }
 
-export const VITEHUB_NITRO_CONFIG_CONTEXT: unique symbol = Symbol.for("@vite-hub/internal/nitro-config-context")
-export const VITEHUB_SERVER_DIRS: unique symbol = Symbol.for("@vite-hub/internal/server-dirs")
+export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
+export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
 
 function includesNitroVitePlugin(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(includesNitroVitePlugin)

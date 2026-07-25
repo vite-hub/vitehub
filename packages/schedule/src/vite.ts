@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { generateProviderOutputs, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
@@ -41,6 +41,8 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
   command?: "build" | "serve"
   nitro?: unknown
   root?: string
+  /** @internal Framework-resolved server definition directories. */
+  serverDirs?: string[]
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
@@ -386,6 +388,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const roots = resolveSchedulePluginRoots(options.root || process.cwd(), options)
   const definitions = discoverScheduleDefinitions({
     rootDir: roots.viteRoot,
+    serverDirs: options.serverDirs,
     serverRootDir: roots.projectRoot,
   })
   if (!shouldInstallNitroSchedulePlugin(definitions, options)) {
@@ -423,6 +426,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
+  let serverDirs: string[] | undefined
   let viteRoot: string | undefined
 
   function discoverViteSchedules() {
@@ -433,6 +437,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     return discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir: viteRoot,
+      serverDirs,
       serverRootDir: projectRoot,
     })
   }
@@ -444,6 +449,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
     return discoverScheduleDefinitions({
       rootDir: viteRoot,
+      serverDirs,
       serverRootDir: projectRoot,
     })
   }
@@ -462,9 +468,11 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     name: SCHEDULE_VITE_PLUGIN_NAME,
     enforce: "pre",
     async config(config, env) {
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const roots = resolveSchedulePluginRoots(config.root || process.cwd(), options)
       const definitions = discoverScheduleDefinitions({
         rootDir: roots.viteRoot,
+        serverDirs,
         serverRootDir: roots.projectRoot,
       })
       emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
@@ -477,6 +485,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         command: env.command,
         nitro: (config as { nitro?: unknown }).nitro,
         root: config.root || process.cwd(),
+        serverDirs,
       })
       if (!nitro) return null
       ;(config as ViteConfigWithNitro).nitro = nitro

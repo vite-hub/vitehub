@@ -1,6 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
 import { createDbCliContributor } from "./cli.ts"
@@ -95,6 +95,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
+  let serverDirs: string[] | undefined
 
   function resolvedOptions() {
     return resolved?.database ?? options
@@ -102,7 +103,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
   async function refreshRuntimeConfig() {
     if (!resolved) return
-    runtimeConfig = resolveDBViteConfig(resolvedOptions(), resolved.root)
+    runtimeConfig = resolveDBViteConfig(resolvedOptions(), resolved.root, { serverDirs })
     if (runtimeConfig) {
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
     }
@@ -123,6 +124,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const provision = [createDatabaseProvisionStep(() => resolved?.root ?? process.cwd(), db)]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
+    },
+    config(config) {
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
     },
     async configResolved(config) {
       resolved = config

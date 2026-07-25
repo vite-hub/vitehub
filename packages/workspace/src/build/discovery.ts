@@ -82,9 +82,9 @@ function createWorkspaceDefinition(source: string, file: string, name: string): 
   return { handler: file, name, path: file, source, sourceRootDir: resolveWorkspaceSourceRoot(file) }
 }
 
-function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
-  const workspacesDir = resolve(rootDir, "server", "workspaces")
-  const agentsDir = resolve(rootDir, "server", "agents")
+function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "server")): WorkspaceDefinitionCatalogSource[] {
+  const workspacesDir = resolve(serverDir, "workspaces")
+  const agentsDir = resolve(serverDir, "agents")
   const directoryWorkspaceDirs = collectDirectoriesWithConfig(workspacesDir)
 
   const normalizeDirectoryName = (workspacesRoot: string, file: string) => {
@@ -149,11 +149,14 @@ export function discoverServerWorkspaceDefinitions(rootDir: string): DiscoveredW
   return discoverDefinitions("workspace", [...serverWorkspaceSource(rootDir)])
 }
 
-export function discoverViteWorkspaceDefinitions(rootDir: string, options: { serverRootDir?: string } = {}): DiscoveredWorkspaceDefinition[] {
+export function discoverViteWorkspaceDefinitions(rootDir: string, options: { serverDirs?: string[], serverRootDir?: string } = {}): DiscoveredWorkspaceDefinition[] {
+  const serverRoot = options.serverRootDir || rootDir
+  const serverSources = options.serverDirs?.flatMap(serverDir => serverWorkspaceSource(serverRoot, serverDir))
+    ?? serverWorkspaceSource(serverRoot)
   return mergeDefinitions(
     "workspace",
     discoverDefinitions("workspace", [...viteWorkspaceSource(rootDir)]),
-    discoverDefinitions("workspace", [...serverWorkspaceSource(options.serverRootDir || rootDir)]),
+    discoverDefinitions("workspace", serverSources),
   )
 }
 
