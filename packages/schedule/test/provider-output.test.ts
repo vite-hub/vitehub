@@ -327,22 +327,18 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 * 1", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
-  it("resolves the static schedule runtime entry from package source and dist layouts", () => {
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/static.ts")
-    expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/static.ts")
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
-    expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/runtime/static.js")
+  it("resolves the static schedule runtime from its declared package export", () => {
+    expect(resolveScheduleRuntimeEntry((specifier) => {
+      expect(specifier).toBe("@vite-hub/schedule/runtime/static")
+      return "file:///repo/node_modules/@vite-hub/schedule/dist/runtime/static.js"
+    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/runtime/static.js")
   })
 
-  it("resolves the static schedule definition entry from package source and dist layouts", () => {
-    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/definition.ts")
-    expect(resolveScheduleDefinitionEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/definition.ts")
-    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/definition.js")
-    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/definition.js")
-    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/vite.js")).toBe("/repo/packages/schedule/dist/definition.js")
-    expect(resolveScheduleDefinitionEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/definition.js")
+  it("resolves the private schedule definition from the declared package root", () => {
+    expect(resolveScheduleDefinitionEntry((specifier) => {
+      expect(specifier).toBe("@vite-hub/schedule/package.json")
+      return "file:///repo/node_modules/@vite-hub/schedule/package.json"
+    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/definition.js")
   })
 
   it("writes Cloudflare schedule output to an existing Wrangler main", async () => {

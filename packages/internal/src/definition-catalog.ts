@@ -337,6 +337,13 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
   ].join("\n")
 }
 
+export async function writeRuntimeRegistryFile<TDefinition extends Pick<DiscoveredDefinition, "handler" | "name">>(
+  registryFile: string,
+  definitions: TDefinition[],
+): Promise<void> {
+  await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
+}
+
 export function createGeneratedDefinitionPath(
   rootDir: string,
   options: {
@@ -368,7 +375,7 @@ export async function writeRuntimeRegistryFiles<TDefinition extends Pick<Discove
   },
 ): Promise<RuntimeRegistryFiles<TDefinition>> {
   await Promise.all([
-    writeFileIfChanged(options.registryFile, createRuntimeRegistryContents(options.registryFile, options.definitions)),
+    writeRuntimeRegistryFile(options.registryFile, options.definitions),
     writeFileIfChanged(options.pluginFile, options.createPluginContents(options.pluginFile, options.registryFile)),
   ])
 
