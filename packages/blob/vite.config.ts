@@ -40,7 +40,6 @@ export default defineConfig({
       "src/index.ts",
       "src/vite.ts",
       "src/runtime/cloudflare-vite.ts",
-      "src/runtime/storage.ts",
       "src/runtime/state.ts",
       "src/runtime/vercel-vite.ts",
       "src/virtual.ts",
@@ -48,7 +47,9 @@ export default defineConfig({
     exports: {
       customExports(exports) {
         return Object.fromEntries(
-          Object.entries(exports).filter(([key]) => key !== "./drivers/vercel-bundled"),
+          Object.entries(exports).filter(([key]) =>
+            key !== "./drivers/vercel-bundled" && key !== "./storage"
+          ),
         );
       },
       inlinedDependencies: false,
