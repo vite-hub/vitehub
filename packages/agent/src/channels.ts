@@ -1182,10 +1182,11 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     }
     return
   }
-  let body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(replyBody(context), artifacts), artifacts)
+  let body = replyBody(context)
   if (stream) {
     for await (const chunk of stream) body = `${body || ""}${chunk}`
   }
+  body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(body, artifacts), artifacts)
   if (!body && !attachments.length && !files.length) return
   const message: AgentChatMessage = {
     markdown: body || "",

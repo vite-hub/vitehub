@@ -7633,7 +7633,7 @@ describe("server helpers", () => {
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
-  it("posts finish channel delivery replies after input replacement and appends link artifacts", async () => {
+  it("posts finish channel delivery replies after input replacement and rewrites streamed link artifacts", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -7652,7 +7652,9 @@ describe("server helpers", () => {
                 url: "https://assets.example/reports/result.md",
               }],
               kind: "reply",
-              payload: { body: "See the report." },
+              payload: (async function* () {
+                yield "See [Result report](reports/result.md)."
+              })(),
             }))
           },
         }),
@@ -7685,7 +7687,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:987", { markdown: "agent answer" })
     expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:987", {
-      markdown: "See the report.\n\n[Result report](<https://assets.example/reports/result.md>)",
+      markdown: "See [Result report](<https://assets.example/reports/result.md>).",
     })
   })
 
