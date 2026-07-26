@@ -170,9 +170,10 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
   }
 }
 
-async function packWorkspacePackages(packDir: string) {
+async function packWorkspacePackages(packDir: string, packageNames?: Set<string>) {
   const specs: Record<string, string> = {}
-  const infos = listWorkspacePackageInfos(repoRoot).filter(info => !info.private)
+  const infos = listWorkspacePackageInfos(repoRoot)
+    .filter(info => !info.private && (!packageNames || packageNames.has(info.packageName)))
 
   for (const info of infos) {
     const source = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as PackageManifest
@@ -388,6 +389,66 @@ async function assertVercelRuntimeImportsResolveInside(
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("reports the missing Workspace shell runtime from a packed consumer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-workspace-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        mkdir(appDir, { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir, new Set([
+        "@vite-hub/box",
+        "@vite-hub/markdown-template",
+        "@vite-hub/runtime",
+        "@vite-hub/source",
+        "@vite-hub/workspace",
+      ]))
+      await Promise.all([
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            "@vite-hub/workspace": specs["@vite-hub/workspace"],
+            ai: "7.0.19",
+          },
+          private: true,
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      const missingShell = await run("node", ["--input-type=module", "--eval", `
+        import { createWorkspaceTools } from "@vite-hub/workspace/ai"
+        let shellResolved = true
+        try { import.meta.resolve("@vite-hub/shell") } catch { shellResolved = false }
+        try {
+          await createWorkspaceTools({}).shell.execute({ command: "pwd" })
+          throw new Error("Workspace shell unexpectedly loaded")
+        }
+        catch (error) {
+          process.stdout.write(JSON.stringify({
+            causeCode: error.cause?.code,
+            code: error.code,
+            message: error.message,
+            name: error.name,
+            shellResolved,
+          }))
+        }
+      `], appDir)
+      expect(JSON.parse(missingShell.stdout)).toEqual({
+        causeCode: "ERR_MODULE_NOT_FOUND",
+        code: "WORKSPACE_FAILED",
+        message: "[vitehub] Install @vite-hub/shell to use Workspace Tools shell commands.",
+        name: "ViteHubError",
+        shellResolved: false,
+      })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
   it("installs, typechecks, builds, and runs without workspace or hoisting access", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-consumer-"))
     const appDir = join(root, "app")
