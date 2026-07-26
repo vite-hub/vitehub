@@ -191,6 +191,8 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("installScheduleRuntime")
     expect(pluginSource).toContain("createKVRuntimeScheduleStore")
     expect(pluginSource).toContain("createKVScheduleRunStore")
+    expect(pluginSource).toContain("import { kv } from \"@vite-hub/kv\"")
+    expect(pluginSource).toContain("kvStore: kv")
     expect(pluginSource).toContain("\"prefix\": \"brujula:schedule\"")
     expect(pluginSource).toContain("\"concurrency\": 2")
     expect(pluginSource).toContain("\"intervalMs\": 5000")
