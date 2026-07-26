@@ -1,6 +1,10 @@
 export { custom } from "./custom.ts"
 export { file } from "./file.ts"
-export type { FileSourceOptions } from "./file.ts"
+export type {
+  FileSourceInlineOptions,
+  FileSourceOptions,
+  FileSourcePathOptions,
+} from "./file.ts"
 export { github } from "./github/index.ts"
 export type { GitHubSourceOptions } from "./github/types.ts"
 export { glob } from "./glob.ts"
@@ -15,4 +19,5 @@ export type {
   McpResourcesRequestOptions,
   McpResourcesServer,
   McpResourcesSourceOptions,
+  McpResourcesTransportConfig,
 } from "./mcp-resources.ts"

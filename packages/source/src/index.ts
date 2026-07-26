@@ -17,7 +17,9 @@ export {
   mcpResources,
 } from "./sources/index.ts"
 export type {
+  FileSourceInlineOptions,
   FileSourceOptions,
+  FileSourcePathOptions,
   GitHubSourceOptions,
   GlobSourceOptions,
   McpResourceContent,
@@ -27,4 +29,5 @@ export type {
   McpResourcesRequestOptions,
   McpResourcesServer,
   McpResourcesSourceOptions,
+  McpResourcesTransportConfig,
 } from "./sources/index.ts"
