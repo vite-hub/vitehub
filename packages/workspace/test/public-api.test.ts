@@ -111,7 +111,6 @@ describe("workspace public API", () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
     const builtCollectionsClient = await readFile(new URL("../dist/collections/client.js", import.meta.url), "utf8")
-    const builtSandboxStore = await readFile(new URL("../dist/providers/vercel/blob-store.d.ts", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
     const declarations = (await Promise.all(distFiles
@@ -122,9 +121,7 @@ describe("workspace public API", () => {
       "source-metadata.js",
       "runtime/empty-assets-registry.js",
       "runtime/empty-registry.js",
-      "providers/cloudflare/artifacts-store.js",
       "providers/github/store.js",
-      "providers/vercel/blob-store.js",
     ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
     const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
     const vueFreeBundles = (await Promise.all(["index.js", "server.js", "collections.js"]
@@ -148,7 +145,6 @@ describe("workspace public API", () => {
     expect(builtServer).toContain("from \"h3\"")
     expect(declarations).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vercel/blob")
-    expect(builtSandboxStore).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vite-hub/sandbox")
     expect(declarations).not.toMatch(effectImport)
     expect(effectFreeBundles).not.toMatch(effectImport)
@@ -159,7 +155,7 @@ describe("workspace public API", () => {
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const hosted = await import("../src/hosted.ts")
-    const builtVercelBlobStore = await readFile(new URL("../dist/providers/vercel/blob-store.js", import.meta.url), "utf8")
+    const builtVercelBlobRuntime = await readFile(new URL("../dist/hosted-vercel-blob.js", import.meta.url), "utf8")
 
     expect(packageJson.exports).not.toHaveProperty("./hosted")
     expect(packageJson.exports).toHaveProperty("./internal/runtime/hosted")
@@ -169,10 +165,10 @@ describe("workspace public API", () => {
     expect(hosted).not.toHaveProperty("createCloudflareArtifactsWorkspaceStore")
     expect(hosted).not.toHaveProperty("createGitHubWorkspaceStore")
     expect(hosted).not.toHaveProperty("createVercelBlobWorkspaceStore")
-    expect(builtVercelBlobStore).not.toContain("files-sdk")
-    expect(builtVercelBlobStore).not.toContain('import("files-sdk/vercel-blob")')
-    expect(builtVercelBlobStore).not.toContain('import("@vercel/blob")')
-    expect(builtVercelBlobStore).not.toContain('from "@vercel/blob"')
+    expect(builtVercelBlobRuntime).not.toContain("files-sdk")
+    expect(builtVercelBlobRuntime).not.toContain('import("files-sdk/vercel-blob")')
+    expect(builtVercelBlobRuntime).not.toContain('import("@vercel/blob")')
+    expect(builtVercelBlobRuntime).not.toContain('from "@vercel/blob"')
   })
 
   it("uses the writable facade for synced reads and writes", async () => {
