@@ -30,34 +30,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./sources": {
-      "types": "./dist/sources/index.d.ts",
-      "import": "./dist/sources/index.js"
-    },
-    "./sources/custom": {
-      "types": "./dist/sources/custom.d.ts",
-      "import": "./dist/sources/custom.js"
-    },
-    "./sources/file": {
-      "types": "./dist/sources/file.d.ts",
-      "import": "./dist/sources/file.js"
-    },
-    "./sources/github": {
-      "types": "./dist/sources/github.d.ts",
-      "import": "./dist/sources/github.js"
-    },
-    "./sources/glob": {
-      "types": "./dist/sources/glob.d.ts",
-      "import": "./dist/sources/glob.js"
-    },
-    "./sources/markdown": {
-      "types": "./dist/sources/markdown.d.ts",
-      "import": "./dist/sources/markdown.js"
-    },
-    "./sources/mcp-resources": {
-      "types": "./dist/sources/mcp-resources.d.ts",
-      "import": "./dist/sources/mcp-resources.js"
-    },
     "./package.json": "./package.json"
   },
   "scripts": {

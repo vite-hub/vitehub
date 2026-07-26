@@ -6,16 +6,7 @@ export default defineConfig({
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
     },
-    entry: [
-      "src/index.ts",
-      "src/sources/custom.ts",
-      "src/sources/file.ts",
-      "src/sources/github.ts",
-      "src/sources/glob.ts",
-      "src/sources/index.ts",
-      "src/sources/markdown.ts",
-      "src/sources/mcp-resources.ts",
-    ],
+    entry: ["src/index.ts"],
     exports: {
       customExports(exports) {
         return Object.fromEntries(

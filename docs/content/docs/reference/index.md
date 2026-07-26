@@ -38,7 +38,7 @@ instead of one root barrel.
 | `@vite-hub/sandbox` | Sandbox Definitions, Sandbox Runs, Sandbox Provider integration | `@vite-hub/sandbox`, `@vite-hub/sandbox/vite` |
 | `@vite-hub/schedule` | Static schedules, runtime schedules, Schedule Targets, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell-shaped runtime execution providers and Workspace shell integration helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
-| `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/sources/*` |
+| `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, step execution, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
 | `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 

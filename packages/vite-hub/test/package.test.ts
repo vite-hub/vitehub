@@ -28,13 +28,6 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 
 const consolidatedOwnerExports = new Set([
   "@vite-hub/blob/ensure",
-  "@vite-hub/source/sources",
-  "@vite-hub/source/sources/custom",
-  "@vite-hub/source/sources/file",
-  "@vite-hub/source/sources/github",
-  "@vite-hub/source/sources/glob",
-  "@vite-hub/source/sources/markdown",
-  "@vite-hub/source/sources/mcp-resources",
   "@vite-hub/workspace/ai",
 ])
 
