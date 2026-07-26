@@ -1,4 +1,4 @@
-import { mcpResources as createMcpResourcesSource } from "@vite-hub/source/sources/mcp-resources"
+import { mcpResources as createMcpResourcesSource, type McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
@@ -7,7 +7,6 @@ import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { WorkspaceSource } from "../core/types.ts"
-import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/sources/mcp-resources"
 
 export interface McpResourcesSourceOptions<TKey extends string = string>
   extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, WorkspaceSourceRuntimeOptions {}
@@ -57,4 +56,4 @@ export type {
   McpResourcesClientConfig,
   McpResourcesRequestOptions,
   McpResourcesServer,
-} from "@vite-hub/source/sources/mcp-resources"
+} from "@vite-hub/source"

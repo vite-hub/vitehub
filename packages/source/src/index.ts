@@ -16,7 +16,6 @@ export {
   markdown,
   mcpResources,
 } from "./sources/index.ts"
-export * as source from "./sources/index.ts"
 export type {
   FileSourceOptions,
   GitHubSourceOptions,

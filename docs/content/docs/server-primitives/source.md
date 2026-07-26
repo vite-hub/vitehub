@@ -53,7 +53,6 @@ export default defineEventHandler(() => {
 | `useSource` from `@vite-hub/source` | Read from a registered Source at runtime. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources`, `custom` from `@vite-hub/source` | Create built-in Source loaders. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
-| `@vite-hub/source/sources/*` subpaths | Import one loader directly when you want narrower dependencies. |
 
 Source, Source Reader, Source Item, loader option, cache, search, and error types are exported from `@vite-hub/source`.
 
