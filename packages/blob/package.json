@@ -55,9 +55,7 @@
     "./errors": "./dist/errors.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/state": "./dist/runtime/state.js",
-    "./runtime/storage": "./dist/runtime/storage.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
-    "./storage": "./dist/storage.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
