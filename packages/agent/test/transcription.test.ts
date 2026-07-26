@@ -114,6 +114,39 @@ describe("agent transcription", () => {
     }
   })
 
+  it("handles the final text rejection when the provider stream fails", async () => {
+    const error = new Error("provider failed")
+    let rejectText!: (reason?: unknown) => void
+    const text = new Promise<string>((_resolve, reject) => {
+      rejectText = reject
+    })
+    const thenSpy = vi.spyOn(text, "then")
+    vi.doMock("ai", () => ({
+      experimental_streamTranscribe: () => ({
+        fullStream: (async function* () {
+          rejectText(error)
+          yield { error, type: "error" as const }
+        })(),
+        text,
+      }),
+    }))
+    try {
+      const transcription = await streamTranscription({
+        audio: new ReadableStream<Uint8Array>(),
+        inputAudioFormat: { rate: 24_000, type: "audio/pcm" },
+        model: "openai/gpt-realtime-whisper",
+      })
+      await expect(async () => {
+        for await (const _chunk of transcription.textStream) {}
+      }).rejects.toThrow(error)
+      expect(thenSpy).toHaveBeenCalledOnce()
+      await expect(transcription.text).rejects.toThrow(error)
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("normalizes audio extensions and bytes", async () => {
     expect(audioExtensionFor("audio/mpeg; codecs=mp3")).toBe("mp3")
     expect(audioExtensionFor("audio/opus")).toBe("ogg")

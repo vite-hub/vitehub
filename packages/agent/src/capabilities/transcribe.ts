@@ -114,6 +114,7 @@ export async function streamTranscription(options: StreamTranscriptionOptions): 
     throw new TypeError("[vitehub] streamTranscription() requires ai.experimental_streamTranscribe.")
   }
   const result = aiSdk.experimental_streamTranscribe(options)
+  void result.text.then(undefined, () => {})
   return {
     result,
     text: result.text,
