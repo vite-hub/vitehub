@@ -3,15 +3,14 @@ import { lookup } from "mrmime"
 import { workspaceError } from "../core/errors.ts"
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 
+import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { MaybePromise, SourceContext, WorkspaceContent, WorkspaceSource, WorkspaceSourceItem } from "../core/types.ts"
 
-type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
-type WorkspaceSourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "probeKeys" | "sync" | "validate">
 type CustomWorkspaceSourceFile = Omit<WorkspaceSourceItem, "content" | "contentStream" | "key" | "path"> & {
   content: WorkspaceContent | ((context: SourceContext) => MaybePromise<WorkspaceContent>)
   path: string
 }
-type CustomWorkspaceSourceFiles = WorkspaceSourceRuntimeOptions & {
+type CustomWorkspaceSourceFiles = WorkspaceSourceRuntimeOptions & Pick<WorkspaceSource, "probeKeys"> & {
   files: readonly CustomWorkspaceSourceFile[]
 }
 

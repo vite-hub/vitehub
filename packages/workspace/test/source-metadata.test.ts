@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { custom, fetch, file, github, mcpResources } from "../src/index.ts"
+import { custom, fetch, file, github, glob, markdown, mcpResources } from "../src/index.ts"
 import {
   normalizeWorkspaceSourceMetadata,
   normalizeWorkspaceSourcesMetadata,
@@ -48,6 +48,68 @@ afterEach(() => {
 })
 
 describe("Workspace Source metadata", () => {
+  it("preserves adapter-specific Workspace runtime options", () => {
+    const direct = {
+      async getKeys() {
+        return []
+      },
+      async getItem(key: string) {
+        return { content: "", key }
+      },
+    }
+
+    expect(custom(direct)).toBe(direct)
+    expect(file({
+      mount: { materialize: "lazy" },
+      path: "README.md",
+    })).toMatchObject({
+      mount: { materialize: "lazy", path: "" },
+      probeKeys: ["README.md"],
+    })
+    expect(markdown({
+      mount: { materialize: "lazy" },
+      path: "README.md",
+    })).toMatchObject({
+      mount: { materialize: "lazy" },
+      probeKeys: ["README.md"],
+    })
+    expect(glob({
+      cache: { maxAge: 60 },
+      include: "**/*.md",
+      materialize: "lazy",
+      mount: "docs",
+      sync: true,
+      validate: "request",
+    })).toMatchObject({
+      cache: { maxAge: 60 },
+      materialize: "lazy",
+      mount: "docs",
+      sync: true,
+      validate: "request",
+    })
+    expect(github({
+      cache: { maxAge: 60 },
+      materialize: "lazy",
+      mount: "repository",
+      repo: "vite-hub/vitehub",
+      sync: true,
+      validate: "request",
+    })).toMatchObject({
+      cache: { maxAge: 60 },
+      materialize: "lazy",
+      mount: "repository",
+      sync: true,
+      validate: "request",
+    })
+    expect(mcpResources({
+      server: mcpClient,
+      sync: true,
+    })).toMatchObject({
+      materialize: "none",
+      sync: true,
+    })
+  })
+
   it("projects canonical metadata for every Source form", () => {
     const sources = Object.fromEntries(normalizeWorkspaceSourcesMetadata({
       customDocs: custom({

@@ -3,15 +3,14 @@ import { mcpResources as createMcpResourcesSource } from "@vite-hub/source/sourc
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { registerMcpResourcesSourceLoader } from "./mcp-resources-loader.ts"
+import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 
+import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { WorkspaceSource } from "../core/types.ts"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/sources/mcp-resources"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "sync" | "validate">
-type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
-
 export interface McpResourcesSourceOptions<TKey extends string = string>
-  extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, SourceRuntimeOptions {}
+  extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, WorkspaceSourceRuntimeOptions {}
 
 export function mcpResources<const TKey extends string = string, const TOptions extends McpResourcesSourceOptions<TKey> = McpResourcesSourceOptions<TKey>>(options: ExactOptions<TOptions, McpResourcesSourceOptions<TKey>>): WorkspaceSource {
   const livePaths: Record<string, string> = {}
@@ -20,20 +19,20 @@ export function mcpResources<const TKey extends string = string, const TOptions 
     cache: options.cache,
   })
 
-  return markLiveWorkspaceSource({
+  const source = withWorkspaceRuntimeOptions({
     ...baseSource,
-    cache: options.cache,
-    materialize: options.materialize || (options.sync ? "none" : "lazy"),
-    mount: options.mount,
     async prepare(ctx) {
       await baseSource.prepare?.(ctx)
       const mountPath = resolveMountPath(options.mount, ctx)
       const keys = await baseSource.getKeys(ctx)
       resetLivePaths(livePaths, mountPath, keys)
     },
-    sync: options.sync,
-    validate: options.validate,
-  }, livePaths)
+  }, {
+    ...options,
+    materialize: options.materialize || (options.sync ? "none" : "lazy"),
+  })
+
+  return markLiveWorkspaceSource(source, livePaths)
 }
 
 registerMcpResourcesSourceLoader(input => mcpResources(input as never))
