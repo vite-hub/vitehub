@@ -3670,6 +3670,7 @@ describe("server helpers", () => {
     adapter.name = "discord"
     Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
     let replyText = "short reply"
+    let finishReply: string | undefined
     const agent = defineAgent({
       channels: {
         discord: discord({
@@ -3679,6 +3680,14 @@ describe("server helpers", () => {
       },
       driver: {
         run: () => ({ text: replyText }),
+      },
+      hooks: {
+        "agent:finish"(event) {
+          if (!finishReply) return
+          return event.reply((async function* () {
+            yield finishReply
+          })())
+        },
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -3705,6 +3714,7 @@ describe("server helpers", () => {
     adapter.postMessage.mockClear()
     adapter.editMessage.mockClear()
     replyText = `${"word ".repeat(430)}done`
+    finishReply = `${"side ".repeat(430)}done`
 
     const longResponse = await handler(request(8), "discord")
 
@@ -3716,6 +3726,14 @@ describe("server helpers", () => {
       raw: expect.stringMatching(/ \(1\/2\)$/),
     })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      raw: expect.stringMatching(/ \(2\/2\)$/),
+    })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(3, "telegram:456", "sent-4", { markdown: finishReply })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(4, "telegram:456", "sent-4", {
+      attachments: [],
+      raw: expect.stringMatching(/ \(1\/2\)$/),
+    })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(4, "telegram:456", {
       raw: expect.stringMatching(/ \(2\/2\)$/),
     })
   })
