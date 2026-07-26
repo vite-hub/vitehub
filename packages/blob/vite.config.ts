@@ -46,6 +46,11 @@ export default defineConfig({
       "src/virtual.ts",
     ],
     exports: {
+      customExports(exports) {
+        return Object.fromEntries(
+          Object.entries(exports).filter(([key]) => key !== "./drivers/vercel-bundled"),
+        );
+      },
       inlinedDependencies: false,
     },
     outExtensions: () => ({
