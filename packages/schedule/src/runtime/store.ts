@@ -12,6 +12,14 @@ export interface ScheduleKVStorage {
   set<T = unknown>(key: string, value: T): Promise<void> | void
 }
 
+interface ViteHubKVStorage {
+  del(key: string): Promise<readonly [unknown, unknown]>
+  get<T = unknown>(key: string): Promise<readonly [unknown, T | null | undefined]>
+  has(key: string): Promise<readonly [unknown, boolean | undefined]>
+  keys(base?: string): Promise<readonly [unknown, string[] | undefined]>
+  set<T = unknown>(key: string, value: T): Promise<readonly [unknown, unknown]>
+}
+
 export interface KVScheduleStoreOptions {
   kvStore?: ScheduleKVStorage
   prefix?: string
@@ -89,28 +97,32 @@ async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
     throw error
   }
 
+  return createScheduleKVStorage(module.kv)
+}
+
+export function createScheduleKVStorage(kvStore: ViteHubKVStorage): ScheduleKVStorage {
   return {
     async del(key) {
-      const [error] = await module.kv.del(key)
+      const [error] = await kvStore.del(key)
       if (error) throw error
     },
     async get<T = unknown>(key: string) {
-      const [error, value] = await module.kv.get<T>(key)
+      const [error, value] = await kvStore.get<T>(key)
       if (error) throw error
       return value
     },
     async has(key) {
-      const [error, value] = await module.kv.has(key)
+      const [error, value] = await kvStore.has(key)
       if (error) throw error
-      return value
+      return value ?? false
     },
     async keys(base) {
-      const [error, value] = await module.kv.keys(base)
+      const [error, value] = await kvStore.keys(base)
       if (error) throw error
-      return value
+      return value ?? []
     },
     async set(key, value) {
-      const [error] = await module.kv.set(key, value)
+      const [error] = await kvStore.set(key, value)
       if (error) throw error
     },
   }
