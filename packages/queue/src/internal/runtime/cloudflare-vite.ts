@@ -1,16 +1,16 @@
 import { createCloudflareHostedWorker } from "@vite-hub/internal/runtime/cloudflare-hosted"
 
-import { normalizeQueueOptions } from "../config.ts"
-import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
-import { getCloudflareQueueName } from "../internal/cloudflare-resource-name.ts"
-import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
+import { normalizeQueueOptions } from "../../config.ts"
+import { getCloudflareQueueDefinitionName } from "../../integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../cloudflare-resource-name.ts"
+import { createCloudflareQueueBatchHandler } from "../../providers/cloudflare.ts"
 
-import { createCloudflareRuntimeEvent, createQueueJob, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
-import { createCloudflareQueueRuntimeClient } from "../internal/runtime/cloudflare-client.ts"
-import type { QueueApp } from "./_app.ts"
+import { createCloudflareRuntimeEvent, createQueueJob, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "../../runtime/cloudflare-shared.ts"
+import { createCloudflareQueueRuntimeClient } from "./cloudflare-client.ts"
+import type { QueueApp } from "../../runtime/_app.ts"
 import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
-import type { CloudflareQueueMessageBatch, QueueDefinitionRegistry, ResolvedQueueOptions } from "../types.ts"
+import type { CloudflareQueueMessageBatch, QueueDefinitionRegistry, ResolvedQueueOptions } from "../../types.ts"
 
 export type CloudflareWorkerApp = QueueApp
 
