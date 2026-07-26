@@ -109,6 +109,7 @@ async function assertRootDeclarationsAvoidOptionalPeers(tarball: string, manifes
     const file = pending.pop()
     if (!file || visited.has(file)) continue
     visited.add(file)
+    if (!/\.d\.(?:c|m)?ts$/.test(file)) continue
     const { stdout: source } = await run("tar", ["-xOf", tarball, file], repoRoot)
 
     for (const match of source.matchAll(importPattern)) {
