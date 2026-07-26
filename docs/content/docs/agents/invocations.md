@@ -223,6 +223,8 @@ export default defineAgent({
 })
 ```
 
+`event.reply()` also accepts `AsyncIterable<string>`. Chat-backed Channels stream it through the adapter when available and use Chat SDK's post-and-edit fallback otherwise.
+
 Finish hooks should not quietly grant new abilities. Capabilities and Agent Drivers remain the authority boundaries.
 
 ### Handle failures

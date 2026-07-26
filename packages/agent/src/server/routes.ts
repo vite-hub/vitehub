@@ -1798,6 +1798,10 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
 }
 
 async function postChatMessage(thread: Thread, message: AgentChatMessage): Promise<void> {
+  if (isAsyncIterable(message)) {
+    await thread.post(thread.adapter.stream ? new StreamingPlan(message) : message)
+    return
+  }
   if (typeof message !== "object" || message === null) {
     if (await postDiscordSplitContent(thread, message)) return
     await thread.post(message)

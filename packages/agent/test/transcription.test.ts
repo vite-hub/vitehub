@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { getTranscriptionResults, title, transcribe } from "../src/capabilities.ts"
+import { getTranscriptionResults, streamTranscription, title, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
 import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
 
@@ -55,6 +55,65 @@ function createTranscriptionCapabilityContext(
 }
 
 describe("agent transcription", () => {
+  it("normalizes streaming transcription events into reply text", async () => {
+    const experimentalStreamTranscribe = vi.fn(() => ({
+      fullStream: (async function* () {
+        yield { delta: "hello ", type: "transcript-delta" as const }
+        yield { text: "hello world", type: "transcript-final" as const }
+      })(),
+      text: Promise.resolve("hello world"),
+    }))
+    vi.doMock("ai", () => ({
+      experimental_streamTranscribe: experimentalStreamTranscribe,
+    }))
+    try {
+      const audio = new ReadableStream<Uint8Array>()
+      const transcription = await streamTranscription({
+        audio,
+        inputAudioFormat: { rate: 24_000, type: "audio/pcm" },
+        model: "openai/gpt-realtime-whisper",
+      })
+      let reply = ""
+      for await (const chunk of transcription.textStream) reply += chunk
+
+      expect(reply).toBe("hello world")
+      await expect(transcription.text).resolves.toBe("hello world")
+      expect(experimentalStreamTranscribe).toHaveBeenCalledWith({
+        audio,
+        inputAudioFormat: { rate: 24_000, type: "audio/pcm" },
+        model: "openai/gpt-realtime-whisper",
+      })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("uses the final streaming transcript when a provider emits no deltas", async () => {
+    vi.doMock("ai", () => ({
+      experimental_streamTranscribe: () => ({
+        fullStream: (async function* () {
+          yield { text: "hello", type: "transcript-partial" as const }
+          yield { text: "hello world", type: "transcript-final" as const }
+        })(),
+        text: Promise.resolve("hello world"),
+      }),
+    }))
+    try {
+      const transcription = await streamTranscription({
+        audio: new ReadableStream<Uint8Array>(),
+        inputAudioFormat: { rate: 24_000, type: "audio/pcm" },
+        model: "openai/gpt-realtime-whisper",
+      })
+      let reply = ""
+      for await (const chunk of transcription.textStream) reply += chunk
+      expect(reply).toBe("hello world")
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("normalizes audio extensions and bytes", async () => {
     expect(audioExtensionFor("audio/mpeg; codecs=mp3")).toBe("mp3")
     expect(audioExtensionFor("audio/opus")).toBe("ogg")

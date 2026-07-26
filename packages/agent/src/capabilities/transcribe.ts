@@ -15,6 +15,8 @@ import type { WritableWorkspaceFacade, WorkspaceContent, WorkspaceName } from "@
 type AiSdkTranscribe = typeof import("ai")["transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">
 type AiSdkTranscriptionResult = Awaited<ReturnType<AiSdkTranscribe>>
+type AiSdkStreamTranscribe = typeof import("ai")["experimental_streamTranscribe"]
+type AiSdkStreamTranscriptionResult = ReturnType<AiSdkStreamTranscribe>
 type TranscribeArtifactValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
 const DEFAULT_TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
 const resolvedAudioData = new WeakMap<AudioPart, Promise<AudioData>>()
@@ -24,6 +26,14 @@ export interface TranscribeExecuteInput {
 }
 
 export type TranscribeExecuteResult = AiSdkTranscriptionResult | string
+
+export type StreamTranscriptionOptions = Omit<Parameters<AiSdkStreamTranscribe>[0], "_internal">
+
+export interface StreamingTranscription {
+  result: AiSdkStreamTranscriptionResult
+  text: AiSdkStreamTranscriptionResult["text"]
+  textStream: AsyncIterable<string>
+}
 
 export interface TranscriptionResult {
   audioPath?: string
@@ -77,6 +87,39 @@ type StaticTranscribeOptions =
   }
 
 export type TranscribeOptions = StaticTranscribeOptions | (() => MaybePromise<StaticTranscribeOptions>)
+
+async function* transcriptionTextStream(
+  stream: AiSdkStreamTranscriptionResult["fullStream"],
+  text: AiSdkStreamTranscriptionResult["text"],
+): AsyncIterable<string> {
+  let streamedText = ""
+  for await (const part of stream) {
+    if (part.type === "error") throw part.error
+    if (part.type === "transcript-delta" && part.delta) {
+      streamedText += part.delta
+      yield part.delta
+    }
+  }
+  const finalText = await text
+  const suffix = finalText.startsWith(streamedText) ? finalText.slice(streamedText.length) : ""
+  if (suffix) yield suffix
+  else if (!streamedText && finalText) yield finalText
+}
+
+export async function streamTranscription(options: StreamTranscriptionOptions): Promise<StreamingTranscription> {
+  const aiSdk = await loadAiSdk() as typeof import("ai") & {
+    experimental_streamTranscribe?: AiSdkStreamTranscribe
+  }
+  if (!aiSdk.experimental_streamTranscribe) {
+    throw new TypeError("[vitehub] streamTranscription() requires ai.experimental_streamTranscribe.")
+  }
+  const result = aiSdk.experimental_streamTranscribe(options)
+  return {
+    result,
+    text: result.text,
+    textStream: transcriptionTextStream(result.fullStream, result.text),
+  }
+}
 
 function isAudioPart(part: unknown): part is AudioPart {
   return !!part

@@ -59,6 +59,35 @@ transcribe({
 })
 ```
 
+## Streaming transcription
+
+Use `streamTranscription()` for live raw audio. It wraps AI SDK streaming transcription and exposes `textStream`, an append-only text stream that can be passed directly to `event.reply()`.
+
+```ts
+import type { AgentFinishHookEvent } from '@vite-hub/agent'
+import { streamTranscription } from '@vite-hub/agent/capabilities'
+
+export async function liveTranscriptReply(
+  event: AgentFinishHookEvent,
+  audio: ReadableStream<Uint8Array>,
+) {
+  const transcription = await streamTranscription({
+    model: 'openai/gpt-realtime-whisper',
+    audio,
+    inputAudioFormat: {
+      type: 'audio/pcm',
+      rate: 24_000,
+    },
+  })
+
+  return event.reply(transcription.textStream)
+}
+```
+
+Return the reply intent without awaiting `transcription.text`; consuming the reply drives the provider stream and resolves the final text promise. Chat-backed Channels use native streaming when the adapter supports it and Chat SDK's post-and-edit fallback otherwise. Other message Channels use their native stream method when available and fall back to one final reply.
+
+`streamTranscription()` emits provider `transcript-delta` events as reply chunks. Providers that only emit partial and final snapshots produce one final reply, which avoids duplicating corrected partial text.
+
 ## Asynchronous remote transcription
 
 Use `createTranscription()` when a durable workflow should submit a private remote object and resume after the provider completes it.
@@ -104,6 +133,8 @@ Failed completions contain a `ViteHubError` with a fixed `TRANSCRIPTION_*` code 
 
 Basic transcription requires a model or custom executor.
 Artifact persistence requires an explicit writable Workspace.
+
+Streaming transcription requires an AI SDK streaming transcription model, a `ReadableStream<Uint8Array | string>` of raw audio, and its input audio format.
 
 Asynchronous remote transcription requires a `TranscriptionDriver`.
 The built-in ElevenLabs Scribe driver requires an API key and an explicitly configured speech-to-text webhook ID.
@@ -164,11 +195,13 @@ Import these helpers from `@vite-hub/agent/capabilities` when custom hooks or ex
 | --- | --- | --- |
 | `audioBytes(audio, { maxBytes? })` | `Promise<Uint8Array>` | Resolves direct data, `fetchData`, or an audio URL and enforces a `26214400` byte default limit. |
 | `getTranscriptionResults(context)` | `TranscriptionResult[]` | Reads the current invocation's results from an invocation context store or an object containing one. Returns an empty array when none exist. |
+| `streamTranscription(options)` | `Promise<StreamingTranscription>` | Starts AI SDK streaming transcription and exposes `textStream` for streamed replies, `text` for the final transcript, and the underlying `result` metadata. |
 
 Each `TranscriptionResult` contains `createdAt`, `date`, `messageId`, `stem`, and `transcript`, plus `audioPath` or `transcriptPath` when those artifacts were written.
 
 ## Reference
 
+- [AI Gateway streaming transcription](https://vercel.com/changelog/ai-gateway-now-supports-streaming-transcription)
 - [Workspace primitive](/docs/server-primitives/workspace)
 - [Agent invocations](/docs/agents/invocations)
 - Source: `packages/agent/src/capabilities/transcribe.ts`

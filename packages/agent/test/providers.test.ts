@@ -7449,6 +7449,65 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", { markdown: "side message via telegram" })
   })
 
+  it("streams event.reply through the Chat SDK transport", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      return { id: "stream-1", raw: { text }, threadId }
+    })
+    adapter.stream = stream
+    const agent = defineAgent({
+      channels: {
+        support: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            stream: false,
+          },
+        }),
+      },
+      driver: { run: () => ({ text: "agent answer" }) },
+      hooks: {
+        "agent:finish"(event) {
+          return event.reply((async function* () {
+            yield "live "
+            yield "transcript"
+          })())
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      body: JSON.stringify({
+        update_id: 89,
+        message: {
+          chat: { id: 889, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 89,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "support")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:889", { markdown: "agent answer" })
+    expect(stream).toHaveBeenCalledOnce()
+    await expect(stream.mock.results[0]?.value).resolves.toMatchObject({
+      raw: { text: "live transcript" },
+      threadId: "telegram:889",
+    })
+  })
+
   it("maps finish hook delivery artifacts to Chat SDK attachments", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")

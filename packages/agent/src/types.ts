@@ -234,7 +234,9 @@ export interface AgentChannelDeliveryReplyPayload {
   markdown?: string
 }
 
-export type AgentChannelDeliveryReplyInput = string | AgentChannelDeliveryReplyPayload
+export type AgentChannelDeliveryReplyStream = AsyncIterable<string>
+
+export type AgentChannelDeliveryReplyInput = string | AgentChannelDeliveryReplyPayload | AgentChannelDeliveryReplyStream
 
 export interface AgentChannelDeliveryReactionPayload {
   action?: "remove" | (string & {})
@@ -1454,6 +1456,7 @@ export type AgentWebhookStateResolver<TRuntimeConfig extends AgentRuntimeConfig 
 
 export type AgentChatMessage =
   | AdapterPostableMessage
+  | AgentChannelDeliveryReplyStream
   | { text: string }
   | ((Exclude<AdapterPostableMessage, string> | { text: string }) & {
     artifacts?: readonly PublishedAgentDeliveryArtifact[]
