@@ -42,7 +42,6 @@
     "test": "vp run -t @vite-hub/schedule#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/kv": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "cron-schedule": "catalog:workflow",
     "effect": "catalog:effect",
@@ -51,6 +50,7 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -58,9 +58,13 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vite-hub/kv": "workspace:*",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vite-hub/kv": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

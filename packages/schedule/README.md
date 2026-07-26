@@ -15,7 +15,7 @@
 pnpm add @vite-hub/schedule
 ```
 
-Add `@vite-hub/kv` when runtime schedules should persist outside memory.
+Add `@vite-hub/kv` when using the default KV-backed stores or the generated Process Runtime. Static Schedules, memory stores, and custom `ScheduleKVStorage` implementations do not require it.
 
 ## Minimal API
 

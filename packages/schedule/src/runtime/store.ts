@@ -1,14 +1,7 @@
 import { assertRuntimeScheduleId, createScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
-
-export interface ScheduleKVStorage {
-  del(key: string): boolean | Promise<boolean> | Promise<void> | void
-  get<T = unknown>(key: string): Promise<T | null | undefined> | T | null | undefined
-  has(key: string): boolean | Promise<boolean>
-  keys(base?: string): Promise<string[]> | string[]
-  set<T = unknown>(key: string, value: T): Promise<void> | void
-}
+import type { ScheduleKVStorage } from "./kv-storage.ts"
 
 export interface KVScheduleStoreOptions {
   kvStore?: ScheduleKVStorage
@@ -69,32 +62,21 @@ function scheduleRunAttemptBase(prefix: string): string {
   return joinKey(prefix, "schedule-run-attempts")
 }
 
+function isMissingKVPackage(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  return code === "ERR_MODULE_NOT_FOUND" && error.message.includes("Cannot find package '@vite-hub/kv'")
+}
+
 async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
-  const module = await import("@vite-hub/kv")
-  return {
-    async del(key) {
-      const [error] = await module.kv.del(key)
-      if (error) throw error
-    },
-    async get<T = unknown>(key: string) {
-      const [error, value] = await module.kv.get<T>(key)
-      if (error) throw error
-      return value
-    },
-    async has(key) {
-      const [error, value] = await module.kv.has(key)
-      if (error) throw error
-      return value
-    },
-    async keys(base) {
-      const [error, value] = await module.kv.keys(base)
-      if (error) throw error
-      return value
-    },
-    async set(key, value) {
-      const [error] = await module.kv.set(key, value)
-      if (error) throw error
-    },
+  try {
+    return (await import("./kv.ts")).scheduleKVStorage
+  }
+  catch (error) {
+    if (isMissingKVPackage(error)) {
+      throw new Error("[vitehub:schedule] The default KV-backed stores require @vite-hub/kv. Install it with: pnpm add @vite-hub/kv", { cause: error })
+    }
+    throw error
   }
 }
 
