@@ -12,6 +12,7 @@ import {
   registerDefinition,
   sanitizeDefinitionFilename,
   writeFileIfChanged,
+  writeRuntimeRegistryFile,
   writeRuntimeRegistryFiles,
 } from "../src/definition-discovery.ts"
 
@@ -134,6 +135,20 @@ describe("writeRuntimeRegistryFiles", () => {
 
     await expect(readFile(registryFile, "utf8")).resolves.toContain('"welcome": async () => import("../../server/queues/welcome.ts")')
     await expect(readFile(pluginFile, "utf8")).resolves.toContain('import registry from "./registry.mjs"')
+  })
+})
+
+describe("writeRuntimeRegistryFile", () => {
+  it("writes a generated registry and creates its parent directory", async () => {
+    const root = await createTempDir("vitehub-internal-runtime-registry-")
+    const registryFile = join(root, ".vitehub", "schedule", "registry.mjs")
+
+    await writeRuntimeRegistryFile(registryFile, [{
+      handler: join(root, "src", "cleanup.schedule.ts"),
+      name: "cleanup",
+    }])
+
+    await expect(readFile(registryFile, "utf8")).resolves.toContain('"cleanup": async () => import("../../src/cleanup.schedule.ts")')
   })
 })
 

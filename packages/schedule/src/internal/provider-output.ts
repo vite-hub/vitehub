@@ -9,7 +9,7 @@ import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, crea
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
-import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
 import { findDefaultExportCall, readObjectProperty } from "@vite-hub/internal/source-scanner"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
@@ -25,32 +25,15 @@ const cloudflareOutputStateFileName = "cloudflare-output.json"
 const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
-export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
-  const file = fileURLToPath(metaUrl)
-  const normalizedFile = file.replace(/\\/g, "/")
-  if (normalizedFile.endsWith("/src/internal/provider-output.ts")) {
-    return resolve(dirname(file), "../runtime/static.ts")
-  }
-  if (normalizedFile.endsWith("/dist/internal/provider-output.js")) {
-    return resolve(dirname(file), "../runtime/static.js")
-  }
-  return normalizedFile.includes("/dist/")
-    ? resolve(dirname(file), "runtime/static.js")
-    : resolve(dirname(file), "dist/runtime/static.js")
+type ImportResolver = (specifier: string) => string
+
+export function resolveScheduleRuntimeEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
+  return fileURLToPath(resolveImport(scheduleStaticRuntimeImport))
 }
 
-export function resolveScheduleDefinitionEntry(metaUrl = import.meta.url) {
-  const file = fileURLToPath(metaUrl)
-  const normalizedFile = file.replace(/\\/g, "/")
-  if (normalizedFile.endsWith("/src/internal/provider-output.ts")) {
-    return resolve(dirname(file), "../definition.ts")
-  }
-  if (normalizedFile.endsWith("/dist/internal/provider-output.js")) {
-    return resolve(dirname(file), "../definition.js")
-  }
-  return normalizedFile.includes("/dist/")
-    ? resolve(dirname(file), "definition.js")
-    : resolve(dirname(file), "dist/definition.js")
+export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
+  const packageRoot = dirname(fileURLToPath(resolveImport(`${schedulePackageName}/package.json`)))
+  return resolve(packageRoot, "dist/definition.js")
 }
 
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
@@ -280,13 +263,11 @@ async function writeProviderEntries(
   providedDefinitions?: DiscoveredScheduleDefinition[],
 ): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
-  await mkdir(generatedDir, { recursive: true })
-
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = (providedDefinitions ?? discoverScheduleDefinitions({ rootDir }))
     .filter(definition => !source || definition.source === source)
     .filter(definition => definition.runtimeOnly !== true)
-  await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
+  await writeRuntimeRegistryFile(registryFile, definitions)
 
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
   const denoCronFile = resolve(generatedDir, denoCronFileName)
