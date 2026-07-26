@@ -48,14 +48,6 @@
       "types": "./dist/runtime/provider-loader.d.ts",
       "import": "./dist/runtime/provider-loader.js"
     },
-    "./runtime/providers/cloudflare": {
-      "types": "./dist/runtime/providers/cloudflare.d.ts",
-      "import": "./dist/runtime/providers/cloudflare.js"
-    },
-    "./runtime/providers/vercel": {
-      "types": "./dist/runtime/providers/vercel.d.ts",
-      "import": "./dist/runtime/providers/vercel.js"
-    },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"

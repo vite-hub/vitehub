@@ -15,7 +15,7 @@ type SandboxEvent = {
   }
 }
 
-export async function resolveSandboxBox(options: SandboxOptions, context: { event?: SandboxEvent } = {}) {
+export async function resolveCloudflareSandboxBox(options: SandboxOptions, context: { event?: SandboxEvent } = {}) {
   const env = getCloudflareEnv(context.event)
   const bindingName = options.provider.binding || 'SANDBOX'
   const namespace = env?.[bindingName]

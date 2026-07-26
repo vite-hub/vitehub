@@ -25,6 +25,10 @@ export default defineConfig({
       "src/runtime/state.ts",
     ],
     exports: {
+      exclude: [
+        "runtime/providers/cloudflare",
+        "runtime/providers/vercel",
+      ],
       customExports(exports) {
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {

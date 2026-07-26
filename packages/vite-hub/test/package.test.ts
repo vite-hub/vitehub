@@ -75,8 +75,6 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/rate-limit/runtime",
   "@vite-hub/sandbox/runtime/empty-registry",
   "@vite-hub/sandbox/runtime/provider-loader",
-  "@vite-hub/sandbox/runtime/providers/cloudflare",
-  "@vite-hub/sandbox/runtime/providers/vercel",
   "@vite-hub/sandbox/runtime/state",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
