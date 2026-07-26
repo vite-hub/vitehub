@@ -69,8 +69,26 @@ function scheduleRunAttemptBase(prefix: string): string {
   return joinKey(prefix, "schedule-run-attempts")
 }
 
+function isMissingKVPackage(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  return code === "ERR_MODULE_NOT_FOUND" && error.message.includes("Cannot find package '@vite-hub/kv'")
+}
+
+async function importKVPackage() {
+  try {
+    return await import("@vite-hub/kv")
+  }
+  catch (error) {
+    if (isMissingKVPackage(error)) {
+      throw new Error("[vitehub:schedule] The default KV-backed stores require @vite-hub/kv. Install it with: pnpm add @vite-hub/kv", { cause: error })
+    }
+    throw error
+  }
+}
+
 async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
-  const module = await import("@vite-hub/kv")
+  const module = await importKVPackage()
   return {
     async del(key) {
       const [error] = await module.kv.del(key)

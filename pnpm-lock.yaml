@@ -1163,9 +1163,6 @@ importers:
 
   packages/schedule:
     dependencies:
-      '@vite-hub/kv':
-        specifier: workspace:*
-        version: link:../kv
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1188,6 +1185,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/kv':
+        specifier: workspace:*
+        version: link:../kv
       publint:
         specifier: catalog:tooling
         version: 0.3.21
