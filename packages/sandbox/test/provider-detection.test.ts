@@ -46,9 +46,9 @@ describe("provider detection", () => {
   it("resolves the Cloudflare binding from the scoped environment", async () => {
     const namespace = {}
 
-    const { resolveSandboxBox } = await import("../src/runtime/providers/cloudflare.ts")
+    const { resolveCloudflareSandboxBox } = await import("../src/runtime/providers/cloudflare.ts")
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
-      resolveSandboxBox({ local: {}, provider: { provider: "cloudflare" } }))
+      resolveCloudflareSandboxBox({ local: {}, provider: { provider: "cloudflare" } }))
 
     expect(provider.resolveBox).toEqual(expect.any(Function))
   })

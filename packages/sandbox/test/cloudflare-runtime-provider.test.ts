@@ -6,7 +6,7 @@ const { resolveCloudflareBox } = vi.hoisted(() => ({
 
 vi.mock("@vite-hub/box/_internal/cloudflare", () => ({ resolveCloudflareBox }))
 
-import { resolveSandboxBox } from "../src/runtime/providers/cloudflare.ts"
+import { resolveCloudflareSandboxBox } from "../src/runtime/providers/cloudflare.ts"
 
 const namespace = {
   get: vi.fn(),
@@ -15,7 +15,7 @@ const namespace = {
 
 describe("Cloudflare Sandbox runtime provider", () => {
   it("defaults idle shutdown to five minutes", async () => {
-    const provider = await resolveSandboxBox({
+    const provider = await resolveCloudflareSandboxBox({
       local: {},
       provider: { provider: "cloudflare" },
     }, {
@@ -34,7 +34,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
   })
 
   it("preserves an explicit idle shutdown override", async () => {
-    const provider = await resolveSandboxBox({
+    const provider = await resolveCloudflareSandboxBox({
       local: {},
       provider: { provider: "cloudflare", sleepAfter: "30s" },
     }, {
@@ -51,7 +51,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
   })
 
   it("closes a Box session when keepAlive disables idle shutdown", async () => {
-    const provider = await resolveSandboxBox({
+    const provider = await resolveCloudflareSandboxBox({
       local: {},
       provider: { provider: "cloudflare", keepAlive: true },
     }, {

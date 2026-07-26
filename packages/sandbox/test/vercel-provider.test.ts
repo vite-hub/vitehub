@@ -6,7 +6,7 @@ const { resolveVercelBox } = vi.hoisted(() => ({
 
 vi.mock("@vite-hub/box/_internal/vercel", () => ({ resolveVercelBox }))
 
-import { resolveSandboxBox } from "../src/runtime/providers/vercel.ts"
+import { resolveVercelSandboxBox } from "../src/runtime/providers/vercel.ts"
 
 const envKeys = [
   "VERCEL_TOKEN",
@@ -26,7 +26,7 @@ describe("resolveSandboxBox", () => {
     process.env.VERCEL_TEAM_ID = "team-from-env"
     process.env.VERCEL_PROJECT_ID = "project-from-env"
 
-    const provider = await resolveSandboxBox({
+    const provider = await resolveVercelSandboxBox({
       local: {},
       provider: {
         provider: "vercel",
@@ -48,7 +48,7 @@ describe("resolveSandboxBox", () => {
   it("uses config credentials without process", async () => {
     vi.stubGlobal("process", undefined)
 
-    const provider = await resolveSandboxBox({
+    const provider = await resolveVercelSandboxBox({
       local: {},
       provider: {
         provider: "vercel",

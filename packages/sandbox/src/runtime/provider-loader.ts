@@ -23,13 +23,13 @@ const dynamicImport = new Function('specifier', 'return import(specifier)') as <
 
 export async function loadSandboxRuntimeProvider(provider: SandboxProvider): Promise<SandboxRuntimeProvider> {
   if (provider === 'cloudflare') {
-    const { resolveSandboxBox } = await dynamicImport<typeof import('./providers/cloudflare')>('./providers/cloudflare.js')
-    return { resolveSandboxBox }
+    const { resolveCloudflareSandboxBox } = await dynamicImport<typeof import('./providers/cloudflare')>('./providers/cloudflare.js')
+    return { resolveSandboxBox: resolveCloudflareSandboxBox }
   }
 
   if (provider === 'vercel') {
-    const { resolveSandboxBox } = await dynamicImport<typeof import('./providers/vercel')>('./providers/vercel.js')
-    return { resolveSandboxBox }
+    const { resolveVercelSandboxBox } = await dynamicImport<typeof import('./providers/vercel')>('./providers/vercel.js')
+    return { resolveSandboxBox: resolveVercelSandboxBox }
   }
 
   throw new Error(`[vitehub] Unsupported sandbox provider: ${provider}`)

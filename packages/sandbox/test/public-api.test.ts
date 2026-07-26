@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { access, readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -37,5 +37,14 @@ describe("sandbox public api", () => {
     expect(loader).not.toContain('"./providers/cloudflare"')
     expect(loader).not.toContain('"./providers/vercel"')
     expect(loader).not.toContain("createSandboxClient")
+  })
+
+  it("keeps provider implementations internal", async () => {
+    const manifest = JSON.parse(await readFile(join(import.meta.dirname, "../package.json"), "utf8"))
+
+    expect(manifest.exports).not.toHaveProperty("./runtime/providers/cloudflare")
+    expect(manifest.exports).not.toHaveProperty("./runtime/providers/vercel")
+    await expect(access(join(import.meta.dirname, "../dist/runtime/providers/cloudflare.js"))).resolves.toBeUndefined()
+    await expect(access(join(import.meta.dirname, "../dist/runtime/providers/vercel.js"))).resolves.toBeUndefined()
   })
 })

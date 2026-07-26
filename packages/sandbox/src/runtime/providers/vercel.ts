@@ -41,7 +41,7 @@ function resolveCredentials(provider: VercelSandboxProviderOptions) {
   }
 }
 
-export async function resolveSandboxBox(options: SandboxOptions) {
+export async function resolveVercelSandboxBox(options: SandboxOptions) {
   const credentials = resolveCredentials(options.provider)
   const boxOptions = {
     runtime: options.provider.runtime || 'node24',
