@@ -32,3 +32,14 @@ describe("optional peer imports", () => {
     expect(built).not.toContain("@aws-sdk/")
   })
 })
+
+describe("package exports", () => {
+  it("keeps the bundled Vercel runtime internal", async () => {
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports: Record<string, string>
+    }
+
+    expect(manifest.exports).toHaveProperty("./drivers/vercel")
+    expect(manifest.exports).not.toHaveProperty("./drivers/vercel-bundled")
+  })
+})

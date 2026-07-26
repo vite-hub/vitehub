@@ -51,7 +51,6 @@
     "./drivers/supabase": "./dist/drivers/supabase.js",
     "./drivers/uploadthing": "./dist/drivers/uploadthing.js",
     "./drivers/vercel": "./dist/drivers/vercel.js",
-    "./drivers/vercel-bundled": "./dist/drivers/vercel-bundled.js",
     "./ensure": "./dist/ensure.js",
     "./errors": "./dist/errors.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",

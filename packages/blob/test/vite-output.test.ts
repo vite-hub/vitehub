@@ -11,7 +11,7 @@ import { getProviderRuntimeModule, writeProviderDeploymentOutputs, type Composed
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../src/config.ts"
-import { createBundledVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
+import { createBundledVercelBlobDriver, createDriver as createInternalVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { generateProviderOutputs, prepareProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
@@ -196,7 +196,7 @@ describe("Vite provider outputs", () => {
       statusText: "Forbidden",
     }))
     vi.stubGlobal("fetch", anonymousFetch)
-    const driver = createBundledVercelBlobDriver({
+    const driver = createInternalVercelBlobDriver({
       access: storeAccess,
       driver: "vercel-blob",
       token: "vercel_blob_rw_test",
