@@ -2,7 +2,8 @@ export { defineSchedule, defineScheduleTarget } from "./definition.ts"
 export { discoverScheduleDefinitions } from "./discovery.ts"
 export { createScheduleRun, executeRuntimeSchedule, executeSchedule, executeStaticSchedule } from "./runtime/execute.ts"
 export { schedules, validateRuntimeScheduleCron } from "./runtime/client.ts"
-export { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleKVStorage } from "./runtime/store.ts"
+export { createScheduleKVStorage } from "./runtime/kv-storage.ts"
+export { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./runtime/store.ts"
 export {
   getRuntimeScheduleStore,
   getScheduleRunStore,
@@ -24,8 +25,8 @@ export type {
 
 export type {
   KVScheduleStoreOptions,
-  ScheduleKVStorage,
 } from "./runtime/store.ts"
+export type { ScheduleKVStorage } from "./runtime/kv-storage.ts"
 
 export type {
   DiscoveredScheduleDefinition,
