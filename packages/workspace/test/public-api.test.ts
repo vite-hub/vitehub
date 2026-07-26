@@ -14,6 +14,23 @@ import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWo
 
 const tempDirs: string[] = []
 
+async function readBuiltSourceModule(sourcePath: string): Promise<string> {
+  const distDir = new URL("../dist/", import.meta.url)
+  const files = await readdir(distDir, { recursive: true })
+  const marker = `//#region ${sourcePath}`
+  const modules = await Promise.all(
+    files.filter(file => file.endsWith(".js"))
+      .map(file => readFile(new URL(file, distDir), "utf8")),
+  )
+  const matches = modules.filter(content => content.includes(marker))
+
+  if (matches.length !== 1) {
+    throw new Error(`Expected one built module for ${sourcePath}, found ${matches.length}`)
+  }
+
+  return matches[0]
+}
+
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-api-"))
   tempDirs.push(root)
@@ -111,6 +128,7 @@ describe("workspace public API", () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
     const builtCollectionsClient = await readFile(new URL("../dist/collections/client.js", import.meta.url), "utf8")
+    const builtCloudflareArtifactsStore = await readBuiltSourceModule("src/providers/cloudflare/artifacts-store.ts")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
     const declarations = (await Promise.all(distFiles
@@ -148,6 +166,7 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("@vite-hub/sandbox")
     expect(declarations).not.toMatch(effectImport)
     expect(effectFreeBundles).not.toMatch(effectImport)
+    expect(builtCloudflareArtifactsStore).not.toMatch(effectImport)
     expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
     expect(builtCollectionsClient).toMatch(/from\s*["']vue["']/)
   })
@@ -155,7 +174,7 @@ describe("workspace public API", () => {
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const hosted = await import("../src/hosted.ts")
-    const builtVercelBlobRuntime = await readFile(new URL("../dist/hosted-vercel-blob.js", import.meta.url), "utf8")
+    const builtVercelBlobStore = await readBuiltSourceModule("src/providers/vercel/blob-store.ts")
 
     expect(packageJson.exports).not.toHaveProperty("./hosted")
     expect(packageJson.exports).toHaveProperty("./internal/runtime/hosted")
@@ -165,10 +184,10 @@ describe("workspace public API", () => {
     expect(hosted).not.toHaveProperty("createCloudflareArtifactsWorkspaceStore")
     expect(hosted).not.toHaveProperty("createGitHubWorkspaceStore")
     expect(hosted).not.toHaveProperty("createVercelBlobWorkspaceStore")
-    expect(builtVercelBlobRuntime).not.toContain("files-sdk")
-    expect(builtVercelBlobRuntime).not.toContain('import("files-sdk/vercel-blob")')
-    expect(builtVercelBlobRuntime).not.toContain('import("@vercel/blob")')
-    expect(builtVercelBlobRuntime).not.toContain('from "@vercel/blob"')
+    expect(builtVercelBlobStore).not.toContain("files-sdk")
+    expect(builtVercelBlobStore).not.toContain('import("files-sdk/vercel-blob")')
+    expect(builtVercelBlobStore).not.toContain('import("@vercel/blob")')
+    expect(builtVercelBlobStore).not.toContain('from "@vercel/blob"')
   })
 
   it("uses the writable facade for synced reads and writes", async () => {
