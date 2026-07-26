@@ -142,9 +142,7 @@ function createSandboxRegistryContents(
 export function createSandboxProviderLoaderContents(
   provider: SandboxProvider,
 ) {
-  const providerExport = provider === 'cloudflare'
-    ? 'resolveCloudflareSandboxBox'
-    : 'resolveVercelSandboxBox'
+  const providerExport = sandboxProviderRuntimeExport(provider)
   const providerLoaderPath = resolveFeatureRuntimePath(
     import.meta.url,
     '@vite-hub/sandbox',
@@ -163,6 +161,12 @@ export function createSandboxProviderLoaderContents(
     '}',
     '',
   ].join('\n')
+}
+
+export function sandboxProviderRuntimeExport(provider: SandboxProvider) {
+  return provider === 'cloudflare'
+    ? 'resolveCloudflareSandboxBox'
+    : 'resolveVercelSandboxBox'
 }
 
 export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, hosting?: string): AgentSandboxConfig {

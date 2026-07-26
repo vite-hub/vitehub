@@ -22,7 +22,7 @@ import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, def
 import { resolveSandboxProject } from "../../../packages/sandbox/src/project.ts"
 import { discoverServerSandboxDefinitions } from "../../../packages/sandbox/src/discovery.ts"
 import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts"
-import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
+import { resolveSandboxFeatureConfig, sandboxProviderRuntimeExport } from "../../../packages/sandbox/src/feature.ts"
 import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/internal/shared/cloudflare-wrangler.ts"
 import { normalizeWorkspaceOptions } from "../../../packages/workspace/src/config.ts"
 import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/build/discovery.ts"
@@ -664,10 +664,11 @@ function renderSandboxRegistryModule(definitions: Array<{ name: string, file: st
 }
 
 function renderSandboxProviderLoaderModule(file: string, provider: "cloudflare" | "vercel") {
+  const providerExport = sandboxProviderRuntimeExport(provider)
   const runtimeProviderFile = resolvePackageRuntime(sandboxPackageDir, `runtime/providers/${provider}`)
 
   return [
-    `import { resolveSandboxBox } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
+    `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
     "",
     "export async function loadSandboxRuntimeProvider(selectedProvider) {",
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
