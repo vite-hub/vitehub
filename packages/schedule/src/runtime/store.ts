@@ -2,6 +2,8 @@ import { assertRuntimeScheduleId, createScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
 
+const KV_PACKAGE_NAME = "@vite-hub/kv"
+
 export interface ScheduleKVStorage {
   del(key: string): boolean | Promise<boolean> | Promise<void> | void
   get<T = unknown>(key: string): Promise<T | null | undefined> | T | null | undefined
@@ -72,12 +74,13 @@ function scheduleRunAttemptBase(prefix: string): string {
 function isMissingKVPackage(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   const code = (error as NodeJS.ErrnoException).code
-  return code === "ERR_MODULE_NOT_FOUND" && error.message.includes("Cannot find package '@vite-hub/kv'")
+  return code === "ERR_MODULE_NOT_FOUND" && error.message.includes(`Cannot find package '${KV_PACKAGE_NAME}'`)
 }
 
-async function importKVPackage() {
+async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
+  let module
   try {
-    return await import("@vite-hub/kv")
+    module = await import(KV_PACKAGE_NAME) as typeof import("@vite-hub/kv")
   }
   catch (error) {
     if (isMissingKVPackage(error)) {
@@ -85,10 +88,7 @@ async function importKVPackage() {
     }
     throw error
   }
-}
 
-async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
-  const module = await importKVPackage()
   return {
     async del(key) {
       const [error] = await module.kv.del(key)
