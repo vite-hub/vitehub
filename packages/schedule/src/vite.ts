@@ -199,8 +199,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       : []),
     ...(processRuntime
       ? [
-          `import { kv } from "@vite-hub/kv"`,
-          `import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createScheduleKVStorage } from ${JSON.stringify(importBase)}`,
+          `import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from ${JSON.stringify(importBase)}`,
           `import { installScheduleRuntime } from ${JSON.stringify(`${importBase}/runtime/driver`)}`,
           `import { createProcessScheduleWakeDriver } from ${JSON.stringify(`${importBase}/runtime/process`)}`,
           `import runtimeScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.runtimeRegistryFile))}`,
@@ -211,7 +210,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     ...(processRuntime
       ? [
           `const processDriverOptions = ${JSON.stringify(processDriverOptions, null, 2)}`,
-          `const scheduleStoreOptions = { ...${JSON.stringify(scheduleStoreOptions, null, 2)}, kvStore: createScheduleKVStorage(kv) }`,
+          `const scheduleStoreOptions = ${JSON.stringify(scheduleStoreOptions, null, 2)}`,
           "",
         ]
       : []),

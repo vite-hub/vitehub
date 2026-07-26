@@ -18,10 +18,8 @@ interface RuntimeInstallOptions {
 }
 
 interface PluginHarness {
-  kv: object
   createKVRuntimeScheduleStore: () => object
   createKVScheduleRunStore: () => object
-  createScheduleKVStorage: (storage: object) => object
   createProcessScheduleWakeDriver: () => () => void
   definePlugin: <T>(plugin: T) => T
   installScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
@@ -62,7 +60,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
 
   const generated = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
   const imports = [
-    "const { kv, createKVRuntimeScheduleStore, createKVScheduleRunStore, createScheduleKVStorage, createProcessScheduleWakeDriver, definePlugin, installScheduleRuntime } = globalThis.__vitehubSchedulePluginHarness",
+    "const { createKVRuntimeScheduleStore, createKVScheduleRunStore, createProcessScheduleWakeDriver, definePlugin, installScheduleRuntime } = globalThis.__vitehubSchedulePluginHarness",
     "const runtimeScheduleRegistry = {}",
     "const staticScheduleRegistry = {}",
   ].join("\n")
@@ -75,10 +73,8 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   await writeFile(pluginFile, executable.code)
 
   harnessGlobal.__vitehubSchedulePluginHarness = {
-    kv: {},
     createKVRuntimeScheduleStore: () => ({}),
     createKVScheduleRunStore: () => ({}),
-    createScheduleKVStorage: () => ({}),
     createProcessScheduleWakeDriver: () => () => {},
     definePlugin: plugin => plugin,
     installScheduleRuntime,
