@@ -10,13 +10,13 @@ import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback } from "../src/runtime/hosted.ts"
 import { runQueue } from "../src/runtime/client.ts"
-import { createQueueCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
+import { createQueueCloudflareWorker } from "../src/internal/runtime/cloudflare-vite.ts"
 import { createCloudflareQueueRuntimeClient } from "../src/internal/runtime/cloudflare-client.ts"
 import { createQueueClient } from "../src/runtime/create-client.ts"
-import { createQueueVercelServer } from "../src/runtime/vercel-vite.ts"
+import { createQueueVercelServer } from "../src/internal/runtime/vercel-vite.ts"
 import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
 import { deferQueue } from "../src/runtime/client.ts"
-import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
+import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 
 import type { VercelQueueCallbackOptions } from "../src/types.ts"
 

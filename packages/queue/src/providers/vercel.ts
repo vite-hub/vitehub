@@ -1,6 +1,6 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { createQueueError, isQueueBoundaryIdentity, runQueueProviderOperation } from "../errors.ts"
-import { getQueueRuntimeEvent } from "../runtime/state.ts"
+import { getQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
 
