@@ -44,10 +44,6 @@
       "types": "./dist/ai.d.ts",
       "import": "./dist/ai.js"
     },
-    "./cli": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js"
-    },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"
@@ -101,14 +97,6 @@
       "types": "./dist/runtime/assets.d.ts",
       "import": "./dist/runtime/assets.js"
     },
-    "./internal/runtime/empty-assets-registry": {
-      "types": "./dist/runtime/empty-assets-registry.d.ts",
-      "import": "./dist/runtime/empty-assets-registry.js"
-    },
-    "./internal/runtime/empty-registry": {
-      "types": "./dist/runtime/empty-registry.d.ts",
-      "import": "./dist/runtime/empty-registry.js"
-    },
     "./internal/runtime/hosted": {
       "types": "./dist/hosted.d.ts",
       "import": "./dist/hosted.js"
@@ -125,17 +113,9 @@
       "types": "./dist/runtime/workspace.d.ts",
       "import": "./dist/runtime/workspace.js"
     },
-    "./internal/stores/cloudflare-artifacts": {
-      "types": "./dist/providers/cloudflare/artifacts-store.d.ts",
-      "import": "./dist/providers/cloudflare/artifacts-store.js"
-    },
     "./internal/stores/github": {
       "types": "./dist/providers/github/store.d.ts",
       "import": "./dist/providers/github/store.js"
-    },
-    "./internal/stores/vercel-blob": {
-      "types": "./dist/providers/vercel/blob-store.d.ts",
-      "import": "./dist/providers/vercel/blob-store.js"
     }
   },
   "scripts": {

@@ -19,7 +19,6 @@ export default defineConfig({
     entry: [
       "src/ai.ts",
       "src/cloudflare.ts",
-      "src/cli.ts",
       "src/collections.ts",
       "src/collections/client.ts",
       "src/hosted.ts",
@@ -37,9 +36,7 @@ export default defineConfig({
       "src/runtime/assets.ts",
       "src/runtime/state.ts",
       "src/server.ts",
-      "src/providers/cloudflare/artifacts-store.ts",
       "src/providers/github/store.ts",
-      "src/providers/vercel/blob-store.ts",
       "src/test.ts",
       "src/vite.ts",
     ],
@@ -52,23 +49,15 @@ export default defineConfig({
         "runtime/empty-registry",
         "runtime/state",
         "runtime/workspace",
-        "providers/cloudflare/artifacts-store",
         "providers/github/store",
-        "providers/vercel/blob-store",
       ],
       customExports(exports) {
         exports["./internal/runtime/assets"] = "./dist/runtime/assets.js";
-        exports["./internal/runtime/empty-assets-registry"] =
-          "./dist/runtime/empty-assets-registry.js";
-        exports["./internal/runtime/empty-registry"] = "./dist/runtime/empty-registry.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
-        exports["./internal/stores/cloudflare-artifacts"] =
-          "./dist/providers/cloudflare/artifacts-store.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
-        exports["./internal/stores/vercel-blob"] = "./dist/providers/vercel/blob-store.js";
 
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
