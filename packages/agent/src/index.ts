@@ -238,6 +238,7 @@ export type {
   AgentChannelDeliveryReactionPayload,
   AgentChannelDeliveryReplyInput,
   AgentChannelDeliveryReplyPayload,
+  AgentChannelDeliveryReplyStream,
   AgentChannelDeliveryStatusInput,
   AgentChannelDeliveryStatusPayload,
   AgentChannelDeliveryStatusState,
@@ -2241,7 +2242,9 @@ function createFinishDeliveryEffectContext<
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
   const active = activeAgentChannel(context.channels, context.context, context.run)
   const reply: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>["reply"] = (input, options = {}) => {
-    const inputArtifacts = typeof input === "object" && input !== null ? input.artifacts : undefined
+    const inputArtifacts = typeof input === "object" && input !== null && "artifacts" in input
+      ? input.artifacts
+      : undefined
     return createReplyDeliveryEffectIntent(input, {
       ...options,
       artifacts: options.artifacts ?? inputArtifacts ?? result?.artifacts,

@@ -73,6 +73,7 @@ export type {
 export {
   audioBytes,
   getTranscriptionResults,
+  streamTranscription,
   transcribe,
 } from "./transcribe.ts"
 export {
@@ -294,6 +295,8 @@ export type {
   SubagentToolInput,
 } from "./subagents.ts"
 export type {
+  StreamTranscriptionOptions,
+  StreamingTranscription,
   TranscribeArtifactTemplateInput,
   TranscribeArtifactsOptions,
   TranscribeAudioArtifactOptions,

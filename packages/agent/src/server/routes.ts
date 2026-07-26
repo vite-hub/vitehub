@@ -1798,6 +1798,18 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
 }
 
 async function postChatMessage(thread: Thread, message: AgentChatMessage): Promise<void> {
+  if (isAsyncIterable(message)) {
+    let markdown = ""
+    const stream = (async function* () {
+      for await (const chunk of message) {
+        markdown += chunk
+        yield chunk
+      }
+    })()
+    const sent = await thread.post(thread.adapter.stream ? new StreamingPlan(stream) : stream)
+    await finishDiscordSplitStream(thread, sent, markdown || sentMessageText(sent))
+    return
+  }
   if (typeof message !== "object" || message === null) {
     if (await postDiscordSplitContent(thread, message)) return
     await thread.post(message)

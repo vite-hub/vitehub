@@ -2,6 +2,7 @@ import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { readPullRequestContext } from "./capabilities/repository-host-context.ts"
 import { defineCapability } from "./capability-runtime.ts"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   deliveryArtifactAttachments,
   deliveryArtifactMarkdownReferencePaths,
@@ -28,6 +29,7 @@ import type {
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
   AgentChannelDeliveryFinishEffectContext,
+  AgentChannelDeliveryReplyStream,
   AgentChannelWebhookRegistrationDefinition,
   AgentFinishEvent,
   AgentRunInput,
@@ -75,6 +77,7 @@ export type {
   AgentChannelDeliveryReactionPayload,
   AgentChannelDeliveryReplyInput,
   AgentChannelDeliveryReplyPayload,
+  AgentChannelDeliveryReplyStream,
   AgentChannelDeliveryStatusInput,
   AgentChannelDeliveryStatusPayload,
   AgentChannelDeliveryStatusState,
@@ -1154,9 +1157,36 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<void> {
   const artifacts = deliveryArtifacts(context)
-  const body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(replyBody(context), artifacts), artifacts)
   const attachments = deliveryArtifactAttachments(artifacts)
   const files = await deliveryArtifactFiles(context, artifacts)
+  const stream = isAsyncIterable(context.effect.payload)
+    ? context.effect.payload as AgentChannelDeliveryReplyStream
+    : undefined
+  if (stream && !artifacts.length) {
+    const chat = context.finish
+      ? chatFinishExtensionFromUnknown(context.finish.extensions.get("chat")) || chatFinishExtension(context.input)
+      : undefined
+    if (chat) {
+      await chat.sendMessage(stream)
+      return
+    }
+    const adapter = context.channel.adapter
+      ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
+      : undefined
+    if (adapter && context.run?.threadId) {
+      const threadId = adapter.channelIdFromThreadId(context.run.threadId)
+      if (adapter.stream && await adapter.stream(threadId, stream) !== null) return
+      let body = ""
+      for await (const chunk of stream) body += chunk
+      if (body) await adapter.postMessage(threadId, { markdown: body })
+    }
+    return
+  }
+  let body = replyBody(context)
+  if (stream) {
+    for await (const chunk of stream) body = `${body || ""}${chunk}`
+  }
+  body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(body, artifacts), artifacts)
   if (!body && !attachments.length && !files.length) return
   const message: AgentChatMessage = {
     markdown: body || "",

@@ -1,3 +1,5 @@
+import { isAsyncIterable } from "./internal/stream-result.ts"
+
 import type {
   AgentChannelDeliveryEffectIntentOptions,
   AgentChannelDeliveryEffectIntent,
@@ -35,7 +37,7 @@ export function createReplyDeliveryEffectIntent(
   input: AgentChannelDeliveryReplyInput,
   options: AgentChannelDeliveryEffectIntentOptions = {},
 ): AgentChannelDeliveryEffectIntent<"reply"> {
-  if (typeof input === "string") return intent("reply", input, options)
+  if (typeof input === "string" || isAsyncIterable(input)) return intent("reply", input, options)
   const { artifacts, ...payload } = input
   return intent("reply", payload, { ...options, artifacts: options.artifacts ?? artifacts })
 }
