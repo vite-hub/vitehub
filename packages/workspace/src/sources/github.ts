@@ -1,17 +1,17 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/sources/github"
 
+import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { resolveWorkspaceEnv } from "../env.ts"
 import { processEnv, resolveGitHubTokenOption } from "../providers/github/shared.ts"
+import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "sync" | "validate">
-type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
 const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
 
-export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, SourceRuntimeOptions {
+export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, WorkspaceSourceRuntimeOptions {
   auth?: GitHubAuth
 }
 
@@ -47,9 +47,8 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
     return source
   }
 
-  return {
+  return withWorkspaceRuntimeOptions({
     ...baseSource,
-    cache: resolvedOptions.cache,
     fingerprint: {
       exclude: resolvedOptions.exclude,
       include: resolvedOptions.include,
@@ -57,10 +56,6 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       repo: resolvedOptions.repo,
       root: resolvedOptions.root,
     },
-    materialize: resolvedOptions.materialize,
-    mount: resolvedOptions.mount,
-    sync: resolvedOptions.sync,
-    validate: resolvedOptions.validate,
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       await source.prepare?.(ctx)
@@ -85,7 +80,7 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.search?.(query, ctx) ?? []
     },
-  }
+  }, resolvedOptions)
 }
 
 function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource {

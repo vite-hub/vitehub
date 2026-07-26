@@ -213,7 +213,7 @@ export default defineWorkspace({
 })
 ```
 
-The Source Package owns retrieval. The Workspace Package owns Mount placement, Source-Backed Paths, Source Sync Policy, low-level Source Instruction metadata, and Workspace Store reconciliation.
+`glob()` and the other shared loader names intentionally exist in both packages. Import them from `@vite-hub/source` for direct retrieval through `useSource()`; import them from `@vite-hub/workspace` when retrieved items should become Workspace Source Bindings governed by mount placement, materialization, sync, validation, resolution, views, fetches, and Workspace-scoped registries.
 
 ## Provider output
 
