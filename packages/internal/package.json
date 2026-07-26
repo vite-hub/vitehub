@@ -22,7 +22,6 @@
     "./provision-state": "./dist/provision-state.js",
     "./source-scanner": "./dist/source-scanner.js",
     "./runtime/app": "./dist/runtime/app.js",
-    "./runtime/context": "./dist/runtime/context.js",
     "./runtime/cloudflare-hosted": "./dist/runtime/cloudflare-hosted.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/vercel-hosted": "./dist/runtime/vercel-hosted.js",
@@ -55,7 +54,6 @@
   },
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/runtime": "workspace:*",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",

@@ -902,9 +902,6 @@ importers:
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.10.2(rollup@4.62.2)
-      '@vite-hub/runtime':
-        specifier: workspace:*
-        version: link:../runtime
       effect:
         specifier: catalog:effect
         version: 4.0.0-beta.99
