@@ -1,0 +1,9 @@
+import { describe, it } from "vitest"
+
+import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js"
+
+describe("@vite-hub/runtime package contract", () => {
+  it("loads documented exports from built package targets", async () => {
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/runtime", ["."])
+  })
+})

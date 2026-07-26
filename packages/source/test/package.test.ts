@@ -1,0 +1,18 @@
+import { describe, it } from "vitest"
+
+import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js"
+
+describe("@vite-hub/source package contract", () => {
+  it("loads documented exports from built package targets", async () => {
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/source", [
+      ".",
+      "./sources",
+      "./sources/custom",
+      "./sources/file",
+      "./sources/github",
+      "./sources/glob",
+      "./sources/markdown",
+      "./sources/mcp-resources",
+    ])
+  })
+})

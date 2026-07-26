@@ -63,6 +63,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "exsolve": "catalog:unjs",
     "sharp": "0.34.5",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
