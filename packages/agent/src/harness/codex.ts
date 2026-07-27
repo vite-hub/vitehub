@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createCodex } from "@ai-sdk/harness-codex"
 
@@ -98,8 +99,8 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
 }
 
 async function readCodexBridgeAsset(name: string): Promise<string> {
-  const packageEntry = import.meta.resolve("@ai-sdk/harness-codex")
-  return await readFile(fileURLToPath(new URL(`./bridge/${name}`, packageEntry)), "utf8")
+  const packageEntry = createRequire(import.meta.url).resolve("@ai-sdk/harness-codex")
+  return await readFile(fileURLToPath(new URL(`./bridge/${name}`, pathToFileURL(packageEntry))), "utf8")
 }
 
 async function prepareCodexHome(session: object): Promise<void> {
