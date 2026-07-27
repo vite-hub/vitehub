@@ -32,7 +32,7 @@ Offer familiar affordances such as filesystems, tools, and shells when useful, b
 
 ## Patch Loop
 
-Use `pnpm patch` in consuming projects to move fast and prove framework fixes:
+Use `pnpm patch` in consuming projects to move fast and prove upstream fixes:
 
 1. Patch the smallest downstream seam.
 2. Verify the exact runtime failure is fixed.
