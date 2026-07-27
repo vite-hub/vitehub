@@ -59,7 +59,7 @@ Use ViteHub framework language for `@vitehub/*`, Agent Definitions, Capabilities
 
 Project source folders are separate Git repositories. Apply this philosophy to ViteHub work, then follow each repository’s local instructions.
 
-Publish `~/vitehub/vitehub` through a pull request by default. Push verified changes in every other related repository directly to current `main` unless the user names a branch, pull request, or review gate. Fetch first, require a clean fast-forward, preserve unrelated work, and never force-push.
+Publish this repository through a pull request by default. Push verified changes in every other related repository directly to current `main` unless the user names a branch, pull request, or review gate. Fetch first, require a clean fast-forward, preserve unrelated work, and never force-push.
 
 ## Parallel Work
 
