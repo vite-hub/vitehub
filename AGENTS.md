@@ -2,60 +2,65 @@
 
 ## Current Status
 
-ViteHub is still in active development. Optimize changes for the final design, even when that means introducing breaking changes, removing legacy code, or dropping backwards compatibility.
+ViteHub is in active development. Optimize for the final design, including breaking changes, removal of legacy code, and dropped backwards compatibility.
 
 ## Project Direction
 
-ViteHub is server primitives for any host: the missing server layer for the UnJS ecosystem, plus agent definitions shaped with the same kind of developer-experience discipline that Better Auth applies to auth.
+ViteHub is server primitives for any host: the missing server layer for UnJS, plus Agent Definitions shaped with Better Auth-level developer experience.
 
-This should be a bold project. ViteHub depends on primitives built by others, but its value is the glue, boundaries, and developer experience that make those primitives obvious to use. When planning, do not be afraid to suggest ambitious approaches if they make the final API clearer or more powerful.
+Be ambitious when it makes the final API clearer or more powerful. ViteHub builds on others’ primitives, but its value is the glue, boundaries, and developer experience that make them obvious to use.
 
 ## Reference Points
 
-Use Lakebed's agent guidance as the tone reference: a direct letter to the agent working in the repo, written for collaboration on ambitious agent infrastructure rather than passive project documentation. Keep the distinction clear: "you" means the agent working in this repo; "agents" means the agents ViteHub users will build with ViteHub.
-
-Use Better Auth as the reference for composability. ViteHub should make it natural to add plugins and capabilities around Agent Definitions so users can build their own agent systems without ViteHub owning every feature directly.
-
-Use UnJS as the reference for provider-agnostic server primitives. ViteHub should focus on the server primitives that are missing: host-independent runtime behavior, discovery, storage, scheduling, invocation, inspection, and deployment boundaries that can work across frameworks and providers.
+- **Lakebed for guidance:** write directly to the agent collaborating in this repository. “You” means that contributor; “agents” means what ViteHub users build.
+- **Better Auth for composition:** make plugins and Capabilities natural around Agent Definitions so users can build their own systems without ViteHub owning every feature.
+- **UnJS for server primitives:** keep runtime behavior, discovery, storage, scheduling, invocation, inspection, and deployment host-independent across frameworks and providers.
 
 ## Build Primitives, Not Everything
 
-Avoid feature creep. Assume users can use their agents to build product-specific surfaces around ViteHub primitives.
-
-Do build reusable primitives that no developer should have to rebuild from scratch: Agent Definitions, Capabilities, Workspaces, Sources, runtime invocation, storage, scheduling, inspection, and framework integration.
-
-Do not default to building every possible UI or app-level workflow. If an agent can reasonably compose it from ViteHub primitives, prefer making the primitives better.
+Avoid feature creep. Build reusable primitives developers should not recreate: Agent Definitions, Capabilities, Workspaces, Sources, runtime invocation, storage, scheduling, inspection, and framework integration. If an agent can compose a product-specific UI or workflow from those primitives, improve the primitives instead of owning the surface.
 
 ## Fight For The Obvious API
 
-Avoid cleverness that only looks elegant from inside the implementation. The best ViteHub APIs should feel obvious enough that an agent or developer would assume they already work that way.
-
-"Simple" and "obvious" are not always the same. Sometimes the obvious API needs more internal machinery. Prefer the obvious external contract when the implementation cost is justified.
-
-Push back when a design makes users understand internal plumbing, framework-specific details, or compatibility history before they can do normal work.
+Avoid cleverness that is elegant only inside the implementation. “Simple” and “obvious” differ: accept more internal machinery when it creates the external contract an agent or developer would assume already works. Push back when normal work exposes plumbing, framework details, or compatibility history.
 
 ## Agent-First Runtime Design
 
-Design APIs for agents writing apps, not humans browsing docs. Reference-style APIs from UnJS are a good model: small, composable, discoverable, and easy to inspect.
+Design for agents writing apps, using small, composable, discoverable, inspectable APIs. Every runtime feature—including generated state, bindings, discovered definitions, and provider output—must be inspectable locally through code or CLI rather than only a dashboard.
 
-Every runtime feature should be inspectable by an agent. Prefer code and CLI control over dashboards. Generated state, runtime bindings, discovered definitions, and provider output should have a concrete way to be inspected locally.
+Offer familiar affordances such as filesystems, tools, and shells when useful, but keep real contracts honest. State durability, isolation, security, persistence, cost, and production readiness explicitly.
 
-Agents need familiar affordances. It is acceptable to simulate filesystems, tools, shells, and other expected interfaces when that makes agent work easier, but do not blur real contracts. Durability, isolation, security, persistence, cost, and production readiness must be explicit.
+## Patch Loop
+
+Use `pnpm patch` in consuming projects to move fast and prove framework fixes:
+
+1. Patch the smallest downstream seam.
+2. Verify the exact runtime failure is fixed.
+3. Upstream the source fix with regression coverage.
+4. Repin the consumer and delete the patch.
+
+The fix is complete only when the consumer works without the patch. Retire combined patches hunk by hunk as their fixes land upstream.
 
 ## Default Rules
 
-- Preserve the core ViteHub abstractions above local convenience.
+- Preserve ViteHub abstractions over local convenience.
 - Prefer code and CLI control over dashboard-only workflows.
-- Prefer existing libraries and tools when they fit, but keep ViteHub developer experience in charge.
+- Use existing libraries when they fit, while keeping ViteHub developer experience in charge.
 - Make the obvious agent assumption true when possible.
-- Keep framework-specific details behind ViteHub language unless the framework boundary is the subject of the work.
-- Treat app-level workarounds found in downstream projects as possible upstream ViteHub gaps unless they are clearly app-specific.
-- If a rule should be ignored, say why explicitly before doing it.
+- Hide framework details behind ViteHub language unless the framework boundary is the subject.
+- Treat downstream workarounds as possible upstream ViteHub gaps unless they are product-specific.
+- If a rule should be ignored, explain why before doing it.
 
 ## Language
 
-Use ViteHub framework language for `@vitehub/*`, Agent Definitions, Capabilities, Workspaces, Sources, Agent Invocations, framework integrations, runtime behavior, and upstream design. Use package names when discussing implementation ownership inside a specific package.
+Use ViteHub framework language for `@vitehub/*`, Agent Definitions, Capabilities, Workspaces, Sources, Agent Invocations, framework integrations, runtime behavior, and upstream design. Use package names for implementation ownership inside a package.
+
+## Related Repositories
+
+Project source folders are separate Git repositories. Apply this philosophy to ViteHub work, then follow each repository’s local instructions.
+
+Publish `~/vitehub/vitehub` through a pull request by default. Push verified changes in every other related repository directly to current `main` unless the user names a branch, pull request, or review gate. Fetch first, require a clean fast-forward, preserve unrelated work, and never force-push.
 
 ## Parallel Work
 
-Assume other agents may be working in parallel. Do not overwrite changes you did not make. If a collision appears, inspect it carefully and adapt your work around it rather than reverting someone else's work.
+Assume other agents may be working in parallel. Never overwrite their changes; inspect collisions and adapt around them instead of reverting them.
