@@ -114,11 +114,19 @@ async function connect(
   onTransportError: (error: Error) => void,
 ) {
   const expectedKeys = options.hostKeys.map((key) => Buffer.from(key));
+  options.abortSignal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     let ready = false;
+    const onAbort = () => {
+      client.removeListener("ready", onReady);
+      client.removeListener("error", onError);
+      client.destroy();
+      reject(options.abortSignal!.reason);
+    };
     const onReady = () => {
       ready = true;
       client.removeListener("ready", onReady);
+      options.abortSignal?.removeEventListener("abort", onAbort);
       resolve();
     };
     const onError = (error: Error) => {
@@ -126,12 +134,19 @@ async function connect(
         onTransportError(error);
       } else {
         client.removeListener("ready", onReady);
+        client.removeListener("error", onError);
+        options.abortSignal?.removeEventListener("abort", onAbort);
         client.destroy();
         reject(error);
       }
     };
     client.on("ready", onReady);
     client.on("error", onError);
+    options.abortSignal?.addEventListener("abort", onAbort, { once: true });
+    if (options.abortSignal?.aborted) {
+      onAbort();
+      return;
+    }
     client.connect({
       host: options.host,
       hostVerifier(key) {
@@ -257,7 +272,7 @@ function createAsciiSshSession(
         workingDirectory: "/home/user",
       });
       if (result.exitCode !== 0) throw new Error(result.stderr);
-      return parseFileList(result.stdout);
+      return parseAsciiFileList(result.stdout);
     },
     async makeDirectory({ abortSignal, path, recursive }) {
       const result = await run({
@@ -664,12 +679,16 @@ function createTransportFault(destroyBox: () => Promise<void>): TransportFault {
   };
 }
 
-function parseFileList(output: string): BoxFileEntry[] {
+export function parseAsciiFileList(output: string): BoxFileEntry[] {
   return output
     .split("\0")
     .filter(Boolean)
     .map((line) => {
-      const [kind, size, path] = line.split("\t");
+      const kindSeparator = line.indexOf("\t");
+      const sizeSeparator = line.indexOf("\t", kindSeparator + 1);
+      const kind = line.slice(0, kindSeparator);
+      const size = line.slice(kindSeparator + 1, sizeSeparator);
+      const path = line.slice(sizeSeparator + 1);
       return {
         path,
         size: kind === "f" ? Number(size) : undefined,

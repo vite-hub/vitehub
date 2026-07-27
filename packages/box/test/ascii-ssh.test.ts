@@ -3,7 +3,11 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { openAsciiSshSession, type AsciiSshOptions } from "../src/internal/ascii-ssh.ts";
+import {
+  openAsciiSshSession,
+  parseAsciiFileList,
+  type AsciiSshOptions,
+} from "../src/internal/ascii-ssh.ts";
 
 describe("ASCII SSH transport", () => {
   it("pins the provider-reported host key and closes a rejected connection", async () => {
@@ -39,6 +43,28 @@ describe("ASCII SSH transport", () => {
 
     await expect(opening).rejects.toThrow("cancel SFTP negotiation");
     expect(server.client.destroyed).toBe(true);
+  });
+
+  it("closes a connection when SSH authentication is cancelled", async () => {
+    const server = new FakeSshServer();
+    server.holdConnect = true;
+    const controller = new AbortController();
+    const opening = openSession(server, {
+      ...sshOptions(server),
+      abortSignal: controller.signal,
+    });
+
+    await vi.waitFor(() => expect(server.connects).toBe(1));
+    controller.abort(new Error("cancel SSH authentication"));
+
+    await expect(opening).rejects.toThrow("cancel SSH authentication");
+    expect(server.client.destroyed).toBe(true);
+  });
+
+  it("preserves tabs in listed file paths", async () => {
+    expect(parseAsciiFileList("f\t7\t/home/user/with\ttab\0")).toEqual([
+      { path: "/home/user/with\ttab", size: 7, type: "file" },
+    ]);
   });
 
   it("fails closed when the authenticated SSH client reports a transport error", async () => {
@@ -235,6 +261,8 @@ class FakeSshServer {
     },
   };
   boxDestroys = 0;
+  connects = 0;
+  holdConnect = false;
   holdObservation = false;
   holdExec = false;
   holdSftpOpen = false;
@@ -306,6 +334,8 @@ class FakeSshClient extends EventEmitter {
   }
 
   connect(options: { hostVerifier: (key: Buffer) => boolean }) {
+    this.server.connects++;
+    if (this.server.holdConnect) return;
     queueMicrotask(() => {
       if (options.hostVerifier(Buffer.from(this.server.hostKey))) this.emit("ready");
       else this.emit("error", new Error("host key rejected"));
