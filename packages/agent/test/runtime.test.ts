@@ -5705,6 +5705,22 @@ describe("agent message protocol", () => {
     })).toThrow(error)
   })
 
+  it("rejects invalid message timeouts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const error = "messages.timeout must be a positive finite number"
+
+    for (const timeout of [0, -1, Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(() => defineAgent({
+        channels: {
+          telegram: telegram({ adapter: () => ({}) as never }),
+        },
+        driver: { run: () => "ok" },
+        messages: { timeout },
+      })).toThrow(error)
+    }
+  })
+
   it("preserves channel ids for same-kind webhook registrations", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams } = await import("../src/channels.ts")

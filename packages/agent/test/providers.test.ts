@@ -6941,6 +6941,38 @@ describe("server helpers", () => {
     }
   })
 
+  it("removes a manual placeholder when the error fallback is disabled", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: null,
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => { throw new Error("model timeout") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_010), "telegram")).rejects.toThrow("model timeout")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("removes an unused manual placeholder", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

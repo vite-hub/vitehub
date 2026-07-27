@@ -1913,7 +1913,10 @@ async function postChatErrorFallback(
     thread_id: message.threadId,
   })
   const fallback = await resolveChatErrorFallbackText(options, chatErrorHookArgs(thread, message, input, run, error))
-  if (!fallback) return
+  if (!fallback) {
+    if (manualDeliveryPlaceholder) await deleteManualDeliveryPlaceholder(manualDeliveryPlaceholder)
+    return
+  }
   if (await deliverToManualDeliveryPlaceholder(manualDeliveryPlaceholder, fallback)) return
   await thread.post(fallback).catch(() => undefined)
 }
