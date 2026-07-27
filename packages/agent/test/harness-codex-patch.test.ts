@@ -241,9 +241,19 @@ describe("ViteHub Codex harness", () => {
     }
   })
 
-  it("maps absolute bootstrap commands only in the local sandbox", async () => {
+  it("maps absolute bootstrap commands and configured dependency paths in the local sandbox", async () => {
     const root = await mkdtemp(join(import.meta.dirname, ".codex-local-"))
-    const driver = createCodexDriver({ sandbox: { env: { PATH: process.env.PATH }, rootDir: root } })
+    const driver = createCodexDriver({
+      sandbox: {
+        env: {
+          PATH: process.env.PATH,
+          VITEHUB_CODEX_BRIDGE_NODE_MODULES: "/opt/codex-bridge/node_modules",
+        },
+        rootDir: root,
+      },
+    })
+    const harness = driver.harness as ReturnType<typeof createCodex>
+    const bootstrap = await harness.getBootstrap!()
     const provider = driver.sandbox as HarnessV1SandboxProvider
     let output = ""
 
@@ -251,10 +261,15 @@ describe("ViteHub Codex harness", () => {
       const session = await provider.createSession({
         onFirstCreate: async (session) => {
           await session.writeTextFile({ content: "ready", path: "/tmp/harness/codex/marker" })
-          output = (await session.run({ command: "cat /tmp/harness/codex/marker" })).stdout
+          await session.writeTextFile({ content: "{}", path: "/opt/codex-bridge/node_modules/@openai/codex-sdk/package.json" })
+          const marker = await session.run({ command: "cat /tmp/harness/codex/marker" })
+          const dependencies = await session.run({ command: bootstrap.commands[1]!.command })
+          const linked = await session.run({ command: "readlink /tmp/harness/codex/node_modules" })
+          expect(dependencies).toMatchObject({ exitCode: 0 })
+          output = `${marker.stdout}:${linked.stdout}`
         },
       })
-      expect(output).toBe("ready")
+      expect(output).toBe(`ready:${join(root, "opt/codex-bridge/node_modules")}\n`)
       await session.destroy?.()
     }
     finally {

@@ -2,6 +2,7 @@ import type { AgentHarnessDriver, AgentHarnessSandboxProviderInput } from "../ty
 
 const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 const absoluteCodexBootstrapDir = "/tmp/harness/codex"
+const codexBridgeNodeModulesEnv = "VITEHUB_CODEX_BRIDGE_NODE_MODULES"
 const localCodexBootstrapDir = "tmp/harness/codex"
 
 function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, bootstrapDir?: string, codexHome?: string): T {
@@ -10,6 +11,13 @@ function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: 
     : (session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")
   const anchoredBootstrapDir = bootstrapDir ?? `${defaultWorkingDirectory}/${localCodexBootstrapDir}`
   const anchoredCodexHome = codexHome ?? `${defaultWorkingDirectory}/tmp/harness/codex-home`
+  const env = (session as T & { env?: Record<string, string | undefined> }).env
+  const bridgeNodeModules = env?.[codexBridgeNodeModulesEnv]
+  if (env && defaultWorkingDirectory && bridgeNodeModules?.startsWith("/")) {
+    env[codexBridgeNodeModulesEnv] = bridgeNodeModules === defaultWorkingDirectory || bridgeNodeModules.startsWith(`${defaultWorkingDirectory}/`)
+      ? bridgeNodeModules
+      : `${defaultWorkingDirectory}/${bridgeNodeModules.replace(/^\/+/, "")}`
+  }
   return new Proxy(session, {
     get(target, property, receiver) {
       if (property === "restricted") {
