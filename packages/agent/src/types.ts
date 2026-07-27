@@ -1492,6 +1492,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   filter?: AgentMessageFilter<TRuntimeConfig>
+  final?: "hidden" | "message"
   identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown

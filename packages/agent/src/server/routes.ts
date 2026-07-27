@@ -850,6 +850,7 @@ function streamAgentOutputToChatReplies(
   result: Promise<unknown>,
   options: {
     commentary: "hidden" | "message"
+    final: "hidden" | "message"
     onCommentary: (stream: ChatTextStream, discard: () => void) => void
     onFinal: (stream: ChatTextStream) => void
   },
@@ -864,7 +865,7 @@ function streamAgentOutputToChatReplies(
     if (finalStarted) return
     finalStarted = true
     commentary.close()
-    options.onFinal(final.stream)
+    if (options.final === "message") options.onFinal(final.stream)
   }
   const completion = (async () => {
     try {
@@ -1991,7 +1992,7 @@ async function handleChatSdkMessage(
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) return
 
-    const streamsPhasedReplies = options?.stream !== false || options?.commentary !== undefined
+    const streamsPhasedReplies = options?.stream !== false || options?.commentary !== undefined || options?.final !== undefined
     typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
     const runContext = {
@@ -2023,7 +2024,7 @@ async function handleChatSdkMessage(
       })
       const thinkingFallback = invocation.metadata?.thinkingFallback
       try {
-        if (options?.stream === true || options?.commentary === undefined) {
+        if (options?.stream === true || (options?.commentary === undefined && options?.final === undefined)) {
           await postChatStream(
             thread,
             streamAgentOutputToChatText(result),
@@ -2035,7 +2036,8 @@ async function handleChatSdkMessage(
           let finalDelivery: Promise<void> | undefined
           let finalDeliveryError: unknown
           const replies = streamAgentOutputToChatReplies(result, {
-            commentary: options.commentary,
+            commentary: options.commentary ?? "hidden",
+            final: options.final ?? "message",
             onCommentary(response, discard) {
               const delivery = postChatStream(thread, response, undefined, context.waitUntil)
                 .catch(() => discard())

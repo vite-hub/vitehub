@@ -3538,6 +3538,52 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
   })
 
+  it("hides final Channel output while delivering finish-hook replies", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: { final: "hidden" },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "final", text: "{\"totalCalories\":180}", type: "text-delta" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": event => event.reply("**180 kcal** · [Open dashboard](https://example.com)"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/calories/webhooks/telegram", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2018,
+          text: "log this meal",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", {
+      markdown: "**180 kcal** · [Open dashboard](https://example.com)",
+    })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
   it("preserves publish-all streaming when commentary is also configured", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")

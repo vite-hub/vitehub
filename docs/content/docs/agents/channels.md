@@ -66,6 +66,8 @@ ViteHub publishes only text that the Agent stream explicitly marks as `commentar
 
 Set `commentary: 'hidden'` to keep the same phase separation without publishing progress. The existing explicit `messages.stream: true` option retains its publish-all-text behavior for integrations that intentionally depend on unphased streaming.
 
+Set `messages.final` to `hidden` when an app owns the public response through `event.reply()` in an Agent finish hook. The Agent still runs and exposes its structured output to the hook, but the Channel does not also publish that output as a second message.
+
 ::note
 The built-in Codex and Claude Code Harness V1 bridges do not currently preserve commentary and final phases. The `message` policy produces public progress only for custom or future Agent Drivers that emit those phases explicitly.
 ::
