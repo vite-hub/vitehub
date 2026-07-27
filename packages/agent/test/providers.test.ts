@@ -6908,6 +6908,40 @@ describe("server helpers", () => {
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "{\"internal\":\"structured output\"}" })
   })
 
+  it("posts a buffered manual stream when placeholder editing fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.editMessage.mockRejectedValueOnce(new Error("edit failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => "Private output" },
+      hooks: {
+        "agent:finish": event => event.reply((async function* () {
+          yield "Streamed "
+          yield "reply"
+        })()),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_011), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Streamed reply" })
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Streamed reply" })
+  })
+
   it("replaces a manual placeholder with the error fallback", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")

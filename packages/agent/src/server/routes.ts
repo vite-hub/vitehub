@@ -1942,8 +1942,13 @@ async function flushChatFinishExtensionMessages(
   manualDeliveryPlaceholder?: unknown,
 ): Promise<unknown> {
   const messages = chat[chatFinishMessagesKey].splice(0)
-  for (const message of messages) {
+  for (let message of messages) {
     if (manualDeliveryPlaceholder) {
+      if (isAsyncIterable(message)) {
+        let markdown = ""
+        for await (const chunk of message) markdown += chunk
+        message = { markdown }
+      }
       if (await deliverToManualDeliveryPlaceholder(manualDeliveryPlaceholder, message)) {
         manualDeliveryPlaceholder = undefined
         continue
