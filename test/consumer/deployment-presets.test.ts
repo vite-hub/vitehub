@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeF
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitropack/core"
@@ -74,6 +75,49 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
     }
   }
 })
+
+it("bundles the Agent AI SDK module into Nitro Cloudflare output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-ai-cloudflare-output-"))
+  let nitro: Awaited<ReturnType<typeof createNitro>> | undefined
+  try {
+    await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
+    await mkdir(join(root, "server/api"), { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "agent-ai-cloudflare-fixture" }), "utf8")
+    const aiSdkRuntime = resolve(import.meta.dirname, "../../packages/agent/src/internal/ai-sdk-runtime.ts")
+    await writeFile(join(root, "server/api/agent.get.ts"), [
+      `import { loadAiSdk } from ${JSON.stringify(aiSdkRuntime)}`,
+      "",
+      "export default defineEventHandler(async () => typeof (await loadAiSdk()).generateText)",
+      "",
+    ].join("\n"), "utf8")
+
+    nitro = await createNitro({
+      compatibilityDate: "2026-07-20",
+      dev: false,
+      preset: "cloudflare-module",
+      rootDir: root,
+      srcDir: join(root, "server"),
+    })
+    await prepare(nitro)
+    await copyPublicAssets(nitro)
+    await prerender(nitro)
+    await build(nitro)
+
+    const route = join(root, ".output/server/chunks/routes/api/agent.get.mjs")
+    const routeSource = await readFile(route, "utf8")
+    const aiSpecifier = routeSource.match(/import\(["']([^"']+)["']\)/)?.[1]
+    expect(aiSpecifier).toMatch(/^\.\.?\//)
+    const aiModule = resolve(dirname(route), aiSpecifier!)
+    expect(existsSync(aiModule)).toBe(true)
+    await expect(import(pathToFileURL(aiModule).href)).resolves.toHaveProperty("generateText")
+  } finally {
+    try {
+      await nitro?.close()
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }
+}, 30_000)
 
 it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-provider-output-"))
