@@ -97,7 +97,14 @@ export async function openRemoteBox(
     await options.initialize?.(session, { signal: options.signal });
     return session;
   } catch (error) {
-    await session.close().catch(() => undefined);
+    try {
+      await session.close();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `[vitehub] ${options.runtime} Box initialization and cleanup failed.`,
+      );
+    }
     throw error;
   }
 }

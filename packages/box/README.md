@@ -94,6 +94,28 @@ const vercel = await resolveBox({
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.
 
+ASCII is selected through the same Box API. Install its optional control-plane SDK, then use either the default environment-backed selection or a tagged configuration:
+
+```sh
+pnpm add @vite-hub/box @asciidev/box-sdk ssh2
+```
+
+```ts
+const ascii = await resolveBox(
+  {
+    runtime: "ascii",
+    checkout: {
+      ref: "refs/pull/123/head",
+      remote: "https://github.com/acme/project.git",
+      sha: "0123456789abcdef0123456789abcdef01234567",
+    },
+  },
+  {},
+);
+```
+
+`runtime: "ascii"` reads `BOX_API_KEY` and uses a two-hour disposable TTL, which leaves room for an hour-long Agent Invocation plus preparation and cleanup. Use `{ kind: "ascii", apiKey, baseUrl, ttlSeconds }` for explicit server configuration. ViteHub creates the machine without account secrets, authorizes a session-only SSH key, materializes Home and the exact Git commit through the shared Box path, and deletes the Box when the session closes. It does not use caller-owned SSH keys or introduce a separate remote-Box abstraction.
+
 The Cloudflare runtime preserves Durable Object idle reuse and bounds transient transport operations with retries and deadlines. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their disposable working tree instead.
 
 `box.open({ initialize })` runs initialization inside runtime preparation. If initialization fails, a runtime must tear down the session and roll back state created for that failed boot.
