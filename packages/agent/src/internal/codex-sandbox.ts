@@ -2,8 +2,8 @@ import type { AgentHarnessDriver, AgentHarnessSandboxProviderInput } from "../ty
 
 const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 const absoluteCodexBootstrapDir = "/tmp/harness/codex"
-const codexBridgeNodeModulesEnv = "VITEHUB_CODEX_BRIDGE_NODE_MODULES"
 const localCodexBootstrapDir = "tmp/harness/codex"
+export const codexBridgeNodeModulesEnv = "VITEHUB_CODEX_BRIDGE_NODE_MODULES"
 
 function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, bootstrapDir?: string, codexHome?: string): T {
   const defaultWorkingDirectory = bootstrapDir && codexHome

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { createCodex } from "@ai-sdk/harness-codex"
 
 import { createLocalHarnessSandbox, type LocalHarnessSandboxOptions } from "./local-sandbox.ts"
-import { adaptCodexHarnessSandbox, stripGatewaySecrets, stripGitHubSecrets } from "../internal/codex-sandbox.ts"
+import { adaptCodexHarnessSandbox, codexBridgeNodeModulesEnv, stripGatewaySecrets, stripGitHubSecrets } from "../internal/codex-sandbox.ts"
 
 import type { CodexHarnessSettings } from "@ai-sdk/harness-codex"
 import type {
@@ -21,8 +21,6 @@ import type {
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
-const codexBridgeNodeModulesEnv = "VITEHUB_CODEX_BRIDGE_NODE_MODULES"
-
 export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
   const {
     credentials,
