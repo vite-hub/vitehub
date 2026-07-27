@@ -283,6 +283,7 @@ describe("ViteHub Codex harness", () => {
     const writeTextFile = vi.fn(async () => undefined)
     const rawSession = {
       defaultWorkingDirectory: "/workspace",
+      env: { VITEHUB_CODEX_BRIDGE_NODE_MODULES: "/opt/codex-bridge/node_modules" },
       readTextFile,
       restricted: () => rawSession,
       run,
@@ -313,6 +314,7 @@ describe("ViteHub Codex harness", () => {
       command: "cat /workspace/tmp/harness/codex/marker",
       env: { CODEX_HOME: "/workspace/tmp/harness/codex-home" },
     })
+    expect(rawSession.env.VITEHUB_CODEX_BRIDGE_NODE_MODULES).toBe("/opt/codex-bridge/node_modules")
   })
 
   it("adapts a Box sandbox for Codex paths and direct OpenAI auth", async () => {
