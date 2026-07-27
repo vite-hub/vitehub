@@ -1,7 +1,7 @@
 import { createCodex } from "@ai-sdk/harness-codex"
 import { execFile } from "node:child_process"
 import { build } from "esbuild"
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -57,6 +57,41 @@ describe("ViteHub Codex harness", () => {
     finally {
       await rm(fixture, { force: true, recursive: true })
     }
+  })
+
+  it("loads bridge assets through package-scoped resolution in the built package", async () => {
+    const dist = new URL("../dist/", import.meta.url)
+    const chunks = await Promise.all(
+      (await readdir(dist))
+        .filter(file => file.endsWith(".js"))
+        .map(async file => ({ file, source: await readFile(new URL(file, dist), "utf8") })),
+    )
+    const codexChunk = chunks.find(chunk => chunk.source.includes("readCodexBridgeAsset"))
+
+    expect({
+      packageScopedResolver: codexChunk?.source.includes("createRequire(import.meta.url).resolve(\"@ai-sdk/harness-codex\")"),
+      pathConvertedToFileURL: codexChunk?.source.includes("pathToFileURL(packageEntry)"),
+      runtimeESMResolver: codexChunk?.source.includes("import.meta.resolve(\"@ai-sdk/harness-codex\")"),
+    }).toEqual({
+      packageScopedResolver: true,
+      pathConvertedToFileURL: true,
+      runtimeESMResolver: false,
+    })
+
+    const { stdout } = await exec(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      `
+        const { createCodexDriver } = await import(process.argv[1])
+        const bootstrap = await createCodexDriver({ sandbox: false }).harness.getBootstrap()
+        process.stdout.write(bootstrap.files.find(file => file.path.endsWith("package.json")).content)
+      `,
+      new URL(codexChunk!.file, dist).href,
+    ])
+
+    expect(JSON.parse(stdout)).toMatchObject({
+      dependencies: { "@openai/codex-sdk": expect.any(String) },
+    })
   })
 
   it.each([
