@@ -7,7 +7,7 @@ import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgent
 import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
-import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
+import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
 import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
@@ -1842,6 +1842,44 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage): Promi
   } as AdapterPostableMessage)
 }
 
+async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: AgentChatMessage): Promise<boolean> {
+  if (!placeholder || typeof placeholder !== "object" || !("edit" in placeholder) || typeof placeholder.edit !== "function") return false
+  const target = placeholder as { edit: (message: unknown) => Promise<unknown> }
+  if (isAsyncIterable(message)) {
+    let markdown = ""
+    for await (const chunk of message) markdown += chunk
+    await target.edit({ markdown })
+    return true
+  }
+  if (typeof message !== "object" || message === null) {
+    await target.edit(message)
+    return true
+  }
+  if (deliveryArtifactAttachments(chatMessageDeliveryArtifacts(message)).length) return false
+  await target.edit(isTextChatMessage(message) ? message.text : message)
+  return true
+}
+
+async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<void> {
+  const message = "Manual chat delivery could not remove its placeholder."
+  if (!placeholder || typeof placeholder !== "object" || !("delete" in placeholder) || typeof placeholder.delete !== "function") {
+    throw new Error(message)
+  }
+  try {
+    await (placeholder as { delete: () => Promise<unknown> }).delete()
+  }
+  catch (cause) {
+    throw new Error(message, { cause })
+  }
+}
+
+async function deliverToManualDeliveryPlaceholder(placeholder: unknown, message: AgentChatMessage): Promise<boolean> {
+  if (!placeholder) return false
+  if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) return true
+  await deleteManualDeliveryPlaceholder(placeholder)
+  return false
+}
+
 async function resolveChatErrorFallbackText(
   options: AgentChatOptions | undefined,
   args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
@@ -1865,6 +1903,7 @@ async function postChatErrorFallback(
   options: AgentChatOptions | undefined,
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
+  manualDeliveryPlaceholder?: unknown,
 ): Promise<void> {
   console.error({
     component: "@vite-hub/agent",
@@ -1874,9 +1913,12 @@ async function postChatErrorFallback(
     thread_id: message.threadId,
   })
   const fallback = await resolveChatErrorFallbackText(options, chatErrorHookArgs(thread, message, input, run, error))
-  if (fallback) {
-    await thread.post(fallback).catch(() => undefined)
+  if (!fallback) {
+    if (manualDeliveryPlaceholder) await deleteManualDeliveryPlaceholder(manualDeliveryPlaceholder)
+    return
   }
+  if (await deliverToManualDeliveryPlaceholder(manualDeliveryPlaceholder, fallback)) return
+  await thread.post(fallback).catch(() => undefined)
 }
 
 function createChatFinishExtension(
@@ -1897,9 +1939,22 @@ function createChatFinishExtension(
 async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
+  manualDelivery: { placeholder?: unknown },
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
-  for (const message of messages) {
+  for (let message of messages) {
+    if (manualDelivery.placeholder) {
+      if (isAsyncIterable(message)) {
+        let markdown = ""
+        for await (const chunk of message) markdown += chunk
+        message = { markdown }
+      }
+      if (await deliverToManualDeliveryPlaceholder(manualDelivery.placeholder, message)) {
+        manualDelivery.placeholder = undefined
+        continue
+      }
+      manualDelivery.placeholder = undefined
+    }
     await postChatMessage(thread, message)
   }
 }
@@ -1964,8 +2019,12 @@ async function handleChatSdkMessage(
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
+  const manualDeliveryState: { placeholder?: unknown } = {}
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
+    if (typeof options?.timeout === "number" && Number.isFinite(options.timeout) && options.timeout > 0) {
+      input.timeout = options.timeout
+    }
     const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) return
@@ -1991,7 +2050,13 @@ async function handleChatSdkMessage(
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) return
 
-    const streamsPhasedReplies = options?.stream !== false || options?.commentary !== undefined
+    assertChatDeliveryOptions(options || {})
+    const manualDelivery = options?.delivery === "manual"
+    const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
+    const thinkingFallback = invocation.metadata?.thinkingFallback
+    if (manualDelivery && typeof thinkingFallback === "string") {
+      manualDeliveryState.placeholder = await thread.post(thinkingFallback)
+    }
     typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
     const runContext = {
@@ -2004,24 +2069,25 @@ async function handleChatSdkMessage(
       context: {
         ...(invocation.input as AgentRunInput).context,
         [messageChannelStateContextKey]: state,
-        ...(options?.stream === false ? { [finalChannelOutputContextKey]: true } : {}),
+        ...(options?.stream === false || manualDelivery ? { [finalChannelOutputContextKey]: true } : {}),
       },
     }, invoker), chatFinish)
     if (!streamsPhasedReplies) {
       const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result)
-      if (text) {
+      if (!manualDelivery && text) {
         if (!await postDiscordSplitContent(thread, { markdown: text })) {
           await thread.post({ markdown: text })
         }
       }
-      await flushChatFinishExtensionMessages(thread, chatFinish)
+      await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
+      if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
+      manualDeliveryState.placeholder = undefined
     }
     else {
       const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
         output: "events",
       })
-      const thinkingFallback = invocation.metadata?.thinkingFallback
       try {
         if (options?.stream === true || options?.commentary === undefined) {
           await postChatStream(
@@ -2064,12 +2130,12 @@ async function handleChatSdkMessage(
       finally {
         typing?.stop()
       }
-      await flushChatFinishExtensionMessages(thread, chatFinish)
+      await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
     }
   }
   catch (error) {
     typing?.stop()
-    await postChatErrorFallback(error, thread, message, options, input, run)
+    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState.placeholder)
     throw error
   }
   finally {

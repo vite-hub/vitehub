@@ -216,6 +216,15 @@ function assertNoLegacyChatHistoryOption(options: AgentChatOptions): void {
   }
 }
 
+export function assertChatDeliveryOptions(options: AgentChatOptions): void {
+  if (options.delivery === "manual" && (options.stream === true || options.commentary !== undefined)) {
+    throw new TypeError("[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary.")
+  }
+  if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
+    throw new TypeError("[vitehub] messages.timeout must be a positive finite number.")
+  }
+}
+
 export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   capabilities: AgentCapabilityDefinition[],
 ): AgentChatOptions<TRuntimeConfig> | undefined {
@@ -230,6 +239,7 @@ export function defineChatCapability<
   options: TOptions = {} as TOptions,
 ): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<AgentChatOptionsOrigin<TOptions>>> {
   assertNoLegacyChatHistoryOption(options)
+  assertChatDeliveryOptions(options)
   return defineCapability({
     id: "chat",
     metadata: {
