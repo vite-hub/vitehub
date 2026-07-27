@@ -1939,25 +1939,24 @@ function createChatFinishExtension(
 async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
-  manualDeliveryPlaceholder?: unknown,
-): Promise<unknown> {
+  manualDelivery: { placeholder?: unknown },
+): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
   for (let message of messages) {
-    if (manualDeliveryPlaceholder) {
+    if (manualDelivery.placeholder) {
       if (isAsyncIterable(message)) {
         let markdown = ""
         for await (const chunk of message) markdown += chunk
         message = { markdown }
       }
-      if (await deliverToManualDeliveryPlaceholder(manualDeliveryPlaceholder, message)) {
-        manualDeliveryPlaceholder = undefined
+      if (await deliverToManualDeliveryPlaceholder(manualDelivery.placeholder, message)) {
+        manualDelivery.placeholder = undefined
         continue
       }
-      manualDeliveryPlaceholder = undefined
+      manualDelivery.placeholder = undefined
     }
     await postChatMessage(thread, message)
   }
-  return manualDeliveryPlaceholder
 }
 
 function withChatFinishExtension<CALL_OPTIONS>(
@@ -2020,7 +2019,7 @@ async function handleChatSdkMessage(
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
-  let manualDeliveryPlaceholder: unknown
+  const manualDeliveryState: { placeholder?: unknown } = {}
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
     if (typeof options?.timeout === "number" && Number.isFinite(options.timeout) && options.timeout > 0) {
@@ -2056,7 +2055,7 @@ async function handleChatSdkMessage(
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
-      manualDeliveryPlaceholder = await thread.post(thinkingFallback)
+      manualDeliveryState.placeholder = await thread.post(thinkingFallback)
     }
     typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
@@ -2081,9 +2080,9 @@ async function handleChatSdkMessage(
           await thread.post({ markdown: text })
         }
       }
-      manualDeliveryPlaceholder = await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryPlaceholder)
-      if (manualDeliveryPlaceholder) await deleteManualDeliveryPlaceholder(manualDeliveryPlaceholder)
-      manualDeliveryPlaceholder = undefined
+      await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
+      if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
+      manualDeliveryState.placeholder = undefined
     }
     else {
       const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
@@ -2131,12 +2130,12 @@ async function handleChatSdkMessage(
       finally {
         typing?.stop()
       }
-      await flushChatFinishExtensionMessages(thread, chatFinish)
+      await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
     }
   }
   catch (error) {
     typing?.stop()
-    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryPlaceholder)
+    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState.placeholder)
     throw error
   }
   finally {

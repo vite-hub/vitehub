@@ -6942,6 +6942,48 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Streamed reply" })
   })
 
+  it("does not overwrite the first manual reply when a later reply fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementationOnce(async threadId => ({
+      id: "sent-1",
+      threadId,
+    })).mockRejectedValueOnce(new Error("post failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Delivery failed.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => "Private output" },
+      hooks: {
+        "agent:finish": event => [
+          event.reply("First reply"),
+          event.reply("Second reply"),
+        ],
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_012), "telegram")).rejects.toThrow("post failed")
+      expect(adapter.editMessage).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "First reply" })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(3, "telegram:456", "Delivery failed.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("replaces a manual placeholder with the error fallback", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
