@@ -200,10 +200,19 @@ function createAsciiSshSession(
     assertOpen();
     options.abortSignal?.throwIfAborted();
     const unit = `vitehub-${randomUUID()}.service`;
+    const launchScript = `/home/user/.vitehub-launch-${randomUUID()}`;
     let channel: SshChannel;
     try {
+      await sftpCall<void>(options.abortSignal, client, fault.record, (callback) =>
+        sftp.writeFile(
+          launchScript,
+          Buffer.from(launchScriptContents(launchScript, options)),
+          { mode: 0o700 },
+          callback,
+        ),
+      );
       channel = await waitWithTimeout(
-        exec(systemdRunCommand(unit, options)),
+        exec(systemdRunCommand(unit, launchScript, options.workingDirectory)),
         10_000,
         `[vitehub] ASCII process ${unit} launch timed out.`,
         options.abortSignal,
@@ -349,11 +358,8 @@ function createAsciiSshSession(
 
 function systemdRunCommand(
   unit: string,
-  options: {
-    command: string;
-    env?: Record<string, string>;
-    workingDirectory?: string;
-  },
+  launchScript: string,
+  workingDirectory?: string,
 ) {
   const args = [
     "sudo",
@@ -367,16 +373,30 @@ function systemdRunCommand(
     `--unit=${unit}`,
     "--uid=user",
     "--gid=user",
-    `--working-directory=${options.workingDirectory ?? "/home/user/.vitehub/workspace"}`,
+    `--working-directory=${workingDirectory ?? "/home/user/.vitehub/workspace"}`,
     "--property=KillMode=control-group",
     "--property=TimeoutStopSec=10s",
-    ...Object.entries(options.env ?? {}).map(([name, value]) => `--setenv=${name}=${value}`),
     "--",
     "/bin/sh",
-    "-lc",
-    options.command,
+    launchScript,
   ];
   return args.map(shellQuote).join(" ");
+}
+
+function launchScriptContents(
+  path: string,
+  options: { command: string; env?: Record<string, string> },
+) {
+  const exports = Object.entries(options.env ?? {}).map(
+    ([name, value]) => `export ${name}=${shellQuote(value)}`,
+  );
+  return [
+    "#!/bin/sh",
+    ...exports,
+    `rm -f -- ${shellQuote(path)}`,
+    `exec /bin/sh -lc ${shellQuote(options.command)}`,
+    "",
+  ].join("\n");
 }
 
 function createRuntimeProcess(
@@ -811,6 +831,12 @@ interface SftpClient {
   readFile(
     path: string,
     callback: (error: NodeJS.ErrnoException | null, contents: Buffer) => void,
+  ): void;
+  writeFile(
+    path: string,
+    contents: Buffer,
+    options: { mode: number },
+    callback: (error: NodeJS.ErrnoException | null, value: void) => void,
   ): void;
   writeFile(
     path: string,

@@ -174,6 +174,25 @@ describe("ASCII SSH transport", () => {
     await session.stop();
   });
 
+  it("keeps environment values out of process arguments", async () => {
+    const server = new FakeSshServer();
+    const session = await openSession(server);
+    const process = await session.spawn!({
+      command: "sleep 3600",
+      env: { GH_TOKEN: "secret-value" },
+    });
+
+    expect(server.commands.join("\n")).not.toContain("secret-value");
+    expect(server.writtenFiles).toEqual([
+      expect.objectContaining({
+        contents: expect.stringContaining("secret-value"),
+        mode: 0o700,
+      }),
+    ]);
+    await process.kill();
+    await session.stop();
+  });
+
   it("accepts a transient unit that systemd already collected", async () => {
     const server = new FakeSshServer();
     server.unitCollected = true;
@@ -275,6 +294,7 @@ class FakeSshServer {
   sftpOpens = 0;
   sftpReads = 0;
   verificationExitCode = 0;
+  readonly writtenFiles: Array<{ contents: string; mode?: number; path: string }> = [];
   unitCollected = false;
 
   constructor() {
@@ -377,11 +397,19 @@ class FakeSftp {
   }
 
   writeFile(
-    _path: string,
-    _contents: Buffer,
-    callback: (error: NodeJS.ErrnoException | null, value: void) => void,
+    path: string,
+    contents: Buffer,
+    options:
+      | { mode: number }
+      | ((error: NodeJS.ErrnoException | null, value: void) => void),
+    callback?: (error: NodeJS.ErrnoException | null, value: void) => void,
   ) {
-    callback(null, undefined);
+    this.server.writtenFiles.push({
+      contents: contents.toString(),
+      mode: typeof options === "function" ? undefined : options.mode,
+      path,
+    });
+    (typeof options === "function" ? options : callback!)(null, undefined);
   }
 }
 
