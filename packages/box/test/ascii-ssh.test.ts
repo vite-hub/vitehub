@@ -25,6 +25,22 @@ describe("ASCII SSH transport", () => {
     expect(server.client.destroyed).toBe(true);
   });
 
+  it("closes an authenticated connection when SFTP negotiation is cancelled", async () => {
+    const server = new FakeSshServer();
+    server.holdSftpOpen = true;
+    const controller = new AbortController();
+    const opening = openSession(server, {
+      ...sshOptions(server),
+      abortSignal: controller.signal,
+    });
+
+    await vi.waitFor(() => expect(server.sftpOpens).toBe(1));
+    controller.abort(new Error("cancel SFTP negotiation"));
+
+    await expect(opening).rejects.toThrow("cancel SFTP negotiation");
+    expect(server.client.destroyed).toBe(true);
+  });
+
   it("fails closed when the authenticated SSH client reports a transport error", async () => {
     const server = new FakeSshServer();
     const session = await openSession(server);
@@ -221,12 +237,14 @@ class FakeSshServer {
   boxDestroys = 0;
   holdObservation = false;
   holdExec = false;
+  holdSftpOpen = false;
   holdSftpRead = false;
   observation: FakeChannel | undefined;
   process: FakeChannel | undefined;
   processStderr = [] as string[];
   processStdout = ["started"] as string[];
   sftpError: Error | undefined;
+  sftpOpens = 0;
   sftpReads = 0;
   verificationExitCode = 0;
   unitCollected = false;
@@ -308,6 +326,8 @@ class FakeSshClient extends EventEmitter {
   }
 
   sftp(callback: (error: Error | null, sftp: FakeSftp) => void) {
+    this.server.sftpOpens++;
+    if (this.server.holdSftpOpen) return;
     callback(this.server.sftpError ?? null, new FakeSftp(this.server));
   }
 }

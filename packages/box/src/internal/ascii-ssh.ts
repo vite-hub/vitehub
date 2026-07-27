@@ -21,6 +21,7 @@ export interface AsciiSshIdentity {
 }
 
 export interface AsciiSshOptions {
+  readonly abortSignal?: AbortSignal;
   readonly destroyBox: () => Promise<void>;
   readonly host: string;
   readonly hostKeys: readonly Uint8Array[];
@@ -80,7 +81,12 @@ export async function openAsciiSshSession(
   const fault = createTransportFault(options.destroyBox);
   await connect(client, options, fault.record);
   try {
-    const sftp = await openSftp(client);
+    const sftp = await waitWithTimeout(
+      openSftp(client),
+      20_000,
+      "[vitehub] ASCII SFTP negotiation timed out.",
+      options.abortSignal,
+    );
     return createAsciiSshSession(client, sftp, options.destroyBox, fault);
   } catch (error) {
     client.destroy();

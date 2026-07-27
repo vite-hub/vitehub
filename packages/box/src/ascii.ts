@@ -117,6 +117,7 @@ export function createAsciiRuntime(
         const transport = await connectAsciiSsh(
           dependencies.openSsh ?? openAsciiSshSession,
           {
+            abortSignal: openOptions.signal,
             destroyBox: async () => await removeAsciiBox(client, boxId),
             host: box.ip!,
             hostKeys,
