@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { createCodex } from "@ai-sdk/harness-codex"
 
 import { createLocalHarnessSandbox, type LocalHarnessSandboxOptions } from "./local-sandbox.ts"
-import { adaptCodexHarnessSandbox, stripGatewaySecrets, stripGitHubSecrets } from "../internal/codex-sandbox.ts"
+import { adaptCodexHarnessSandbox, codexBridgeNodeModulesEnv, stripGatewaySecrets, stripGitHubSecrets } from "../internal/codex-sandbox.ts"
 
 import type { CodexHarnessSettings } from "@ai-sdk/harness-codex"
 import type {
@@ -21,7 +21,6 @@ import type {
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
-
 export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
   const {
     credentials,
@@ -56,6 +55,20 @@ export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(opt
 }
 
 const codexBootstrapDir = "/tmp/harness/codex"
+const codexBridgeInstallCommand = `if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; then :; else pnpm --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; fi`
+const codexBridgeNodeModules = `${codexBootstrapDir}/node_modules`
+const codexBridgeDependencyMarker = "@openai/codex-sdk/package.json"
+const codexBridgePrepareDependenciesCommand = [
+  `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-}"`,
+  `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand}`,
+  `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
+  `elif [ ! -r "$codex_bridge_node_modules/${codexBridgeDependencyMarker}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain readable ${codexBridgeDependencyMarker}: $codex_bridge_node_modules" >&2; exit 1`,
+  `elif [ "$codex_bridge_node_modules" = "${codexBridgeNodeModules}" ]; then :`,
+  `elif [ -L "${codexBridgeNodeModules}" ]; then if [ "$(readlink "${codexBridgeNodeModules}")" != "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already links to a different dependency tree" >&2; exit 1; fi`,
+  `elif [ -e "${codexBridgeNodeModules}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already exists and conflicts with ${codexBridgeNodeModulesEnv}" >&2; exit 1`,
+  `else ln -s "$codex_bridge_node_modules" "${codexBridgeNodeModules}"`,
+  "fi",
+].join("; ")
 
 function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {
   const harness = createCodex(settings)
@@ -85,7 +98,7 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
         bootstrapDir: codexBootstrapDir,
         commands: [
           { command: `mkdir -p ${codexBootstrapDir}` },
-          { command: `if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; then :; else pnpm --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; fi` },
+          { command: codexBridgePrepareDependenciesCommand },
         ],
         files: [
           { content: pkg, path: `${codexBootstrapDir}/package.json` },

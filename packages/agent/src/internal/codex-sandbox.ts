@@ -3,17 +3,25 @@ import type { AgentHarnessDriver, AgentHarnessSandboxProviderInput } from "../ty
 const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 const absoluteCodexBootstrapDir = "/tmp/harness/codex"
 const localCodexBootstrapDir = "tmp/harness/codex"
+export const codexBridgeNodeModulesEnv = "VITEHUB_CODEX_BRIDGE_NODE_MODULES"
 
-function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, bootstrapDir?: string, codexHome?: string): T {
+function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, rebaseBridgeNodeModulesPath: boolean, bootstrapDir?: string, codexHome?: string): T {
   const defaultWorkingDirectory = bootstrapDir && codexHome
     ? undefined
     : (session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")
   const anchoredBootstrapDir = bootstrapDir ?? `${defaultWorkingDirectory}/${localCodexBootstrapDir}`
   const anchoredCodexHome = codexHome ?? `${defaultWorkingDirectory}/tmp/harness/codex-home`
+  const env = (session as T & { env?: Record<string, string | undefined> }).env
+  const bridgeNodeModules = env?.[codexBridgeNodeModulesEnv]
+  if (env && rebaseBridgeNodeModulesPath && defaultWorkingDirectory && bridgeNodeModules?.startsWith("/")) {
+    env[codexBridgeNodeModulesEnv] = bridgeNodeModules === defaultWorkingDirectory || bridgeNodeModules.startsWith(`${defaultWorkingDirectory}/`)
+      ? bridgeNodeModules
+      : `${defaultWorkingDirectory}/${bridgeNodeModules.replace(/^\/+/, "")}`
+  }
   return new Proxy(session, {
     get(target, property, receiver) {
       if (property === "restricted") {
-        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), isolateHome, anchoredBootstrapDir, anchoredCodexHome)
+        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), isolateHome, rebaseBridgeNodeModulesPath, anchoredBootstrapDir, anchoredCodexHome)
       }
       if (property === "run" || property === "spawn") {
         return (options: { command: string, env?: Record<string, string | undefined> }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
@@ -39,13 +47,14 @@ export function adaptCodexHarnessSandbox(
   options: { defaultSandbox?: boolean, isolateHome?: boolean, preferOpenAI?: boolean } = {},
 ): AgentHarnessDriver["sandbox"] {
   if ((provider as Record<PropertyKey, unknown>)[codexSandboxAdapterApplied]) return provider
+  const rebaseBridgeNodeModulesPath = (provider as { providerId?: string }).providerId === "local"
   const adaptSession = (session: object) => {
     if ("env" in session && session.env && typeof session.env === "object") {
       const env = session.env as Record<string, string | undefined>
       if (options.defaultSandbox) stripGitHubSecrets(env)
       if (options.preferOpenAI) stripGatewaySecrets(env)
     }
-    return relativeCodexSandboxSession(session, options.isolateHome !== false)
+    return relativeCodexSandboxSession(session, options.isolateHome !== false, rebaseBridgeNodeModulesPath)
   }
   return {
     ...provider,
