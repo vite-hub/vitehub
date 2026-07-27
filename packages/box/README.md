@@ -97,7 +97,7 @@ Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare
 ASCII is selected through the same Box API. Install its optional control-plane SDK, then use either the default environment-backed selection or a tagged configuration:
 
 ```sh
-pnpm add @vite-hub/box @asciidev/box-sdk
+pnpm add @vite-hub/box @asciidev/box-sdk ssh2
 ```
 
 ```ts

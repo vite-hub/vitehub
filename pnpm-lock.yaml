@@ -707,9 +707,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      ssh2:
-        specifier: ^1.17.0
-        version: 1.17.0
     devDependencies:
       '@asciidev/box-sdk':
         specifier: ^0.0.24
@@ -726,6 +723,9 @@ importers:
       publint:
         specifier: catalog:tooling
         version: 0.3.21
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
