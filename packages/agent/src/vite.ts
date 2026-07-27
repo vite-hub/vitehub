@@ -1808,25 +1808,26 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(resolve(config.root || process.cwd()), serverDirs))
+      const root = resolve(config.root || process.cwd())
+      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
       const nitroHandlers = [
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{
-              handler: generatedAgentWebhookRouteHandler,
+              handler: join(root, generatedAgentWebhookRouteHandler),
               route: normalizeNitroRoute(resolved.routes.chat),
             }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput
           ? [{
-              handler: generatedAgentWebhookRouteHandler,
+              handler: join(root, generatedAgentWebhookRouteHandler),
               route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.discordGateway
           ? [{
-              handler: generatedAgentDiscordGatewayRouteHandler,
+              handler: join(root, generatedAgentDiscordGatewayRouteHandler),
               route: normalizeNitroRoute(resolved.routes.discordGateway),
             }]
           : []),
