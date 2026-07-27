@@ -5675,6 +5675,36 @@ describe("agent message protocol", () => {
     })).toThrow("messages.history was replaced by messages.triggerHistory")
   })
 
+  it("rejects streaming and commentary with manual message delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const error = "messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary"
+
+    expect(() => defineAgent({
+      channels: {
+        telegram: telegram({ adapter: () => ({}) as never }),
+      },
+      driver: { run: () => "ok" },
+      messages: {
+        delivery: "manual",
+        stream: true,
+      },
+    })).toThrow(error)
+
+    expect(() => defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => ({}) as never,
+          messages: {
+            commentary: "hidden",
+            delivery: "manual",
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })).toThrow(error)
+  })
+
   it("preserves channel ids for same-kind webhook registrations", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams } = await import("../src/channels.ts")

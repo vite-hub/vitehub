@@ -1489,6 +1489,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   commentary?: "hidden" | "message"
   concurrency?: AgentMessageConcurrency
   dedupeTtlMs?: number
+  delivery?: "automatic" | "manual"
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   filter?: AgentMessageFilter<TRuntimeConfig>
@@ -1500,6 +1501,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   stream?: boolean
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
+  timeout?: number
   transcripts?: TranscriptsConfig
   triggerHistory?: AgentChatTriggerHistory
   userName?: string

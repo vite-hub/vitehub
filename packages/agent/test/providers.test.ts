@@ -6841,6 +6841,230 @@ describe("server helpers", () => {
     }
   })
 
+  it("preserves automatic chat delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      hooks: {
+        "agent:finish": event => event.reply("Explicit reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_004), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "Agent output" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Explicit reply" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("delivers only explicit manual replies and replaces the placeholder once", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ input }) => {
+      expect(input.timeout).toBe(20)
+      return "{\"internal\":\"structured output\"}"
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            timeout: 20,
+          },
+        }),
+      },
+      driver: { run },
+      hooks: {
+        "agent:finish": event => [
+          event.reply("Calories reply"),
+          event.reply("Dashboard reply"),
+        ],
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_005), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Analyzing photo…")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Calories reply" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Dashboard reply" })
+    expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "{\"internal\":\"structured output\"}" })
+  })
+
+  it("replaces a manual placeholder with the error fallback", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please send the photo again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => { throw new Error("model timeout") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_006), "telegram")).rejects.toThrow("model timeout")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Analyzing photo…")
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please send the photo again.")
+      expect(adapter.deleteMessage).not.toHaveBeenCalled()
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it("removes an unused manual placeholder", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => "Private output" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_007), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Analyzing photo…")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("removes a manual placeholder before posting an artifact reply", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let finishDelete!: () => void
+    adapter.deleteMessage.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishDelete = resolve
+    }))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => "Private output" },
+      hooks: {
+        async "agent:finish"(event) {
+          const chat = event.extensions.get("chat") as { sendMessage?: (message: unknown) => Promise<void> } | undefined
+          await chat?.sendMessage?.({
+            artifacts: [{
+              mediaType: "image/png",
+              path: "results/chart.png",
+              placement: "inline",
+              url: "https://assets.example/results/chart.png",
+            }],
+            markdown: "See the result.",
+          })
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(chatWebhookRequest(91_008), "telegram")
+
+    await vi.waitFor(() => {
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Analyzing photo…")
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    finishDelete()
+
+    const response = await responsePromise
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", expect.objectContaining({
+      attachments: expect.any(Array),
+      markdown: "See the result.",
+    }))
+  })
+
+  it("fails clearly when an unreplaceable manual reply cannot remove its placeholder", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    ;(adapter as unknown as { deleteMessage?: unknown }).deleteMessage = undefined
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => "Private output" },
+      hooks: {
+        async "agent:finish"(event) {
+          const chat = event.extensions.get("chat") as { sendMessage?: (message: unknown) => Promise<void> } | undefined
+          await chat?.sendMessage?.({
+            artifacts: [{
+              mediaType: "image/png",
+              path: "results/chart.png",
+              placement: "inline",
+              url: "https://assets.example/results/chart.png",
+            }],
+            markdown: "See the result.",
+          })
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await expect(handler(chatWebhookRequest(91_009), "telegram")).rejects.toThrow(
+      "Manual chat delivery could not remove its placeholder.",
+    )
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Sorry, I couldn't process that message.")
+  })
+
   it("lets chat webhooks opt out of streaming model execution", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
