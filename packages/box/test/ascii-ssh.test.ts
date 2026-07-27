@@ -193,6 +193,17 @@ describe("ASCII SSH transport", () => {
     await session.stop();
   });
 
+  it("rejects invalid environment names before launching", async () => {
+    const server = new FakeSshServer();
+    const session = await openSession(server);
+
+    await expect(
+      session.spawn!({ command: "true", env: { "SAFE; touch /tmp/injected; #": "value" } }),
+    ).rejects.toThrow("Invalid Box environment variable");
+    expect(server.commands.join("\n")).not.toContain("touch /tmp/injected");
+    expect(server.boxDestroys).toBe(1);
+  });
+
   it("accepts a transient unit that systemd already collected", async () => {
     const server = new FakeSshServer();
     server.unitCollected = true;

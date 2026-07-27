@@ -25,6 +25,7 @@ interface AsciiRuntimeDependencies {
   createClient?: (options: { apiKey: string; baseUrl: string }) => Promise<AsciiClient>;
   createIdentity?: () => Promise<AsciiSshIdentity>;
   openSsh?: (options: AsciiSshOptions) => Promise<RuntimeSession>;
+  provisioningTimeoutMs?: number;
 }
 
 interface AsciiClient {
@@ -107,7 +108,12 @@ export function createAsciiRuntime(
       let runtimeSession: RuntimeSession | undefined;
       try {
         openOptions.signal?.throwIfAborted();
-        const box = await waitForAsciiBox(client, boxId, openOptions.signal);
+        const box = await waitForAsciiBox(
+          client,
+          boxId,
+          openOptions.signal,
+          dependencies.provisioningTimeoutMs ?? 300_000,
+        );
         const identity = await (dependencies.createIdentity ?? createAsciiSshIdentity)();
         await client.sshKey(
           { boxId, sshKeyRequest: { key: identity.publicKey } },
@@ -125,7 +131,12 @@ export function createAsciiRuntime(
           },
           openOptions.signal,
         );
-        runtimeSession = withAsciiLifecycle(transport, client, boxId);
+        runtimeSession = withAsciiLifecycle(
+          transport,
+          client,
+          boxId,
+          openOptions.id ?? boxId,
+        );
         await probeAsciiTransport(runtimeSession, openOptions.signal);
         const env = await resolveRemoteEnvironment(input, {
           home: "/home/user/.vitehub/home",
@@ -185,16 +196,19 @@ async function waitForAsciiBox(
   client: AsciiClient,
   boxId: string,
   signal: AbortSignal | undefined,
+  timeoutMs: number,
 ) {
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const provisioningSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
   for (let attempt = 0; attempt < 150; attempt++) {
-    signal?.throwIfAborted();
-    const { box } = await client.get({ boxId }, requestInit(signal));
+    provisioningSignal.throwIfAborted();
+    const { box } = await client.get({ boxId }, requestInit(provisioningSignal));
     if (["ready", "idle", "running"].includes(box.state) && box.ip) return box;
     if (box.state === "error")
       throw new Error(`[vitehub] ASCII Box ${boxId} entered the error state.`);
     if (box.state === "archived")
       throw new Error(`[vitehub] ASCII Box ${boxId} was archived during provisioning.`);
-    await abortableDelay(2_000, signal);
+    await abortableDelay(2_000, provisioningSignal);
   }
   throw new Error(`[vitehub] ASCII Box ${boxId} did not become ready within five minutes.`);
 }
@@ -322,11 +336,12 @@ function withAsciiLifecycle(
   transport: RuntimeSession,
   client: AsciiClient,
   boxId: string,
+  sessionId: string,
 ): RuntimeSession {
   let destroyPromise: Promise<void> | undefined;
   return {
     ...transport,
-    id: boxId,
+    id: sessionId,
     async destroy() {
       destroyPromise ??= closeAsciiBox(transport, client, boxId);
       return await destroyPromise;

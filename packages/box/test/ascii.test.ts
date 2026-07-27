@@ -66,6 +66,15 @@ describe("ASCII Box runtime", () => {
     expect(fixture.machine.stops).toBe(1);
   });
 
+  it("preserves a caller-supplied session ID", async () => {
+    const fixture = asciiFixture();
+    const box = await resolveBox({ runtime: fixture.runtime }, {});
+    const session = await box.open({ id: "invocation-session" });
+
+    expect(session.id).toBe("invocation-session");
+    await session.close();
+  });
+
   it("uses a fresh cleanup signal when provisioning is cancelled", async () => {
     const fixture = asciiFixture();
     const controller = new AbortController();
@@ -82,6 +91,20 @@ describe("ASCII Box runtime", () => {
     await expect(opened).rejects.toThrow("cancel ASCII provisioning");
     expect(fixture.control.removes).toBe(1);
     expect(fixture.control.cleanupSignal?.aborted).toBe(false);
+  });
+
+  it("bounds a stalled provisioning request without a caller signal", async () => {
+    const fixture = asciiFixture({ provisioningTimeoutMs: 5 });
+    fixture.control.waitForReady = async (signal) =>
+      await new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    const box = await resolveBox({ runtime: fixture.runtime }, {});
+
+    const failure = await box.open().catch((error) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(fixture.control.gets).toBeGreaterThanOrEqual(1);
+    expect(fixture.control.removes).toBe(1);
   });
 
   it("finishes create before honoring cancellation so the new Box can be deleted", async () => {
@@ -165,7 +188,7 @@ describe("ASCII Box runtime", () => {
   });
 });
 
-function asciiFixture() {
+function asciiFixture(options: { provisioningTimeoutMs?: number } = {}) {
   const machine = new FakeAsciiMachine();
   const control = {
     archiveAfterStop: true,
@@ -246,6 +269,7 @@ function asciiFixture() {
         async openSsh() {
           return machine.session;
         },
+        provisioningTimeoutMs: options.provisioningTimeoutMs,
       },
     ),
   };

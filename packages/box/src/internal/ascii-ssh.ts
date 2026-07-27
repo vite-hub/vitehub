@@ -387,9 +387,11 @@ function launchScriptContents(
   path: string,
   options: { command: string; env?: Record<string, string> },
 ) {
-  const exports = Object.entries(options.env ?? {}).map(
-    ([name, value]) => `export ${name}=${shellQuote(value)}`,
-  );
+  const exports = Object.entries(options.env ?? {}).map(([name, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      throw new TypeError(`[vitehub] Invalid Box environment variable: ${name}`);
+    return `export ${name}=${shellQuote(value)}`;
+  });
   return [
     "#!/bin/sh",
     ...exports,
