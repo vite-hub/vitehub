@@ -36,9 +36,11 @@
     "test": "vp run -t @vite-hub/box#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
+    "@asciidev/box-sdk": "^0.0.24",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
     "@vercel/sandbox": "catalog:sandbox",
@@ -48,10 +50,14 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@asciidev/box-sdk": "^0.0.24",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@vercel/sandbox": "catalog:sandbox"
   },
   "peerDependenciesMeta": {
+    "@asciidev/box-sdk": {
+      "optional": true
+    },
     "@cloudflare/sandbox": {
       "optional": true
     },

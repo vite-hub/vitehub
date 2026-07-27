@@ -108,6 +108,33 @@ describe("remote Box providers", () => {
     expect(received).toBe(controller.signal);
   });
 
+  it("preserves initialization and cleanup failures", async () => {
+    const instance = vercelInstance();
+    instance.stop = async () => {
+      throw new Error("provider cleanup failed");
+    };
+    const box = await resolveBox({
+      runtime: createVercelRuntime({ create: async () => instance }),
+    }, {});
+
+    let failure: unknown;
+    try {
+      await box.open({
+        async initialize() {
+          throw new Error("initialization failed");
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: "initialization failed" }),
+      expect.objectContaining({ message: "provider cleanup failed" }),
+    ]);
+  });
+
   it.each([
     [undefined, "unrestricted"],
     ["allow-all" as const, "unrestricted"],

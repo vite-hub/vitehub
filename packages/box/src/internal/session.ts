@@ -96,7 +96,7 @@ interface RuntimeCommandOptions {
 export function createBoxSession(
   runtime: RuntimeSession,
   openOptions: BoxRuntimeOpenOptions,
-  cwd = runtime.defaultWorkingDirectory,
+  cwd: string = runtime.defaultWorkingDirectory,
 ): BoxSession {
   let closePromise: Promise<void> | undefined;
   let closed = false;

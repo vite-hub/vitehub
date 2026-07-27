@@ -123,6 +123,8 @@ ignoreDependencies = [
   "@azure/storage-blob",
   # The umbrella package owns the AI SDK 6 peer required by files-sdk.
   "ai",
+  # Box provider adapters load these only from runtime-selected chunks.
+  "@asciidev/box-sdk",
   "@cloudflare/sandbox",
   "@google-cloud/storage",
   "@googleapis/drive",
@@ -140,6 +142,7 @@ ignoreDependencies = [
   "files-sdk",
   "google-auth-library",
   "publint",
+  "ssh2",
   "uploadthing",
   "workflow",
 ]

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
+import type { AsciiBoxOptions } from "./ascii.ts";
 import type { CloudflareBoxOptions, CloudflareDurableObjectNamespace, CloudflareSandboxStub } from "./cloudflare.ts";
 import type { CrabboxOptions } from "./internal/crabbox.ts";
 import type { TrustedHostOptions } from "./internal/trusted-host.ts";
@@ -17,6 +18,7 @@ import type {
 import { isBuiltInBoxRuntime } from "./internal/runtime.ts";
 
 export type {
+  AsciiBoxOptions,
   CloudflareBoxOptions,
   CloudflareDurableObjectNamespace,
   CloudflareSandboxStub,
@@ -75,10 +77,11 @@ export interface BoxDefinition<Context = unknown> {
   runtime: BoxRuntimeDefinition;
 }
 
-export type BuiltInBoxRuntimeName = "crabbox" | "trusted-host" | "vercel";
+export type BuiltInBoxRuntimeName = "ascii" | "crabbox" | "trusted-host" | "vercel";
 
 export type BuiltInBoxRuntime =
   | BuiltInBoxRuntimeName
+  | ({ kind: "ascii" } & AsciiBoxOptions)
   | ({ kind: "crabbox" } & CrabboxOptions)
   | ({ kind: "trusted-host" } & TrustedHostOptions)
   | ({ kind: "cloudflare" } & CloudflareBoxOptions)
@@ -255,6 +258,7 @@ export interface ResolveBoxOptions {
 }
 
 const reservedRuntimeNames = new Set([
+  "ascii",
   "cloudflare",
   "crabbox",
   "trusted-host",
@@ -269,6 +273,10 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
     return value;
   }
   if (typeof value === "string") {
+    if (value === "ascii") {
+      const { createAsciiRuntime } = await import("./ascii.ts");
+      return createAsciiRuntime();
+    }
     if (value === "crabbox") {
       const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
       return createCrabboxRuntime();
@@ -281,13 +289,17 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
       const { createVercelRuntime } = await import("./vercel.ts");
       return createVercelRuntime();
     }
-    throw new Error(`[vitehub] Unknown Box runtime "${value}". Expected "crabbox", "trusted-host", "vercel", a tagged built-in configuration, or a custom runtime.`);
+    throw new Error(`[vitehub] Unknown Box runtime "${value}". Expected "ascii", "crabbox", "trusted-host", "vercel", a tagged built-in configuration, or a custom runtime.`);
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("[vitehub] Box requires an explicit built-in runtime value or custom runtime object.");
   }
 
   const { kind, ...options } = value as Record<string, unknown>;
+  if (kind === "ascii") {
+    const { createAsciiRuntime } = await import("./ascii.ts");
+    return createAsciiRuntime(options as AsciiBoxOptions);
+  }
   if (kind === "crabbox") {
     const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
     return createCrabboxRuntime(options as CrabboxOptions);
@@ -304,7 +316,7 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
     const { createVercelRuntime } = await import("./vercel.ts");
     return createVercelRuntime(options as VercelBoxOptions);
   }
-  throw new Error(`[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", or "vercel".`);
+  throw new Error(`[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "ascii", "crabbox", "trusted-host", "cloudflare", or "vercel".`);
 }
 
 function isBoxRuntime(value: unknown): value is BoxRuntime {
