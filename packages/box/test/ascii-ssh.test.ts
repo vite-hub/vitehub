@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
+import { Duplex, PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -183,25 +183,88 @@ describe("ASCII SSH transport", () => {
     });
 
     expect(server.commands.join("\n")).not.toContain("secret-value");
-    expect(server.writtenFiles).toEqual([
-      expect.objectContaining({
-        contents: expect.stringContaining("secret-value"),
-        mode: 0o700,
-      }),
-    ]);
+    expect(server.process?.input).toContain("export 'GH_TOKEN=secret-value'");
+    expect(server.writtenFiles).toEqual([]);
     await process.kill();
     await session.stop();
   });
 
-  it("rejects invalid environment names before launching", async () => {
+  it("waits for the launch input to flush before returning the process", async () => {
+    const server = new FakeSshServer();
+    server.holdProcessInput = true;
+    const session = await openSession(server);
+    let opened = false;
+    const opening = session.spawn!({ command: "sleep 3600" }).then((process) => {
+      opened = true;
+      return process;
+    });
+
+    await vi.waitFor(() => expect(server.process?.input).toContain("sleep 3600"));
+    expect(opened).toBe(false);
+    server.releaseProcessInput();
+
+    const process = await opening;
+    await process.kill();
+    await session.stop();
+  });
+
+  it("destroys the Box once when launch input delivery is cancelled", async () => {
+    const server = new FakeSshServer();
+    server.holdProcessInput = true;
+    const session = await openSession(server);
+    const controller = new AbortController();
+    const opening = session.spawn!({
+      abortSignal: controller.signal,
+      command: "sleep 3600",
+    });
+
+    await vi.waitFor(() => expect(server.process?.input).toContain("sleep 3600"));
+    controller.abort(new Error("cancel launch input"));
+
+    await expect(opening).rejects.toThrow("cancel launch input");
+    expect(server.boxDestroys).toBe(1);
+    await session.stop();
+  });
+
+  it("destroys the Box once when launch input delivery fails", async () => {
+    const server = new FakeSshServer();
+    server.processInputError = new Error("SSH write failed");
+    const session = await openSession(server);
+
+    await expect(session.spawn!({ command: "sleep 3600" })).rejects.toThrow("SSH write failed");
+    expect(server.boxDestroys).toBe(1);
+    await session.stop();
+  });
+
+  it("coalesces client and channel failures into one provider deletion", async () => {
+    const server = new FakeSshServer();
+    server.holdProcessInput = true;
+    const session = await openSession(server);
+    const opening = session.spawn!({ command: "sleep 3600" });
+
+    await vi.waitFor(() => expect(server.process?.input).toContain("sleep 3600"));
+    server.client.emit("error", new Error("SSH connection lost"));
+    server.process?.failInput(new Error("SSH channel closed"));
+
+    await expect(opening).rejects.toThrow("SSH channel closed");
+    await vi.waitFor(() => expect(server.boxDestroys).toBe(1));
+    await expect(session.stop()).rejects.toThrow();
+  });
+
+  it("rejects invalid environment variable names without launching a process", async () => {
     const server = new FakeSshServer();
     const session = await openSession(server);
 
     await expect(
-      session.spawn!({ command: "true", env: { "SAFE; touch /tmp/injected; #": "value" } }),
-    ).rejects.toThrow("Invalid Box environment variable");
-    expect(server.commands.join("\n")).not.toContain("touch /tmp/injected");
-    expect(server.boxDestroys).toBe(1);
+      session.spawn!({
+        command: "sleep 3600",
+        env: { "X; touch /tmp/pwned; #": "value" },
+      }),
+    ).rejects.toThrow("Invalid environment variable name");
+
+    expect(server.commands.some((command) => command.includes("systemd-run"))).toBe(false);
+    expect(server.boxDestroys).toBe(0);
+    await session.stop();
   });
 
   it("accepts a transient unit that systemd already collected", async () => {
@@ -295,17 +358,19 @@ class FakeSshServer {
   holdConnect = false;
   holdObservation = false;
   holdExec = false;
+  holdProcessInput = false;
   holdSftpOpen = false;
   holdSftpRead = false;
   observation: FakeChannel | undefined;
   process: FakeChannel | undefined;
+  processInputError: Error | undefined;
   processStderr = [] as string[];
   processStdout = ["started"] as string[];
   sftpError: Error | undefined;
   sftpOpens = 0;
   sftpReads = 0;
   verificationExitCode = 0;
-  readonly writtenFiles: Array<{ contents: string; mode?: number; path: string }> = [];
+  readonly writtenFiles: Array<{ contents: string; path: string }> = [];
   unitCollected = false;
 
   constructor() {
@@ -317,8 +382,12 @@ class FakeSshServer {
     const channel = new FakeChannel();
     if (command.includes("systemd-run")) {
       this.process = channel;
-      for (const chunk of this.processStdout) channel.write(chunk);
-      for (const chunk of this.processStderr) channel.stderr.write(chunk);
+      channel.holdInput = this.holdProcessInput;
+      channel.inputError = this.processInputError;
+      channel.once("finish", () => {
+        for (const chunk of this.processStdout) channel.output(chunk);
+        for (const chunk of this.processStderr) channel.stderr.write(chunk);
+      });
     } else if (command.includes("systemctl kill")) {
       const signal = command.match(/--signal=SIG([A-Z]+)/)?.[1] ?? "TERM";
       this.killSignals.push(signal);
@@ -351,6 +420,10 @@ class FakeSshServer {
 
   releaseObservation() {
     this.observation?.finish(0, "loaded\nactive\n");
+  }
+
+  releaseProcessInput() {
+    this.process?.releaseInput();
   }
 }
 
@@ -410,34 +483,58 @@ class FakeSftp {
   writeFile(
     path: string,
     contents: Buffer,
-    options:
-      | { mode: number }
-      | ((error: NodeJS.ErrnoException | null, value: void) => void),
-    callback?: (error: NodeJS.ErrnoException | null, value: void) => void,
+    callback: (error: NodeJS.ErrnoException | null, value: void) => void,
   ) {
     this.server.writtenFiles.push({
       contents: contents.toString(),
-      mode: typeof options === "function" ? undefined : options.mode,
       path,
     });
-    (typeof options === "function" ? options : callback!)(null, undefined);
+    callback(null, undefined);
   }
 }
 
-class FakeChannel extends PassThrough {
+class FakeChannel extends Duplex {
+  holdInput = false;
+  inputError: Error | undefined;
   readonly stderr = new PassThrough();
+  input = "";
   private finished = false;
+  private inputCallback: ((error?: Error | null) => void) | undefined;
 
   constructor() {
     super({ autoDestroy: false });
   }
 
+  _read() {}
+
+  _write(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void) {
+    this.input += chunk.toString();
+    if (this.inputError) callback(this.inputError);
+    else if (this.holdInput) this.inputCallback = callback;
+    else callback();
+  }
+
+  output(contents: string) {
+    this.push(contents);
+  }
+
+  releaseInput() {
+    this.holdInput = false;
+    this.inputCallback?.();
+    this.inputCallback = undefined;
+  }
+
+  failInput(error: Error) {
+    this.inputCallback?.(error);
+    this.inputCallback = undefined;
+  }
+
   finish(code: number, stdout = "", stderr = "") {
     if (this.finished) return;
     this.finished = true;
-    if (stdout) this.write(stdout);
+    if (stdout) this.output(stdout);
     if (stderr) this.stderr.write(stderr);
-    this.end();
+    this.push(null);
     this.stderr.end();
     queueMicrotask(() => {
       this.emit("exit", code);

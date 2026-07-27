@@ -105,6 +105,8 @@ export function createAsciiRuntime(
         requestInit(AbortSignal.timeout(300_000)),
       );
       const boxId = created.box.id;
+      let removePromise: Promise<void> | undefined;
+      const removeBox = () => (removePromise ??= removeAsciiBox(client, boxId));
       let runtimeSession: RuntimeSession | undefined;
       try {
         openOptions.signal?.throwIfAborted();
@@ -124,19 +126,14 @@ export function createAsciiRuntime(
           dependencies.openSsh ?? openAsciiSshSession,
           {
             abortSignal: openOptions.signal,
-            destroyBox: async () => await removeAsciiBox(client, boxId),
+            destroyBox: removeBox,
             host: box.ip!,
             hostKeys,
             identity,
           },
           openOptions.signal,
         );
-        runtimeSession = withAsciiLifecycle(
-          transport,
-          client,
-          boxId,
-          openOptions.id ?? boxId,
-        );
+        runtimeSession = withAsciiLifecycle(transport, boxId, removeBox, openOptions.id ?? boxId);
         await probeAsciiTransport(runtimeSession, openOptions.signal);
         const env = await resolveRemoteEnvironment(input, {
           home: "/home/user/.vitehub/home",
@@ -163,7 +160,7 @@ export function createAsciiRuntime(
           throw error;
         }
         try {
-          await removeAsciiBox(client, boxId);
+          await removeBox();
         } catch (cleanupError) {
           throw new AggregateError(
             [error, cleanupError],
@@ -334,8 +331,8 @@ function withBaseEnvironment(
 
 function withAsciiLifecycle(
   transport: RuntimeSession,
-  client: AsciiClient,
   boxId: string,
+  removeBox: () => Promise<void>,
   sessionId: string,
 ): RuntimeSession {
   let destroyPromise: Promise<void> | undefined;
@@ -343,13 +340,17 @@ function withAsciiLifecycle(
     ...transport,
     id: sessionId,
     async destroy() {
-      destroyPromise ??= closeAsciiBox(transport, client, boxId);
+      destroyPromise ??= closeAsciiBox(transport, boxId, removeBox);
       return await destroyPromise;
     },
   };
 }
 
-async function closeAsciiBox(transport: RuntimeSession, client: AsciiClient, boxId: string) {
+async function closeAsciiBox(
+  transport: RuntimeSession,
+  boxId: string,
+  removeBox: () => Promise<void>,
+) {
   const failures: unknown[] = [];
   try {
     await withTimeout(
@@ -361,7 +362,7 @@ async function closeAsciiBox(transport: RuntimeSession, client: AsciiClient, box
     failures.push(error);
   }
   try {
-    await removeAsciiBox(client, boxId);
+    await removeBox();
   } catch (error) {
     failures.push(error);
   }
