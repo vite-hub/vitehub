@@ -97,6 +97,7 @@ export default defineConfig({
       preset: 'cloudflare',
       browser: {
         binding: 'RENDER_BROWSER',
+        remote: true,
       },
     }),
   ],
@@ -106,12 +107,12 @@ export default defineConfig({
 | Shape | Description |
 | --- | --- |
 | `browser: true` | Enables Browser with the `BROWSER` binding. |
-| `browser: { binding }` | Enables Browser with a custom Cloudflare binding name. |
+| `browser: { binding, remote? }` | Enables Browser with a custom Cloudflare binding name; `remote: true` connects local Wrangler development to Cloudflare Browser Run. |
 | `browser: false` | Disables Browser Provider Output. |
 
 The Cloudflare preset writes the Browser Run binding plus the `nodejs_compat` and `no_websocket_standard_binary_type` flags to Nitro's generated Provider Output. The second flag preserves `ArrayBuffer` delivery for the Playwright WebSocket connection.
 
-Cloudflare can run a local browser during `wrangler dev`. Set `remote: true` on a Browser binding only when a local proof must connect to Cloudflare's Browser Run service. A direct standalone `hubBrowser()` integration writes the Browser binding, while the application remains responsible for compatibility flags outside Nitro-managed output.
+Cloudflare can run a local browser during `wrangler dev`. Set `remote: true` only when a local proof must connect to Cloudflare's Browser Run service. Both the root integration and direct `hubBrowser()` output write the Browser binding and required compatibility flags while preserving unrelated Wrangler fields.
 
 ## Low-level sessions
 

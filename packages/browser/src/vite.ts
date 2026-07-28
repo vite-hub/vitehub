@@ -17,6 +17,7 @@ import type { Plugin, ResolvedConfig } from "vite"
 
 export interface BrowserModuleOptions {
   binding?: string
+  remote?: boolean
 }
 
 export type BrowserVitePlugin = Plugin & {
@@ -36,7 +37,14 @@ function resolveOptions(options: BrowserModuleOptions | false | undefined): Requ
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
     throw new TypeError("[vitehub:browser] Browser binding must be a valid Cloudflare binding name.")
   }
-  return { binding }
+  return { binding, remote: Boolean(options && options.remote) }
+}
+
+function browserBinding(options: Required<BrowserModuleOptions>) {
+  return {
+    binding: options.binding,
+    ...(options.remote ? { remote: true } : {}),
+  }
 }
 
 function cloneRecord(value: unknown): Record<string, unknown> {
@@ -72,7 +80,7 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
       ...cloudflare,
       wrangler: {
         ...wrangler,
-        browser: { binding: options.binding },
+        browser: browserBinding(options),
         compatibility_flags: flags,
       },
     },
@@ -200,7 +208,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
           ...(enabled
             ? {
                 wranglerConfig: {
-                  browser: { binding: resolvedOptions.binding },
+                  browser: browserBinding(resolvedOptions),
                   compatibility_flags: ["nodejs_compat", "no_websocket_standard_binary_type"],
                 },
               }

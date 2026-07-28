@@ -25,11 +25,11 @@ describe("hubBrowser", () => {
         rollupConfig: { external: ["existing-module"] },
       },
     }
-    const plugin = hubBrowser({ binding: "MY_BROWSER" })
+    const plugin = hubBrowser({ binding: "MY_BROWSER", remote: true })
 
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
-    expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER" })
+    expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER", remote: true })
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", [
       "existing",
       "nodejs_compat",
@@ -48,7 +48,7 @@ describe("hubBrowser", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "TOP_LEVEL_BROWSER" })
-    expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER" })
+    expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", remote: false })
   })
 
   it("generates the provider runtime and discovered Browser Definition registry", async () => {
@@ -297,9 +297,9 @@ describe("hubBrowser", () => {
     const outputFile = join(outputDir, "wrangler.json")
     await mkdir(outputDir, { recursive: true })
     await writeFile(outputFile, JSON.stringify({ compatibility_flags: ["custom"] }))
-    const plugin = hubBrowser({ binding: "BROWSER" })
+    const plugin = hubBrowser({ binding: "BROWSER", remote: true })
     ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
-      browser: { binding: "BROWSER" },
+      browser: { binding: "BROWSER", remote: true },
       build: { outDir: "dist" },
       command: "build",
       mode: "production",
@@ -310,7 +310,7 @@ describe("hubBrowser", () => {
 
     const output = JSON.parse(await readFile(outputFile, "utf8"))
     expect(output).toEqual({
-      browser: { binding: "BROWSER" },
+      browser: { binding: "BROWSER", remote: true },
       compatibility_flags: ["custom", "nodejs_compat", "no_websocket_standard_binary_type"],
     })
 

@@ -133,7 +133,7 @@ export default defineConfig({
 
 ViteHub writes the generated `browser` binding plus the `nodejs_compat` and `no_websocket_standard_binary_type` flags. Browser Definitions import runtime helpers from `vite-hub/browser`; provider modules and the generated `wrangler.json` are not application import surfaces.
 
-`wrangler dev` can run Browser Run against a local browser. A Browser binding with `remote: true` keeps Worker code local while connecting that binding to Cloudflare, which is useful when a proof must exercise the hosted Browser Run service.
+`wrangler dev` can run Browser Run against a local browser. Set `browser: { remote: true }` to keep Worker code local while connecting its Browser binding to Cloudflare, which is useful when a proof must exercise the hosted Browser Run service.
 
 ## Production notes
 
