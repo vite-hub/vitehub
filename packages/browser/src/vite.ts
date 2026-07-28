@@ -141,7 +141,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   }
 
   async function refreshRegistryTypes(root: string) {
-    const definitions = discoverDefinitions(root)
+    const definitions = enabled ? discoverDefinitions(root) : []
     await writeFileIfChanged(
       resolve(projectRoot, ".vitehub", "types", "browser.d.ts"),
       renderBrowserRegistryTypes(definitions),

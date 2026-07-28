@@ -96,4 +96,24 @@ describe("cloudflareBrowser", () => {
     expect(driver.connect).toHaveBeenCalledTimes(2)
     expect(send).toHaveBeenCalledWith("Browser.close")
   })
+
+  it("retries provider termination after Browser.close is rejected", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(new Error("command not delivered"))
+      .mockResolvedValue(undefined)
+    const driver = {
+      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      connect: vi.fn(async () => ({
+        close: vi.fn(),
+        newBrowserCDPSession: async () => ({ detach: vi.fn(), send }),
+      })),
+    }
+    const session = await cloudflareBrowser({ binding: { fetch: vi.fn() }, driver }).open()
+
+    await expect(session.close()).rejects.toThrow("terminate a Browser Run session")
+    await session.close()
+
+    expect(driver.connect).toHaveBeenCalledTimes(2)
+    expect(send).toHaveBeenCalledTimes(2)
+  })
 })

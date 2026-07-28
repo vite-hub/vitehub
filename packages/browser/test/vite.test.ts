@@ -104,6 +104,61 @@ describe("hubBrowser", () => {
     )
   })
 
+  it("discovers Browser Definitions from the project root when Vite runs from app", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-app-root-"))
+    roots.push(root)
+    const appRoot = join(root, "app")
+    await mkdir(join(root, "server", "browsers"), { recursive: true })
+    await mkdir(appRoot)
+    await writeFile(
+      join(root, "server", "browsers", "parent-definition.ts"),
+      "export default defineBrowser(async () => undefined)\n",
+      "utf8",
+    )
+    const plugin = hubBrowser()
+    const config = {
+      browser: {},
+      build: { outDir: "dist" },
+      command: "serve",
+      mode: "development",
+      nitro: {},
+      root: appRoot,
+    }
+
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+
+    await expect(readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")).resolves.toContain(
+      "server/browsers/parent-definition.ts",
+    )
+  })
+
+  it("generates an empty Browser registry when disabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-disabled-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "browsers"), { recursive: true })
+    await writeFile(
+      join(root, "server", "browsers", "disabled-definition.ts"),
+      "export default defineBrowser(async () => undefined)\n",
+      "utf8",
+    )
+    const plugin = hubBrowser(false)
+    const config = {
+      browser: false,
+      build: { outDir: "dist" },
+      command: "serve",
+      mode: "development",
+      nitro: {},
+      root,
+    }
+
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+
+    const types = await readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")
+    expect(types).not.toContain("disabled-definition")
+  })
+
   it("compiles generated runBrowser names, inputs, and results", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-types-"))
     roots.push(root)

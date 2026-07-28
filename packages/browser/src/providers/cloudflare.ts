@@ -85,10 +85,9 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
           try {
             const browser = await driver.connect(binding, acquired.sessionId)
             const cdp = await browser.newBrowserCDPSession()
-            const termination = cdp.send("Browser.close")
+            await cdp.send("Browser.close")
             connection[cloudflareBrowserTerminated] = true
             closed = true
-            void Promise.resolve(termination).catch(() => {})
           }
           catch (error) {
             throw browserProviderError("cloudflare", "terminate a Browser Run session", { cause: error })
