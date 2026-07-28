@@ -57,6 +57,7 @@ const defaultFeatures: BrowserFeatures = {
 
 interface HandoffRecord<TConnection> {
   audience: string
+  cleanup?: Promise<void>
   expiresAt: number
   features: BrowserFeatures
   lease?: Lease
@@ -316,7 +317,7 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
     return session
   }
 
-  createHandoff(input: Omit<HandoffRecord<TConnection>, "expiresAt" | "timer"> & { ttl?: number }): BrowserSessionRef {
+  createHandoff(input: Omit<HandoffRecord<TConnection>, "cleanup" | "expiresAt" | "timer"> & { ttl?: number }): BrowserSessionRef {
     const ttl = input.ttl ?? this.options.policy?.handoffTtl ?? 60_000
     if (!Number.isFinite(ttl) || ttl <= 0) {
       throw new TypeError("[vitehub:browser] Browser handoff ttl must be a positive number of milliseconds.")
@@ -327,10 +328,7 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       ...input,
       expiresAt,
       timer: setTimeout(() => {
-        const current = this.handoffs.get(id)
-        if (current !== record) return
-        this.handoffs.delete(id)
-        void releaseResource(current).catch(() => {})
+        void this.expireHandoff(id, record)
       }, ttl),
     }
     if (typeof record.timer === "object" && "unref" in record.timer) record.timer.unref()
@@ -354,12 +352,12 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
     assertAudience(options?.audience)
     const record = this.handoffs.get(ref?.id)
     if (!record) throw browserSessionRefError("unknown")
-    this.handoffs.delete(ref.id)
-    clearTimeout(record.timer)
     if (record.expiresAt <= Date.now()) {
-      await releaseResource(record).catch(() => {})
+      await this.expireHandoff(ref.id, record)
       throw browserSessionRefError("expired")
     }
+    this.handoffs.delete(ref.id)
+    clearTimeout(record.timer)
     if (record.audience !== options.audience) {
       await releaseResource(record).catch(() => {})
       throw browserSessionRefError("audience")
@@ -387,6 +385,24 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       throw error
     }
     return session
+  }
+
+  private expireHandoff(id: string, record: HandoffRecord<TConnection>): Promise<void> {
+    if (this.handoffs.get(id) !== record) return Promise.resolve()
+    if (record.cleanup) return record.cleanup
+    record.cleanup = releaseResource(record)
+      .then(() => {
+        if (this.handoffs.get(id) === record) this.handoffs.delete(id)
+      })
+      .catch(() => {
+        if (this.handoffs.get(id) !== record) return
+        record.timer = setTimeout(() => void this.expireHandoff(id, record), 1_000)
+        if (typeof record.timer === "object" && "unref" in record.timer) record.timer.unref()
+      })
+      .finally(() => {
+        record.cleanup = undefined
+      })
+    return record.cleanup
   }
 }
 

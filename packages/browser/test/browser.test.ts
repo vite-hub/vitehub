@@ -73,6 +73,30 @@ describe("Browser Sessions", () => {
     expect(session.inspect().state).toBe("closed")
   })
 
+  it("retries failed cleanup for an expired handoff", async () => {
+    vi.useFakeTimers()
+    try {
+      const { close, provider } = fixture()
+      close.mockRejectedValueOnce(new Error("temporary close failure"))
+      const browser = createBrowser({ policy: { handoffTtl: 10 }, provider })
+      const session = await browser.open()
+      const ref = await session.handoff({ audience: "run-1", mode: "live" })
+
+      await vi.advanceTimersByTimeAsync(10)
+      expect(close).toHaveBeenCalledOnce()
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(close).toHaveBeenCalledTimes(2)
+      await expect(browser.claim(ref, { audience: "run-1" })).rejects.toMatchObject({
+        code: "BROWSER_SESSION_REF_INVALID",
+        details: { reason: "unknown" },
+      })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("transfers one exact live session through an opaque one-time reference", async () => {
     const { close, controller, provider } = fixture()
     const browser = createBrowser({ policy: { handoffTtl: 5_000 }, provider })
