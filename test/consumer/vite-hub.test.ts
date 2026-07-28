@@ -200,6 +200,8 @@ function workspaceConfig(specs: Record<string, string>) {
     "  esbuild: true",
     "  msgpackr-extract: false",
     "overrides:",
+    // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires incompatible 2.x peers.
+    "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
     ...overrides,
     "",
   ].join("\n")

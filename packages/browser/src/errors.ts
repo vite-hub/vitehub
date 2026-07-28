@@ -1,4 +1,4 @@
-import { ViteHubError } from "@vite-hub/runtime"
+import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 export function browserSessionStateError(action: string, state: string): ViteHubError {
   return new ViteHubError("BROWSER_SESSION_STATE", `[vitehub:browser] Cannot ${action} a Browser Session while it is ${state}.`, {
@@ -25,4 +25,33 @@ export function browserProviderError(provider: string, operation: string, option
     cause: options.cause,
     details: { operation, provider, ...(options.status === undefined ? {} : { status: options.status }) },
   })
+}
+
+export function browserDefinitionNotFoundError(name: string): ViteHubError {
+  return new ViteHubError(
+    "BROWSER_DEFINITION_NOT_FOUND",
+    `[vitehub:browser] Browser Definition ${JSON.stringify(name)} was not found.`,
+    { details: { name } },
+  )
+}
+
+export function browserRuntimeNotConfiguredError(): ViteHubError {
+  return new ViteHubError(
+    "BROWSER_RUNTIME_NOT_CONFIGURED",
+    "[vitehub:browser] Browser runtime is not configured. Enable Browser through the ViteHub deployment preset.",
+  )
+}
+
+function isBrowserError(value: unknown): value is ViteHubError<`BROWSER_${string}`> {
+  return getViteHubErrorShape(value)?.code.startsWith("BROWSER_") === true
+}
+
+export function toBrowserError(error: unknown): ViteHubError<`BROWSER_${string}`> {
+  if (isBrowserError(error)) return error
+  const message = error instanceof Error ? error.message : String(error)
+  return new ViteHubError(
+    "BROWSER_RUNTIME_ERROR",
+    message || "[vitehub:browser] Browser Definition execution failed.",
+    { cause: error },
+  )
 }

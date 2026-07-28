@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { cloudflareBrowserTerminated } from "../src/internal/connections.ts"
 import { cloudflareBrowser } from "../src/providers/cloudflare.ts"
 
 describe("cloudflareBrowser", () => {
@@ -25,8 +26,8 @@ describe("cloudflareBrowser", () => {
     await session.close()
     expect(driver.connect).toHaveBeenCalledWith(binding, "cf-session")
     expect(send).toHaveBeenCalledWith("Browser.close")
-    expect(detach).toHaveBeenCalledOnce()
-    expect(browserClose).toHaveBeenCalledOnce()
+    expect(detach).not.toHaveBeenCalled()
+    expect(browserClose).not.toHaveBeenCalled()
   })
 
   it("resolves a named request-scoped binding", async () => {
@@ -47,6 +48,20 @@ describe("cloudflareBrowser", () => {
     const session = await provider.open()
     expect(driver.acquire).toHaveBeenCalledWith(binding)
     await session.close()
+  })
+
+  it("does not reconnect after the attached controller terminates the session", async () => {
+    const binding = { fetch: vi.fn() }
+    const driver = {
+      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      connect: vi.fn(),
+    }
+    const session = await cloudflareBrowser({ binding, driver }).open()
+    session.connection[cloudflareBrowserTerminated] = true
+
+    await session.close()
+
+    expect(driver.connect).not.toHaveBeenCalled()
   })
 
   it("passes the requested idle timeout to Browser Run", async () => {
@@ -80,5 +95,25 @@ describe("cloudflareBrowser", () => {
 
     expect(driver.connect).toHaveBeenCalledTimes(2)
     expect(send).toHaveBeenCalledWith("Browser.close")
+  })
+
+  it("retries provider termination after Browser.close is rejected", async () => {
+    const send = vi.fn()
+      .mockRejectedValueOnce(new Error("command not delivered"))
+      .mockResolvedValue(undefined)
+    const driver = {
+      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      connect: vi.fn(async () => ({
+        close: vi.fn(),
+        newBrowserCDPSession: async () => ({ detach: vi.fn(), send }),
+      })),
+    }
+    const session = await cloudflareBrowser({ binding: { fetch: vi.fn() }, driver }).open()
+
+    await expect(session.close()).rejects.toThrow("terminate a Browser Run session")
+    await session.close()
+
+    expect(driver.connect).toHaveBeenCalledTimes(2)
+    expect(send).toHaveBeenCalledTimes(2)
   })
 })

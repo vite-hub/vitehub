@@ -8,6 +8,7 @@ type WatchIgnoredValue = WatchIgnoredMatcher | WatchIgnoredMatcher[] | undefined
 const generatedViteHubFilesPattern = "**/.vitehub/**"
 const projectRootDirectoryMarkers = [
   ["server", "agents"],
+  ["server", "browsers"],
   ["server", "schedules"],
   ["server", "templates"],
   ["server", "workspaces"],

@@ -2,7 +2,13 @@ import type {
   LeaseStore,
   MaybePromise,
   TraceEvent,
+  ViteHubError,
 } from "@vite-hub/runtime"
+import type {
+  Browser as PlaywrightBrowser,
+  BrowserContext,
+  Page,
+} from "playwright-core"
 
 export interface BrowserFeatures {
   liveHandoff: boolean
@@ -36,6 +42,11 @@ export interface BrowserControllerLease<TClient> {
   client: TClient
   preservesSessionOnRelease?: boolean
   release(): MaybePromise<void>
+}
+
+export interface BrowserControl<TClient> {
+  readonly client: TClient
+  release(): Promise<void>
 }
 
 export interface BrowserControllerContext {
@@ -82,22 +93,15 @@ export interface BrowserClaimOptions {
 
 export interface BrowserSession<TConnection = unknown> {
   readonly id: string
+  attach<TClient>(controller: BrowserController<TClient, TConnection>): Promise<BrowserControl<TClient>>
   close(): Promise<void>
   handoff(options: BrowserHandoffOptions): Promise<BrowserSessionRef>
   inspect(): BrowserSessionInfo
-  use<TClient, TResult>(
-    controller: BrowserController<TClient, TConnection>,
-    run: (client: TClient) => MaybePromise<TResult>,
-  ): Promise<TResult>
 }
 
 export interface BrowserClient<TConnection = unknown> {
   claim(ref: BrowserSessionRef, options: BrowserClaimOptions): Promise<BrowserSession<TConnection>>
   open(options?: BrowserProviderOpenOptions): Promise<BrowserSession<TConnection>>
-  withSession<TResult>(
-    run: (session: BrowserSession<TConnection>) => MaybePromise<TResult>,
-    options?: BrowserProviderOpenOptions,
-  ): Promise<TResult>
 }
 
 export interface BrowserPolicy {
@@ -110,4 +114,44 @@ export interface CreateBrowserOptions<TConnection> {
   policy?: BrowserPolicy
   provider: BrowserProvider<TConnection>
   trace?: (event: TraceEvent) => MaybePromise<void>
+}
+
+export interface BrowserPageSession {
+  readonly browser: PlaywrightBrowser
+  readonly context: BrowserContext
+  readonly id: string
+  readonly page: Page
+  close(): Promise<void>
+  inspect(): BrowserSessionInfo
+}
+
+export interface BrowserDefinitionBrowser {
+  open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession>
+}
+
+export interface BrowserDefinitionContext {
+  browser: BrowserDefinitionBrowser
+}
+
+export type BrowserDefinitionHandler<TInput = unknown, TResult = unknown> = (
+  input: TInput,
+  context: BrowserDefinitionContext,
+) => MaybePromise<TResult>
+
+export interface BrowserDefinition<TInput = unknown, TResult = unknown> {
+  run: BrowserDefinitionHandler<TInput, TResult>
+}
+
+export type BrowserRunResult<TResult = unknown> =
+  | [error: null, value: TResult]
+  | [error: ViteHubError<`BROWSER_${string}`>, value: undefined]
+
+export type BrowserDefinitionRegistry = Record<
+  string,
+  BrowserDefinition | (() => Promise<BrowserDefinition | { default?: BrowserDefinition }>)
+>
+
+export interface BrowserRuntimeConfig {
+  binding: string
+  provider?: "cloudflare"
 }

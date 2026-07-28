@@ -1,22 +1,40 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { createBrowser, type BrowserSessionRef } from "../src/index.ts"
+import {
+  createBrowser,
+  defineBrowser,
+  type BrowserPageSession,
+  type BrowserRunResult,
+  type BrowserSessionRef,
+} from "../src/index.ts"
 import { playwright, type PlaywrightClient } from "../src/controllers/playwright.ts"
 import { cloudflareBrowser } from "../src/providers/cloudflare.ts"
 import { localBrowser } from "../src/providers/local.ts"
 import { hubBrowser } from "../src/vite.ts"
 
 describe("published Browser types", () => {
-  it("infers native Playwright callback clients for both providers", async () => {
+  it("infers native Playwright controller leases for both providers", async () => {
     const local = createBrowser({ provider: localBrowser({ executablePath: "/usr/bin/chromium" }) })
     const cloudflare = createBrowser({ provider: cloudflareBrowser() })
 
-    await local.withSession(session => session.use(playwright(), (client) => {
-      expectTypeOf(client).toEqualTypeOf<PlaywrightClient>()
-    }))
-    await cloudflare.withSession(session => session.use(playwright(), (client) => {
-      expectTypeOf(client).toEqualTypeOf<PlaywrightClient>()
-    }))
+    const localSession = await local.open()
+    expectTypeOf((await localSession.attach(playwright())).client).toEqualTypeOf<PlaywrightClient>()
+    const cloudflareSession = await cloudflare.open()
+    expectTypeOf((await cloudflareSession.attach(playwright())).client).toEqualTypeOf<PlaywrightClient>()
+  })
+
+  it("types imperative definition-scoped sessions", () => {
+    defineBrowser(async (input: { url: string }, { browser }) => {
+      expectTypeOf(browser.open()).resolves.toEqualTypeOf<BrowserPageSession>()
+      return input.url
+    })
+  })
+
+  it("types error-first Browser Definition results", () => {
+    expectTypeOf<BrowserRunResult<{ title: string }>>().toEqualTypeOf<
+      [error: null, value: { title: string }]
+      | [error: import("@vite-hub/runtime").ViteHubError<`BROWSER_${string}`>, value: undefined]
+    >()
   })
 
   it("returns opaque refs and a Vite plugin", async () => {

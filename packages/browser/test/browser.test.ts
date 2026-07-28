@@ -5,7 +5,6 @@ import {
   createBrowser,
   type BrowserController,
   type BrowserProvider,
-  type BrowserSessionRef,
 } from "../src/index.ts"
 
 interface TestConnection {
@@ -50,7 +49,9 @@ describe("Browser Sessions", () => {
     const browser = createBrowser({ provider })
     const session = await browser.open()
 
-    await expect(session.use(controller, client => client.sentinel.value)).resolves.toBe("prepared")
+    const control = await session.attach(controller)
+    expect(control.client.sentinel.value).toBe("prepared")
+    await control.release()
     expect(release).toHaveBeenCalledOnce()
     expect(close).not.toHaveBeenCalled()
 
@@ -72,14 +73,38 @@ describe("Browser Sessions", () => {
     expect(session.inspect().state).toBe("closed")
   })
 
+  it("retries failed cleanup for an expired handoff", async () => {
+    vi.useFakeTimers()
+    try {
+      const { close, provider } = fixture()
+      close.mockRejectedValueOnce(new Error("temporary close failure"))
+      const browser = createBrowser({ policy: { handoffTtl: 10 }, provider })
+      const session = await browser.open()
+      const ref = await session.handoff({ audience: "run-1", mode: "live" })
+
+      await vi.advanceTimersByTimeAsync(10)
+      expect(close).toHaveBeenCalledOnce()
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(close).toHaveBeenCalledTimes(2)
+      await expect(browser.claim(ref, { audience: "run-1" })).rejects.toMatchObject({
+        code: "BROWSER_SESSION_REF_INVALID",
+        details: { reason: "unknown" },
+      })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("transfers one exact live session through an opaque one-time reference", async () => {
     const { close, controller, provider } = fixture()
     const browser = createBrowser({ policy: { handoffTtl: 5_000 }, provider })
     const prepared = await browser.open()
 
-    await prepared.use(controller, (client) => {
-      client.sentinel.value = "application-authenticated"
-    })
+    const preparedControl = await prepared.attach(controller)
+    preparedControl.client.sentinel.value = "application-authenticated"
+    await preparedControl.release()
     const ref = await prepared.handoff({ audience: "run-1", mode: "live" })
 
     expect(ref).toEqual({
@@ -92,7 +117,9 @@ describe("Browser Sessions", () => {
     await expect(prepared.close()).rejects.toBeInstanceOf(ViteHubError)
 
     const claimed = await browser.claim(ref, { audience: "run-1" })
-    await expect(claimed.use(controller, client => client.sentinel.value)).resolves.toBe("application-authenticated")
+    const claimedControl = await claimed.attach(controller)
+    expect(claimedControl.client.sentinel.value).toBe("application-authenticated")
+    await claimedControl.release()
     await expect(browser.claim(ref, { audience: "run-1" })).rejects.toMatchObject({ code: "BROWSER_SESSION_REF_INVALID" })
 
     await claimed.close()
@@ -122,7 +149,8 @@ describe("Browser Sessions", () => {
     const releaseFixture = fixture({ controllerPreserves: false })
     const releaseBrowser = createBrowser({ provider: releaseFixture.provider })
     const releaseSession = await releaseBrowser.open()
-    await releaseSession.use(releaseFixture.controller, () => undefined)
+    const releaseControl = await releaseSession.attach(releaseFixture.controller)
+    await releaseControl.release()
     await expect(releaseSession.handoff({ audience: "run-1", mode: "live" })).rejects.toMatchObject({ code: "BROWSER_LIVE_HANDOFF_UNSUPPORTED" })
     await releaseSession.close()
 
@@ -131,7 +159,7 @@ describe("Browser Sessions", () => {
     const prepared = await controllerBrowser.open()
     const ref = await prepared.handoff({ audience: "run-1", mode: "live" })
     const claimed = await controllerBrowser.claim(ref, { audience: "run-1" })
-    await expect(claimed.use(controllerFixture.controller, () => undefined)).rejects.toMatchObject({ code: "BROWSER_LIVE_HANDOFF_UNSUPPORTED" })
+    await expect(claimed.attach(controllerFixture.controller)).rejects.toMatchObject({ code: "BROWSER_LIVE_HANDOFF_UNSUPPORTED" })
     await claimed.close()
   })
 
@@ -139,33 +167,22 @@ describe("Browser Sessions", () => {
     const { controller, provider } = fixture()
     const browser = createBrowser({ provider })
     const session = await browser.open()
-    let finish!: () => void
-    const pending = session.use(controller, async () => {
-      await new Promise<void>(resolve => { finish = resolve })
-    })
+    const control = await session.attach(controller)
 
-    await vi.waitFor(() => expect(session.inspect().state).toBe("controlled"))
-    await expect(session.use(controller, () => undefined)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
-    finish()
-    await pending
+    expect(session.inspect().state).toBe("controlled")
+    await expect(session.attach(controller)).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    await control.release()
     await session.close()
   })
 
-  it("automatically closes ordinary callback sessions but preserves transferred ownership", async () => {
-    const ordinary = fixture()
-    const ordinaryBrowser = createBrowser({ provider: ordinary.provider })
-    await ordinaryBrowser.withSession(() => "ok")
-    expect(ordinary.close).toHaveBeenCalledOnce()
+  it("keeps session ownership explicit", async () => {
+    const { close, provider } = fixture()
+    const browser = createBrowser({ provider })
+    const session = await browser.open()
 
-    const transferred = fixture()
-    const transferredBrowser = createBrowser({ provider: transferred.provider })
-    let ref: BrowserSessionRef | undefined
-    await transferredBrowser.withSession(async (session) => {
-      ref = await session.handoff({ audience: "run-1", mode: "live" })
-    })
-    expect(transferred.close).not.toHaveBeenCalled()
-    const claimed = await transferredBrowser.claim(ref!, { audience: "run-1" })
-    await claimed.close()
+    expect(close).not.toHaveBeenCalled()
+    await session.close()
+    expect(close).toHaveBeenCalledOnce()
   })
 
   it("emits sanitized lifecycle traces", async () => {
@@ -174,7 +191,8 @@ describe("Browser Sessions", () => {
     const browser = createBrowser({ provider, trace })
 
     const session = await browser.open()
-    await session.use(controller, () => undefined)
+    const control = await session.attach(controller)
+    await control.release()
     const ref = await session.handoff({ audience: "sensitive-user-identifier", mode: "live" })
     const claimed = await browser.claim(ref, { audience: "sensitive-user-identifier" })
     await claimed.close()

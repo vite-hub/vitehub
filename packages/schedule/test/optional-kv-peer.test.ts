@@ -52,7 +52,15 @@ async function packWorkspacePackage(packDir: string, name: string): Promise<stri
 }
 
 function workspaceConfig(packageOverrides: Record<string, string>): string {
-  return ["packages:", "  - .", "overrides:", ...Object.entries(packageOverrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`), ""].join("\n")
+  return [
+    "packages:",
+    "  - .",
+    "overrides:",
+    // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires 2.x peers.
+    "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    ...Object.entries(packageOverrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
+    "",
+  ].join("\n")
 }
 
 async function installConsumer(root: string, dependencies: Record<string, string>, packageOverrides: Record<string, string>): Promise<void> {

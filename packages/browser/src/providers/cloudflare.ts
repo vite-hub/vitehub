@@ -1,4 +1,5 @@
 import { browserProviderError } from "../errors.ts"
+import { cloudflareBrowserTerminated } from "../internal/connections.ts"
 
 import type { BrowserProvider } from "../types.ts"
 import type { CloudflareBrowserBindingConnection } from "../internal/connections.ts"
@@ -69,37 +70,30 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
         throw browserProviderError("cloudflare", "acquire a Browser Run session", { cause: error })
       }
       let closed = false
+      const connection: CloudflareBrowserBindingConnection = {
+        binding,
+        kind: "cloudflare-binding",
+        sessionId: acquired.sessionId,
+      }
       return {
         async close() {
           if (closed) return
-          let browser: CloudflareBrowserHandle | undefined
-          let cdp: Awaited<ReturnType<CloudflareBrowserHandle["newBrowserCDPSession"]>> | undefined
+          if (connection[cloudflareBrowserTerminated]) {
+            closed = true
+            return
+          }
           try {
-            const connected = await driver.connect(binding, acquired.sessionId)
-            browser = connected
-            cdp = await connected.newBrowserCDPSession()
+            const browser = await driver.connect(binding, acquired.sessionId)
+            const cdp = await browser.newBrowserCDPSession()
             await cdp.send("Browser.close")
+            connection[cloudflareBrowserTerminated] = true
             closed = true
           }
           catch (error) {
             throw browserProviderError("cloudflare", "terminate a Browser Run session", { cause: error })
           }
-          finally {
-            try {
-              if (cdp) await cdp.detach()
-            }
-            catch {}
-            try {
-              if (browser) await browser.close()
-            }
-            catch {}
-          }
         },
-        connection: {
-          binding,
-          kind: "cloudflare-binding",
-          sessionId: acquired.sessionId,
-        },
+        connection,
         id: acquired.sessionId,
       }
     },
