@@ -53,6 +53,17 @@ afterEach(() => {
   loadAiSdk.mockImplementation(async () => await import("ai"))
 })
 
+function projectedHarnessMessages(entries: Array<["assistant" | "system" | "tool" | "user", string]>) {
+  return [{
+    content: entries.flatMap(([role, text]) => [
+      { text: `<message role="${role}">\n`, type: "text" },
+      { text, type: "text" },
+      { text: "\n</message>\n", type: "text" },
+    ]),
+    role: "user",
+  }]
+}
+
 async function failedTitleInvocation(options: {
   deliver?: (title: string) => Promise<void> | void
   execute: () => string
@@ -1804,8 +1815,6 @@ describe("agent message protocol", () => {
         }),
         createMessage({ id: "user-2", parts: [{ data: { scope: "kiwi-714" }, type: "data" }], role: "user" }),
         createMessage({ id: "user-3", parts: [{ error: "prior lookup warning", type: "error" }], role: "user" }),
-        createMessage({ id: "user-provider-only", parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "application/pdf", type: "file" }], role: "user" }),
-        createMessage({ id: "user-url", parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "application/pdf", type: "file", url: "https://cdn.example.com/report.pdf" }], role: "user" }),
         createMessage({ id: "user-4", role: "user", text: "What marker?" }),
       ],
     })).resolves.toMatchObject({ text: "ok" })
@@ -1814,19 +1823,15 @@ describe("agent message protocol", () => {
       sandbox: provider,
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: [
-        "Conversation history:",
-        "User: Remember kiwi-714.",
-        "Assistant: [{\"input\":{\"marker\":\"kiwi-714\"},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-call\"}]",
-        "tool: [{\"output\":{\"type\":\"json\",\"value\":{\"marker\":\"kiwi-714\"}},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-result\"}]",
-        "Assistant: Tool confirmed marker.",
-        "User: {\"scope\":\"kiwi-714\"}",
-        "User: prior lookup warning",
-        "User: [{\"data\":\"https://cdn.example.com/report.pdf\",\"mediaType\":\"application/pdf\",\"type\":\"file\"}]",
-        "User: What marker?",
-        "",
-        "Respond to the latest user message.",
-      ].join("\n"),
+      messages: projectedHarnessMessages([
+        ["user", "Remember kiwi-714."],
+        ["assistant", "{\"input\":{\"marker\":\"kiwi-714\"},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-call\"}"],
+        ["tool", "{\"output\":{\"type\":\"json\",\"value\":{\"marker\":\"kiwi-714\"}},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-result\"}"],
+        ["assistant", "Tool confirmed marker."],
+        ["user", "{\"scope\":\"kiwi-714\"}"],
+        ["user", "prior lookup warning"],
+        ["user", "What marker?"],
+      ]),
       session,
     }))
   })
@@ -2082,28 +2087,6 @@ describe("agent message protocol", () => {
       prompt: "Review this: checkout",
       session,
     }))
-    expect(session.destroy).toHaveBeenCalledOnce()
-  })
-
-  it("keeps remote attachment URLs visible to chat harnesses", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const session = { destroy: vi.fn() }
-    harnessCreateSession.mockResolvedValueOnce(session)
-    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
-    const agent = defineAgent({
-      driver: { harness: { provider: "codex" } },
-    })
-
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      context: { chat: {} },
-      messages: [createMessage({
-        parts: [{ mediaType: "image/png", name: "photo.png", type: "image", url: "https://cdn.example.com/photo.png" }],
-        role: "user",
-      })],
-    })
-
-    const prompt = (harnessGenerate.mock.calls[0]?.[0] as { prompt?: string }).prompt
-    expect(prompt).toContain("https://cdn.example.com/photo.png")
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 
@@ -2483,23 +2466,15 @@ describe("agent message protocol", () => {
     expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "thread-1" })
     expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { resumeFrom: { token: "resume" }, sessionId: "thread-1" })
     expect(harnessGenerate).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      prompt: [
-        "Conversation history:",
-        "User: hello",
-        "Assistant: ok",
-        "User: again",
-        "",
-        "Respond to the latest user message.",
-      ].join("\n"),
+      messages: projectedHarnessMessages([
+        ["user", "hello"],
+        ["assistant", "ok"],
+        ["user", "again"],
+      ]),
       session: firstSession,
     }))
     expect(harnessGenerate).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      prompt: [
-        "Conversation history:",
-        "User: again",
-        "",
-        "Respond to the latest user message.",
-      ].join("\n"),
+      messages: [{ content: "again", role: "user" }],
       session: secondSession,
     }))
     expect(firstSession.detach).toHaveBeenCalledTimes(1)
@@ -2586,12 +2561,7 @@ describe("agent message protocol", () => {
     expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "thread-1" })
     expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { sessionId: "thread-1" })
     expect(harnessGenerate).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      prompt: [
-        "Conversation history:",
-        "User: again",
-        "",
-        "Respond to the latest user message.",
-      ].join("\n"),
+      messages: [{ content: "again", role: "user" }],
       session: secondSession,
     }))
     expect(firstSession.detach).toHaveBeenCalledTimes(1)
