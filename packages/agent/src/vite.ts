@@ -1804,6 +1804,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         return createAgentCliContributor({
           eval: agent?.eval,
           rootDir: resolved?.root ?? process.cwd(),
+          serverDirs,
         })
       },
     },
@@ -1864,13 +1865,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async configResolved(config) {
       resolved = config
       agent = config.agent ?? agent
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
       )
       standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       await writeGeneratedAgentOutputs(config)
-      if (agent === false || !discoverAgentEvalFiles(config.root).length) {
+      if (agent === false || !discoverAgentEvalFiles([config.root, ...(serverDirs ?? [])]).length) {
         await removeAgentEvaliteConfig(config.root)
         return
       }

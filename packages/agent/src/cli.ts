@@ -52,6 +52,7 @@ interface AgentCliContributor {
 interface AgentCliContributorOptions {
   eval?: AgentEvalOptions
   rootDir?: string
+  serverDirs?: string[]
 }
 
 interface ParsedEvalArgs {
@@ -576,6 +577,7 @@ export async function runAgentEvalCli(
   options: AgentEvalOptions | undefined,
   runner?: EvaliteRunner,
   writeConfig: AgentEvaliteConfigWriter = writeAgentEvaliteConfig,
+  files?: string[],
 ): Promise<number> {
   const resolvedOptions = resolveAgentEvalOptions(options)
 
@@ -600,6 +602,7 @@ export async function runAgentEvalCli(
     cache: resolvedOptions.cache,
     cacheEnabled: parsed.noCache ? false : undefined,
     cwd: context.rootDir,
+    ...(files ? { files } : {}),
     forceRerunTriggers: resolvedOptions.forceRerunTriggers,
     hideTable: parsed.hideTable ?? resolvedOptions.hideTable,
     maxConcurrency: resolvedOptions.maxConcurrency,
@@ -1277,7 +1280,10 @@ export async function runAgentDevCli(
 export function createAgentCliContributor(options?: false | AgentCliContributorOptions): AgentCliContributor | undefined {
   if (options === false) return
   const evalOptions = resolveAgentEvalOptions(options?.eval)
-  const hasEvalFiles = discoverAgentEvalFiles(options?.rootDir ?? process.cwd()).length > 0
+  const evalFiles = discoverAgentEvalFiles([
+    options?.rootDir ?? process.cwd(),
+    ...(options?.serverDirs ?? []),
+  ])
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
       description: "Inspect a discovered Agent through a running Vite Development Server.",
@@ -1292,11 +1298,11 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
   ]
-  if (hasEvalFiles) {
+  if (evalFiles.length) {
     features.unshift({
       description: "Run ViteHub Agent Evals.",
       name: "eval",
-      run: async (args, context) => await runAgentEvalCli(args, context, evalOptions),
+      run: async (args, context) => await runAgentEvalCli(args, context, evalOptions, undefined, writeAgentEvaliteConfig, evalFiles),
       usage: "vitehub agent eval [path] [--watch]",
     })
   }

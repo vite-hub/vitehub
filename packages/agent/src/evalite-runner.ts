@@ -12,6 +12,7 @@ import type { ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 export interface RunAgentEvaliteOptions extends ResolvedAgentEvalOptions {
   cacheEnabled?: boolean
   cwd: string
+  files?: string[]
   mode: Evalite.RunMode
   outputPath?: string
   path?: string
@@ -165,7 +166,7 @@ export async function runAgentEvalite(options: RunAgentEvaliteOptions): Promise<
     browser: undefined,
     config: false,
     forceRerunTriggers,
-    include: agentEvalFileConvention.include,
+    include: options.files ?? agentEvalFileConvention.include,
     maxConcurrency: options.maxConcurrency,
     mode: "test",
     reporters,

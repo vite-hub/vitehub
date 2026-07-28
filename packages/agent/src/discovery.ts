@@ -36,8 +36,10 @@ function isEvalDefinitionFile(file: string): boolean {
   return evalDefinitionPattern.test(basename(file))
 }
 
-export function discoverAgentEvalFiles(rootDir: string): string[] {
-  return listMatchingFiles(resolve(rootDir), file => agentEvalFileConvention.pattern.test(file))
+export function discoverAgentEvalFiles(rootDirs: string[]): string[] {
+  return [...new Set(rootDirs.flatMap(rootDir =>
+    listMatchingFiles(resolve(rootDir), file => agentEvalFileConvention.pattern.test(file)),
+  ))].sort()
 }
 
 function normalizeSuffixAgentName(rootDir: string, file: string) {

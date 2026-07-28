@@ -1185,13 +1185,16 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout: stream(),
-    }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"))
+    }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"), [
+      "/external/server/agents/support.eval.ts",
+    ])
 
     expect(exitCode).toBe(0)
     expect(runner).toHaveBeenCalledWith({
       cache: undefined,
       cacheEnabled: undefined,
       cwd: "/repo",
+      files: ["/external/server/agents/support.eval.ts"],
       forceRerunTriggers: [
         "server/agents/**",
         "src/**/*.agent.*",

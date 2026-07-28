@@ -25,7 +25,7 @@ it("discovers executable Agent Eval files without treating fixture directories a
     await writeFile(join(root, "evals", "reference.xlsx"), "fixture", "utf8")
     await writeFile(join(root, "server", "agents", "support", "EVAL.TS"), "export default defineEval({})", "utf8")
 
-    expect(discoverAgentEvalFiles(root)).toEqual([])
+    expect(discoverAgentEvalFiles([root])).toEqual([])
 
     const suffixEval = join(root, "server", "agents", "support.eval.ts")
     const folderEval = join(root, "server", "agents", "support", "eval.mts")
@@ -34,7 +34,7 @@ it("discovers executable Agent Eval files without treating fixture directories a
     await writeFile(folderEval, "export default defineEval({})", "utf8")
     await writeFile(tsxEval, "export default defineEval({})", "utf8")
 
-    expect(discoverAgentEvalFiles(root)).toEqual([suffixEval, tsxEval, folderEval])
+    expect(discoverAgentEvalFiles([root])).toEqual([suffixEval, tsxEval, folderEval])
   }
   finally {
     await rm(root, { force: true, recursive: true })

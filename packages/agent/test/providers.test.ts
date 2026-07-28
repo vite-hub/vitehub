@@ -208,6 +208,7 @@ describe("agent Vite plugin", () => {
   it("activates eval tooling only while executable eval files exist", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-eval-discovery-"))
+    const serverDir = await mkdtemp(join(tmpdir(), "vitehub-agent-eval-server-"))
     const generatedConfig = join(root, ".vitehub", "agent", "evalite.config.ts")
     try {
       await mkdir(join(root, "evals"), { recursive: true })
@@ -215,7 +216,11 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "evals", "reference.xlsx"), "fixture", "utf8")
 
       const plugin = hubAgent()
-      const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: {
+        [VITEHUB_SERVER_DIRS]?: string[]
+        command: "serve"
+        root: string
+      }) => Promise<void>
       const cli = plugin.vitehub?.cli as () => Promise<{
         namespaces: Array<{ features: Array<{ name: string }> }>
       }>
@@ -225,10 +230,10 @@ describe("agent Vite plugin", () => {
       await expect(readFile(generatedConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(featureNames()).resolves.not.toContain("eval")
 
-      const evalFile = join(root, "server", "agents", "support.eval.tsx")
-      await mkdir(join(root, "server", "agents"), { recursive: true })
+      const evalFile = join(serverDir, "agents", "support.eval.tsx")
+      await mkdir(join(serverDir, "agents"), { recursive: true })
       await writeFile(evalFile, "export default defineEval({})", "utf8")
-      await configResolved({ command: "serve", root })
+      await configResolved({ [VITEHUB_SERVER_DIRS]: [serverDir], command: "serve", root })
       await expect(readFile(generatedConfig, "utf8")).resolves.toContain("forceRerunTriggers")
       await expect(featureNames()).resolves.toContain("eval")
 
@@ -239,6 +244,7 @@ describe("agent Vite plugin", () => {
     }
     finally {
       await rm(root, { force: true, recursive: true })
+      await rm(serverDir, { force: true, recursive: true })
     }
   })
 
