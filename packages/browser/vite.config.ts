@@ -18,7 +18,13 @@ export default defineConfig({
       "src/providers/local.ts",
       "src/vite.ts",
     ],
-    exports: { inlinedDependencies: false },
+    exports: {
+      exclude: [
+        "internal/runtime/empty-registry",
+        "internal/runtime/unconfigured",
+      ],
+      inlinedDependencies: false,
+    },
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
     publint: true,
   },
