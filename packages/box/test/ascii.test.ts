@@ -107,6 +107,14 @@ describe("ASCII Box runtime", () => {
     expect(fixture.control.removes).toBe(1);
   });
 
+  it("coalesces transport cleanup with outer open cleanup", async () => {
+    const fixture = asciiFixture({ destroyDuringOpen: true });
+    const box = await resolveBox({ runtime: fixture.runtime }, {});
+
+    await expect(box.open()).rejects.toThrow("transport setup failed");
+    expect(fixture.control.removes).toBe(1);
+  });
+
   it("finishes create before honoring cancellation so the new Box can be deleted", async () => {
     const fixture = asciiFixture();
     let finishCreate!: () => void;
@@ -188,7 +196,9 @@ describe("ASCII Box runtime", () => {
   });
 });
 
-function asciiFixture(options: { provisioningTimeoutMs?: number } = {}) {
+function asciiFixture(
+  options: { destroyDuringOpen?: boolean; provisioningTimeoutMs?: number } = {},
+) {
   const machine = new FakeAsciiMachine();
   const control = {
     archiveAfterStop: true,
@@ -266,7 +276,11 @@ function asciiFixture(options: { provisioningTimeoutMs?: number } = {}) {
         async createIdentity() {
           return { privateKey: "private", publicKey: "ssh-ed25519 test" };
         },
-        async openSsh() {
+        async openSsh(input) {
+          if (options.destroyDuringOpen) {
+            await input.destroyBox();
+            throw new Error("transport setup failed");
+          }
           return machine.session;
         },
         provisioningTimeoutMs: options.provisioningTimeoutMs,

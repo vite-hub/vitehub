@@ -78,7 +78,9 @@ export async function openAsciiSshSession(
 ): Promise<RuntimeSession> {
   const ssh2 = await loadModule();
   const client = new ssh2.Client();
-  const fault = createTransportFault(options.destroyBox);
+  let destroyPromise: Promise<void> | undefined;
+  const destroyBox = () => (destroyPromise ??= options.destroyBox());
+  const fault = createTransportFault(destroyBox);
   await connect(client, options, fault.record);
   try {
     const sftp = await waitWithTimeout(
@@ -87,7 +89,7 @@ export async function openAsciiSshSession(
       "[vitehub] ASCII SFTP negotiation timed out.",
       options.abortSignal,
     );
-    return createAsciiSshSession(client, sftp, options.destroyBox, fault);
+    return createAsciiSshSession(client, sftp, destroyBox, fault);
   } catch (error) {
     client.destroy();
     throw error;
@@ -199,20 +201,12 @@ function createAsciiSshSession(
   }) => {
     assertOpen();
     options.abortSignal?.throwIfAborted();
+    const launchScript = launchScriptContents(options);
     const unit = `vitehub-${randomUUID()}.service`;
-    const launchScript = `/home/user/.vitehub-launch-${randomUUID()}`;
     let channel: SshChannel;
     try {
-      await sftpCall<void>(options.abortSignal, client, fault.record, (callback) =>
-        sftp.writeFile(
-          launchScript,
-          Buffer.from(launchScriptContents(launchScript, options)),
-          { mode: 0o700 },
-          callback,
-        ),
-      );
       channel = await waitWithTimeout(
-        exec(systemdRunCommand(unit, launchScript, options.workingDirectory)),
+        exec(systemdRunCommand(unit, options.workingDirectory)),
         10_000,
         `[vitehub] ASCII process ${unit} launch timed out.`,
         options.abortSignal,
@@ -233,14 +227,27 @@ function createAsciiSshSession(
     );
     processes.add(process);
     void process.settled.finally(() => processes.delete(process));
+    try {
+      await Promise.all([
+        waitWithTimeout(
+          endChannel(channel, launchScript),
+          10_000,
+          `[vitehub] ASCII process ${unit} launch input timed out.`,
+          options.abortSignal,
+        ),
+        process.ready,
+      ]);
+    } catch (error) {
+      return await failClosed(error, destroyBox, `[vitehub] ASCII process ${unit} launch failed.`);
+    }
     if (options.abortSignal) {
       const onAbort = () => void process.kill("KILL").catch(() => undefined);
       options.abortSignal.addEventListener("abort", onAbort, { once: true });
+      if (options.abortSignal.aborted) onAbort();
       void process.settled.finally(() =>
         options.abortSignal?.removeEventListener("abort", onAbort),
       );
     }
-    await process.ready;
     options.abortSignal?.throwIfAborted();
     return process;
   };
@@ -356,11 +363,7 @@ function createAsciiSshSession(
   };
 }
 
-function systemdRunCommand(
-  unit: string,
-  launchScript: string,
-  workingDirectory?: string,
-) {
+function systemdRunCommand(unit: string, workingDirectory?: string) {
   const args = [
     "sudo",
     "-n",
@@ -378,27 +381,19 @@ function systemdRunCommand(
     "--property=TimeoutStopSec=10s",
     "--",
     "/bin/sh",
-    launchScript,
+    "-s",
   ];
   return args.map(shellQuote).join(" ");
 }
 
-function launchScriptContents(
-  path: string,
-  options: { command: string; env?: Record<string, string> },
-) {
+function launchScriptContents(options: { command: string; env?: Record<string, string> }) {
   const exports = Object.entries(options.env ?? {}).map(([name, value]) => {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-      throw new TypeError(`[vitehub] Invalid Box environment variable: ${name}`);
-    return `export ${name}=${shellQuote(value)}`;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(`[vitehub] Invalid environment variable name: ${JSON.stringify(name)}.`);
+    }
+    return `export ${shellQuote(`${name}=${value}`)}`;
   });
-  return [
-    "#!/bin/sh",
-    ...exports,
-    `rm -f -- ${shellQuote(path)}`,
-    `exec /bin/sh -lc ${shellQuote(options.command)}`,
-    "",
-  ].join("\n");
+  return [...exports, `exec /bin/sh -lc ${shellQuote(options.command)}`, ""].join("\n");
 }
 
 function createRuntimeProcess(
@@ -564,6 +559,21 @@ async function openChannel(client: SshClient, command: string) {
     client.exec(command, (error, channel) => {
       if (error) reject(error);
       else resolve(channel);
+    });
+  });
+}
+
+async function endChannel(channel: SshChannel, contents: string) {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      channel.removeListener("error", onError);
+      reject(error);
+    };
+    channel.once("error", onError);
+    channel.end(contents, (error) => {
+      channel.removeListener("error", onError);
+      if (error) reject(error);
+      else resolve();
     });
   });
 }
@@ -826,6 +836,7 @@ interface SshClient {
 
 interface SshChannel extends Readable {
   readonly stderr: Readable;
+  end(contents: string, callback: (error?: Error | null) => void): this;
 }
 
 interface SftpClient {
@@ -833,12 +844,6 @@ interface SftpClient {
   readFile(
     path: string,
     callback: (error: NodeJS.ErrnoException | null, contents: Buffer) => void,
-  ): void;
-  writeFile(
-    path: string,
-    contents: Buffer,
-    options: { mode: number },
-    callback: (error: NodeJS.ErrnoException | null, value: void) => void,
   ): void;
   writeFile(
     path: string,
