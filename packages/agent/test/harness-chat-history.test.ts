@@ -148,7 +148,7 @@ describe("Harness chat history", () => {
             { text: "Compare it with these.", type: "text" },
             { data: new Uint8Array([99]), fetchData: () => new Uint8Array([2]), mediaType: "image/jpeg", type: "image" },
             { data: new Uint8Array([3]), mediaType: "image/webp", type: "image" },
-            { data: "data:image/png;BASE64,BQ==", mediaType: "image/png", type: "image" },
+            { data: "DATA:image/png;BASE64,BQ==", mediaType: "image/png", type: "image" },
             { data: new Uint8Array([4]), mediaType: "application/pdf", name: "report.pdf", type: "file" },
           ],
           role: "user" as const,

@@ -414,7 +414,7 @@ function harnessBase64ByteLength(value: string): number {
 }
 
 function harnessAttachmentStringBytes(value: string, mediaType: string, remainingBytes: number, type: string): Uint8Array {
-  const dataUrl = /^data:([^,]*?),(.*)$/s.exec(value)
+  const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
   if (dataUrl) {
     const encoded = dataUrl[2]!
     if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
