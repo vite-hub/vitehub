@@ -42,7 +42,7 @@ export function browserRuntimeNotConfiguredError(): ViteHubError {
   )
 }
 
-export function isBrowserError(value: unknown): value is ViteHubError<`BROWSER_${string}`> {
+function isBrowserError(value: unknown): value is ViteHubError<`BROWSER_${string}`> {
   return getViteHubErrorShape(value)?.code.startsWith("BROWSER_") === true
 }
 
