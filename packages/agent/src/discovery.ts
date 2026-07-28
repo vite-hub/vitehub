@@ -4,6 +4,7 @@ import { basename, dirname, relative, resolve } from "node:path"
 import {
   createDirectoryDefinitionSource,
   discoverDefinitions,
+  listMatchingFiles,
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
@@ -17,12 +18,37 @@ const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
 const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
 const colocatedAgentResourceDirectories = new Set(["home", "skills"])
 
+export const agentEvalFileConvention = {
+  include: [
+    "**/*.eval.?(m)ts",
+    "**/eval.?(m)ts",
+    "**/*.eval.tsx",
+    "**/eval.tsx",
+  ],
+  pattern: /^(?:.+\.)?eval\.(?:m?ts|tsx)$/,
+}
+
+export function createAgentEvalInclude(rootDirs: string[]): string[] {
+  return [...new Set(rootDirs.flatMap((rootDir) => {
+    const root = resolve(rootDir)
+      .replace(/\\/g, "/")
+      .replace(/([*?[\]{}()!])/g, "\\$1")
+    return agentEvalFileConvention.include.map(pattern => `${root}/${pattern}`)
+  }))].sort()
+}
+
 function isColocatedAgentResourcePath(path: string): boolean {
   return colocatedAgentResourceDirectories.has(path.split("/")[0] || "")
 }
 
 function isEvalDefinitionFile(file: string): boolean {
   return evalDefinitionPattern.test(basename(file))
+}
+
+export function discoverAgentEvalFiles(rootDirs: string[]): string[] {
+  return [...new Set(rootDirs.flatMap(rootDir =>
+    listMatchingFiles(resolve(rootDir), file => agentEvalFileConvention.pattern.test(file)),
+  ))].sort()
 }
 
 function normalizeSuffixAgentName(rootDir: string, file: string) {

@@ -164,6 +164,21 @@ describe("agent public types", () => {
     void webhookRoute
   })
 
+  it("keeps Agent Eval configuration as runner options rather than an activation toggle", () => {
+    const evalOptions: AgentModuleOptions = {
+      eval: {
+        maxConcurrency: 2,
+        testTimeout: 60_000,
+      },
+    }
+    const disabledEval: AgentModuleOptions = {
+      // @ts-expect-error Executable Eval files control activation.
+      eval: false,
+    }
+    void evalOptions
+    void disabledEval
+  })
+
   it("accepts zero-argument Channel factories and keeps configured Channels explicit", () => {
     interface RuntimeConfig extends AgentRuntimeConfig {
       token: string

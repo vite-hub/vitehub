@@ -37,7 +37,7 @@ const unknownExecutionAuthorityFixture = {
 
 describe("agent CLI", () => {
   it("contributes the agent eval feature", () => {
-    expect(createAgentCliContributor()).toEqual({
+    expect(createAgentCliContributor({ rootDir: join(import.meta.dirname, "fixtures") })).toEqual({
       namespaces: [{
         description: "Agent development workflows.",
         features: [
@@ -50,8 +50,9 @@ describe("agent CLI", () => {
     })
   })
 
-  it("keeps the agent dev feature when eval is disabled", () => {
-    expect(createAgentCliContributor({ eval: false })).toEqual({
+  it("keeps the agent dev feature without executable eval files", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-cli-no-evals-"))
+    expect(createAgentCliContributor({ rootDir })).toEqual({
       namespaces: [{
         description: "Agent development workflows.",
         features: [
@@ -61,6 +62,7 @@ describe("agent CLI", () => {
         name: "agent",
       }],
     })
+    await rm(rootDir, { force: true, recursive: true })
   })
 
   it("prints concise resolved Agent information from the running Vite server", async () => {
@@ -1183,13 +1185,20 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout: stream(),
-    }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"))
+    }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"), [
+      "/external/server/**/*.eval.?(m)ts",
+      "/external/server/**/eval.?(m)ts",
+    ])
 
     expect(exitCode).toBe(0)
     expect(runner).toHaveBeenCalledWith({
       cache: undefined,
       cacheEnabled: undefined,
       cwd: "/repo",
+      include: [
+        "/external/server/**/*.eval.?(m)ts",
+        "/external/server/**/eval.?(m)ts",
+      ],
       forceRerunTriggers: [
         "server/agents/**",
         "src/**/*.agent.*",
@@ -1266,21 +1275,6 @@ describe("agent CLI", () => {
     expect(exitCode).toBe(0)
     expect(runner).not.toHaveBeenCalled()
     expect(stdout.output()).toContain("Usage: vitehub agent eval")
-  })
-
-  it("can disable agent eval CLI", async () => {
-    const stderr = stream()
-    const exitCode = await runAgentEvalCli([], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      spawn: vi.fn(),
-      stderr,
-      stdout: stream(),
-    }, false, vi.fn())
-
-    expect(exitCode).toBe(1)
-    expect(stderr.output()).toContain("disabled")
   })
 
   it("rejects unsupported options before running Evalite", async () => {

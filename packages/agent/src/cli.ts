@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import { formatAgentError } from "./agent-error.ts"
+import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
@@ -49,7 +50,9 @@ interface AgentCliContributor {
 }
 
 interface AgentCliContributorOptions {
-  eval?: false | AgentEvalOptions
+  eval?: AgentEvalOptions
+  rootDir?: string
+  serverDirs?: string[]
 }
 
 interface ParsedEvalArgs {
@@ -571,15 +574,12 @@ async function loadEvaliteRunner(): Promise<EvaliteRunner> {
 export async function runAgentEvalCli(
   args: string[],
   context: AgentCliContext,
-  options: false | AgentEvalOptions | undefined,
+  options: AgentEvalOptions | undefined,
   runner?: EvaliteRunner,
   writeConfig: AgentEvaliteConfigWriter = writeAgentEvaliteConfig,
+  include?: string[],
 ): Promise<number> {
   const resolvedOptions = resolveAgentEvalOptions(options)
-  if (resolvedOptions === false) {
-    context.stderr.write("Agent eval CLI is disabled by the Agent integration.\n")
-    return 1
-  }
 
   let parsed: ParsedEvalArgs
   try {
@@ -602,6 +602,7 @@ export async function runAgentEvalCli(
     cache: resolvedOptions.cache,
     cacheEnabled: parsed.noCache ? false : undefined,
     cwd: context.rootDir,
+    ...(include ? { include } : {}),
     forceRerunTriggers: resolvedOptions.forceRerunTriggers,
     hideTable: parsed.hideTable ?? resolvedOptions.hideTable,
     maxConcurrency: resolvedOptions.maxConcurrency,
@@ -1279,6 +1280,11 @@ export async function runAgentDevCli(
 export function createAgentCliContributor(options?: false | AgentCliContributorOptions): AgentCliContributor | undefined {
   if (options === false) return
   const evalOptions = resolveAgentEvalOptions(options?.eval)
+  const evalRoots = [
+    options?.rootDir ?? process.cwd(),
+    ...(options?.serverDirs ?? []),
+  ]
+  const evalFiles = discoverAgentEvalFiles(evalRoots)
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
       description: "Inspect a discovered Agent through a running Vite Development Server.",
@@ -1293,11 +1299,18 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
   ]
-  if (evalOptions !== false) {
+  if (evalFiles.length) {
     features.unshift({
       description: "Run ViteHub Agent Evals.",
       name: "eval",
-      run: async (args, context) => await runAgentEvalCli(args, context, evalOptions),
+      run: async (args, context) => await runAgentEvalCli(
+        args,
+        context,
+        evalOptions,
+        undefined,
+        writeAgentEvaliteConfig,
+        createAgentEvalInclude(evalRoots),
+      ),
       usage: "vitehub agent eval [path] [--watch]",
     })
   }

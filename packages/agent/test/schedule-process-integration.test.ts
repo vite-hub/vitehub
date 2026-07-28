@@ -86,7 +86,6 @@ describe("Agent Process Schedule integration", () => {
       plugins: [
         schedulePlugin as never,
         hubAgent({
-          eval: false,
           providers: { state: { provider: "memory" } },
           routes: { chat: true },
         }),

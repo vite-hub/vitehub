@@ -16,8 +16,8 @@ import {
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
-import { discoverAgentDefinitions } from "./discovery.ts"
-import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
+import { discoverAgentDefinitions, discoverAgentEvalFiles } from "./discovery.ts"
+import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { readColocatedAgentHome } from "./vite/colocated-agent-home.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
@@ -1801,7 +1801,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
-        return createAgentCliContributor({ eval: resolveAgentEvalOptions(agent?.eval) })
+        return createAgentCliContributor({
+          eval: agent?.eval,
+          rootDir: resolved?.root ?? process.cwd(),
+          serverDirs,
+        })
       },
     },
     config(config) {
@@ -1861,20 +1865,19 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async configResolved(config) {
       resolved = config
       agent = config.agent ?? agent
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
       )
       standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       await writeGeneratedAgentOutputs(config)
-      if (agent === false || agent?.eval === false) {
+      if (agent === false || !discoverAgentEvalFiles([config.root, ...(serverDirs ?? [])]).length) {
+        await removeAgentEvaliteConfig(config.root)
         return
       }
 
       const evalOptions = resolveAgentEvalOptions(agent?.eval)
-      if (evalOptions === false) {
-        return
-      }
       await writeAgentEvaliteConfig(config.root, evalOptions)
     },
     configEnvironment(name, config) {
