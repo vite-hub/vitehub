@@ -6,7 +6,7 @@ import {
   browserDefinitionNotFoundError,
   browserRuntimeNotConfiguredError,
 } from "./errors.ts"
-import { createBrowser } from "./index.ts"
+import { createBrowser } from "./client.ts"
 import { cloudflarePlaywright } from "./internal/cloudflare-playwright.ts"
 import { cloudflareBrowser } from "./providers/cloudflare.ts"
 

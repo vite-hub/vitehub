@@ -12,7 +12,7 @@ import {
 
 import type { DiscoveredDefinition } from "@vite-hub/internal/definition-catalog"
 
-export interface DiscoveredBrowserDefinition extends DiscoveredDefinition {
+interface DiscoveredBrowserDefinition extends DiscoveredDefinition {
   source: "server-browsers" | "vite-suffix"
 }
 

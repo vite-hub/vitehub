@@ -39,6 +39,8 @@
     ".": "./dist/index.js",
     "./controllers/cdp": "./dist/controllers/cdp.js",
     "./controllers/playwright": "./dist/controllers/playwright.js",
+    "./internal/runtime/empty-registry": "./dist/internal/runtime/empty-registry.js",
+    "./internal/runtime/unconfigured": "./dist/internal/runtime/unconfigured.js",
     "./providers/cloudflare": "./dist/providers/cloudflare.js",
     "./providers/local": "./dist/providers/local.js",
     "./vite": "./dist/vite.js",
