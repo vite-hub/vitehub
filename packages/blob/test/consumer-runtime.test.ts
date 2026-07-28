@@ -107,6 +107,8 @@ describe("hosted Blob consumer runtime", () => {
               pnpm: {
                 overrides: {
                   "@vite-hub/runtime": `file:${runtimeTarball}`,
+                  // Rolldown 1.1.5 pins @emnapi/* 1.x, while wasm-runtime 1.2 requires 2.x peers.
+                  "@napi-rs/wasm-runtime": "1.1.6",
                 },
               },
               private: true,
