@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { once } from "node:events"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -21,11 +21,14 @@ export interface LocalHarnessSandboxOptions {
 }
 
 interface LocalHarnessSandboxSession extends HarnessV1NetworkSandboxSession {
+  [harnessRemoveDirectory](path: string): Promise<void>
   readonly cleanup: boolean
   readonly env: Record<string, string>
   readonly processes: Set<LocalProcessOwner>
   readonly rootDir: string
 }
+
+const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
 
 let localHarnessOwnerName: string | undefined
 const localHarnessOwnerPattern = /^owner-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -266,6 +269,15 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
   await mkdir(rootDir, { recursive: true })
   const env = { ...stringEnv(options.env || process.env), INIT_CWD: rootDir, OLDPWD: rootDir, PWD: rootDir }
   const session = {
+    async [harnessRemoveDirectory](path: string) {
+      const directory = resolvePath(this, path)
+      await rm(directory, { force: true, recursive: true })
+      for (const parent of [dirname(directory), dirname(dirname(directory))]) {
+        await rmdir(parent).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error
+        })
+      }
+    },
     cleanup,
     defaultWorkingDirectory: rootDir,
     description: "Workspace shell.",

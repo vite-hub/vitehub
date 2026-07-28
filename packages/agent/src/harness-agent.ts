@@ -78,7 +78,9 @@ type HarnessGlobalSkillsSandbox = {
   run(options: { abortSignal?: AbortSignal, command: string, env?: Record<string, string>, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string, stdout?: string }>
 }
 
-type HarnessAttachmentSandbox = HarnessInstructionSandbox & HarnessGlobalSkillsSandbox
+type HarnessAttachmentSandbox = HarnessInstructionSandbox & HarnessGlobalSkillsSandbox & {
+  [harnessRemoveDirectory]?: (directory: string) => MaybePromise<void>
+}
 
 interface HarnessPreparedSandbox {
   abortSignal?: AbortSignal
@@ -91,9 +93,9 @@ const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
 const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 const harnessAttachmentDirectory = ".vitehub/attachments"
-const harnessAttachmentCleanupCommand = `node -e "const fs=require('node:fs');const path=require('node:path');const directory=process.env.VITEHUB_ATTACHMENT_DIRECTORY;fs.rmSync(directory,{force:true,recursive:true});for(const parent of [path.dirname(directory),path.dirname(path.dirname(directory))]){try{fs.rmdirSync(parent)}catch(error){if(error.code!=='ENOENT'&&error.code!=='ENOTEMPTY')throw error}}"`
 const harnessAttachmentMaxBytes = 25 * 1024 * 1024
 const harnessAgentPackage = "@ai-sdk/harness/agent"
+const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
@@ -465,13 +467,9 @@ async function resolveHarnessAttachmentData(part: Extract<Message["parts"][numbe
 }
 
 async function removeHarnessAttachmentDirectory(session: HarnessAttachmentSandbox, directory: string): Promise<void> {
-  const result = await session.run({
-    command: harnessAttachmentCleanupCommand,
-    env: { VITEHUB_ATTACHMENT_DIRECTORY: directory },
-  })
-  if (result.exitCode !== 0) {
-    throw new Error(`[vitehub] Failed to clean up Harness attachments: ${result.stderr || "sandbox command failed"}`)
-  }
+  const removeDirectory = session[harnessRemoveDirectory]
+  if (!removeDirectory) throw new Error("[vitehub] Harness attachment materialization requires sandbox directory removal support.")
+  await removeDirectory.call(session, directory)
 }
 
 async function materializeHarnessChatMessages(
@@ -482,6 +480,9 @@ async function materializeHarnessChatMessages(
     message.role === "user" && message.parts.some(isAttachmentPart),
   )
   if (!hasAttachments) return { messages }
+  if (!prepared.session[harnessRemoveDirectory]) {
+    throw new Error("[vitehub] Harness attachment materialization requires sandbox directory removal support.")
+  }
 
   let remainingBytes = harnessAttachmentMaxBytes
   const directory = joinHarnessSessionPath(

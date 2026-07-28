@@ -333,4 +333,34 @@ describe("Harness chat history", () => {
     expect(turns).toEqual([])
     expect(await attachmentPaths(root)).toEqual([])
   })
+
+  it("rejects attachments before invocation when a custom sandbox cannot remove directories", async () => {
+    const root = await createRoot()
+    const turns: CapturedTurn[] = []
+    const sandbox = createLocalHarnessSandbox({ rootDir: root })
+    const agent = defineAgent({
+      driver: {
+        harness: createHistoryHarness(turns),
+        sandbox: {
+          ...sandbox,
+          async createSession(options: Parameters<typeof sandbox.createSession>[0]) {
+            const session = await sandbox.createSession(options)
+            delete (session as unknown as Record<symbol, unknown>)[Symbol.for("vitehub.harnessRemoveDirectory")]
+            return session
+          },
+        },
+      },
+    })
+
+    await expect(runAgent(agent, runtime, {
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{ data: new Uint8Array([1]), mediaType: "image/png", type: "image" }],
+        role: "user",
+      })],
+    })).rejects.toThrow("requires sandbox directory removal support")
+
+    expect(turns).toEqual([])
+    expect(await attachmentPaths(root)).toEqual([])
+  })
 })

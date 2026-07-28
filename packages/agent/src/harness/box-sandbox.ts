@@ -5,6 +5,12 @@ import type { Box, BoxProcess, BoxSession } from "@vite-hub/box"
 import type { ExecutionAuthority } from "@vite-hub/runtime"
 import { openHarnessBox } from "./shared-box.ts"
 
+const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
+
+type BoxHarnessSandboxSession = HarnessV1NetworkSandboxSession & {
+  [harnessRemoveDirectory](path: string): Promise<void>
+}
+
 function streamFromBytes(bytes: Uint8Array) {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -50,9 +56,17 @@ function adaptProcess(process: BoxProcess) {
   }
 }
 
-function adaptBoxSession(session: BoxSession): HarnessV1NetworkSandboxSession {
+function adaptBoxSession(session: BoxSession): BoxHarnessSandboxSession {
   if (!session.spawn) throw new Error("[vitehub] Harness Agent Drivers require a Box runtime with process spawning.")
   const adapted = {
+    async [harnessRemoveDirectory](path: string) {
+      const directory = resolvePath(session, path)
+      await session.files.remove(directory, { recursive: true })
+      for (const parent of [posix.dirname(directory), posix.dirname(posix.dirname(directory))]) {
+        if (await session.files.list(parent).then(entries => entries.length > 0).catch(() => true)) break
+        await session.files.remove(parent)
+      }
+    },
     defaultWorkingDirectory: session.cwd,
     description: `ViteHub Box ${session.id}`,
     id: session.id,
@@ -110,7 +124,7 @@ function adaptBoxSession(session: BoxSession): HarnessV1NetworkSandboxSession {
     async writeTextFile({ content, encoding = "utf8", path }: { content: string, encoding?: string, path: string }) {
       await this.writeBinaryFile({ content: Buffer.from(content, encoding as BufferEncoding), path })
     },
-  } satisfies HarnessV1NetworkSandboxSession
+  } satisfies BoxHarnessSandboxSession
   return adapted
 }
 
