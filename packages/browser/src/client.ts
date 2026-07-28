@@ -48,6 +48,7 @@ export type {
   BrowserDefinitionHandler,
   BrowserDefinitionRegistry,
   BrowserPageSession,
+  BrowserRunResult,
 } from "./types.ts"
 
 const defaultFeatures: BrowserFeatures = {

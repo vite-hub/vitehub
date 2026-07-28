@@ -2,6 +2,7 @@ import type {
   LeaseStore,
   MaybePromise,
   TraceEvent,
+  ViteHubError,
 } from "@vite-hub/runtime"
 import type {
   Browser as PlaywrightBrowser,
@@ -140,6 +141,10 @@ export type BrowserDefinitionHandler<TInput = unknown, TResult = unknown> = (
 export interface BrowserDefinition<TInput = unknown, TResult = unknown> {
   run: BrowserDefinitionHandler<TInput, TResult>
 }
+
+export type BrowserRunResult<TResult = unknown> =
+  | [error: null, value: TResult]
+  | [error: ViteHubError<`BROWSER_${string}`>, value: undefined]
 
 export type BrowserDefinitionRegistry = Record<
   string,

@@ -27,9 +27,10 @@ Place definitions in `server/browsers/` or name them `*.browser.ts`, then run th
 ```ts
 import { runBrowser } from "@vite-hub/browser"
 
-const image = await runBrowser("code-image", {
+const [error, image] = await runBrowser("code-image", {
   url: "https://example.com",
 })
+if (error) throw error
 ```
 
 Enable Browser through the ViteHub deployment:
@@ -48,7 +49,7 @@ export default defineConfig({
 })
 ```
 
-ViteHub generates the Cloudflare Browser Run binding and closes every session after its Browser Definition completes or throws. A definition can open more than one session; each one belongs to that invocation.
+ViteHub generates the Cloudflare Browser Run binding and closes every session after its Browser Definition completes or throws. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`. A definition can open more than one session; each one belongs to that invocation.
 
 ## Low-level sessions
 

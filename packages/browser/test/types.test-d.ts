@@ -4,6 +4,7 @@ import {
   createBrowser,
   defineBrowser,
   type BrowserPageSession,
+  type BrowserRunResult,
   type BrowserSessionRef,
 } from "../src/index.ts"
 import { playwright, type PlaywrightClient } from "../src/controllers/playwright.ts"
@@ -27,6 +28,13 @@ describe("published Browser types", () => {
       expectTypeOf(browser.open()).resolves.toEqualTypeOf<BrowserPageSession>()
       return input.url
     })
+  })
+
+  it("types error-first Browser Definition results", () => {
+    expectTypeOf<BrowserRunResult<{ title: string }>>().toEqualTypeOf<
+      [error: null, value: { title: string }]
+      | [error: import("@vite-hub/runtime").ViteHubError<`BROWSER_${string}`>, value: undefined]
+    >()
   })
 
   it("returns opaque refs and a Vite plugin", async () => {

@@ -5,6 +5,7 @@ import type { PlaywrightClient } from "./controllers/playwright.ts"
 import {
   browserDefinitionNotFoundError,
   browserRuntimeNotConfiguredError,
+  toBrowserError,
 } from "./errors.ts"
 import { createBrowser } from "./client.ts"
 import { cloudflarePlaywright } from "./internal/cloudflare-playwright.ts"
@@ -19,6 +20,7 @@ import type {
   BrowserDefinitionHandler,
   BrowserPageSession,
   BrowserProviderOpenOptions,
+  BrowserRunResult,
   BrowserSession,
 } from "./types.ts"
 import type {
@@ -189,14 +191,19 @@ export async function executeBrowserDefinition<TInput, TResult, TConnection>(
 export function runBrowser<const TName extends BrowserDefinitionName>(
   name: TName,
   ...args: BrowserDefinitionInputArgs<BrowserRegistryDefinition<TName>>
-): Promise<BrowserDefinitionResult<BrowserRegistryDefinition<TName>>>
+): Promise<BrowserRunResult<BrowserDefinitionResult<BrowserRegistryDefinition<TName>>>>
 export function runBrowser<TName extends string>(
   name: string extends TName ? TName : never,
   input?: unknown,
-): Promise<unknown>
-export async function runBrowser(name: string, input?: unknown): Promise<unknown> {
-  const definition = await resolveBrowserDefinition(name)
-  return await executeBrowserDefinition(definition, input, {
-    client: resolveConfiguredClient(),
-  })
+): Promise<BrowserRunResult<unknown>>
+export async function runBrowser(name: string, input?: unknown): Promise<BrowserRunResult<unknown>> {
+  try {
+    const definition = await resolveBrowserDefinition(name)
+    return [null, await executeBrowserDefinition(definition, input, {
+      client: resolveConfiguredClient(),
+    })]
+  }
+  catch (error) {
+    return [toBrowserError(error), undefined]
+  }
 }

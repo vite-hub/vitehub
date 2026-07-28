@@ -63,13 +63,15 @@ import { runBrowser } from 'vite-hub/browser'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ url: string }>(event)
-  return await runBrowser('page-title', input)
+  const [error, title] = await runBrowser('page-title', input)
+  if (error) throw error
+  return title
 })
 ```
 
 ::
 
-The generated Browser registry infers each definition's input and result types. ViteHub closes every session after the definition completes or throws, including when one invocation opens several sessions.
+The generated Browser registry infers each definition's input and result types. `runBrowser()` returns an error-first tuple, and ViteHub closes every session after the definition completes or throws, including when one invocation opens several sessions.
 
 ## Runtime API
 
@@ -77,7 +79,7 @@ The generated Browser registry infers each definition's input and result types. 
 | --- | --- |
 | `defineBrowser(handler)` | Defines one discovered browser operation. |
 | `browser.open(options?)` | Opens a Playwright-backed session owned by the current definition invocation. |
-| `runBrowser(name, input)` | Runs a discovered definition with inferred input and result types. |
+| `runBrowser(name, input)` | Runs a discovered definition and returns `[error, result]` with inferred types. |
 | `session.browser` | Playwright Browser connected to the provider session. |
 | `session.context` | Invocation-owned Playwright Browser Context. |
 | `session.page` | Initial Playwright Page. |
