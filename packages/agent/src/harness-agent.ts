@@ -17,7 +17,7 @@ import {
   resolveColocatedAgentInstructionDocument,
   workspaceDefinitionWithAutoCommitRules,
 } from "./workspace-agent.ts"
-import { nextWithAbort } from "./internal/abortable-stream.ts"
+import { abortSignalError, nextWithAbort } from "./internal/abortable-stream.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import {
   colocatedAgentSkillsContextKey,
@@ -426,9 +426,22 @@ function harnessAttachmentStringBytes(value: string, mediaType: string, remainin
     if (encoded.length > remainingBytes * 3) {
       assertHarnessAttachmentSize(Math.ceil(encoded.length / 3), remainingBytes, type)
     }
-    const decoded = decodeURIComponent(encoded)
-    assertHarnessAttachmentSize(Buffer.byteLength(decoded), remainingBytes, type)
-    return new TextEncoder().encode(decoded)
+    const bytes = new TextEncoder().encode(encoded)
+    let readIndex = 0
+    let writeIndex = 0
+    while (readIndex < bytes.length) {
+      if (bytes[readIndex] === 37) {
+        const encodedByte = String.fromCharCode(bytes[readIndex + 1]!, bytes[readIndex + 2]!)
+        if (!/^[\da-f]{2}$/i.test(encodedByte)) throw new URIError("URI malformed")
+        bytes[writeIndex++] = Number.parseInt(encodedByte, 16)
+        readIndex += 3
+      }
+      else {
+        bytes[writeIndex++] = bytes[readIndex++]!
+      }
+    }
+    assertHarnessAttachmentSize(writeIndex, remainingBytes, type)
+    return bytes.slice(0, writeIndex)
   }
   const normalizedMediaType = mediaType.toLowerCase()
   if (
@@ -460,9 +473,26 @@ async function harnessAttachmentBytes(data: AttachmentData, mediaType: string, r
   return harnessAttachmentStringBytes(data, mediaType, remainingBytes, type)
 }
 
-async function resolveHarnessAttachmentData(part: Extract<Message["parts"][number], { type: "audio" | "file" | "image" }>): Promise<AttachmentData | undefined> {
+async function resolveHarnessAttachmentData(
+  part: Extract<Message["parts"][number], { type: "audio" | "file" | "image" }>,
+  abortSignal?: AbortSignal,
+): Promise<AttachmentData | undefined> {
   if (typeof part.fetchData !== "function") return isAttachmentData(part.data) ? part.data : undefined
-  const fetched = await part.fetchData()
+  if (abortSignal?.aborted) {
+    throw abortSignalError(abortSignal, "[vitehub] Harness attachment resolution aborted.")
+  }
+  const fetchedPromise = Promise.resolve(part.fetchData())
+  const fetched = abortSignal
+    ? await new Promise<AttachmentData>((resolve, reject) => {
+        const onAbort = () => {
+          abortSignal.removeEventListener("abort", onAbort)
+          reject(abortSignalError(abortSignal, "[vitehub] Harness attachment resolution aborted."))
+        }
+        if (abortSignal.aborted) return onAbort()
+        abortSignal.addEventListener("abort", onAbort, { once: true })
+        fetchedPromise.then(resolve, reject).finally(() => abortSignal.removeEventListener("abort", onAbort))
+      })
+    : await fetchedPromise
   return isAttachmentData(fetched) ? fetched : undefined
 }
 
@@ -502,7 +532,7 @@ async function materializeHarnessChatMessages(
           parts.push(part)
           continue
         }
-        const data = await resolveHarnessAttachmentData(part)
+        const data = await resolveHarnessAttachmentData(part, prepared.abortSignal)
         if (!data) {
           if (part.url) {
             throw new Error(`[vitehub] Harness ${part.type} attachment requires data or fetchData(); URL-only attachments must be resolved by the Channel adapter.`)

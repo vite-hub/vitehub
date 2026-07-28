@@ -285,6 +285,66 @@ describe("Harness chat history", () => {
     expect(await attachmentPaths(root)).toEqual([])
   })
 
+  it("percent-decodes arbitrary data URL bytes", async () => {
+    const root = await createRoot()
+    const turns: CapturedTurn[] = []
+    const agent = defineAgent({
+      driver: {
+        harness: createHistoryHarness(turns),
+        sandbox: createLocalHarnessSandbox({ rootDir: root }),
+      },
+    })
+
+    await runAgent(agent, runtime, {
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{ data: "data:application/octet-stream,%FF%00A", mediaType: "image/png", type: "image" }],
+        role: "user",
+      })],
+    })
+
+    expect(turns[0]?.imageBytes).toEqual([[255, 0, 65]])
+    expect(await attachmentPaths(root)).toEqual([])
+  })
+
+  it("aborts stalled Channel attachment resolution before Harness invocation", async () => {
+    const root = await createRoot()
+    const turns: CapturedTurn[] = []
+    const controller = new AbortController()
+    let markFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve
+    })
+    const agent = defineAgent({
+      driver: {
+        harness: createHistoryHarness(turns),
+        sandbox: createLocalHarnessSandbox({ rootDir: root }),
+      },
+    })
+
+    const invocation = runAgent(agent, runtime, {
+      abortSignal: controller.signal,
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{
+          fetchData: () => {
+            markFetchStarted()
+            return new Promise<Uint8Array>(() => {})
+          },
+          mediaType: "image/png",
+          type: "image",
+        }],
+        role: "user",
+      })],
+    })
+    await fetchStarted
+    controller.abort(new Error("request closed"))
+
+    await expect(invocation).rejects.toThrow("request closed")
+    expect(turns).toEqual([])
+    expect(await attachmentPaths(root)).toEqual([])
+  })
+
   it("rejects invalid Channel adapter data instead of using fallback attachment data", async () => {
     const root = await createRoot()
     const turns: CapturedTurn[] = []
