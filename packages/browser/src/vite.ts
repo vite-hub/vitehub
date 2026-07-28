@@ -85,7 +85,7 @@ function isBrowserDefinitionUpdate(file: string, projectRoot: string, serverDirs
   if (/\.browser\.(?:c|m)?[jt]s$/i.test(normalized)) return true
   return (serverDirs ?? [resolve(projectRoot, "server")]).some((directory) => {
     const browserDirectory = `${resolve(directory, "browsers").replace(/\\/g, "/")}/`
-    return normalized.startsWith(browserDirectory) && /\.(?:c|m)?[jt]s$/i.test(normalized.slice(browserDirectory.length))
+    return normalized.startsWith(browserDirectory) && /\.(?:c|m)?[jt]sx?$/i.test(normalized.slice(browserDirectory.length))
   })
 }
 

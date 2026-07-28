@@ -82,6 +82,22 @@ describe("hubBrowser", () => {
     expect(types).toContain("interface ViteHubBrowserDefinitionModules")
     expect(types).toContain('"code-image": typeof import(')
     expect(types).toContain("server/browsers/code-image.ts")
+
+    const jsxDefinition = join(root, "server", "browsers", "jsx-browser.jsx")
+    await writeFile(jsxDefinition, "export default defineBrowser(async () => undefined)\n", "utf8")
+    await (plugin.handleHotUpdate as unknown as (context: Record<string, unknown>) => Promise<void>)({
+      file: jsxDefinition,
+      server: {
+        config: { root },
+        moduleGraph: {
+          getModuleById: () => undefined,
+          invalidateModule: () => {},
+        },
+      },
+    })
+    await expect(readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")).resolves.toContain(
+      "server/browsers/jsx-browser.jsx",
+    )
   })
 
   it("bundles discovered Browser Definitions without provider imports in application code", async () => {
