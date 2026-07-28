@@ -8,7 +8,7 @@ interface ProviderJsonRecord {
 }
 
 export interface ProviderOutputConfigOwnership {
-  arrays?: Record<string, { key: string, values?: ProviderJsonPrimitive[] }>
+  arrays?: Record<string, { key?: string, values?: ProviderJsonPrimitive[] }>
   keys?: string[]
 }
 
@@ -96,7 +96,12 @@ function deleteOwnedFields(value: ProviderJsonRecord, ownership: ProviderOutputC
   return next
 }
 
-function getKeyedArrayEntryValue(value: unknown, key: string): ProviderJsonPrimitive | undefined {
+function getKeyedArrayEntryValue(value: unknown, key: string | undefined): ProviderJsonPrimitive | undefined {
+  if (key === undefined) {
+    return value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string"
+      ? value
+      : undefined
+  }
   if (!isProviderJsonRecord(value)) return
   const entryValue = value[key]
   return entryValue === null || typeof entryValue === "boolean" || typeof entryValue === "number" || typeof entryValue === "string"

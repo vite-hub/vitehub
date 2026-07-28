@@ -147,6 +147,10 @@ describe("hubBrowser", () => {
   it("writes and cleans owned standalone Provider Output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-vite-"))
     roots.push(root)
+    const outputDir = join(root, "dist", root.split("/").at(-1)!.toLowerCase())
+    const outputFile = join(outputDir, "wrangler.json")
+    await mkdir(outputDir, { recursive: true })
+    await writeFile(outputFile, JSON.stringify({ compatibility_flags: ["custom"] }))
     const plugin = hubBrowser({ binding: "BROWSER" })
     ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
       browser: { binding: "BROWSER" },
@@ -158,10 +162,24 @@ describe("hubBrowser", () => {
     })
     await (plugin.closeBundle as { handler(): Promise<void> }).handler()
 
-    const output = JSON.parse(await readFile(join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json"), "utf8"))
+    const output = JSON.parse(await readFile(outputFile, "utf8"))
     expect(output).toEqual({
       browser: { binding: "BROWSER" },
-      compatibility_flags: ["nodejs_compat", "no_websocket_standard_binary_type"],
+      compatibility_flags: ["custom", "nodejs_compat", "no_websocket_standard_binary_type"],
+    })
+
+    const disabledPlugin = hubBrowser(false)
+    ;(disabledPlugin.configResolved as unknown as (config: Record<string, unknown>) => void)({
+      browser: false,
+      build: { outDir: "dist" },
+      command: "build",
+      mode: "production",
+      nitro: {},
+      root,
+    })
+    await (disabledPlugin.closeBundle as { handler(): Promise<void> }).handler()
+    await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      compatibility_flags: ["custom"],
     })
   })
 

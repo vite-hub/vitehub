@@ -205,7 +205,14 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
                 },
               }
             : {}),
-          wranglerConfigOwnership: { keys: ["browser", "compatibility_flags"] },
+          wranglerConfigOwnership: {
+            keys: ["browser"],
+            arrays: {
+              compatibility_flags: {
+                values: ["nodejs_compat", "no_websocket_standard_binary_type"],
+              },
+            },
+          },
         })
       },
     },
