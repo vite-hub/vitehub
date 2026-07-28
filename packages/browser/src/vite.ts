@@ -80,10 +80,10 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
   }
 }
 
-function isBrowserDefinitionUpdate(file: string, root: string, serverDirs: string[] | undefined): boolean {
+function isBrowserDefinitionUpdate(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
   const normalized = normalize(file).replace(/\\/g, "/")
   if (/\.browser\.(?:c|m)?[jt]s$/i.test(normalized)) return true
-  return (serverDirs ?? [resolve(root, "server")]).some((directory) => {
+  return (serverDirs ?? [resolve(projectRoot, "server")]).some((directory) => {
     const browserDirectory = `${resolve(directory, "browsers").replace(/\\/g, "/")}/`
     return normalized.startsWith(browserDirectory) && /\.(?:c|m)?[jt]s$/i.test(normalized.slice(browserDirectory.length))
   })
@@ -120,7 +120,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   }
 
   function registryContents(root: string) {
-    const definitions = discoverDefinitions(root)
+    const definitions = enabled ? discoverDefinitions(root) : []
     return [
       "const registry = {",
       ...definitions.map(definition =>
@@ -135,7 +135,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
 
   function runtimeContents() {
     return [
-      `export default ${JSON.stringify({ binding: resolvedOptions.binding, provider: "cloudflare" }, null, 2)}`,
+      `export default ${JSON.stringify(enabled ? { binding: resolvedOptions.binding, provider: "cloudflare" } : {}, null, 2)}`,
       "",
     ].join("\n")
   }
@@ -176,7 +176,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
       }
     },
     async handleHotUpdate(context) {
-      if (!isBrowserDefinitionUpdate(context.file, context.server.config.root, serverDirs)) return
+      if (!isBrowserDefinitionUpdate(context.file, projectRoot, serverDirs)) return
       await refreshRegistryTypes(context.server.config.root)
       const registryModule = context.server.moduleGraph.getModuleById(resolvedBrowserRegistryId)
       if (registryModule) context.server.moduleGraph.invalidateModule(registryModule)
@@ -197,8 +197,15 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
         await writeCloudflareWranglerConfig({
           outputRoot: createDefaultCloudflareOutputRoot(resolved.root),
           rootDir: resolved.root,
-          ...(enabled ? { wranglerConfig: { browser: { binding: resolvedOptions.binding } } } : {}),
-          wranglerConfigOwnership: { keys: ["browser"] },
+          ...(enabled
+            ? {
+                wranglerConfig: {
+                  browser: { binding: resolvedOptions.binding },
+                  compatibility_flags: ["nodejs_compat", "no_websocket_standard_binary_type"],
+                },
+              }
+            : {}),
+          wranglerConfigOwnership: { keys: ["browser", "compatibility_flags"] },
         })
       },
     },

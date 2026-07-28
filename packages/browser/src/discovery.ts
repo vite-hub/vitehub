@@ -35,12 +35,17 @@ export function discoverBrowserDefinitions(options: {
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverRoots = resolveDefinitionScanRoots(options.serverRootDir || options.rootDir, options.scanDirs)
   const serverScanDirs = options.serverDirs ?? serverRoots.map(root => resolve(root, "server"))
+  const browserDirectories = serverScanDirs.map(directory => `${resolve(directory, "browsers").replace(/\\/g, "/")}/`)
+  const suffixDefinitions = (discoverDefinitions("browser", [
+    createSuffixDefinitionSource("vite-suffix", roots, browserSuffixPattern, normalizeSuffixBrowserName),
+  ]) as DiscoveredBrowserDefinition[]).filter((definition) => {
+    const handler = resolve(definition.handler).replace(/\\/g, "/")
+    return !browserDirectories.some(directory => handler.startsWith(directory))
+  })
 
   return mergeDefinitions(
     "browser",
-    discoverDefinitions("browser", [
-      createSuffixDefinitionSource("vite-suffix", roots, browserSuffixPattern, normalizeSuffixBrowserName),
-    ]) as DiscoveredBrowserDefinition[],
+    suffixDefinitions,
     discoverDefinitions("browser", [
       createDirectoryDefinitionSource("server-browsers", serverScanDirs, "browsers", {
         normalizeName: normalizeDirectoryBrowserName,

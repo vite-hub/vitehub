@@ -129,8 +129,12 @@ try {
   await control.client.page.goto('https://example.com')
 }
 finally {
-  await control.release()
-  await session.close()
+  try {
+    await control.release()
+  }
+  finally {
+    await session.close()
+  }
 }
 ```
 

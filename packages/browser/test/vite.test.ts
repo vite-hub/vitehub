@@ -159,7 +159,10 @@ describe("hubBrowser", () => {
     await (plugin.closeBundle as { handler(): Promise<void> }).handler()
 
     const output = JSON.parse(await readFile(join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json"), "utf8"))
-    expect(output).toEqual({ browser: { binding: "BROWSER" } })
+    expect(output).toEqual({
+      browser: { binding: "BROWSER" },
+      compatibility_flags: ["nodejs_compat", "no_websocket_standard_binary_type"],
+    })
   })
 
   it("validates binding names", () => {

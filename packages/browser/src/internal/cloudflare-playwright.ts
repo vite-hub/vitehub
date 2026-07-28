@@ -36,10 +36,9 @@ export function cloudflarePlaywright(
           if (released) return
           try {
             const cdp = await browser.newBrowserCDPSession()
-            const termination = cdp.send("Browser.close")
+            await cdp.send("Browser.close")
             connection[cloudflareBrowserTerminated] = true
             released = true
-            void Promise.resolve(termination).catch(() => {})
           }
           catch (error) {
             await browser.close().catch(() => {})

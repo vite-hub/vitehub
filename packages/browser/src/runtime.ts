@@ -22,7 +22,7 @@ import type {
   BrowserSession,
 } from "./types.ts"
 import type {
-  BrowserDefinitionInput,
+  BrowserDefinitionInputArgs,
   BrowserDefinitionName,
   BrowserDefinitionResult,
   BrowserRegistryDefinition,
@@ -198,7 +198,7 @@ export function useBrowserSession(
 
 export function runBrowser<const TName extends BrowserDefinitionName>(
   name: TName,
-  input: BrowserDefinitionInput<BrowserRegistryDefinition<TName>>,
+  ...args: BrowserDefinitionInputArgs<BrowserRegistryDefinition<TName>>
 ): Promise<BrowserDefinitionResult<BrowserRegistryDefinition<TName>>>
 export function runBrowser<TName extends string>(
   name: string extends TName ? TName : never,
