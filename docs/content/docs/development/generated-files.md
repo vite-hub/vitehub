@@ -15,6 +15,7 @@ Application code should use Stable ViteHub Import Paths instead of importing gen
 | `.vitehub/env/public.mjs` | Env Package | Generated Public Env runtime module. |
 | `.vitehub/env/server.mjs` | Env Package | Generated Server Env runtime module. |
 | `.vitehub/types/env.d.ts` | Env Package | Generated Public Env and Server Env types. |
+| `.vitehub/types/browser.d.ts` | Browser Package | Generated Browser Definition names and input/result module types. |
 | `.vitehub/types/templates.d.ts` | Markdown Template Package | Generated `TemplateName` union and `#vitehub/templates` module types. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Generated Workspace name types. |
 | `.vitehub/markdown-template/templates.mjs` | Markdown Template Package | Bundled named-template registry used by Workspace and Provider builds. |

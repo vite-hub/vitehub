@@ -186,16 +186,6 @@ export async function executeBrowserDefinition<TInput, TResult, TConnection>(
   return result
 }
 
-export function useBrowserSession(
-  browser: BrowserDefinitionBrowser,
-  options?: BrowserProviderOpenOptions,
-): Promise<BrowserPageSession> {
-  if (!browser || typeof browser.open !== "function") {
-    throw new TypeError("[vitehub:browser] useBrowserSession() requires the browser from a Browser Definition context.")
-  }
-  return browser.open(options)
-}
-
 export function runBrowser<const TName extends BrowserDefinitionName>(
   name: TName,
   ...args: BrowserDefinitionInputArgs<BrowserRegistryDefinition<TName>>

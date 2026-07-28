@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest"
 import {
   defineBrowser,
   executeBrowserDefinition,
-  useBrowserSession,
 } from "../src/runtime.ts"
 import { createBrowser } from "../src/index.ts"
 
@@ -60,7 +59,7 @@ describe("Browser Definitions", () => {
   it("provides imperative sessions and closes them after the definition", async () => {
     const { browser, close, controller, page, release } = fixture()
     const definition = defineBrowser(async (input: { url: string }, { browser }) => {
-      const session = await useBrowserSession(browser)
+      const session = await browser.open()
       await session.page.goto(input.url)
       return session.id
     })
@@ -78,7 +77,7 @@ describe("Browser Definitions", () => {
   it("closes sessions when the definition throws", async () => {
     const { browser, close, controller, release } = fixture()
     const definition = defineBrowser(async (_input: undefined, { browser }) => {
-      await useBrowserSession(browser)
+      await browser.open()
       throw new Error("render failed")
     })
 
@@ -94,7 +93,7 @@ describe("Browser Definitions", () => {
   it("lets definitions close sessions early without double cleanup", async () => {
     const { browser, close, controller, release } = fixture()
     const definition = defineBrowser(async (_input: undefined, { browser }) => {
-      const session = await useBrowserSession(browser)
+      const session = await browser.open()
       await session.close()
     })
 
@@ -105,11 +104,5 @@ describe("Browser Definitions", () => {
 
     expect(release).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
-  })
-
-  it("requires useBrowserSession to receive a definition browser", () => {
-    expect(() => useBrowserSession(undefined as never)).toThrow(
-      "requires the browser from a Browser Definition context",
-    )
   })
 })

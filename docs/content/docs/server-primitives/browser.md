@@ -7,7 +7,7 @@ icon: i-lucide-monitor
 
 Browser Definitions are named, server-side browser operations. Use them when a route, job, workflow, or trusted server actor needs to inspect a page, render browser-only UI, or capture evidence.
 
-ViteHub discovers each definition, selects the provider from the deployment preset, and owns every session opened during the invocation. Application code does not import a Cloudflare provider or pass browser credentials.
+ViteHub discovers each definition, selects Cloudflare Browser Run from the Cloudflare deployment preset, and owns every session opened during the invocation. Application code does not import a Cloudflare provider or pass browser credentials. Browser Definitions currently require the Cloudflare preset.
 
 Browser is a server primitive, not an Agent Capability. Server code invokes Browser Definitions directly. Agents receive browser access only when you expose an appropriate tool or attach a model-facing Capability such as [`browser()`](/docs/capabilities/browser).
 
@@ -44,13 +44,13 @@ export default defineConfig({
 Place Browser Definitions in `server/browsers/` or name them `*.browser.ts`.
 
 ```ts [server/browsers/page-title.ts]
-import { defineBrowser, useBrowserSession } from 'vite-hub/browser'
+import { defineBrowser } from 'vite-hub/browser'
 
 export default defineBrowser(async (
   input: { url: string },
   { browser },
 ) => {
-  const session = await useBrowserSession(browser)
+  const session = await browser.open()
   await session.page.goto(input.url)
   return await session.page.title()
 })
@@ -76,7 +76,7 @@ The generated Browser registry infers each definition's input and result types. 
 | API | Description |
 | --- | --- |
 | `defineBrowser(handler)` | Defines one discovered browser operation. |
-| `useBrowserSession(browser, options?)` | Opens a Playwright-backed session owned by the current definition invocation. |
+| `browser.open(options?)` | Opens a Playwright-backed session owned by the current definition invocation. |
 | `runBrowser(name, input)` | Runs a discovered definition with inferred input and result types. |
 | `session.browser` | Playwright Browser connected to the provider session. |
 | `session.context` | Invocation-owned Playwright Browser Context. |
@@ -107,7 +107,9 @@ export default defineConfig({
 | `browser: { binding }` | Enables Browser with a custom Cloudflare binding name. |
 | `browser: false` | Disables Browser Provider Output. |
 
-The Cloudflare preset writes the Browser Run binding and `nodejs_compat` flag to generated Provider Output. Inspect the generated `wrangler.json` before deployment when runtime bindings change.
+The Cloudflare preset writes the Browser Run binding plus the `nodejs_compat` and `no_websocket_standard_binary_type` flags to Nitro's generated Provider Output. The second flag preserves `ArrayBuffer` delivery for the Playwright WebSocket connection.
+
+Cloudflare can run a local browser during `wrangler dev`. Set `remote: true` on a Browser binding only when a local proof must connect to Cloudflare's Browser Run service. A direct standalone `hubBrowser()` integration writes the Browser binding, while the application remains responsible for compatibility flags outside Nitro-managed output.
 
 ## Low-level sessions
 

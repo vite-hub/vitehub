@@ -1,13 +1,17 @@
+import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
 import { build } from "vite"
 
 import { hubBrowser } from "../src/vite.ts"
 
+const execFileAsync = promisify(execFile)
 const roots: string[] = []
+const tsc = resolve(import.meta.dirname, "../../../node_modules/typescript/bin/tsc")
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
@@ -100,6 +104,77 @@ describe("hubBrowser", () => {
     )
   })
 
+  it("compiles generated runBrowser names, inputs, and results", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-types-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "browsers"), { recursive: true })
+    await writeFile(
+      join(root, "server", "browsers", "code-image.ts"),
+      [
+        `import { defineBrowser } from "@vite-hub/browser"`,
+        `export default defineBrowser(async (input: { code: string }) => ({ length: input.code.length }))`,
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+    const plugin = hubBrowser()
+    const config = {
+      browser: {},
+      build: { outDir: "dist" },
+      command: "serve",
+      mode: "development",
+      nitro: {},
+      root,
+    }
+
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    await writeFile(
+      join(root, "consumer.ts"),
+      [
+        `import { runBrowser } from "@vite-hub/browser"`,
+        `const result: Promise<{ length: number }> = runBrowser("code-image", { code: "const ok = true" })`,
+        `void result`,
+        `// @ts-expect-error unknown Browser Definition`,
+        `runBrowser("missing", { code: "const ok = false" })`,
+        `// @ts-expect-error incorrect input`,
+        `runBrowser("code-image", { url: "https://example.com" })`,
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+    await writeFile(
+      join(root, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          noEmit: true,
+          paths: {
+            "@vite-hub/browser": [resolve(import.meta.dirname, "../dist/index.d.ts")],
+          },
+          skipLibCheck: true,
+          strict: true,
+          target: "ESNext",
+        },
+        files: [
+          ".vitehub/types/browser.d.ts",
+          "consumer.ts",
+          "server/browsers/code-image.ts",
+        ],
+      }, null, 2),
+      "utf8",
+    )
+
+    try {
+      await execFileAsync(process.execPath, [tsc, "-p", root], { cwd: root })
+    }
+    catch (error) {
+      const output = error as Error & { stderr?: string, stdout?: string }
+      throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
+    }
+  })
+
   it("bundles discovered Browser Definitions without provider imports in application code", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-build-"))
     roots.push(root)
@@ -108,9 +183,9 @@ describe("hubBrowser", () => {
     await writeFile(
       join(root, "server", "browsers", "code-image.ts"),
       [
-        `import { defineBrowser, useBrowserSession } from "@vite-hub/browser"`,
+        `import { defineBrowser } from "@vite-hub/browser"`,
         `export default defineBrowser(async (_input, { browser }) => {`,
-        `  const session = await useBrowserSession(browser)`,
+        `  const session = await browser.open()`,
         `  return await session.page.title()`,
         `})`,
         "",

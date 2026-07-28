@@ -2,10 +2,10 @@
 
 Browser Definitions for deterministic server-side browser automation.
 
-ViteHub selects the browser provider from the deployment preset. Application code defines a browser operation and asks for an invocation-scoped session:
+ViteHub selects the browser provider from the deployment preset. Application code defines a browser operation and opens an invocation-scoped session:
 
 ```ts
-import { defineBrowser, useBrowserSession } from "@vite-hub/browser"
+import { defineBrowser } from "@vite-hub/browser"
 
 export default defineBrowser(async (
   input: {
@@ -14,7 +14,7 @@ export default defineBrowser(async (
   },
   { browser },
 ) => {
-  const session = await useBrowserSession(browser)
+  const session = await browser.open()
   await session.page.goto(input.url)
   return await session.page.locator(input.selector ?? "body").screenshot({
     type: "png",

@@ -5,7 +5,6 @@ import {
   defineBrowser,
   type BrowserPageSession,
   type BrowserSessionRef,
-  useBrowserSession,
 } from "../src/index.ts"
 import { playwright, type PlaywrightClient } from "../src/controllers/playwright.ts"
 import { cloudflareBrowser } from "../src/providers/cloudflare.ts"
@@ -25,7 +24,7 @@ describe("published Browser types", () => {
 
   it("types imperative definition-scoped sessions", () => {
     defineBrowser(async (input: { url: string }, { browser }) => {
-      expectTypeOf(useBrowserSession(browser)).resolves.toEqualTypeOf<BrowserPageSession>()
+      expectTypeOf(browser.open()).resolves.toEqualTypeOf<BrowserPageSession>()
       return input.url
     })
   })
