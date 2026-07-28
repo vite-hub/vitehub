@@ -236,6 +236,23 @@ describe("ASCII SSH transport", () => {
     await session.stop();
   });
 
+  it("observes readiness failures while launch input delivery is blocked", async () => {
+    const server = new FakeSshServer();
+    server.holdProcessInput = true;
+    server.observationExitCode = 1;
+    const session = await openSession(server);
+    const opening = session.spawn!({ command: "sleep 3600" });
+    const openingError = opening.catch((error: unknown) => error);
+
+    await vi.waitFor(() => expect(server.process?.input).toContain("sleep 3600"));
+
+    await expect(openingError).resolves.toEqual(
+      expect.objectContaining({ message: expect.stringContaining("could not be observed") }),
+    );
+    expect(server.boxDestroys).toBe(1);
+    await session.stop();
+  });
+
   it("coalesces client and channel failures into one provider deletion", async () => {
     const server = new FakeSshServer();
     server.holdProcessInput = true;
@@ -362,6 +379,7 @@ class FakeSshServer {
   holdSftpOpen = false;
   holdSftpRead = false;
   observation: FakeChannel | undefined;
+  observationExitCode = 0;
   process: FakeChannel | undefined;
   processInputError: Error | undefined;
   processStderr = [] as string[];
@@ -409,7 +427,13 @@ class FakeSshServer {
       );
     } else if (command.includes("LoadState") && command.includes("ActiveState")) {
       if (this.holdObservation) this.observation = channel;
-      else setImmediate(() => channel.finish(0, "loaded\nactive\n"));
+      else
+        setImmediate(() =>
+          channel.finish(
+            this.observationExitCode,
+            this.observationExitCode === 0 ? "loaded\nactive\n" : "",
+          ),
+        );
     } else if (command.includes("cgroup.procs")) {
       setImmediate(() => channel.finish(0));
     } else {

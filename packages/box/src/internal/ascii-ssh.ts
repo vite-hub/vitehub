@@ -228,12 +228,15 @@ function createAsciiSshSession(
     processes.add(process);
     void process.settled.finally(() => processes.delete(process));
     try {
-      await waitWithTimeout(
-        endChannel(channel, launchScript),
-        10_000,
-        `[vitehub] ASCII process ${unit} launch input timed out.`,
-        options.abortSignal,
-      );
+      await Promise.all([
+        waitWithTimeout(
+          endChannel(channel, launchScript),
+          10_000,
+          `[vitehub] ASCII process ${unit} launch input timed out.`,
+          options.abortSignal,
+        ),
+        process.ready,
+      ]);
     } catch (error) {
       return await failClosed(error, destroyBox, `[vitehub] ASCII process ${unit} launch failed.`);
     }
@@ -245,7 +248,6 @@ function createAsciiSshSession(
         options.abortSignal?.removeEventListener("abort", onAbort),
       );
     }
-    await process.ready;
     options.abortSignal?.throwIfAborted();
     return process;
   };
