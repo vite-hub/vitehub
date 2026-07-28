@@ -145,7 +145,9 @@ The Agent Vite integration writes the Evalite configuration during local setup. 
 pnpm vitehub agent eval server/agents/support.eval.ts
 ```
 
-Configure the runner through `hubAgent({ eval })`. Set `eval: false` to disable Agent Evals and their CLI contribution.
+Executable `*.eval.ts`, `*.eval.mts`, `*.eval.tsx`, `eval.ts`, `eval.mts`, and `eval.tsx` files automatically enable the Agent Eval CLI and generated Evalite configuration. A fixture-only `evals/` directory remains inert.
+
+Configure the discovered runner through `hubAgent({ eval })`.
 
 ```ts [vite.config.ts]
 import { hubAgent } from '@vite-hub/agent/vite'

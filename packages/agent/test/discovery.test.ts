@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { discoverAgentDefinitions } from "../src/discovery.ts"
+import { discoverAgentDefinitions, discoverAgentEvalFiles } from "../src/discovery.ts"
 import { getMessageText } from "../src/messages.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -15,6 +15,31 @@ import type { AgentRunInput } from "../src/index.ts"
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
 }
+
+it("discovers executable Agent Eval files without treating fixture directories as evals", async () => {
+  const root = await createTempRoot("vitehub-agent-evals-")
+  try {
+    await mkdir(join(root, "evals"), { recursive: true })
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "evals", "cases.json"), "[]\n", "utf8")
+    await writeFile(join(root, "evals", "reference.xlsx"), "fixture", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "EVAL.TS"), "export default defineEval({})", "utf8")
+
+    expect(discoverAgentEvalFiles(root)).toEqual([])
+
+    const suffixEval = join(root, "server", "agents", "support.eval.ts")
+    const folderEval = join(root, "server", "agents", "support", "eval.mts")
+    const tsxEval = join(root, "server", "agents", "support.eval.tsx")
+    await writeFile(suffixEval, "export default defineEval({})", "utf8")
+    await writeFile(folderEval, "export default defineEval({})", "utf8")
+    await writeFile(tsxEval, "export default defineEval({})", "utf8")
+
+    expect(discoverAgentEvalFiles(root)).toEqual([suffixEval, tsxEval, folderEval])
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
 
 function responseChunkText(chunk: unknown) {
   if (typeof chunk === "string") return chunk

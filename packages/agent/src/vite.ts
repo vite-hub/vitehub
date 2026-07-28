@@ -16,8 +16,8 @@ import {
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
-import { discoverAgentDefinitions } from "./discovery.ts"
-import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
+import { discoverAgentDefinitions, discoverAgentEvalFiles } from "./discovery.ts"
+import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { readColocatedAgentHome } from "./vite/colocated-agent-home.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
@@ -1801,7 +1801,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
-        return createAgentCliContributor({ eval: resolveAgentEvalOptions(agent?.eval) })
+        return createAgentCliContributor({
+          eval: agent?.eval,
+          rootDir: resolved?.root ?? process.cwd(),
+        })
       },
     },
     config(config) {
@@ -1867,14 +1870,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       )
       standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       await writeGeneratedAgentOutputs(config)
-      if (agent === false || agent?.eval === false) {
+      if (agent === false || !discoverAgentEvalFiles(config.root).length) {
+        await removeAgentEvaliteConfig(config.root)
         return
       }
 
       const evalOptions = resolveAgentEvalOptions(agent?.eval)
-      if (evalOptions === false) {
-        return
-      }
       await writeAgentEvaliteConfig(config.root, evalOptions)
     },
     configEnvironment(name, config) {

@@ -205,6 +205,43 @@ function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
 }
 
 describe("agent Vite plugin", () => {
+  it("activates eval tooling only while executable eval files exist", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-eval-discovery-"))
+    const generatedConfig = join(root, ".vitehub", "agent", "evalite.config.ts")
+    try {
+      await mkdir(join(root, "evals"), { recursive: true })
+      await writeFile(join(root, "evals", "cases.json"), "[]\n", "utf8")
+      await writeFile(join(root, "evals", "reference.xlsx"), "fixture", "utf8")
+
+      const plugin = hubAgent()
+      const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
+      const cli = plugin.vitehub?.cli as () => Promise<{
+        namespaces: Array<{ features: Array<{ name: string }> }>
+      }>
+      const featureNames = async () => (await cli()).namespaces[0]!.features.map(feature => feature.name)
+
+      await configResolved({ command: "serve", root })
+      await expect(readFile(generatedConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(featureNames()).resolves.not.toContain("eval")
+
+      const evalFile = join(root, "server", "agents", "support.eval.tsx")
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(evalFile, "export default defineEval({})", "utf8")
+      await configResolved({ command: "serve", root })
+      await expect(readFile(generatedConfig, "utf8")).resolves.toContain("forceRerunTriggers")
+      await expect(featureNames()).resolves.toContain("eval")
+
+      await rm(evalFile)
+      await configResolved({ command: "serve", root })
+      await expect(readFile(generatedConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(featureNames()).resolves.not.toContain("eval")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("bundles repository context templates into Vite builds", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(import.meta.dirname, ".repository-context-template-"))
@@ -228,7 +265,7 @@ describe("agent Vite plugin", () => {
       ].join("\n"), "utf8")
 
       const runBuild = build as unknown as (config: unknown) => Promise<unknown>
-      const agentPlugin: unknown = hubAgent({ eval: false })
+      const agentPlugin: unknown = hubAgent()
       const markdownPlugin: unknown = hubMarkdownTemplate()
       await runBuild({
         [VITEHUB_SERVER_DIRS]: [serverDir],
@@ -475,7 +512,7 @@ describe("agent Vite plugin", () => {
 
   it("invalidates runtime Schedule modules when an Agent changes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ eval: false })
+    const plugin = hubAgent()
     const registryModule = { id: "registry" }
     const targetsModule = { id: "targets" }
     const nitroRegistryModule = { id: "nitro-registry" }
@@ -536,7 +573,7 @@ describe("agent Vite plugin", () => {
       await writeFile(join(agentRoot, "instructions.md"), "@./tone.md\n", "utf8")
       await writeFile(join(agentRoot, "tone.md"), "Use a concise tone.\n", "utf8")
 
-      const plugin = hubAgent({ eval: false })
+      const plugin = hubAgent()
       const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
       await configResolved({ command: "serve", plugins: [], root })
       const generatedRouteModule = { id: "generated-route" }
@@ -570,7 +607,7 @@ describe("agent Vite plugin", () => {
   it("materializes the MCP runtime package for Vercel build output", async () => {
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ eval: false })
+    const plugin = hubAgent()
     const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
@@ -1373,12 +1410,12 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ eval: false, runtime: "deno" })
+      const plugin = hubAgent({ runtime: "deno" })
       const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "build", root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
-      await configResolved({ agent: { eval: false, runtime: "deno" }, command: "build", root })
+      await configResolved({ agent: { runtime: "deno" }, command: "build", root })
       await closeBundle.handler()
 
       expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
@@ -1466,7 +1503,7 @@ export default defineAgent({
         ],
       }, null, 2)}\n`, "utf8")
 
-      const plugin = hubAgent({ eval: false })
+      const plugin = hubAgent()
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
       }

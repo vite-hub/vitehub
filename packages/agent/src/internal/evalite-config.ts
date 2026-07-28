@@ -1,3 +1,5 @@
+import { rm } from "node:fs/promises"
+
 import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import type { AgentEvalOptions } from "../types.ts"
@@ -12,8 +14,7 @@ const defaultForceRerunTriggers = [
   "src/**/*.eval.*",
 ]
 
-export function resolveAgentEvalOptions(options: false | AgentEvalOptions | undefined): ResolvedAgentEvalOptions | false {
-  if (options === false) return false
+export function resolveAgentEvalOptions(options: AgentEvalOptions | undefined): ResolvedAgentEvalOptions {
   return {
     ...options,
     forceRerunTriggers: options?.forceRerunTriggers ?? defaultForceRerunTriggers,
@@ -56,4 +57,8 @@ export async function writeAgentEvaliteConfig(rootDir: string, options: Resolved
   const file = createAgentEvaliteConfigPath(rootDir)
   await writeFileIfChanged(file, renderAgentEvaliteConfig(options))
   return file
+}
+
+export async function removeAgentEvaliteConfig(rootDir: string): Promise<void> {
+  await rm(createAgentEvaliteConfigPath(rootDir), { force: true })
 }

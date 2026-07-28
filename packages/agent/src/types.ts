@@ -1310,7 +1310,7 @@ export interface ResolvedAgentRoutesOptions {
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
   execution?: AgentExecution
-  eval?: false | AgentEvalOptions
+  eval?: AgentEvalOptions
   imports?: boolean
   integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions

@@ -143,7 +143,6 @@ async function createDeploymentRuntimeFixture(adapter: "deno" | "netlify" | "nit
     logLevel: "silent",
     plugins: [
       hubAgent({
-        eval: false,
         providers: {
           state: {
             provider: "sqlite",

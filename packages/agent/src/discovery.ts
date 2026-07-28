@@ -4,6 +4,7 @@ import { basename, dirname, relative, resolve } from "node:path"
 import {
   createDirectoryDefinitionSource,
   discoverDefinitions,
+  listMatchingFiles,
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
@@ -17,12 +18,26 @@ const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
 const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
 const colocatedAgentResourceDirectories = new Set(["home", "skills"])
 
+export const agentEvalFileConvention = {
+  include: [
+    "**/*.eval.?(m)ts",
+    "**/eval.?(m)ts",
+    "**/*.eval.tsx",
+    "**/eval.tsx",
+  ],
+  pattern: /^(?:.+\.)?eval\.(?:m?ts|tsx)$/,
+}
+
 function isColocatedAgentResourcePath(path: string): boolean {
   return colocatedAgentResourceDirectories.has(path.split("/")[0] || "")
 }
 
 function isEvalDefinitionFile(file: string): boolean {
   return evalDefinitionPattern.test(basename(file))
+}
+
+export function discoverAgentEvalFiles(rootDir: string): string[] {
+  return listMatchingFiles(resolve(rootDir), file => agentEvalFileConvention.pattern.test(file))
 }
 
 function normalizeSuffixAgentName(rootDir: string, file: string) {

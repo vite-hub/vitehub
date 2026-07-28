@@ -3,6 +3,8 @@ import process from "node:process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { agentEvalFileConvention } from "./discovery.ts"
+
 import type { Writable } from "node:stream"
 import type { Evalite } from "evalite/types"
 import type { ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
@@ -163,7 +165,7 @@ export async function runAgentEvalite(options: RunAgentEvaliteOptions): Promise<
     browser: undefined,
     config: false,
     forceRerunTriggers,
-    include: ["**/*.eval.?(m)ts"],
+    include: agentEvalFileConvention.include,
     maxConcurrency: options.maxConcurrency,
     mode: "test",
     reporters,
