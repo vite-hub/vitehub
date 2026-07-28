@@ -28,6 +28,13 @@ export const agentEvalFileConvention = {
   pattern: /^(?:.+\.)?eval\.(?:m?ts|tsx)$/,
 }
 
+export function createAgentEvalInclude(rootDirs: string[]): string[] {
+  return [...new Set(rootDirs.flatMap((rootDir) => {
+    const root = resolve(rootDir).replace(/\\/g, "/")
+    return agentEvalFileConvention.include.map(pattern => `${root}/${pattern}`)
+  }))].sort()
+}
+
 function isColocatedAgentResourcePath(path: string): boolean {
   return colocatedAgentResourceDirectories.has(path.split("/")[0] || "")
 }

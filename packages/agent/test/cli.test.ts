@@ -1186,7 +1186,8 @@ describe("agent CLI", () => {
       stderr: stream(),
       stdout: stream(),
     }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"), [
-      "/external/server/agents/support.eval.ts",
+      "/external/server/**/*.eval.?(m)ts",
+      "/external/server/**/eval.?(m)ts",
     ])
 
     expect(exitCode).toBe(0)
@@ -1194,7 +1195,10 @@ describe("agent CLI", () => {
       cache: undefined,
       cacheEnabled: undefined,
       cwd: "/repo",
-      files: ["/external/server/agents/support.eval.ts"],
+      include: [
+        "/external/server/**/*.eval.?(m)ts",
+        "/external/server/**/eval.?(m)ts",
+      ],
       forceRerunTriggers: [
         "server/agents/**",
         "src/**/*.agent.*",
