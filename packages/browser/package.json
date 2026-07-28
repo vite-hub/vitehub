@@ -1,8 +1,14 @@
 {
   "name": "@vite-hub/browser",
   "version": "0.0.1",
-  "description": "Provider-agnostic Browser Session primitives and Vite integration for ViteHub.",
-  "keywords": ["browser", "cloudflare", "playwright", "vite", "vitehub"],
+  "description": "Browser Definitions and provider-backed sessions for ViteHub.",
+  "keywords": [
+    "browser",
+    "cloudflare",
+    "playwright",
+    "vite",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
@@ -12,14 +18,29 @@
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/browser"
   },
-  "files": ["dist", "package.json"],
+  "files": [
+    "dist",
+    "package.json"
+  ],
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/browser/registry": {
+      "types": "./dist/internal/runtime/empty-registry.d.ts",
+      "default": "./dist/internal/runtime/empty-registry.js"
+    },
+    "#vitehub/browser/runtime": {
+      "types": "./dist/internal/runtime/unconfigured.d.ts",
+      "default": "./dist/internal/runtime/unconfigured.js"
+    }
+  },
   "exports": {
     ".": "./dist/index.js",
     "./controllers/cdp": "./dist/controllers/cdp.js",
     "./controllers/playwright": "./dist/controllers/playwright.js",
+    "./internal/runtime/empty-registry": "./dist/internal/runtime/empty-registry.js",
+    "./internal/runtime/unconfigured": "./dist/internal/runtime/unconfigured.js",
     "./providers/cloudflare": "./dist/providers/cloudflare.js",
     "./providers/local": "./dist/providers/local.js",
     "./vite": "./dist/vite.js",
@@ -51,9 +72,17 @@
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
-    "@cloudflare/playwright": { "optional": true },
-    "playwright-core": { "optional": true },
-    "vite": { "optional": true }
+    "@cloudflare/playwright": {
+      "optional": true
+    },
+    "playwright-core": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
   },
-  "engines": { "node": ">=24.15.0" }
+  "engines": {
+    "node": ">=24.15.0"
+  }
 }

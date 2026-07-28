@@ -1,12 +1,22 @@
+import { normalize, resolve } from "node:path"
+
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
-import { createNoExternalMerger, isServerEnvironment, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import {
+  createNoExternalMerger,
+  isServerEnvironment,
+  resolveViteHubProjectRoot,
+  shouldSkipViteProviderBuild,
+  VITEHUB_SERVER_DIRS,
+} from "@vite-hub/internal/build/vite"
+
+import { discoverBrowserDefinitions } from "./discovery.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
 
 export interface BrowserModuleOptions {
   binding?: string
-  provider?: "cloudflare"
 }
 
 export type BrowserVitePlugin = Plugin & {
@@ -15,18 +25,18 @@ export type BrowserVitePlugin = Plugin & {
   }
 }
 
+const browserRegistryId = "#vitehub/browser/registry"
+const browserRuntimeId = "#vitehub/browser/runtime"
+const resolvedBrowserRegistryId = `\0${browserRegistryId}`
+const resolvedBrowserRuntimeId = `\0${browserRuntimeId}`
 const mergeNoExternal = createNoExternalMerger("@vite-hub/browser")
 
 function resolveOptions(options: BrowserModuleOptions | false | undefined): Required<BrowserModuleOptions> {
-  if (options === false) return { binding: "BROWSER", provider: "cloudflare" }
-  const binding = options?.binding || "BROWSER"
+  const binding = options && options.binding || "BROWSER"
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
     throw new TypeError("[vitehub:browser] Browser binding must be a valid Cloudflare binding name.")
   }
-  if (options?.provider && options.provider !== "cloudflare") {
-    throw new TypeError("[vitehub:browser] hubBrowser() currently supports the Cloudflare provider.")
-  }
-  return { binding, provider: "cloudflare" }
+  return { binding }
 }
 
 function cloneRecord(value: unknown): Record<string, unknown> {
@@ -53,7 +63,9 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
     return { ...nitro, cloudflare: { ...cloudflare, wrangler } }
   }
   const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
-  if (!flags.includes("nodejs_compat")) flags.push("nodejs_compat")
+  for (const flag of ["nodejs_compat", "no_websocket_standard_binary_type"]) {
+    if (!flags.includes(flag)) flags.push(flag)
+  }
   return {
     ...nitro,
     cloudflare: {
@@ -68,16 +80,83 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
   }
 }
 
+function isBrowserDefinitionUpdate(file: string, root: string, serverDirs: string[] | undefined): boolean {
+  const normalized = normalize(file).replace(/\\/g, "/")
+  if (/\.browser\.(?:c|m)?[jt]s$/i.test(normalized)) return true
+  return (serverDirs ?? [resolve(root, "server")]).some((directory) => {
+    const browserDirectory = `${resolve(directory, "browsers").replace(/\\/g, "/")}/`
+    return normalized.startsWith(browserDirectory) && /\.(?:c|m)?[jt]s$/i.test(normalized.slice(browserDirectory.length))
+  })
+}
+
+function renderBrowserRegistryTypes(definitions: ReturnType<typeof discoverBrowserDefinitions>) {
+  return [
+    "declare global {",
+    "  interface ViteHubBrowserDefinitionModules {",
+    ...definitions.map(definition =>
+      `    ${JSON.stringify(definition.name)}: typeof import(${JSON.stringify(definition.handler)})`
+    ),
+    "  }",
+    "}",
+    "",
+    "export {}",
+    "",
+  ].join("\n")
+}
+
 export function hubBrowser(options?: BrowserModuleOptions | false): BrowserVitePlugin {
   let enabled = options !== false
   let resolvedOptions = resolveOptions(options)
   let resolved: ResolvedConfig | undefined
-  const applyConfig = (config: { browser?: BrowserModuleOptions | false, nitro?: unknown }) => {
+  let projectRoot = process.cwd()
+  let serverDirs: string[] | undefined
+
+  function discoverDefinitions(root: string) {
+    return discoverBrowserDefinitions({
+      rootDir: root,
+      serverDirs,
+      serverRootDir: projectRoot,
+    })
+  }
+
+  function registryContents(root: string) {
+    const definitions = discoverDefinitions(root)
+    return [
+      "const registry = {",
+      ...definitions.map(definition =>
+        `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(definition.handler)}),`
+      ),
+      "}",
+      "",
+      "export default registry",
+      "",
+    ].join("\n")
+  }
+
+  function runtimeContents() {
+    return [
+      `export default ${JSON.stringify({ binding: resolvedOptions.binding, provider: "cloudflare" }, null, 2)}`,
+      "",
+    ].join("\n")
+  }
+
+  async function refreshRegistryTypes(root: string) {
+    const definitions = discoverDefinitions(root)
+    await writeFileIfChanged(
+      resolve(projectRoot, ".vitehub", "types", "browser.d.ts"),
+      renderBrowserRegistryTypes(definitions),
+    )
+  }
+
+  const applyConfig = (config: { browser?: BrowserModuleOptions | false, nitro?: unknown, root?: string }) => {
     const configured = config.browser ?? options
     enabled = configured !== false
     resolvedOptions = resolveOptions(configured)
+    projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
+    serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
     config.nitro = configureNitroBrowser(config.nitro, resolvedOptions, enabled)
   }
+
   return {
     name: "@vite-hub/browser/vite",
     enforce: "pre",
@@ -85,15 +164,30 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     config(config) {
       applyConfig(config)
     },
-    configResolved(config) {
+    async configResolved(config) {
       resolved = config
       applyConfig(config)
+      await refreshRegistryTypes(config.root)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
       return {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
+    },
+    async handleHotUpdate(context) {
+      if (!isBrowserDefinitionUpdate(context.file, context.server.config.root, serverDirs)) return
+      await refreshRegistryTypes(context.server.config.root)
+      const registryModule = context.server.moduleGraph.getModuleById(resolvedBrowserRegistryId)
+      if (registryModule) context.server.moduleGraph.invalidateModule(registryModule)
+    },
+    resolveId(id) {
+      if (id === browserRegistryId) return resolvedBrowserRegistryId
+      if (id === browserRuntimeId) return resolvedBrowserRuntimeId
+    },
+    load(id) {
+      if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
+      if (id === resolvedBrowserRuntimeId) return runtimeContents()
     },
     closeBundle: {
       order: "post",

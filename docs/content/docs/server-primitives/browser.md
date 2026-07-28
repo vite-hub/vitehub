@@ -1,14 +1,15 @@
 ---
 title: Browser
-description: Open provider-backed browser sessions from server code without exposing provider credentials or browser internals.
+description: Define provider-backed browser operations without exposing provider setup to application code.
 navigation.order: 13
 icon: i-lucide-monitor
 ---
 
-Browser opens provider-backed browser sessions for deterministic server code.
-Use it when a route, job, workflow, or trusted server actor needs to inspect a page, render browser-only UI, capture evidence, or transfer a live browser session to another trusted step.
+Browser Definitions are named, server-side browser operations. Use them when a route, job, workflow, or trusted server actor needs to inspect a page, render browser-only UI, or capture evidence.
 
-Browser is a server primitive, not an Agent Capability. Server code calls the Browser Runtime Helper directly. Agents receive browser access only when you attach a model-facing Capability such as [`browser()`](/docs/capabilities/browser).
+ViteHub discovers each definition, selects the provider from the deployment preset, and owns every session opened during the invocation. Application code does not import a Cloudflare provider or pass browser credentials.
+
+Browser is a server primitive, not an Agent Capability. Server code invokes Browser Definitions directly. Agents receive browser access only when you expose an appropriate tool or attach a model-facing Capability such as [`browser()`](/docs/capabilities/browser).
 
 ## Quick start
 
@@ -17,25 +18,102 @@ Browser is a server primitive, not an Agent Capability. Server code calls the Br
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/browser @cloudflare/playwright playwright-core
+pnpm add vite-hub @cloudflare/playwright playwright-core
 ```
 
 ### Configure
 
-For Cloudflare Browser Run Provider Output, register `hubBrowser()`.
+Enable Browser on the Cloudflare deployment preset.
 
 ```ts [vite.config.ts]
-import { hubBrowser } from '@vite-hub/browser/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [hubBrowser()],
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      browser: true,
+    }),
+  ],
 })
 ```
 
-### Start using it
+### Define a browser operation
 
-```ts [server/api/page-title.get.ts]
+Place Browser Definitions in `server/browsers/` or name them `*.browser.ts`.
+
+```ts [server/browsers/page-title.ts]
+import { defineBrowser, useBrowserSession } from 'vite-hub/browser'
+
+export default defineBrowser(async (
+  input: { url: string },
+  { browser },
+) => {
+  const session = await useBrowserSession(browser)
+  await session.page.goto(input.url)
+  return await session.page.title()
+})
+```
+
+### Run it by name
+
+```ts [server/api/page-title.post.ts]
+import { runBrowser } from 'vite-hub/browser'
+
+export default defineEventHandler(async (event) => {
+  const input = await readBody<{ url: string }>(event)
+  return await runBrowser('page-title', input)
+})
+```
+
+::
+
+The generated Browser registry infers each definition's input and result types. ViteHub closes every session after the definition completes or throws, including when one invocation opens several sessions.
+
+## Runtime API
+
+| API | Description |
+| --- | --- |
+| `defineBrowser(handler)` | Defines one discovered browser operation. |
+| `useBrowserSession(browser, options?)` | Opens a Playwright-backed session owned by the current definition invocation. |
+| `runBrowser(name, input)` | Runs a discovered definition with inferred input and result types. |
+| `session.browser` | Playwright Browser connected to the provider session. |
+| `session.context` | Invocation-owned Playwright Browser Context. |
+| `session.page` | Initial Playwright Page. |
+| `session.inspect()` | Returns sanitized session state without provider credentials. |
+| `session.close()` | Closes a session early; otherwise the definition runner closes it. |
+
+## Configuration
+
+`browser: true` enables Browser with the deployment preset's defaults. Use an object only when the host binding name must change.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      browser: {
+        binding: 'RENDER_BROWSER',
+      },
+    }),
+  ],
+})
+```
+
+| Shape | Description |
+| --- | --- |
+| `browser: true` | Enables Browser with the `BROWSER` binding. |
+| `browser: { binding }` | Enables Browser with a custom Cloudflare binding name. |
+| `browser: false` | Disables Browser Provider Output. |
+
+The Cloudflare preset writes the Browser Run binding and `nodejs_compat` flag to generated Provider Output. Inspect the generated `wrangler.json` before deployment when runtime bindings change.
+
+## Low-level sessions
+
+`createBrowser()` remains available for libraries and standalone integrations that deliberately own provider selection, controller attachment, and cleanup.
+
+```ts [server/browser.ts]
 import { createBrowser } from '@vite-hub/browser'
 import { playwright } from '@vite-hub/browser/controllers/playwright'
 import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
@@ -44,164 +122,46 @@ const browser = createBrowser({
   provider: cloudflareBrowser({ binding: 'BROWSER' }),
 })
 
-export default defineEventHandler(async () => {
-  return browser.withSession(session =>
-    session.use(playwright(), async ({ page }) => {
-      await page.goto('https://example.com')
-      return { title: await page.title() }
-    }),
-  )
-})
-```
-
-::
-
-## Public imports
-
-| Import | Use |
-| --- | --- |
-| `createBrowser` from `@vite-hub/browser` | Create a Browser Client for a selected provider. |
-| `cdp` from `@vite-hub/browser/controllers/cdp` | Attach a raw Chrome DevTools Protocol controller that can preserve live handoff. |
-| `playwright` from `@vite-hub/browser/controllers/playwright` | Attach a Playwright controller for lifecycle-scoped browser work. |
-| `cloudflareBrowser` from `@vite-hub/browser/providers/cloudflare` | Use Cloudflare Browser Run through a Workers Browser binding. |
-| `localBrowser` from `@vite-hub/browser/providers/local` | Launch local Chromium with an isolated temporary profile. |
-| `hubBrowser` from `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
-
-Browser session, provider, controller, and policy types are exported from `@vite-hub/browser`.
-
-## Configuration options
-
-Configure Browser through the Browser Client, provider options, and optional Vite Integration options.
-
-```ts [server/browser.ts]
-import { createBrowser } from '@vite-hub/browser'
-import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
-
-export const browser = createBrowser({
-  provider: cloudflareBrowser({ binding: 'BROWSER' }),
-  policy: {
-    handoffTtl: 30_000,
-    idleTimeoutMs: 60_000,
-  },
-})
-```
-
-| Shape | Description |
-| --- | --- |
-| `createBrowser({ provider })` | Creates a Browser Client using one provider boundary. |
-| `policy.handoffTtl` | Default lifetime for one-time Browser Session refs. |
-| `policy.idleTimeoutMs` | Default provider lease TTL passed when opening sessions. |
-| `leaseStore` | Optional runtime lease store for limiting provider session ownership. |
-| `trace` | Optional lifecycle trace sink. Trace events use sanitized Browser Session ids, not provider secrets. |
-| `hubBrowser({ binding })` | Writes a Cloudflare Browser Run binding. Default: `BROWSER`. |
-| `browser: false` | Disables Browser Provider Output when using a composed ViteHub config. |
-
-## Providers
-
-| Provider | Import | Use it when |
-| --- | --- | --- |
-| Cloudflare Browser Run | `@vite-hub/browser/providers/cloudflare` | Production or preview Workers should use Cloudflare's managed Browser binding. |
-| Local Chromium | `@vite-hub/browser/providers/local` | Local tests or trusted-host automation should launch a specific Chromium executable. |
-
-The provider owns session creation and cleanup. Application code should not depend on provider session ids, CDP endpoints, cookies, or Worker binding internals.
-
-## Use it at runtime
-
-Use `withSession()` when the session should be closed after one scoped operation.
-
-```ts [server/render-title.ts]
-import { playwright } from '@vite-hub/browser/controllers/playwright'
-import { browser } from './browser'
-
-export async function renderTitle(url: string) {
-  return browser.withSession(session =>
-    session.use(playwright(), async ({ page }) => {
-      await page.goto(url)
-      return page.title()
-    }),
-  )
-}
-```
-
-Use `open()` when the caller must inspect, hand off, or close the session explicitly.
-
-```ts [server/browser-session.ts]
-import { browser } from './browser'
-
 const session = await browser.open()
+const control = await session.attach(playwright())
 
 try {
-  return session.inspect()
+  await control.client.page.goto('https://example.com')
 }
 finally {
+  await control.release()
   await session.close()
 }
 ```
 
-## Runtime Helper
-
-`createBrowser()` returns a Browser Client.
-
-| Method | Description |
-| --- | --- |
-| `browser.open(options?)` | Opens one provider session and returns a Browser Session. |
-| `browser.withSession(run, options?)` | Opens a session, runs scoped work, and closes the session unless ownership was handed off. |
-| `browser.claim(ref, { audience })` | Claims a one-time Browser Session ref for the intended audience. |
-| `session.use(controller, run)` | Attaches one controller to the session and releases it after the callback. |
-| `session.handoff({ audience, mode: 'live', ttl? })` | Creates a one-time live handoff ref when the provider and controller support live reattachment. |
-| `session.inspect()` | Returns sanitized session id, provider, state, features, and expiry. |
-| `session.close()` | Closes the provider session and releases its lease. |
+Provider and controller subpaths are advanced integration surfaces. Normal ViteHub application code should use Browser Definitions so the deployment preset can own the provider.
 
 ## Live handoff
 
-Live handoff transfers ownership of the exact provider session. It does not export cookies, a CDP endpoint, provider credentials, or reconstructed state.
+Low-level sessions can transfer ownership of an exact provider session through an opaque, audience-bound reference.
 
 ```ts [server/browser-handoff.ts]
 import { cdp } from '@vite-hub/browser/controllers/cdp'
-import { browser } from './browser'
 
 const session = await browser.open()
+const control = await session.attach(cdp())
 
-await session.use(cdp(), async (client) => {
-  await client.send('Target.createTarget', { url: 'https://example.com' })
-})
+try {
+  await control.client.send('Target.createTarget', {
+    url: 'https://example.com',
+  })
+}
+finally {
+  await control.release()
+}
 
 const ref = await session.handoff({
   audience: 'review-agent-run-42',
   mode: 'live',
 })
-
-const claimed = await browser.claim(ref, {
-  audience: 'review-agent-run-42',
-})
 ```
 
-Refs are one-time, short-lived, and scoped to the Browser Client that created them.
-Cross-process or durable handoff requires a future runtime-backed handoff store.
-
-Use the CDP controller when live session preservation matters. The Playwright controller is lifecycle-scoped; live handoff after Playwright use is rejected because closing Playwright can terminate or reset provider browser state.
-
-## Provider output
-
-`hubBrowser()` writes Cloudflare Browser Run configuration to generated Provider Output. In Nitro-backed builds it also merges the required `nodejs_compat` Worker compatibility flag. Other Vite builds must add `nodejs_compat` to their app-owned Wrangler configuration.
-
-```ts [vite.config.ts]
-export default defineConfig({
-  plugins: [
-    hubBrowser({ binding: 'BROWSER' }),
-  ],
-})
-```
-
-On Cloudflare, inspect the generated `wrangler.json` and verify both the `browser` binding and `nodejs_compat` before deployment.
-
-## Connect it to Agents
-
-Direct Browser access is for trusted server code. To give a model browser access during an Agent Invocation, attach the [`browser()` Capability](/docs/capabilities/browser).
-
-The current `browser()` Capability exposes an `agent-browser` command through the global `bash` tool and contributes a Workspace skill file. It does not claim or share `@vite-hub/browser` sessions.
-
-Cloudflare Browser Run plus stock `agent-browser` is not documented as a live handoff pair. Cloudflare requires authenticated WebSocket headers that the public `agent-browser --cdp` interface cannot currently supply without a credential-aware proxy or provider-specific command wrapper.
+Refs are one-time, short-lived, and scoped to the Browser Client that created them. Use the CDP controller when live preservation matters; Playwright attachment is lifecycle-scoped and cannot be handed off after release.
 
 ## Production boundaries
 
@@ -209,11 +169,8 @@ Keep browser automation behind trusted server boundaries. Browser sessions can o
 
 Do not log provider session ids, CDP endpoints, cookies, authorization headers, or raw handoff refs. Treat screenshots and downloaded files as user data and route them through the same storage, retention, and approval policies as other artifacts.
 
-Close sessions explicitly when not using `withSession()`. Provider-managed browsers can outlive the request that opened them until the provider expires or terminates the session.
-
 ## Next steps
 
-- Expose model-facing browser evidence through [Browser capability](/docs/capabilities/browser).
 - Store screenshots and downloaded files with [Blob](/docs/server-primitives/blob).
-- Run isolated browser-adjacent commands with [Sandbox](/docs/server-primitives/sandbox).
+- Expose model-facing browser access through [Browser capability](/docs/capabilities/browser).
 - Deploy Browser Run output on [Cloudflare](/docs/frameworks-hosts/cloudflare).

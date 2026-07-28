@@ -5,7 +5,10 @@ export interface CDPBrowserConnection {
   preferredTargetId?: string
 }
 
+export const cloudflareBrowserTerminated: unique symbol = Symbol("vitehub.browser.cloudflare.terminated")
+
 export interface CloudflareBrowserBindingConnection {
+  [cloudflareBrowserTerminated]?: boolean
   binding: unknown
   kind: "cloudflare-binding"
   preferredTargetId?: string

@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { build } from "vite"
 
 import { hubBrowser } from "../src/vite.ts"
 
@@ -25,7 +26,11 @@ describe("hubBrowser", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER" })
-    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["existing", "nodejs_compat"])
+    expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", [
+      "existing",
+      "nodejs_compat",
+      "no_websocket_standard_binary_type",
+    ])
     expect(config).toHaveProperty("nitro.rollupConfig.external", ["existing-module", "cloudflare:workers"])
   })
 
@@ -39,7 +44,104 @@ describe("hubBrowser", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "TOP_LEVEL_BROWSER" })
-    expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", provider: "cloudflare" })
+    expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER" })
+  })
+
+  it("generates the provider runtime and discovered Browser Definition registry", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-registry-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "browsers"), { recursive: true })
+    await writeFile(
+      join(root, "server", "browsers", "code-image.ts"),
+      "export default defineBrowser(async () => new Uint8Array())\n",
+      "utf8",
+    )
+    const plugin = hubBrowser({ binding: "CODE_BROWSER" })
+    const config = {
+      browser: { binding: "CODE_BROWSER" },
+      build: { outDir: "dist" },
+      command: "serve",
+      mode: "development",
+      nitro: {},
+      root,
+    }
+
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+
+    const registryId = (plugin.resolveId as (id: string) => string)("#vitehub/browser/registry")
+    const runtimeId = (plugin.resolveId as (id: string) => string)("#vitehub/browser/runtime")
+    const registry = await (plugin.load as (id: string) => string | Promise<string>)(registryId)
+    const runtime = await (plugin.load as (id: string) => string | Promise<string>)(runtimeId)
+    const types = await readFile(join(root, ".vitehub", "types", "browser.d.ts"), "utf8")
+
+    expect(registry).toContain('"code-image": async () => import(')
+    expect(registry).toContain("server/browsers/code-image.ts")
+    expect(runtime).toContain('"provider": "cloudflare"')
+    expect(runtime).toContain('"binding": "CODE_BROWSER"')
+    expect(types).toContain("interface ViteHubBrowserDefinitionModules")
+    expect(types).toContain('"code-image": typeof import(')
+    expect(types).toContain("server/browsers/code-image.ts")
+  })
+
+  it("bundles discovered Browser Definitions without provider imports in application code", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-build-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "browsers"), { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }), "utf8")
+    await writeFile(
+      join(root, "server", "browsers", "code-image.ts"),
+      [
+        `import { defineBrowser, useBrowserSession } from "@vite-hub/browser"`,
+        `export default defineBrowser(async (_input, { browser }) => {`,
+        `  const session = await useBrowserSession(browser)`,
+        `  return await session.page.title()`,
+        `})`,
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+    await writeFile(
+      join(root, "server.ts"),
+      [
+        `import { runBrowser } from "@vite-hub/browser"`,
+        `export async function render() { return await runBrowser("code-image") }`,
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const buildResult = await build({
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          external: [
+            "@cloudflare/playwright",
+            "@vite-hub/runtime",
+            "cloudflare:workers",
+          ],
+        },
+        ssr: "server.ts",
+      },
+      logLevel: "silent",
+      plugins: [hubBrowser({ binding: "CODE_BROWSER" })],
+      resolve: {
+        alias: {
+          "@vite-hub/browser": join(import.meta.dirname, "../dist/index.js"),
+        },
+      },
+      root,
+    })
+
+    const results = Array.isArray(buildResult) ? buildResult : [buildResult]
+    const output = results
+      .flatMap(result => "output" in result ? result.output : [])
+      .flatMap(chunk => chunk.type === "chunk" ? [chunk.code] : [])
+      .join("\n")
+    expect(output).toContain("code-image")
+    expect(output).toContain("CODE_BROWSER")
+    expect(output).not.toContain("@vite-hub/browser/providers/cloudflare")
+    expect(output).not.toContain("playwright-core")
   })
 
   it("writes and cleans owned standalone Provider Output", async () => {

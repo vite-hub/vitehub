@@ -1,6 +1,7 @@
 import type {
   BrowserClaimOptions,
   BrowserClient,
+  BrowserControl,
   BrowserController,
   BrowserFeatures,
   BrowserHandoffOptions,
@@ -12,7 +13,7 @@ import type {
   BrowserSessionState,
   CreateBrowserOptions,
 } from "./types.ts"
-import type { Lease, MaybePromise, TraceEvent } from "@vite-hub/runtime"
+import type { Lease, TraceEvent } from "@vite-hub/runtime"
 
 import {
   browserLiveHandoffUnsupportedError,
@@ -22,6 +23,7 @@ import {
 export type {
   BrowserClaimOptions,
   BrowserClient,
+  BrowserControl,
   BrowserController,
   BrowserControllerContext,
   BrowserControllerLease,
@@ -38,6 +40,19 @@ export type {
   BrowserSessionRef,
   BrowserSessionState,
   CreateBrowserOptions,
+} from "./types.ts"
+export {
+  defineBrowser,
+  runBrowser,
+  useBrowserSession,
+} from "./runtime.ts"
+export type {
+  BrowserDefinition,
+  BrowserDefinitionBrowser,
+  BrowserDefinitionContext,
+  BrowserDefinitionHandler,
+  BrowserDefinitionRegistry,
+  BrowserPageSession,
 } from "./types.ts"
 
 const defaultFeatures: BrowserFeatures = {
@@ -141,10 +156,9 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     if (this.state !== expected) throw browserSessionStateError(action, this.state)
   }
 
-  async use<TClient, TResult>(
+  async attach<TClient>(
     controller: BrowserController<TClient, TConnection>,
-    run: (client: TClient) => MaybePromise<TResult>,
-  ): Promise<TResult> {
+  ): Promise<BrowserControl<TClient>> {
     this.assertState("attach a controller to", "released")
     if (this.claimed && !controller.features.attachExistingSession) {
       throw browserLiveHandoffUnsupportedError(this.owner.provider.name, controller.name)
@@ -161,17 +175,48 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       this.lastControllerSupportsHandoff = controller.features.attachExistingSession
         && attached.preservesSessionOnRelease !== false
       await this.owner.emit("browser.controller.attach", this, { controller: controller.name })
-      return await run(attached.client)
+      const control = attached
+      let released = false
+      return {
+        client: control.client,
+        release: async () => {
+          if (released) return
+          released = true
+          try {
+            await control.release()
+          }
+          finally {
+            if (this.state === "controlled") this.state = "released"
+            this.controller = undefined
+            await this.owner.emit("browser.controller.detach", this, { controller: controller.name })
+          }
+        },
+      }
     }
-    finally {
-      try {
-        await attached?.release()
+    catch (error) {
+      const errors = [error]
+      if (attached) {
+        try {
+          await attached.release()
+        }
+        catch (releaseError) {
+          errors.push(releaseError)
+        }
       }
-      finally {
-        if (this.state === "controlled") this.state = "released"
-        this.controller = undefined
-        await this.owner.emit("browser.controller.detach", this, { controller: controller.name })
+      if (this.state === "controlled") this.state = "released"
+      this.controller = undefined
+      if (attached) {
+        try {
+          await this.owner.emit("browser.controller.detach", this, { controller: controller.name })
+        }
+        catch (traceError) {
+          errors.push(traceError)
+        }
       }
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "[vitehub:browser] Browser controller attachment failed and cleanup also failed.")
+      }
+      throw error
     }
   }
 
@@ -220,9 +265,6 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     }
   }
 
-  canAutoClose(): boolean {
-    return this.state !== "closed" && this.state !== "handed-off"
-  }
 }
 
 class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
@@ -276,19 +318,6 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       throw error
     }
     return session
-  }
-
-  async withSession<TResult>(
-    run: (session: BrowserSession<TConnection>) => MaybePromise<TResult>,
-    options: BrowserProviderOpenOptions = {},
-  ): Promise<TResult> {
-    const session = await this.open(options) as BrowserSessionImpl<TConnection>
-    try {
-      return await run(session)
-    }
-    finally {
-      if (session.canAutoClose()) await session.close()
-    }
   }
 
   createHandoff(input: Omit<HandoffRecord<TConnection>, "expiresAt" | "timer"> & { ttl?: number }): BrowserSessionRef {

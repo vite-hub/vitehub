@@ -26,3 +26,18 @@ export function browserProviderError(provider: string, operation: string, option
     details: { operation, provider, ...(options.status === undefined ? {} : { status: options.status }) },
   })
 }
+
+export function browserDefinitionNotFoundError(name: string): ViteHubError {
+  return new ViteHubError(
+    "BROWSER_DEFINITION_NOT_FOUND",
+    `[vitehub:browser] Browser Definition ${JSON.stringify(name)} was not found.`,
+    { details: { name } },
+  )
+}
+
+export function browserRuntimeNotConfiguredError(): ViteHubError {
+  return new ViteHubError(
+    "BROWSER_RUNTIME_NOT_CONFIGURED",
+    "[vitehub:browser] Browser runtime is not configured. Enable Browser through the ViteHub deployment preset.",
+  )
+}
