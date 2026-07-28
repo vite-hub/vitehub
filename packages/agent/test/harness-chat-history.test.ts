@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, defineAgent, runAgent } from "../src/index.ts"
 import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
@@ -22,6 +22,7 @@ interface CapturedTurn {
 const roots: string[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -204,6 +205,9 @@ describe("Harness chat history", () => {
       },
     })
     const thirteenMiB = new Uint8Array(13 * 1024 * 1024)
+    const oversizedBlob = new Blob([])
+    Object.defineProperty(oversizedBlob, "size", { value: 26 * 1024 * 1024 })
+    const arrayBuffer = vi.spyOn(Blob.prototype, "arrayBuffer")
 
     await expect(runAgent(agent, runtime, {
       context: { chat: {} },
@@ -216,6 +220,18 @@ describe("Harness chat history", () => {
       })],
     })).rejects.toThrow("exceeds the remaining Harness attachment limit")
 
+    expect(turns).toEqual([])
+    expect(await attachmentPaths(root)).toEqual([])
+
+    await expect(runAgent(agent, runtime, {
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{ data: oversizedBlob, mediaType: "image/png", type: "image" }],
+        role: "user",
+      })],
+    })).rejects.toThrow("exceeds the remaining Harness attachment limit")
+
+    expect(arrayBuffer).not.toHaveBeenCalled()
     expect(turns).toEqual([])
     expect(await attachmentPaths(root)).toEqual([])
   })
@@ -245,6 +261,23 @@ describe("Harness chat history", () => {
 
     expect(turns).toHaveLength(1)
     expect(turns[0]?.imageBytes).toEqual([[1]])
+    expect(await attachmentPaths(root)).toEqual([])
+
+    const encoded = Buffer.alloc(25 * 1024 * 1024).toString("base64")
+    const wrappedBase64 = `${encoded.slice(0, 76)}\n${encoded.slice(76)}`
+    await runAgent(agent, runtime, {
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{
+          fetchData: () => wrappedBase64,
+          mediaType: "application/pdf",
+          type: "file",
+        }],
+        role: "user",
+      })],
+    })
+
+    expect(turns).toHaveLength(2)
     expect(await attachmentPaths(root)).toEqual([])
   })
 

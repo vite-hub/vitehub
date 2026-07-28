@@ -75,7 +75,7 @@ type HarnessFileSandbox = {
 }
 
 type HarnessGlobalSkillsSandbox = {
-  run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string, stdout?: string }>
+  run(options: { abortSignal?: AbortSignal, command: string, env?: Record<string, string>, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string, stdout?: string }>
 }
 
 type HarnessAttachmentSandbox = HarnessInstructionSandbox & HarnessGlobalSkillsSandbox
@@ -91,6 +91,7 @@ const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
 const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 const harnessAttachmentDirectory = ".vitehub/attachments"
+const harnessAttachmentCleanupCommand = `node -e "const fs=require('node:fs');const path=require('node:path');const directory=process.env.VITEHUB_ATTACHMENT_DIRECTORY;fs.rmSync(directory,{force:true,recursive:true});for(const parent of [path.dirname(directory),path.dirname(path.dirname(directory))]){try{fs.rmdirSync(parent)}catch(error){if(error.code!=='ENOENT'&&error.code!=='ENOTEMPTY')throw error}}"`
 const harnessAttachmentMaxBytes = 25 * 1024 * 1024
 const harnessAgentPackage = "@ai-sdk/harness/agent"
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
@@ -386,13 +387,46 @@ function harnessAttachmentExtension(mediaType: string): string {
   }[mediaType.toLowerCase()] || "bin"
 }
 
-function harnessAttachmentStringBytes(value: string, mediaType: string): Uint8Array {
+function assertHarnessAttachmentSize(byteLength: number, remainingBytes: number, type: string): void {
+  if (byteLength > remainingBytes) {
+    throw new Error(`[vitehub] ${type} attachment is ${byteLength} bytes, which exceeds the remaining Harness attachment limit (${remainingBytes} bytes).`)
+  }
+}
+
+function harnessBase64ByteLength(value: string): number {
+  let encodedCharacters = 0
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code === 61) break
+    if (
+      (code >= 48 && code <= 57)
+      || (code >= 65 && code <= 90)
+      || (code >= 97 && code <= 122)
+      || code === 43
+      || code === 45
+      || code === 47
+      || code === 95
+    ) {
+      encodedCharacters++
+    }
+  }
+  return Math.floor(encodedCharacters * 6 / 8)
+}
+
+function harnessAttachmentStringBytes(value: string, mediaType: string, remainingBytes: number, type: string): Uint8Array {
   const dataUrl = /^data:([^,]*?),(.*)$/s.exec(value)
   if (dataUrl) {
     const encoded = dataUrl[2]!
-    return dataUrl[1]!.split(";").includes("base64")
-      ? new Uint8Array(Buffer.from(encoded, "base64"))
-      : new TextEncoder().encode(decodeURIComponent(encoded))
+    if (dataUrl[1]!.split(";").includes("base64")) {
+      assertHarnessAttachmentSize(harnessBase64ByteLength(encoded), remainingBytes, type)
+      return new Uint8Array(Buffer.from(encoded, "base64"))
+    }
+    if (encoded.length > remainingBytes * 3) {
+      assertHarnessAttachmentSize(Math.ceil(encoded.length / 3), remainingBytes, type)
+    }
+    const decoded = decodeURIComponent(encoded)
+    assertHarnessAttachmentSize(Buffer.byteLength(decoded), remainingBytes, type)
+    return new TextEncoder().encode(decoded)
   }
   const normalizedMediaType = mediaType.toLowerCase()
   if (
@@ -401,16 +435,27 @@ function harnessAttachmentStringBytes(value: string, mediaType: string): Uint8Ar
     || normalizedMediaType.endsWith("+json")
     || normalizedMediaType.endsWith("+xml")
   ) {
+    assertHarnessAttachmentSize(Buffer.byteLength(value), remainingBytes, type)
     return new TextEncoder().encode(value)
   }
+  assertHarnessAttachmentSize(harnessBase64ByteLength(value), remainingBytes, type)
   return new Uint8Array(Buffer.from(value, "base64"))
 }
 
-async function harnessAttachmentBytes(data: AttachmentData, mediaType: string): Promise<Uint8Array> {
-  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer())
-  if (data instanceof ArrayBuffer) return new Uint8Array(data)
-  if (data instanceof Uint8Array) return data
-  return harnessAttachmentStringBytes(data, mediaType)
+async function harnessAttachmentBytes(data: AttachmentData, mediaType: string, remainingBytes: number, type: string): Promise<Uint8Array> {
+  if (data instanceof Blob) {
+    assertHarnessAttachmentSize(data.size, remainingBytes, type)
+    return new Uint8Array(await data.arrayBuffer())
+  }
+  if (data instanceof ArrayBuffer) {
+    assertHarnessAttachmentSize(data.byteLength, remainingBytes, type)
+    return new Uint8Array(data)
+  }
+  if (data instanceof Uint8Array) {
+    assertHarnessAttachmentSize(data.byteLength, remainingBytes, type)
+    return data
+  }
+  return harnessAttachmentStringBytes(data, mediaType, remainingBytes, type)
 }
 
 async function resolveHarnessAttachmentData(part: Extract<Message["parts"][number], { type: "audio" | "file" | "image" }>): Promise<AttachmentData | undefined> {
@@ -419,15 +464,10 @@ async function resolveHarnessAttachmentData(part: Extract<Message["parts"][numbe
   return isAttachmentData(fetched) ? fetched : undefined
 }
 
-function quoteHarnessShellValue(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`
-}
-
 async function removeHarnessAttachmentDirectory(session: HarnessAttachmentSandbox, directory: string): Promise<void> {
-  const attachmentsDirectory = posix.dirname(directory)
-  const vitehubDirectory = posix.dirname(attachmentsDirectory)
   const result = await session.run({
-    command: `rm -rf -- ${quoteHarnessShellValue(directory)} && { rmdir -- ${quoteHarnessShellValue(attachmentsDirectory)} ${quoteHarnessShellValue(vitehubDirectory)} 2>/dev/null || true; }`,
+    command: harnessAttachmentCleanupCommand,
+    env: { VITEHUB_ATTACHMENT_DIRECTORY: directory },
   })
   if (result.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to clean up Harness attachments: ${result.stderr || "sandbox command failed"}`)
@@ -468,10 +508,8 @@ async function materializeHarnessChatMessages(
           }
           throw new TypeError(`[vitehub] Harness ${part.type} attachment fetchData() did not return supported attachment data.`)
         }
-        const bytes = await harnessAttachmentBytes(data, part.mediaType)
-        if (bytes.byteLength > remainingBytes) {
-          throw new Error(`[vitehub] ${part.type} attachment is ${bytes.byteLength} bytes, which exceeds the remaining Harness attachment limit (${remainingBytes} bytes).`)
-        }
+        const bytes = await harnessAttachmentBytes(data, part.mediaType, remainingBytes, part.type)
+        assertHarnessAttachmentSize(bytes.byteLength, remainingBytes, part.type)
         remainingBytes -= bytes.byteLength
         const path = `${directory}/message-${messageIndex + 1}-attachment-${partIndex + 1}.${harnessAttachmentExtension(part.mediaType)}`
         await prepared.session.writeBinaryFile({
