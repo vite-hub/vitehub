@@ -24,7 +24,7 @@ import {
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { isAttachmentPart } from "./messages.ts"
+import { isAttachmentData, isAttachmentPart } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
@@ -47,7 +47,8 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "./types.ts"
-import type { Message } from "./messages.ts"
+import type { AttachmentData, Message } from "./messages.ts"
+import type { UserContent, UserModelMessage } from "ai"
 
 type HarnessAgentLike = {
   createSession: (options?: Record<string, unknown>) => MaybePromise<HarnessAgentSessionLike>
@@ -77,10 +78,20 @@ type HarnessGlobalSkillsSandbox = {
   run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string, stdout?: string }>
 }
 
+type HarnessAttachmentSandbox = HarnessInstructionSandbox & HarnessGlobalSkillsSandbox
+
+interface HarnessPreparedSandbox {
+  abortSignal?: AbortSignal
+  session: HarnessAttachmentSandbox
+  sessionWorkDir: string
+}
+
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
 const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
 const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
+const harnessAttachmentDirectory = ".vitehub/attachments"
+const harnessAttachmentMaxBytes = 25 * 1024 * 1024
 const harnessAgentPackage = "@ai-sdk/harness/agent"
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
@@ -304,14 +315,6 @@ async function composeHarnessInstructions(content: string, context: AgentAdapter
   return await composeInstructionDocument(content, compositionContext)
 }
 
-function renderHarnessModelMessageContent(content: unknown): string {
-  if (typeof content === "string") return content
-  if (Array.isArray(content) && content.every(part => part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")) {
-    return content.map(part => (part as { text: string }).text).join("")
-  }
-  return JSON.stringify(content)
-}
-
 function harnessSerializableMessages(messages: Message[]): Message[] {
   return messages.map(message => ({
     ...message,
@@ -324,16 +327,41 @@ function harnessSerializableMessages(messages: Message[]): Message[] {
   }))
 }
 
-function renderHarnessChatPrompt(messages: Message[]): string {
-  return [
-    "Conversation history:",
-    ...toAiSdkModelMessages(harnessSerializableMessages(messages)).map((message) => {
-      const role = message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : message.role
-      return `${role}: ${renderHarnessModelMessageContent(message.content)}`
-    }),
-    "",
-    "Respond to the latest user message.",
-  ].join("\n")
+type HarnessProjectedContentPart = Exclude<UserContent, string>[number]
+
+function projectHarnessChatMessages(messages: Message[]): UserModelMessage {
+  const modelMessages = toAiSdkModelMessages(messages)
+  const lastUserMessage = modelMessages.findLast((message): message is UserModelMessage => message.role === "user")
+  if (!lastUserMessage) {
+    throw new Error("[vitehub] Harness chat history must contain a user message.")
+  }
+  if (messages.length === 1) return lastUserMessage
+
+  const content: HarnessProjectedContentPart[] = []
+  for (const message of modelMessages) {
+    const projected: HarnessProjectedContentPart[] = []
+    if (typeof message.content === "string") {
+      projected.push({ text: message.content, type: "text" })
+    }
+    else {
+      for (const part of message.content) {
+        if (part.type === "text") {
+          projected.push({ text: part.text, type: "text" })
+        }
+        else if (message.role === "user" && part.type === "image") {
+          projected.push(part)
+        }
+        else {
+          projected.push({ text: JSON.stringify(part), type: "text" })
+        }
+      }
+    }
+    if (!projected.length) continue
+    content.push({ text: `<message role="${message.role}">\n`, type: "text" })
+    content.push(...projected)
+    content.push({ text: "\n</message>\n", type: "text" })
+  }
+  return { content, role: "user" }
 }
 
 function latestHarnessUserMessage(messages: Message[]): Message[] {
@@ -344,7 +372,182 @@ function latestHarnessUserMessage(messages: Message[]): Message[] {
   return messages.slice(-1)
 }
 
-async function toHarnessCallInput(context: AgentAdapterRunContext, resumesSession = false) {
+function harnessAttachmentExtension(mediaType: string): string {
+  return {
+    "application/pdf": "pdf",
+    "image/apng": "apng",
+    "image/avif": "avif",
+    "image/gif": "gif",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/webp": "webp",
+    "text/plain": "txt",
+  }[mediaType.toLowerCase()] || "bin"
+}
+
+function harnessAttachmentStringBytes(value: string, mediaType: string): Uint8Array {
+  const dataUrl = /^data:([^,]*?),(.*)$/s.exec(value)
+  if (dataUrl) {
+    const encoded = dataUrl[2]!
+    return dataUrl[1]!.split(";").includes("base64")
+      ? new Uint8Array(Buffer.from(encoded, "base64"))
+      : new TextEncoder().encode(decodeURIComponent(encoded))
+  }
+  const normalizedMediaType = mediaType.toLowerCase()
+  if (
+    normalizedMediaType.startsWith("text/")
+    || normalizedMediaType === "application/json"
+    || normalizedMediaType.endsWith("+json")
+    || normalizedMediaType.endsWith("+xml")
+  ) {
+    return new TextEncoder().encode(value)
+  }
+  return new Uint8Array(Buffer.from(value, "base64"))
+}
+
+async function harnessAttachmentBytes(data: AttachmentData, mediaType: string): Promise<Uint8Array> {
+  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer())
+  if (data instanceof ArrayBuffer) return new Uint8Array(data)
+  if (data instanceof Uint8Array) return data
+  return harnessAttachmentStringBytes(data, mediaType)
+}
+
+async function resolveHarnessAttachmentData(part: Extract<Message["parts"][number], { type: "audio" | "file" | "image" }>): Promise<AttachmentData | undefined> {
+  if (typeof part.fetchData !== "function") return isAttachmentData(part.data) ? part.data : undefined
+  const fetched = await part.fetchData()
+  return isAttachmentData(fetched) ? fetched : undefined
+}
+
+function quoteHarnessShellValue(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+async function removeHarnessAttachmentDirectory(session: HarnessAttachmentSandbox, directory: string): Promise<void> {
+  const attachmentsDirectory = posix.dirname(directory)
+  const vitehubDirectory = posix.dirname(attachmentsDirectory)
+  const result = await session.run({
+    command: `rm -rf -- ${quoteHarnessShellValue(directory)} && { rmdir -- ${quoteHarnessShellValue(attachmentsDirectory)} ${quoteHarnessShellValue(vitehubDirectory)} 2>/dev/null || true; }`,
+  })
+  if (result.exitCode !== 0) {
+    throw new Error(`[vitehub] Failed to clean up Harness attachments: ${result.stderr || "sandbox command failed"}`)
+  }
+}
+
+async function materializeHarnessChatMessages(
+  messages: Message[],
+  prepared: HarnessPreparedSandbox,
+): Promise<{ directory?: string, messages: Message[] }> {
+  const hasAttachments = messages.some(message =>
+    message.role === "user" && message.parts.some(isAttachmentPart),
+  )
+  if (!hasAttachments) return { messages }
+
+  let remainingBytes = harnessAttachmentMaxBytes
+  let remainingDeclaredBytes = harnessAttachmentMaxBytes
+  const directory = joinHarnessSessionPath(
+    prepared.sessionWorkDir,
+    `${harnessAttachmentDirectory}/${globalThis.crypto.randomUUID()}`,
+  )
+  try {
+    const materialized: Message[] = []
+    for (const [messageIndex, message] of messages.entries()) {
+      if (message.role !== "user") {
+        materialized.push(message)
+        continue
+      }
+      const parts: Message["parts"] = []
+      for (const [partIndex, part] of message.parts.entries()) {
+        if (!isAttachmentPart(part)) {
+          parts.push(part)
+          continue
+        }
+        if (typeof part.size === "number" && part.size > remainingDeclaredBytes) {
+          throw new Error(`[vitehub] ${part.type} attachment exceeds the remaining Harness attachment limit (${remainingDeclaredBytes} bytes).`)
+        }
+        if (typeof part.size === "number") remainingDeclaredBytes -= part.size
+        const data = await resolveHarnessAttachmentData(part)
+        if (!data) {
+          if (part.url) {
+            throw new Error(`[vitehub] Harness ${part.type} attachment requires data or fetchData(); URL-only attachments must be resolved by the Channel adapter.`)
+          }
+          throw new TypeError(`[vitehub] Harness ${part.type} attachment fetchData() did not return supported attachment data.`)
+        }
+        const bytes = await harnessAttachmentBytes(data, part.mediaType)
+        if (bytes.byteLength > remainingBytes) {
+          throw new Error(`[vitehub] ${part.type} attachment is ${bytes.byteLength} bytes, which exceeds the remaining Harness attachment limit (${remainingBytes} bytes).`)
+        }
+        remainingBytes -= bytes.byteLength
+        const path = `${directory}/message-${messageIndex + 1}-attachment-${partIndex + 1}.${harnessAttachmentExtension(part.mediaType)}`
+        await prepared.session.writeBinaryFile({
+          abortSignal: prepared.abortSignal,
+          content: bytes,
+          path,
+        })
+        if (part.type === "image") {
+          const { fetchData: _fetchData, url: _url, ...image } = part
+          parts.push({ ...image, data: path })
+        }
+        else {
+          parts.push({
+            id: part.id,
+            text: `Attachment ${JSON.stringify(part.name || part.type)} (${JSON.stringify(part.mediaType)}) is available at ${path}.`,
+            type: "text" as const,
+          })
+        }
+      }
+      materialized.push({ ...message, parts })
+    }
+    return { directory, messages: materialized }
+  }
+  catch (error) {
+    try {
+      await removeHarnessAttachmentDirectory(prepared.session, directory)
+    }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "[vitehub] Harness attachment preparation and cleanup failed.")
+    }
+    throw error
+  }
+}
+
+async function prepareHarnessChatPrompt(
+  context: AgentAdapterRunContext,
+  resumesSession: boolean,
+  prepared: HarnessPreparedSandbox | undefined,
+): Promise<{ directory?: string, prompt: UserModelMessage }> {
+  const selectedMessages = resumesSession ? latestHarnessUserMessage(context.messages) : context.messages
+  const hasAttachments = selectedMessages.some(message => message.role === "user" && message.parts.some(isAttachmentPart))
+  if (hasAttachments && !prepared) {
+    throw new Error("[vitehub] Harness attachment materialization requires a prepared sandbox session.")
+  }
+  const materialized = prepared
+    ? await materializeHarnessChatMessages(selectedMessages, prepared)
+    : { messages: selectedMessages }
+  try {
+    return {
+      ...(materialized.directory ? { directory: materialized.directory } : {}),
+      prompt: projectHarnessChatMessages(materialized.messages),
+    }
+  }
+  catch (error) {
+    if (materialized.directory && prepared) {
+      try {
+        await removeHarnessAttachmentDirectory(prepared.session, materialized.directory)
+      }
+      catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "[vitehub] Harness chat projection and attachment cleanup failed.")
+      }
+    }
+    throw error
+  }
+}
+
+async function toHarnessCallInput(
+  context: AgentAdapterRunContext,
+  resumesSession = false,
+  chatPrompt?: UserModelMessage,
+) {
   const base = {
     abortSignal: context.input.abortSignal,
     timeout: context.input.timeout,
@@ -355,7 +558,7 @@ async function toHarnessCallInput(context: AgentAdapterRunContext, resumesSessio
     if (context.context.has("chat")) {
       return {
         ...base,
-        prompt: renderHarnessChatPrompt(resumesSession ? latestHarnessUserMessage(context.messages) : context.messages),
+        messages: [chatPrompt || projectHarnessChatMessages(resumesSession ? latestHarnessUserMessage(context.messages) : context.messages)],
       }
     }
     return {
@@ -1057,8 +1260,15 @@ export function createHarnessAgentAdapter<
   async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     let workspaceSession: { close: (error?: unknown) => MaybePromise<void>, refreshGitBaseline?: () => MaybePromise<void> } | undefined
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
+    let preparedSandbox: HarnessPreparedSandbox | undefined
+    let attachmentDirectory: string | undefined
     const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
+      preparedSandbox = {
+        abortSignal,
+        session: session as HarnessAttachmentSandbox,
+        sessionWorkDir,
+      }
       let globalSkillsWorkingDirectory: string | undefined
       if (context.box && isHarnessRelativeDirectory(globalSkillsDirectory)) {
         const home = await (session as HarnessGlobalSkillsSandbox).run({
@@ -1129,26 +1339,59 @@ export function createHarnessAgentAdapter<
     })
     const preparationSession = {
       async close(error?: unknown) {
+        let closeError = error
+        if (attachmentDirectory && preparedSandbox) {
+          try {
+            await removeHarnessAttachmentDirectory(preparedSandbox.session, attachmentDirectory)
+          }
+          catch (nextError) {
+            closeError = nextError
+          }
+          attachmentDirectory = undefined
+        }
         try {
-          await globalSkillsSession?.close(error)
+          await globalSkillsSession?.close(closeError)
+        }
+        catch (nextError) {
+          closeError = nextError
         }
         finally {
-          await workspaceSession?.close(error)
+          try {
+            await workspaceSession?.close(closeError)
+          }
+          catch (nextError) {
+            closeError = nextError
+          }
         }
+        if (closeError !== error) throw closeError
       },
+    }
+    const created = await createSession(resolved.agent, context, () => preparationSession, resolved)
+    let chatPrompt: UserModelMessage | undefined
+    try {
+      if (context.context.has("chat") && context.messages.length) {
+        const prepared = await prepareHarnessChatPrompt(context, created.resumesSession, preparedSandbox)
+        attachmentDirectory = prepared.directory
+        chatPrompt = prepared.prompt
+      }
+    }
+    catch (error) {
+      await created.cleanup(error)
+      throw error
     }
     return {
       agent: resolved.agent,
-      ...await createSession(resolved.agent, context, () => preparationSession, resolved),
+      chatPrompt,
+      ...created,
     }
   }
 
   return {
     async generate(context) {
-      const { agent, cleanup, session, resumesSession } = await createAgentAndSession(context)
+      const { agent, chatPrompt, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.generate({
-          ...await toHarnessCallInput(context, resumesSession),
+          ...await toHarnessCallInput(context, resumesSession, chatPrompt),
           session,
         }), usageMetadata)
         await cleanup()
@@ -1161,10 +1404,10 @@ export function createHarnessAgentAdapter<
     },
     name: "ai-sdk-harness",
     async stream(context) {
-      const { agent, cleanup, session, resumesSession } = await createAgentAndSession(context)
+      const { agent, chatPrompt, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.stream({
-          ...await toHarnessCallInput(context, resumesSession),
+          ...await toHarnessCallInput(context, resumesSession, chatPrompt),
           session,
         }), usageMetadata)
         return await withSessionCleanup(result, cleanup, context.input.abortSignal)
