@@ -325,7 +325,7 @@ describe("hubBrowser", () => {
     })
     await (disabledPlugin.closeBundle as { handler(): Promise<void> }).handler()
     await expect(readFile(outputFile, "utf8").then(JSON.parse)).resolves.toEqual({
-      compatibility_flags: ["custom"],
+      compatibility_flags: ["custom", "nodejs_compat"],
     })
   })
 
