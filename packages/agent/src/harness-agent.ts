@@ -444,7 +444,6 @@ async function materializeHarnessChatMessages(
   if (!hasAttachments) return { messages }
 
   let remainingBytes = harnessAttachmentMaxBytes
-  let remainingDeclaredBytes = harnessAttachmentMaxBytes
   const directory = joinHarnessSessionPath(
     prepared.sessionWorkDir,
     `${harnessAttachmentDirectory}/${globalThis.crypto.randomUUID()}`,
@@ -462,10 +461,6 @@ async function materializeHarnessChatMessages(
           parts.push(part)
           continue
         }
-        if (typeof part.size === "number" && part.size > remainingDeclaredBytes) {
-          throw new Error(`[vitehub] ${part.type} attachment exceeds the remaining Harness attachment limit (${remainingDeclaredBytes} bytes).`)
-        }
-        if (typeof part.size === "number") remainingDeclaredBytes -= part.size
         const data = await resolveHarnessAttachmentData(part)
         if (!data) {
           if (part.url) {

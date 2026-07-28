@@ -220,6 +220,34 @@ describe("Harness chat history", () => {
     expect(await attachmentPaths(root)).toEqual([])
   })
 
+  it("enforces the attachment budget from fetched bytes instead of declared metadata", async () => {
+    const root = await createRoot()
+    const turns: CapturedTurn[] = []
+    const agent = defineAgent({
+      driver: {
+        harness: createHistoryHarness(turns),
+        sandbox: createLocalHarnessSandbox({ rootDir: root }),
+      },
+    })
+
+    await runAgent(agent, runtime, {
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{
+          fetchData: () => new Uint8Array([1]),
+          mediaType: "image/png",
+          size: 26 * 1024 * 1024,
+          type: "image",
+        }],
+        role: "user",
+      })],
+    })
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.imageBytes).toEqual([[1]])
+    expect(await attachmentPaths(root)).toEqual([])
+  })
+
   it("rejects invalid Channel adapter data instead of using fallback attachment data", async () => {
     const root = await createRoot()
     const turns: CapturedTurn[] = []
