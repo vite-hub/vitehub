@@ -30,7 +30,9 @@ export const agentEvalFileConvention = {
 
 export function createAgentEvalInclude(rootDirs: string[]): string[] {
   return [...new Set(rootDirs.flatMap((rootDir) => {
-    const root = resolve(rootDir).replace(/\\/g, "/")
+    const root = resolve(rootDir)
+      .replace(/\\/g, "/")
+      .replace(/([*?[\]{}()!])/g, "\\$1")
     return agentEvalFileConvention.include.map(pattern => `${root}/${pattern}`)
   }))].sort()
 }

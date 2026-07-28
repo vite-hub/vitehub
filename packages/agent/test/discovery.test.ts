@@ -5,7 +5,7 @@ import { Readable } from "node:stream"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { discoverAgentDefinitions, discoverAgentEvalFiles } from "../src/discovery.ts"
+import { createAgentEvalInclude, discoverAgentDefinitions, discoverAgentEvalFiles } from "../src/discovery.ts"
 import { getMessageText } from "../src/messages.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -15,6 +15,11 @@ import type { AgentRunInput } from "../src/index.ts"
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
 }
+
+it("escapes glob syntax in Agent Eval roots", () => {
+  const include = createAgentEvalInclude(["/repo/app[1]/server?(external)"])
+  expect(include).toContain("/repo/app\\[1\\]/server\\?\\(external\\)/**/*.eval.?(m)ts")
+})
 
 it("discovers executable Agent Eval files without treating fixture directories as evals", async () => {
   const root = await createTempRoot("vitehub-agent-evals-")
