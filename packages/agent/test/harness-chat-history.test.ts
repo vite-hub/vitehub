@@ -148,6 +148,7 @@ describe("Harness chat history", () => {
             { text: "Compare it with these.", type: "text" },
             { data: new Uint8Array([99]), fetchData: () => new Uint8Array([2]), mediaType: "image/jpeg", type: "image" },
             { data: new Uint8Array([3]), mediaType: "image/webp", type: "image" },
+            { data: "data:image/png;BASE64,BQ==", mediaType: "image/png", type: "image" },
             { data: new Uint8Array([4]), mediaType: "application/pdf", name: "report.pdf", type: "file" },
           ],
           role: "user" as const,
@@ -166,11 +167,13 @@ describe("Harness chat history", () => {
       [1],
       [2],
       [3],
+      [5],
     ])
     expect(turns[1]?.isResume).toBe(true)
     expect(turns[1]?.imageBytes).toEqual([
       [2],
       [3],
+      [5],
     ])
 
     const freshPrompt = turns[0]?.prompt
@@ -180,10 +183,11 @@ describe("Harness chat history", () => {
       expect.stringMatching(/\.vitehub\/attachments\/[^/]+\/message-1-attachment-2\.png$/),
       expect.stringMatching(/\.vitehub\/attachments\/[^/]+\/message-3-attachment-2\.jpg$/),
       expect.stringMatching(/\.vitehub\/attachments\/[^/]+\/message-3-attachment-3\.webp$/),
+      expect.stringMatching(/\.vitehub\/attachments\/[^/]+\/message-3-attachment-4\.png$/),
     ])
     expect(JSON.stringify(freshContent)).not.toContain("escape")
     expect(freshContent.filter(part => part.type === "text").map(part => part.text).join("")).toContain("I remember it.")
-    expect(freshContent.filter(part => part.type === "text").map(part => part.text).join("")).toMatch(/report\.pdf.*\.vitehub\/attachments\/[^/]+\/message-3-attachment-4\.pdf/)
+    expect(freshContent.filter(part => part.type === "text").map(part => part.text).join("")).toMatch(/report\.pdf.*\.vitehub\/attachments\/[^/]+\/message-3-attachment-5\.pdf/)
 
     const resumedPrompt = turns[1]?.prompt
     expect(resumedPrompt).toMatchObject({ role: "user" })

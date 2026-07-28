@@ -417,7 +417,7 @@ function harnessAttachmentStringBytes(value: string, mediaType: string, remainin
   const dataUrl = /^data:([^,]*?),(.*)$/s.exec(value)
   if (dataUrl) {
     const encoded = dataUrl[2]!
-    if (dataUrl[1]!.split(";").includes("base64")) {
+    if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
       assertHarnessAttachmentSize(harnessBase64ByteLength(encoded), remainingBytes, type)
       return new Uint8Array(Buffer.from(encoded, "base64"))
     }
