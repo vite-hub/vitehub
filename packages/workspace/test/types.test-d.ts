@@ -70,6 +70,12 @@ describe("workspace types", () => {
     expectTypeOf(source.github(githubOptions)).toMatchTypeOf(github(githubOptions))
   })
 
+  it("does not expose a placeholder mount contract", () => {
+    const workspace = {} as Workspace
+    // @ts-expect-error Workspace mounts require a real host projection contract.
+    workspace.mount()
+  })
+
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
       sources: {

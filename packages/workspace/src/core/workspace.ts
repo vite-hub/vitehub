@@ -7,8 +7,6 @@ import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
   WorkspaceDefinition,
-  WorkspaceMount,
-  WorkspaceMountOptions,
   WorkspaceSession,
 } from "./types.ts"
 
@@ -87,23 +85,6 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       }
 
       return await createBasicWorkspaceSession(workspace, options)
-    },
-    mount(options?: WorkspaceMountOptions): WorkspaceMount {
-      const mode = options?.mode || "read-only"
-      return {
-        workspace,
-        mode,
-        target: options?.target || "/workspace",
-        async diff() {
-          return await workspace.diff()
-        },
-        async commit() {
-          await workspace.snapshot({ name: "mount-commit" })
-        },
-        async export() {
-          return await workspace.snapshot({ name: "mount-export" })
-        },
-      }
     },
   }
 

@@ -250,23 +250,6 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     async startSession(options) {
       return await (await resolveSyncedWorkspace()).startSession(options)
     },
-    mount(options) {
-      const mode = options?.mode || "read-only"
-      return {
-        workspace,
-        mode,
-        target: options?.target || "/workspace",
-        async diff() {
-          return await (await resolveSyncedWorkspace()).mount(options).diff()
-        },
-        async commit(commitOptions) {
-          await (await resolveSyncedWorkspace()).mount(options).commit(commitOptions)
-        },
-        async export() {
-          return await (await resolveSyncedWorkspace()).mount(options).export()
-        },
-      }
-    },
   } as Workspace
 
   return attachWorkspaceSourceRequestExecution(workspace, {
