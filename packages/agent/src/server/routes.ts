@@ -684,6 +684,7 @@ async function collectAgentOutput(
 
 const manualDeliveryProgressDrainTimeoutMs = 100
 const baseAgentOutputSymbol = Symbol.for("vitehub.baseAgentOutput")
+const progressSummaryCapabilitySymbol = Symbol.for("vitehub.progressSummaryCapability")
 
 function progressSummaryFromEvent(event: unknown): string | undefined {
   if (!isRecord(event) || event.type !== "data-progress-summary") return
@@ -697,6 +698,16 @@ function hasAgentStructuredOutput(agent: AgentInput<ViteAgentRouteRuntimeContext
   return typeof agent === "object"
     && agent !== null
     && Object.getOwnPropertyDescriptor(agent, baseAgentOutputSymbol)?.value !== undefined
+}
+
+function hasAgentProgressSummaryCapability(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
+  if (typeof agent !== "object" || agent === null || !("capabilities" in agent)) return false
+  const capabilities = agent.capabilities
+  return Array.isArray(capabilities) && capabilities.some(capability =>
+    typeof capability === "object"
+    && capability !== null
+    && progressSummaryCapabilitySymbol in capability
+  )
 }
 
 function createManualDeliveryProgressUpdater(
@@ -2139,6 +2150,8 @@ async function handleChatSdkMessage(
 
     assertChatDeliveryOptions(options || {})
     const manualDelivery = options?.delivery === "manual"
+    const observesManualProgress = manualDelivery
+      && (typeof agent.run === "function" || hasAgentProgressSummaryCapability(agent))
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
@@ -2151,7 +2164,7 @@ async function handleChatSdkMessage(
       ...(invocation.run ? { run: invocation.run } : {}),
     }
     const chatFinish = createChatFinishExtension(input, registration)
-    progress = manualDelivery
+    progress = observesManualProgress
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
       : undefined
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
@@ -2174,7 +2187,7 @@ async function handleChatSdkMessage(
       // Manual delivery disables Chat SDK reply streaming, but still consumes
       // normalized Agent events so transient Capability output can update the
       // framework-owned placeholder without exposing ordinary Agent text.
-      const result = manualDelivery && !hasAgentStructuredOutput(agent)
+      const result = observesManualProgress && !hasAgentStructuredOutput(agent)
         ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
         : await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result, progress?.update)

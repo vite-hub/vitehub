@@ -7037,6 +7037,48 @@ describe("server helpers", () => {
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "{\"internal\":\"structured output\"}" })
   })
 
+  it("uses generate for manual delivery without progress summaries", async () => {
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const model = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "Generated result" })),
+      stream: vi.fn(async () => ({
+        fullStream: (async function* () {
+          yield { delta: "Streamed result", type: "text-delta" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+      })),
+      tools: {},
+      version: "agent-v1",
+    }
+    const agent = {
+      capabilities: [
+        defineChatCapability({
+          delivery: "manual",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": (event: { reply: (message: string) => unknown, result: { text: string } }) =>
+          event.reply(event.result.text),
+      },
+      resolve: vi.fn(async () => model),
+    }
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_017), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(model.generate).toHaveBeenCalledOnce()
+    expect(model.stream).not.toHaveBeenCalled()
+  })
+
   it("preserves validated structured output for explicit manual replies", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

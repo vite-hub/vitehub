@@ -503,7 +503,7 @@ function isStreamResult(value: unknown): value is {
 export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: ProgressSummaryOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
-  return defineCapability({
+  const capability = defineCapability({
     id: options.id || "progress-summary",
     output(context) {
       context.output.render((result) => {
@@ -549,4 +549,6 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
       })
     },
   })
+  Object.defineProperty(capability, Symbol.for("vitehub.progressSummaryCapability"), { value: true })
+  return capability
 }
