@@ -640,7 +640,7 @@ function fallbackWebhookFromRequest(request: Request): string | undefined {
 
 async function collectAgentOutput(
   result: unknown,
-  onProgress?: (summary: string) => MaybePromise<void>,
+  onProgress?: (summary: string) => void,
 ): Promise<string> {
   if (result instanceof Response) {
     if (result.headers.get("content-type")?.includes("application/json")) {
@@ -676,13 +676,74 @@ async function collectAgentOutput(
       const summary = isRecord(event.data) && typeof event.data.summary === "string"
         ? event.data.summary.trim()
         : ""
-      if (summary) await onProgress?.(summary)
+      if (summary) onProgress?.(summary)
     }
     if (event.type === "error") {
       throw new Error(event.error)
     }
   }
   return (explicitPhaseSeen ? finalText : unphasedText).trim()
+}
+
+const manualDeliveryProgressDrainTimeoutMs = 100
+
+function createManualDeliveryProgressUpdater(
+  manualDelivery: { placeholder?: unknown },
+  waitUntil: AgentWaitUntil,
+): {
+  finish: () => Promise<void>
+  update: (summary: string) => void
+} {
+  let latest: string | undefined
+  let active = true
+  let draining: Promise<void> | undefined
+
+  const drain = async () => {
+    while (active && latest && manualDelivery.placeholder) {
+      const summary = latest
+      latest = undefined
+      await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, { markdown: summary }).catch(() => false)
+    }
+  }
+  const startDrain = () => {
+    if (draining) return
+    draining = drain().finally(() => {
+      draining = undefined
+      if (active && latest && manualDelivery.placeholder) startDrain()
+    })
+  }
+
+  return {
+    async finish() {
+      active = false
+      if (!draining) return
+
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const drained = await Promise.race([
+        draining.then(() => true),
+        new Promise<false>((resolve) => {
+          timeout = setTimeout(() => resolve(false), manualDeliveryProgressDrainTimeoutMs)
+        }),
+      ])
+      if (timeout) clearTimeout(timeout)
+      if (drained || !manualDelivery.placeholder) return
+
+      const stalePlaceholder = manualDelivery.placeholder
+      manualDelivery.placeholder = undefined
+      const cleanup = draining.then(async () => {
+        await deleteManualDeliveryPlaceholder(stalePlaceholder).catch(() => undefined)
+      })
+      waitUntil(Promise.race([
+        cleanup,
+        new Promise<void>(resolve => setTimeout(resolve, manualDeliveryProgressDrainTimeoutMs)),
+      ]))
+    },
+    update(summary) {
+      if (!manualDelivery.placeholder) return
+      latest = summary
+      startDrain()
+    },
+  }
 }
 
 type ChatTextStream = AsyncIterable<string> & {
@@ -2077,6 +2138,9 @@ async function handleChatSdkMessage(
       ...(invocation.run ? { run: invocation.run } : {}),
     }
     const chatFinish = createChatFinishExtension(input, registration)
+    const progress = manualDelivery
+      ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
+      : undefined
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
       ...(invocation.input as AgentRunInput),
       context: {
@@ -2089,18 +2153,13 @@ async function handleChatSdkMessage(
       const result = manualDelivery
         ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
         : await runAgentInline(agent as never, runContext as never, invocationInput as never)
-      const text = await collectAgentOutput(result, manualDelivery
-        ? async (summary) => {
-            if (manualDeliveryState.placeholder) {
-              await replaceManualDeliveryPlaceholder(manualDeliveryState.placeholder, { markdown: summary }).catch(() => false)
-            }
-          }
-        : undefined)
+      const text = await collectAgentOutput(result, progress?.update)
       if (!manualDelivery && text) {
         if (!await postDiscordSplitContent(thread, { markdown: text })) {
           await thread.post({ markdown: text })
         }
       }
+      await progress?.finish()
       await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
       if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
       manualDeliveryState.placeholder = undefined
