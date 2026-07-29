@@ -74,6 +74,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
   ].join("\n"))
 
   return [
+    `import { createAgentDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/agent")))}`,
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     "",
     ...imports,
@@ -81,6 +82,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     "export const databases = {",
     ...databaseEntries,
     "}",
+    "export const agentDb = createAgentDatabase(databases)",
     "",
     ...(runtimeConfig.databaseNames.includes("default")
       ? [
