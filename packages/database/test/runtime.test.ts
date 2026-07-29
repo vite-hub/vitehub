@@ -448,6 +448,21 @@ describe("database definition runtime", () => {
     expect(output).not.toContain("node:fs")
     expect(output).not.toContain("node:path")
   })
+
+  it("reads omitted definition options without opening the hosted database", async () => {
+    const script = [
+      "import { defineDatabase } from './dist/index.js'",
+      "const database = defineDatabase({ cloudflare: { binding: 'DB' }, schema: {} })",
+      "if (database.connection !== undefined) throw new Error('Expected an omitted connection')",
+    ].join(";")
+
+    await expect(execFileAsync(process.execPath, [
+      "--conditions=vitehub-hosted",
+      "--input-type=module",
+      "-e",
+      script,
+    ], { cwd: process.cwd() })).resolves.toBeDefined()
+  })
 })
 
 describe("hosted drizzle runtime", () => {
