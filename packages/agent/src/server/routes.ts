@@ -1362,9 +1362,10 @@ function createChatSdkConfig(
   const identity: ChatConfig["identity"] = options?.identity ?? (options?.transcripts
     ? ({ author }) => author.isBot === true ? null : `${adapterName}:${author.userId}`
     : undefined)
+  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel">(options, "concurrency")
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
-    concurrency: chatSdkOption<ChatConfig["concurrency"]>(options, "concurrency"),
+    concurrency: concurrency === "parallel" ? "concurrent" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
