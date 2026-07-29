@@ -433,6 +433,15 @@ export {
   getAgentChatContext,
 } from "./chat-trigger.ts"
 
+export {
+  gateway,
+} from "./gateway.ts"
+
+export type {
+  GatewayModelSettings,
+  GatewayModelSettingsResolver,
+} from "./gateway.ts"
+
 export type {
   AgentChannelContext,
   AgentChatContext,

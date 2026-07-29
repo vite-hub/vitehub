@@ -120,6 +120,26 @@ export default defineAgent({
 
 Set `routes.discordGateway: true` on `hubAgent()` when the deployment needs a generated Nitro route that wakes the Discord Gateway listener and forwards events into the Agent webhook route. The default route is `/api/_vitehub/agents/[agent]/discord/gateway`; set the required production `VITEHUB_DISCORD_GATEWAY_SECRET` bearer token, `VITEHUB_DISCORD_GATEWAY_DURATION_MS` to tune listener duration, or `VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL` when the generated webhook URL is not externally reachable.
 
+## Telegram
+
+Use `telegram()` with Telegram credentials and admission settings. ViteHub creates the Chat SDK adapter, registers the webhook with Telegram's secret header, and keeps generic webhook plumbing out of the Agent Definition. Use `mode: 'polling'` to disable the webhook route, or pass `adapter` as an escape hatch for an app-owned adapter.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { telegram } from '@vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    telegram: telegram({
+      allowedUserIds: ['123'],
+      botToken: process.env.TELEGRAM_BOT_TOKEN,
+      webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+    }),
+  },
+  driver: { run: () => 'ok' },
+})
+```
+
 ## Boundary map
 
 | Boundary | Owns | Does not own |
@@ -294,7 +314,7 @@ const screenshotDelivery = defineCapability({
 export default defineAgent({
   capabilities: [screenshotDelivery],
   channels: {
-    support: telegram({ adapter: createTelegramAdapter }),
+    support: telegram({ botToken: process.env.TELEGRAM_BOT_TOKEN }),
   },
   workspace: { mode: 'write' },
   driver: {

@@ -126,8 +126,10 @@
     "test": "vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "catalog:ai",
     "@ai-sdk/harness": "catalog:ai",
     "@ai-sdk/harness-codex": "catalog:ai",
+    "@chat-adapter/telegram": "catalog:chat",
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",

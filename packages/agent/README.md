@@ -34,8 +34,7 @@ pnpm add @ai-sdk/harness-claude-code
 
 ```ts
 // server/agents/support/agent.ts
-import { gateway } from "@ai-sdk/gateway"
-import { defineAgent } from "@vite-hub/agent"
+import { defineAgent, gateway } from "@vite-hub/agent"
 import { workspaceShell } from "@vite-hub/agent/capabilities"
 import { webChat } from "@vite-hub/agent/channels"
 import { file } from "@vite-hub/workspace"

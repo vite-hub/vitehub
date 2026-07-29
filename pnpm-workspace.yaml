@@ -11,6 +11,7 @@ catalogs:
   effect:
     effect: 4.0.0-beta.99
   ai:
+    "@ai-sdk/gateway": 4.0.26
     "@ai-sdk/harness": 1.0.39
     "@ai-sdk/harness-claude-code": 1.0.40
     "@ai-sdk/harness-codex": 1.0.41
@@ -29,6 +30,7 @@ catalogs:
     better-auth: ^1.6.23
   chat:
     "@chat-adapter/discord": 4.35.0
+    "@chat-adapter/telegram": 4.35.0
     chat: 4.35.0
     chat-state-cloudflare-do: ^0.2.0
   database:
