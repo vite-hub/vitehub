@@ -1121,7 +1121,7 @@ describe("agent Vite plugin", () => {
       if (typeof denoPlugin.configResolved === "function") {
         await denoPlugin.configResolved.call({} as never, {
           command: "build",
-          plugins: [emailPlugin],
+          plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
           root,
         } as never)
       }
@@ -1131,6 +1131,7 @@ describe("agent Vite plugin", () => {
       expect(emailRuntime).toContain('import definition from "../../server/email.ts"')
       expect(emailRuntime).toContain("export const email = createEmail(definition)")
       expect(denoServer).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
+      expect(denoServer).not.toContain("@vite-hub/database/drizzle")
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent()
@@ -1138,7 +1139,7 @@ describe("agent Vite plugin", () => {
         await netlifyPlugin.configResolved.call({} as never, {
           build: { outDir: "dist/client" },
           command: "build",
-          plugins: [emailPlugin],
+          plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
           resolve: { alias: [] },
           root,
         } as never)
@@ -1148,6 +1149,7 @@ describe("agent Vite plugin", () => {
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
+      expect(netlifyFunction).not.toContain("@vite-hub/database/drizzle")
     }
     finally {
       if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
