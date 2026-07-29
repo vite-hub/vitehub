@@ -8470,6 +8470,68 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("emits an initial progress summary before revising it for later activity", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let sourceController!: ReadableStreamDefaultController<unknown>
+    const execute = vi.fn((input: { activeTools: string[] }) =>
+      input.activeTools.length ? "Checking inventory." : "Preparing your request.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                sourceController = controller
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: {
+        data: {
+          revision: 1,
+          summary: "Preparing your request.",
+          type: "progress-summary",
+        },
+        transient: true,
+        type: "data-progress-summary",
+      },
+    })
+
+    sourceController.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: { id: "tool-1", toolName: "inventory_search", type: "tool-input-start" },
+    })
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: {
+        data: {
+          revision: 2,
+          summary: "Checking inventory.",
+          type: "progress-summary",
+        },
+        transient: true,
+        type: "data-progress-summary",
+      },
+    })
+
+    sourceController.enqueue({ finishReason: "stop", type: "finish" })
+    sourceController.close()
+    await reader.cancel()
+
+    expect(execute).toHaveBeenNthCalledWith(1, expect.objectContaining({ activeTools: [] }))
+    expect(execute).toHaveBeenNthCalledWith(2, expect.objectContaining({ activeTools: ["inventory search"] }))
+  })
+
   it("does not lock alternate progress stream representations before one is consumed", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => "Checking inventory.")
@@ -8705,11 +8767,15 @@ describe("agent message protocol", () => {
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     for await (const _chunk of stream) {}
 
-    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenCalledTimes(3)
     expect(execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      reasoning: "Active",
+      activeTools: [],
+      reasoning: undefined,
     }))
     expect(execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      reasoning: "Active",
+    }))
+    expect(execute.mock.calls[2]?.[0]).toEqual(expect.objectContaining({
       activeTools: ["inventory search"],
       reasoning: undefined,
     }))
@@ -8719,7 +8785,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
-    harnessGenerate.mockResolvedValueOnce({ text: "Reviewing availability for Acme." })
+    harnessGenerate.mockResolvedValue({ text: "Reviewing availability for Acme." })
     const agent = defineAgent({
       capabilities: [
         progressSummary({
@@ -8756,6 +8822,11 @@ describe("agent message protocol", () => {
     expect((harnessGenerate.mock.calls[0]![0] as { prompt: string }).prompt).toBe([
       "Customer: Acme",
       "Request: Why did availability change?",
+      "Tools: None",
+    ].join("\n"))
+    expect((harnessGenerate.mock.calls[1]![0] as { prompt: string }).prompt).toBe([
+      "Customer: Acme",
+      "Request: Why did availability change?",
       "Tools: inventory search",
     ].join("\n"))
     expect(harnessAgentSettings.at(-1)).toMatchObject({
@@ -8766,7 +8837,7 @@ describe("agent message protocol", () => {
   it("resolves built-in progress summary drivers", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
-    harnessGenerate.mockResolvedValueOnce({ text: "Checking inventory." })
+    harnessGenerate.mockResolvedValue({ text: "Checking inventory." })
     const agent = defineAgent({
       capabilities: [
         progressSummary({
@@ -8793,7 +8864,7 @@ describe("agent message protocol", () => {
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
 
-    expect(harnessGenerate).toHaveBeenCalledOnce()
+    expect(harnessGenerate).toHaveBeenCalledTimes(2)
     expect(chunks).toContainEqual(expect.objectContaining({
       type: "data-progress-summary",
     }))
@@ -8803,7 +8874,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
-    harnessGenerate.mockResolvedValueOnce({ text: "Checking inventory." })
+    harnessGenerate.mockResolvedValue({ text: "Checking inventory." })
     const agent = defineAgent({
       capabilities: [
         progressSummary({
@@ -8835,9 +8906,12 @@ describe("agent message protocol", () => {
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     for await (const _chunk of stream) {}
 
-    const prompt = (harnessGenerate.mock.calls[0]![0] as { prompt: string }).prompt
-    expect(prompt).toContain("Active tools: inventory search")
-    expect(prompt).not.toMatch(/rm private|private\/path|sk-secret|hidden instructions/)
+    const prompts = harnessGenerate.mock.calls.map(call => (call[0] as { prompt: string }).prompt)
+    expect(prompts[0]).toContain("Active tools: None")
+    expect(prompts[1]).toContain("Active tools: inventory search")
+    for (const prompt of prompts) {
+      expect(prompt).not.toMatch(/rm private|private\/path|sk-secret|hidden instructions/)
+    }
   })
 
   it("does not read text getters when streaming native UI message results", async () => {

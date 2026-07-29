@@ -349,7 +349,7 @@ function withProgressSummaryStream(
   let reasoningActive = false
   let previous: string | undefined
   let revision = 0
-  let dirty = false
+  let dirty = true
   let running = false
   let closed = false
   let scheduled = false
@@ -455,6 +455,10 @@ function withProgressSummaryStream(
   }
 
   const transformed = source.pipeThrough(new TransformStream({
+    start(streamController) {
+      controller = streamController
+      schedule()
+    },
     flush: close,
     transform(chunk, streamController) {
       controller = streamController

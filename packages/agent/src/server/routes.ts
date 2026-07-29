@@ -638,7 +638,10 @@ function fallbackWebhookFromRequest(request: Request): string | undefined {
   return new URL(request.url).pathname.split("/").filter(Boolean).at(-1) || undefined
 }
 
-async function collectAgentOutput(result: unknown): Promise<string> {
+async function collectAgentOutput(
+  result: unknown,
+  onProgress?: (summary: string) => MaybePromise<void>,
+): Promise<string> {
   if (result instanceof Response) {
     if (result.headers.get("content-type")?.includes("application/json")) {
       const body = await result.clone().json().catch(() => undefined)
@@ -668,6 +671,12 @@ async function collectAgentOutput(result: unknown): Promise<string> {
         unphasedText = ""
         if (event.phase === "final") finalText += event.text
       }
+    }
+    if (event.type === "data-progress-summary") {
+      const summary = isRecord(event.data) && typeof event.data.summary === "string"
+        ? event.data.summary.trim()
+        : ""
+      if (summary) await onProgress?.(summary)
     }
     if (event.type === "error") {
       throw new Error(event.error)
@@ -2077,8 +2086,16 @@ async function handleChatSdkMessage(
       },
     }, invoker), chatFinish)
     if (!streamsPhasedReplies) {
-      const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
-      const text = await collectAgentOutput(result)
+      const result = manualDelivery
+        ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
+        : await runAgentInline(agent as never, runContext as never, invocationInput as never)
+      const text = await collectAgentOutput(result, manualDelivery
+        ? async (summary) => {
+            if (manualDeliveryState.placeholder) {
+              await replaceManualDeliveryPlaceholder(manualDeliveryState.placeholder, { markdown: summary }).catch(() => false)
+            }
+          }
+        : undefined)
       if (!manualDelivery && text) {
         if (!await postDiscordSplitContent(thread, { markdown: text })) {
           await thread.post({ markdown: text })
