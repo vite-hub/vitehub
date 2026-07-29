@@ -674,6 +674,7 @@ describe("agent Vite plugin", () => {
       await closeBundle.handler()
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      await execFileAsync(process.execPath, ["--check", join(root, ".vitehub/agent/netlify-function.mjs")])
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
       expect(wrapper).toContain("import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from \"@vite-hub/agent/server/internal\"")
       expect(wrapper).toContain("state: () => import(\"vite-hub/_internal/workflow/runtime/state\")")
@@ -695,6 +696,8 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("routePath(webhookRoute, { agent, webhook })")
       expect(wrapper).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
       expect(wrapper).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"libsql://state.example.test\"}")
+      expect(wrapper).toContain("let viteHubChatState\n")
+      expect(wrapper).not.toContain("let viteHubChatState:")
       expect(wrapper).not.toContain("build-token")
       expect(wrapper).toContain("function chatStateFromLibsql()")
       expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
@@ -1509,21 +1512,28 @@ export default defineAgent({
         ],
       }, null, 2)}\n`, "utf8")
 
-      const plugin = hubAgent()
-      if (typeof plugin.configResolved === "function") {
-        await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
-      }
+      for (const stateProvider of ["cloudflare", "libsql"] as const) {
+        const plugin = hubAgent(stateProvider === "libsql"
+          ? { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } }
+          : undefined)
+        if (typeof plugin.configResolved === "function") {
+          await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
+        }
 
-      const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
-      expect(generatedRoute).not.toContain("@ts-nocheck")
-      await execFileAsync(process.execPath, [
-        resolve(import.meta.dirname, "../../../node_modules/typescript/bin/tsc"),
-        "--noEmit",
-        "-p",
-        join(root, "tsconfig.json"),
-      ], { cwd: root }).catch((error: { stderr?: string, stdout?: string }) => {
-        throw new Error([error.stdout, error.stderr].filter(Boolean).join("\n"))
-      })
+        const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+        expect(generatedRoute).not.toContain("@ts-nocheck")
+        if (stateProvider === "libsql") {
+          expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
+        }
+        await execFileAsync(process.execPath, [
+          resolve(import.meta.dirname, "../../../node_modules/typescript/bin/tsc"),
+          "--noEmit",
+          "-p",
+          join(root, "tsconfig.json"),
+        ], { cwd: root }).catch((error: { stderr?: string, stdout?: string }) => {
+          throw new Error([error.stdout, error.stderr].filter(Boolean).join("\n"))
+        })
+      }
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1846,6 +1856,7 @@ export default defineAgent({
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
       expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
       expect(denoServer).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
+      expect(denoServer).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
       expect(denoServer).toContain("return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }) : await handler(request, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver })")
       expect(denoServer).not.toContain("@vite-hub/schedule/runtime")
       expect(denoServer).toContain("function resolveDenoServeOptions(args)")
