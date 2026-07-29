@@ -2171,6 +2171,9 @@ async function handleChatSdkMessage(
       },
     }, invoker), chatFinish)
     if (!streamsPhasedReplies) {
+      // Manual delivery disables Chat SDK reply streaming, but still consumes
+      // normalized Agent events so transient Capability output can update the
+      // framework-owned placeholder without exposing ordinary Agent text.
       const result = manualDelivery && !hasAgentStructuredOutput(agent)
         ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
         : await runAgentInline(agent as never, runContext as never, invocationInput as never)

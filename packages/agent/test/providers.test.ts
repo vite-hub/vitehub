@@ -7103,6 +7103,7 @@ describe("server helpers", () => {
           messages: {
             delivery: "manual",
             fallbackStreamingPlaceholderText: "Analyzing photo…",
+            stream: false,
           },
         }),
       },
