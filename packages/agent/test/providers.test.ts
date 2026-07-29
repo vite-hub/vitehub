@@ -7068,6 +7068,11 @@ describe("server helpers", () => {
         output: { schema },
         run: () => ({
           stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Validating the result.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
             yield { delta: "{\"title\":\"Validated reply\"}", type: "text-delta" }
             yield { finishReason: "stop", type: "finish" }
           })(),
@@ -7082,7 +7087,8 @@ describe("server helpers", () => {
     const response = await handler(chatWebhookRequest(91_016), "telegram")
 
     expect(response.status).toBe(200)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Validated reply" })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1", { markdown: "Validating the result." })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", { markdown: "Validated reply" })
   })
 
   it("updates a manual placeholder with progress summaries before the final reply", async () => {

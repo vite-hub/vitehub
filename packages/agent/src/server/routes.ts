@@ -13,6 +13,7 @@ import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
+import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
@@ -672,12 +673,8 @@ async function collectAgentOutput(
         if (event.phase === "final") finalText += event.text
       }
     }
-    if (event.type === "data-progress-summary") {
-      const summary = isRecord(event.data) && typeof event.data.summary === "string"
-        ? event.data.summary.trim()
-        : ""
-      if (summary) onProgress?.(summary)
-    }
+    const summary = progressSummaryFromEvent(event)
+    if (summary) onProgress?.(summary)
     if (event.type === "error") {
       throw new Error(event.error)
     }
@@ -687,6 +684,14 @@ async function collectAgentOutput(
 
 const manualDeliveryProgressDrainTimeoutMs = 100
 const baseAgentOutputSymbol = Symbol.for("vitehub.baseAgentOutput")
+
+function progressSummaryFromEvent(event: unknown): string | undefined {
+  if (!isRecord(event) || event.type !== "data-progress-summary") return
+  const summary = isRecord(event.data) && typeof event.data.summary === "string"
+    ? event.data.summary.trim()
+    : ""
+  return summary || undefined
+}
 
 function hasAgentStructuredOutput(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
   return typeof agent === "object"
@@ -2154,6 +2159,14 @@ async function handleChatSdkMessage(
       context: {
         ...(invocation.input as AgentRunInput).context,
         [messageChannelStateContextKey]: state,
+        ...(progress
+          ? {
+              [agentOutputEventObserverContextKey]: (event: unknown) => {
+                const summary = progressSummaryFromEvent(event)
+                if (summary) progress?.update(summary)
+              },
+            }
+          : {}),
         ...(options?.stream === false || manualDelivery ? { [finalChannelOutputContextKey]: true } : {}),
       },
     }, invoker), chatFinish)
