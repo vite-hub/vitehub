@@ -745,10 +745,7 @@ function createManualDeliveryProgressUpdater(
       const cleanup = draining.then(async () => {
         await deleteManualDeliveryPlaceholder(stalePlaceholder).catch(() => undefined)
       })
-      waitUntil(Promise.race([
-        cleanup,
-        new Promise<void>(resolve => setTimeout(resolve, manualDeliveryProgressDrainTimeoutMs)),
-      ]))
+      waitUntil(cleanup)
     },
     update(summary) {
       if (!manualDelivery.placeholder) return
