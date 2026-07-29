@@ -41,6 +41,7 @@ type NuxtLike = {
     modules?: unknown[]
     nitro?: Record<string, unknown>
     rootDir?: string
+    srcDir?: string
     vite?: Record<string, unknown>
   }
 }
@@ -77,7 +78,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && (provider || d1)) mergeNitroHostedCondition(config)
         if (!nuxtOptions.dev) {
-          mergeNitroDatabaseRuntimeAlias(config, root, provider ?? (d1 ? "cloudflare" : undefined))
+          mergeNitroDatabaseRuntimeAlias(config, nuxtOptions.srcDir || root, provider ?? (d1 ? "cloudflare" : undefined))
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)

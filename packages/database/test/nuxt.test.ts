@@ -152,6 +152,34 @@ describe("Database Nuxt integration", () => {
       .resolves.toContain("setActiveCloudflareEnv")
   })
 
+  it("aliases the hosted runtime from the Nuxt source directory", async () => {
+    const { hooks, nuxt } = createNuxt({
+      database: {
+        driver: "d1",
+        databaseId: "content-id",
+        databaseName: "content-db",
+      },
+      dev: false,
+      nitro: {
+        preset: "cloudflare_module",
+      },
+      rootDir: "/tmp/vitehub-db-nuxt",
+      srcDir: "/tmp/vitehub-db-nuxt/app",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = {}
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig).toMatchObject({
+      alias: {
+        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/app/.vitehub/database/cloudflare-runtime.mjs",
+      },
+    })
+  })
+
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
     const { nuxt } = createNuxt({
       database: {
