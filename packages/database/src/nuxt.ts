@@ -13,6 +13,7 @@ import type { Plugin } from "vite"
 
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
+const databaseDrizzleImport = "@vite-hub/database/drizzle"
 
 type NuxtModuleDependencies = Record<string, {
   defaults?: Record<string, unknown>
@@ -40,6 +41,7 @@ type NuxtLike = {
     modules?: unknown[]
     nitro?: Record<string, unknown>
     rootDir?: string
+    srcDir?: string
     vite?: Record<string, unknown>
   }
 }
@@ -75,6 +77,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       hook("nitro:config", async (config) => {
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && (provider || d1)) mergeNitroHostedCondition(config)
+        if (!nuxtOptions.dev) {
+          const runtimeRoot = typeof viteConfig.root === "string" ? viteConfig.root : nuxtOptions.srcDir || root
+          mergeNitroDatabaseRuntimeAlias(config, runtimeRoot, provider ?? (d1 ? "cloudflare" : undefined))
+        }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)
         }
@@ -210,6 +216,18 @@ function mergeNitroHostedCondition(config: Record<string, unknown>) {
   const conditions = Array.isArray(config.exportConditions) ? config.exportConditions : []
   if (!conditions.includes("vitehub-hosted")) {
     config.exportConditions = ["vitehub-hosted", ...conditions]
+  }
+}
+
+function mergeNitroDatabaseRuntimeAlias(
+  config: Record<string, unknown>,
+  root: string,
+  provider: string | undefined,
+) {
+  if (provider !== "cloudflare" && provider !== "vercel") return
+  const alias = ensureRecord(config, "alias")
+  if (!(databaseDrizzleImport in alias)) {
+    alias[databaseDrizzleImport] = resolve(root, `.vitehub/database/${provider}-runtime.mjs`)
   }
 }
 

@@ -58,7 +58,9 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
 
   return new Proxy(definition as Database<TSchema>, {
     get(target, property, receiver) {
-      return Reflect.has(target, property) ? Reflect.get(target, property, receiver) : Reflect.get(runtime, property)
+      return Reflect.has(target, property) || (typeof property === "string" && allowedDefinitionKeys.has(property))
+        ? Reflect.get(target, property, receiver)
+        : Reflect.get(runtime, property)
     },
   })
 }

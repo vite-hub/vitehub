@@ -41,6 +41,7 @@
     "./config": "./dist/config.js",
     "./drizzle": "./dist/drizzle.js",
     "./nuxt": "./dist/nuxt.js",
+    "./runtime/agent": "./dist/runtime/agent.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/state": "./dist/runtime/state.js",

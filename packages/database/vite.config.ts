@@ -20,6 +20,7 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/virtual.ts",
       "src/vite.ts",
+      "src/runtime/agent.ts",
       "src/runtime/cloudflare-vite.ts",
       "src/runtime/definition-defaults.ts",
       "src/runtime/definition-hosted.ts",

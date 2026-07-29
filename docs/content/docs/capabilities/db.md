@@ -9,6 +9,7 @@ icon: i-lucide-database
 
 `db()` adds model-facing tools for a configured ViteHub Database primitive.
 It exposes read-only query and schema inspection by default, then adds SQL mutation only when write modes allow it.
+Cloudflare and Vercel hosted Agent routes receive the Database primitive automatically when the app configures `hubDb()`.
 
 ## Installation
 

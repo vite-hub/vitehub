@@ -2,6 +2,7 @@ import "./virtual-module.d.ts"
 
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 import schema from "#vitehub/database/schema"
+import type { AgentDatabaseHandle } from "./runtime/agent.js"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema>
 
@@ -18,3 +19,7 @@ export declare const databases: Record<string, RuntimeDatabaseEntry<Record<strin
 }
 
 export declare const db: DrizzleRuntimeDatabase<typeof schema>
+
+export declare const agentDb: AgentDatabaseHandle & {
+  database(name: string): AgentDatabaseHandle
+}

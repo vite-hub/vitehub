@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises"
+import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
@@ -113,6 +114,9 @@ describe("Database Nuxt integration", () => {
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig).toEqual({
+      alias: {
+        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs",
+      },
       cloudflare: {
         wrangler: {
           d1_databases: [
@@ -146,6 +150,55 @@ describe("Database Nuxt integration", () => {
     })
     await expect(readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8"))
       .resolves.toContain("setActiveCloudflareEnv")
+  })
+
+  it("aliases the hosted runtime from the Nuxt source directory", async () => {
+    const { hooks, nuxt } = createNuxt({
+      database: {
+        driver: "d1",
+        databaseId: "content-id",
+        databaseName: "content-db",
+      },
+      dev: false,
+      nitro: {
+        preset: "cloudflare_module",
+      },
+      rootDir: "/tmp/vitehub-db-nuxt",
+      srcDir: "/tmp/vitehub-db-nuxt/app",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = {}
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig).toMatchObject({
+      alias: {
+        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/app/.vitehub/database/cloudflare-runtime.mjs",
+      },
+    })
+  })
+
+  it("aliases the hosted runtime from a custom Vite root", async () => {
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      nitro: { preset: "vercel" },
+      rootDir: "/tmp/vitehub-db-nuxt",
+      srcDir: "/tmp/vitehub-db-nuxt/app",
+      vite: { root: "/tmp/vitehub-db-nuxt/custom-vite-root" },
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig = {}
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig).toMatchObject({
+      alias: {
+        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/custom-vite-root/.vitehub/database/vercel-runtime.mjs",
+      },
+    })
   })
 
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
@@ -291,6 +344,28 @@ describe("Database Nuxt integration", () => {
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "node"])
+  })
+
+  it.each([
+    ["cloudflare-module", "cloudflare"],
+    ["vercel", "vercel"],
+  ])("aliases the Drizzle runtime to the generated %s database module", async (preset, provider) => {
+    const rootDir = `/tmp/vitehub-db-nuxt-${provider}-runtime`
+    const { hooks, nuxt } = createNuxt({
+      dev: false,
+      nitro: { preset },
+      rootDir,
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    const nitroConfig: Record<string, unknown> = { preset }
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    expect(nitroConfig.alias).toEqual({
+      "@vite-hub/database/drizzle": join(rootDir, `.vitehub/database/${provider}-runtime.mjs`),
+    })
   })
 
   it("selects the hosted definition runtime for Deno deployments", async () => {

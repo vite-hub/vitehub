@@ -1,4 +1,5 @@
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
@@ -110,7 +111,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   if (config.nitro) Object.assign(nitroConfig, config.nitro)
 }
 
-export default function viteHubNuxtModule(options: Parameters<typeof vitehub>[0], nuxt?: NuxtLike): void {
+export default async function viteHubNuxtModule(options: Parameters<typeof vitehub>[0], nuxt?: NuxtLike): Promise<void> {
   if (!nuxt) return
 
   const plugins = flattenPlugins(vitehub(options))
@@ -148,4 +149,7 @@ export default function viteHubNuxtModule(options: Parameters<typeof vitehub>[0]
     ...existing,
   ] as PluginOption[]
   nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
+  if (options.database) {
+    await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
+  }
 }

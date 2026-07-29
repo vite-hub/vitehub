@@ -415,7 +415,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         command: "serve",
         createResolver: () => async id => `/app/node_modules/${id}`,
-        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
 
@@ -424,10 +424,11 @@ describe("agent Vite plugin", () => {
 
       expect(registry).toContain("defineScheduledAgentTarget")
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
       expect(registry).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
       expect(registry).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
       expect(registry).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
-      expect(registry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { blob: vitehubBlob, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
+      expect(registry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { blob: vitehubBlob, db: vitehubDb, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
       expect(registry).toContain('registry["agent/digest"]')
       expect(registry).toContain('vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), "Use digest instructions.\\n")')
       expect(registry).not.toContain("withAgentDefaults")
@@ -1120,7 +1121,7 @@ describe("agent Vite plugin", () => {
       if (typeof denoPlugin.configResolved === "function") {
         await denoPlugin.configResolved.call({} as never, {
           command: "build",
-          plugins: [emailPlugin],
+          plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
           root,
         } as never)
       }
@@ -1130,6 +1131,7 @@ describe("agent Vite plugin", () => {
       expect(emailRuntime).toContain('import definition from "../../server/email.ts"')
       expect(emailRuntime).toContain("export const email = createEmail(definition)")
       expect(denoServer).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
+      expect(denoServer).not.toContain("@vite-hub/database/drizzle")
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent()
@@ -1137,7 +1139,7 @@ describe("agent Vite plugin", () => {
         await netlifyPlugin.configResolved.call({} as never, {
           build: { outDir: "dist/client" },
           command: "build",
-          plugins: [emailPlugin],
+          plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
           resolve: { alias: [] },
           root,
         } as never)
@@ -1147,6 +1149,7 @@ describe("agent Vite plugin", () => {
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
+      expect(netlifyFunction).not.toContain("@vite-hub/database/drizzle")
     }
     finally {
       if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting

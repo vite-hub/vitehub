@@ -127,6 +127,7 @@ interface GeneratedAgentRuntimeCapability {
 
 const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapability[] = [
   { importName: "blob", name: "blob", packageName: "@vite-hub/blob", pluginName: "@vite-hub/blob/vite" },
+  { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle", pluginName: "@vite-hub/database/vite" },
   { importName: "email", name: "email", packageName: "@vite-hub/email/server", pluginName: "@vite-hub/email/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
@@ -183,7 +184,8 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  const emailCapability = capabilities.find(capability =>
+  const standaloneCapabilities = capabilities.filter(capability => capability.name !== "db")
+  const emailCapability = standaloneCapabilities.find(capability =>
     capability.name === "email" && capability.packageName !== false
   )
   const emailPlugin = config.plugins?.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
@@ -193,11 +195,11 @@ async function writeStandaloneAgentRuntimeCapabilities(
   const runtimePath = join(config.root, generatedAgentEmailRuntime)
   if (!emailCapability || !definition) {
     await rm(runtimePath, { force: true })
-    return capabilities
+    return standaloneCapabilities
   }
 
   const emailPackageName = emailCapability.packageName
-  if (emailPackageName === false) return capabilities
+  if (emailPackageName === false) return standaloneCapabilities
   const emailImport = emailPackageName.endsWith("/server")
     ? emailPackageName.slice(0, -"/server".length)
     : "@vite-hub/email"
@@ -208,7 +210,7 @@ async function writeStandaloneAgentRuntimeCapabilities(
     "export const email = createEmail(definition)",
     "",
   ].join("\n"), "utf8")
-  return capabilities.map(capability => capability === emailCapability
+  return standaloneCapabilities.map(capability => capability === emailCapability
     ? { ...capability, packageName: "./email-runtime.js" }
     : capability)
 }
