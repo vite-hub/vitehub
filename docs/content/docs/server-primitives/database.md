@@ -120,7 +120,7 @@ A project uses either one Default Database or a set of Named Databases. Do not m
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
 | `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB` for Default Database and `DB_<NAME>` for Named Databases. |
 | `cloudflare.databaseId` | `DatabaseConfigValue` | No | D1 database id. |
-| `cloudflare.http` | `true \| { url, authToken }` | No | Explicitly selects authenticated D1 raw HTTP access for hosted runtimes. `true` uses Cloudflare's API; an object selects a compatible proxy. |
+| `cloudflare.http` | `true \| { url, authToken }` | No | Explicitly selects authenticated D1 raw HTTP access for local and hosted runtimes. `true` uses Cloudflare's API; an object selects a compatible proxy. |
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
 | `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
@@ -175,11 +175,11 @@ export default defineEventHandler(() => {
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle artifacts. |
 | Hosted SQLite/libSQL-style connection | `connection.url` and optional `connection.authToken` | Keep URLs and tokens in Server Env when they are secrets. |
-| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Hosted Vercel output uses D1 only when `cloudflare.http` is selected explicitly. |
+| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development and hosted Vercel output use D1 only when `cloudflare.http` is selected explicitly. |
 
-### Use Cloudflare D1 from Vercel
+### Use Cloudflare D1 over HTTP
 
-A Database Definition can use the same D1 database from Cloudflare and Vercel. Cloudflare output prefers the configured binding. Set `cloudflare.http: true` to make Vercel call Cloudflare's D1 raw API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env.
+A Database Definition can use the same D1 database during local development and from hosted providers. Cloudflare output prefers the configured binding. Set `cloudflare.http: true` to call Cloudflare's D1 raw API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env.
 
 ```ts [server/databases/config.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -221,7 +221,7 @@ Selecting D1 HTTP also generates Drizzle Kit's `d1-http` credentials. Migration 
 Cloudflare describes its built-in D1 REST API as best suited to administrative use because the global Cloudflare API rate limit applies. For sustained application traffic, use a narrowly authenticated proxy Worker and validate which queries or tables it may access. See Cloudflare's [D1 proxy Worker guide](https://developers.cloudflare.com/d1/tutorials/build-an-api-to-access-d1/).
 ::
 
-Omitting `cloudflare.http` preserves the existing hosted libSQL selection even when `cloudflare.databaseId` is present.
+Omitting `cloudflare.http` preserves local SQLite and the existing hosted libSQL selection even when `cloudflare.databaseId` is present.
 
 ### Select a hosted database for Vercel
 

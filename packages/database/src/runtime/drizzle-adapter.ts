@@ -25,7 +25,6 @@ interface LibsqlClientFactory {
 }
 
 interface DrizzleSqliteAdapterOptions {
-  cloudflareD1Http?: boolean
   libsql: LibsqlClientFactory
   requireRemoteUrl: boolean
   resolveLocalUrl?: (url: string) => string
@@ -76,7 +75,7 @@ function validateD1HttpUrl(value: string, name: string) {
     if (url.protocol === "http:" || url.protocol === "https:") return value
   }
   catch {}
-  throw new Error(`[vitehub] Hosted Cloudflare D1 database "${name}" requires cloudflare.http.url to be an HTTP(S) URL.`)
+  throw new Error(`[vitehub] Cloudflare D1 database "${name}" requires cloudflare.http.url to be an HTTP(S) URL.`)
 }
 
 function isD1HttpPayload(value: unknown): value is D1HttpPayload {
@@ -94,7 +93,7 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
     const token = process.env.CLOUDFLARE_API_TOKEN?.trim()
     if (!accountId || !token) {
-      throw new Error(`[vitehub] Hosted Cloudflare D1 database "${config.name}" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.`)
+      throw new Error(`[vitehub] Cloudflare D1 database "${config.name}" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.`)
     }
     return {
       token,
@@ -105,7 +104,7 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   const token = resolveConfigValue(http.authToken)?.trim()
   const url = resolveConfigValue(http.url)?.trim()
   if (!token || !url) {
-    throw new Error(`[vitehub] Hosted Cloudflare D1 database "${config.name}" requires cloudflare.http.url and cloudflare.http.authToken at runtime.`)
+    throw new Error(`[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.http.url and cloudflare.http.authToken at runtime.`)
   }
   return { token, url: validateD1HttpUrl(url, config.name) }
 }
@@ -197,10 +196,11 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
       return instance
     }
 
-    const databaseId = options.cloudflareD1Http && config.cloudflare?.http
-      ? resolveConfigValue(config.cloudflare?.databaseId)?.trim()
-      : undefined
-    if (databaseId) {
+    if (config.cloudflare?.http) {
+      const databaseId = resolveConfigValue(config.cloudflare.databaseId)?.trim()
+      if (!databaseId) {
+        throw new Error(`[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.databaseId when cloudflare.http is configured.`)
+      }
       const http = resolveCloudflareD1HttpConnection(config, databaseId)!
       if (d1HttpInstance && d1HttpInstanceUrl === http.url && d1HttpInstanceToken === http.token) {
         return d1HttpInstance
