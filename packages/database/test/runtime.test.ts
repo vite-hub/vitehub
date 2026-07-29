@@ -70,6 +70,21 @@ async function createHostedAnalyticsDb(http: true | { authToken: string, url: st
   return { db }
 }
 
+async function createLocalAnalyticsDb(http: true | { authToken: string, url: string } = true) {
+  const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
+  const db = createDefinitionRuntime({
+    cloudflare: {
+      binding: "DB_ANALYTICS",
+      databaseId: "analytics-d1-id",
+      http,
+    },
+    drizzle: {},
+    name: "analytics",
+    schema: analyticsSchema,
+  })
+  return { db }
+}
+
 function createD1Response(...rows: unknown[][][]) {
   return new Response(JSON.stringify({
     result: rows.map(resultRows => ({ results: { rows: resultRows }, success: true })),
@@ -78,6 +93,15 @@ function createD1Response(...rows: unknown[][][]) {
     headers: { "Content-Type": "application/json" },
     status: 200,
   })
+}
+
+function expectD1HttpRequest(
+  [url, request]: [Parameters<typeof fetch>[0], Parameters<typeof fetch>[1]?],
+  options: { authToken: string, table: string, url: string },
+) {
+  expect(url).toBe(options.url)
+  expect(request?.headers).toMatchObject({ Authorization: `Bearer ${options.authToken}` })
+  expect(JSON.parse(String(request?.body))).toMatchObject({ params: [], sql: expect.stringContaining(options.table) })
 }
 
 ;(vi.mock as any)("#vitehub/database/schema", () => ({
@@ -212,6 +236,8 @@ describe("drizzle runtime", () => {
     tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-runtime-"))
     runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`
     runtimeState.analyticsDbPath = `file:${join(tempDir, "analytics.sqlite")}`
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
 
     const { databases, db } = await import("../src/drizzle.ts")
 
@@ -235,6 +261,46 @@ describe("drizzle runtime", () => {
 
     expect(await databases.default.db.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "runtime note" }])
     expect(await databases.analytics.db.select().from(analyticsSchema.analyticsEvents)).toEqual([{ id: 1, name: "page-view" }])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("queries configured Cloudflare D1 over HTTP from the generated local runtime", async () => {
+    runtimeDatabaseEntriesFactory = () => ({
+      analytics: {
+        config: {
+          cloudflare: {
+            binding: "DB_ANALYTICS",
+            databaseId: "analytics-d1-id",
+            http: {
+              authToken: "proxy-token",
+              url: "https://d1.example.com/raw",
+            },
+            migrationsDir: "src/database/analytics/migrations",
+          },
+          dialect: "sqlite",
+          drizzle: {},
+          generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
+          migrationsDir: "src/database/analytics/migrations",
+          mode: "named",
+          name: "analytics",
+          orm: "drizzle",
+        },
+        schema: analyticsSchema,
+      },
+    })
+    vi.resetModules()
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "page-view"]]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+    await expect(databases.analytics.db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expectD1HttpRequest(fetchMock.mock.calls[0]!, {
+      authToken: "proxy-token",
+      table: "analytics_events",
+      url: "https://d1.example.com/raw",
+    })
   })
 
   it("prefers an active Cloudflare D1 binding over the configured fallback URL", async () => {
@@ -275,6 +341,42 @@ describe("database definition runtime", () => {
     expect(database.schema).toBe(defaultSchema)
     expect((database as unknown as { dialect: unknown }).dialect).not.toBe("sqlite")
     expect(await database.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "definition note" }])
+  })
+
+  it("queries configured Cloudflare D1 over HTTP from a local definition", async () => {
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "page-view"]]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { db } = await createLocalAnalyticsDb({
+      authToken: "proxy-token",
+      url: "https://d1.example.com/raw",
+    })
+    await expect(db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expectD1HttpRequest(fetchMock.mock.calls[0]!, {
+      authToken: "proxy-token",
+      table: "analytics_events",
+      url: "https://d1.example.com/raw",
+    })
+  })
+
+  it("requires a database id when local D1 HTTP is selected", async () => {
+    const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
+    const db = createDefinitionRuntime({
+      cloudflare: {
+        http: {
+          authToken: "proxy-token",
+          url: "https://d1.example.com/raw",
+        },
+      },
+      connection: { url: "file:.data/analytics.sqlite" },
+      drizzle: {},
+      name: "analytics",
+      schema: analyticsSchema,
+    })
+
+    expect(() => db.run).toThrow("Cloudflare D1 database \"analytics\" requires cloudflare.databaseId when cloudflare.http is configured.")
   })
 
   it("accepts normalized nested database names", async () => {
@@ -496,7 +598,7 @@ describe("hosted drizzle runtime", () => {
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "")
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "")
     const { db } = await createHostedAnalyticsDb()
-    expect(() => db.run).toThrow("Hosted Cloudflare D1 database \"analytics\" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.")
+    expect(() => db.run).toThrow("Cloudflare D1 database \"analytics\" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.")
   })
 
   it("requires both configured proxy values without falling back to Cloudflare credentials", async () => {

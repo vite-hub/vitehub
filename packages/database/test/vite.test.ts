@@ -1,8 +1,10 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { createServer as createHttpServer, type Server } from "node:http"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { createServer as createViteServer } from "vite"
 
 import {
   DB_VIRTUAL_DATABASES_ID,
@@ -44,11 +46,90 @@ async function resolveCliContributor(plugin: ReturnType<typeof hubDb>) {
   return typeof cli === "function" ? await cli() : cli
 }
 
+async function listenHttpServer(server: Server) {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("Expected TCP server address.")
+  return `http://127.0.0.1:${address.port}`
+}
+
+async function closeHttpServer(server: Server) {
+  if (!server.listening) return
+  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
 describe("hubDb", () => {
+  it("routes Vite development queries through configured Cloudflare D1 HTTP", async () => {
+    const rootDir = await createTempProject()
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
+    let proxyRequest: { authorization?: string, body?: unknown, method?: string, path?: string } = {}
+    const proxy = createHttpServer(async (request, response) => {
+      let body = ""
+      for await (const chunk of request) body += chunk
+      proxyRequest = {
+        authorization: request.headers.authorization,
+        body: JSON.parse(body),
+        method: request.method,
+        path: request.url,
+      }
+      response.setHeader("Content-Type", "application/json")
+      response.end(JSON.stringify({
+        result: [{ results: { rows: [["remote note"]] }, success: true }],
+        success: true,
+      }))
+    })
+    const proxyUrl = await listenHttpServer(proxy)
+
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      cloudflare: [
+        "    databaseId: 'dev-database-id',",
+        "    http: {",
+        "      authToken: 'dev-proxy-token',",
+        `      url: ${JSON.stringify(`${proxyUrl}/raw`)},`,
+        "    },",
+      ].join("\n"),
+    })
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "query.ts"), [
+      "import { db, schema } from '@vite-hub/database/drizzle'",
+      "export const query = () => db.select().from(schema.notes)",
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "index.html"), "<div>ViteHub Database</div>")
+
+    const server = await createViteServer({
+      configFile: false,
+      plugins: [hubDb()],
+      root: rootDir,
+      server: { host: "127.0.0.1", port: 0 },
+    })
+
+    try {
+      await server.listen()
+      const module = await server.ssrLoadModule(join(rootDir, "server", "query.ts")) as {
+        query: () => Promise<Array<{ title: string }>>
+      }
+
+      await expect(module.query()).resolves.toEqual([{ title: "remote note" }])
+      expect(proxyRequest).toMatchObject({
+        authorization: "Bearer dev-proxy-token",
+        body: { params: [], sql: expect.stringContaining("notes") },
+        method: "POST",
+        path: "/raw",
+      })
+    }
+    finally {
+      await Promise.all([server.close(), closeHttpServer(proxy)])
+    }
+  }, 30_000)
+
   it("exposes integration connection defaults to direct definitions", async () => {
     const plugin = hubDb({
       connection: {

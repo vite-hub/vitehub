@@ -61,6 +61,22 @@ Use `src/database.ts` or `server/databases/config.ts` for one default database. 
 
 `defineDatabase()` also returns the typed Drizzle database, so application code can import a definition directly and query it without another runtime factory.
 
+## Remote D1 development
+
+Set `cloudflare.http` on a Database Definition to query remote D1 during local development. `true` uses Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; an object selects an authenticated D1-compatible proxy.
+
+```ts
+export default defineDatabase({
+  cloudflare: {
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+    http: true,
+  },
+  schema,
+})
+```
+
+Remote access is explicit. Omitting `cloudflare.http` keeps the local SQLite default, and a Cloudflare deployment still prefers its D1 binding.
+
 ## Nuxt D1 host wiring
 
 Nuxt apps can declare one D1 database resource and let the Database Nuxt bridge wire framework consumers and Cloudflare output.
