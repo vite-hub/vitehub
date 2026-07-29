@@ -13,6 +13,7 @@ import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
+import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
@@ -638,7 +639,10 @@ function fallbackWebhookFromRequest(request: Request): string | undefined {
   return new URL(request.url).pathname.split("/").filter(Boolean).at(-1) || undefined
 }
 
-async function collectAgentOutput(result: unknown): Promise<string> {
+async function collectAgentOutput(
+  result: unknown,
+  onProgress?: (summary: string) => void,
+): Promise<string> {
   if (result instanceof Response) {
     if (result.headers.get("content-type")?.includes("application/json")) {
       const body = await result.clone().json().catch(() => undefined)
@@ -669,11 +673,79 @@ async function collectAgentOutput(result: unknown): Promise<string> {
         if (event.phase === "final") finalText += event.text
       }
     }
+    const summary = progressSummaryFromEvent(event)
+    if (summary) onProgress?.(summary)
     if (event.type === "error") {
       throw new Error(event.error)
     }
   }
   return (explicitPhaseSeen ? finalText : unphasedText).trim()
+}
+
+const manualDeliveryProgressDrainTimeoutMs = 100
+
+function progressSummaryFromEvent(event: unknown): string | undefined {
+  if (!isRecord(event) || event.type !== "data-progress-summary") return
+  const summary = isRecord(event.data) && typeof event.data.summary === "string"
+    ? event.data.summary.trim()
+    : ""
+  return summary || undefined
+}
+
+function createManualDeliveryProgressUpdater(
+  manualDelivery: { placeholder?: unknown },
+  waitUntil: AgentWaitUntil,
+): {
+  finish: () => Promise<void>
+  update: (summary: string) => void
+} {
+  let latest: string | undefined
+  let active = true
+  let draining: Promise<void> | undefined
+
+  const drain = async () => {
+    while (active && latest && manualDelivery.placeholder) {
+      const summary = latest
+      latest = undefined
+      await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, { markdown: summary }).catch(() => false)
+    }
+  }
+  const startDrain = () => {
+    if (draining) return
+    draining = drain().finally(() => {
+      draining = undefined
+      if (active && latest && manualDelivery.placeholder) startDrain()
+    })
+  }
+
+  return {
+    async finish() {
+      active = false
+      if (!draining) return
+
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const drained = await Promise.race([
+        draining.then(() => true),
+        new Promise<false>((resolve) => {
+          timeout = setTimeout(() => resolve(false), manualDeliveryProgressDrainTimeoutMs)
+        }),
+      ])
+      if (timeout) clearTimeout(timeout)
+      if (drained || !manualDelivery.placeholder) return
+
+      const stalePlaceholder = manualDelivery.placeholder
+      manualDelivery.placeholder = undefined
+      const cleanup = draining.then(async () => {
+        await deleteManualDeliveryPlaceholder(stalePlaceholder).catch(() => undefined)
+      })
+      waitUntil(cleanup)
+    },
+    update(summary) {
+      if (!manualDelivery.placeholder) return
+      latest = summary
+      startDrain()
+    },
+  }
 }
 
 type ChatTextStream = AsyncIterable<string> & {
@@ -2022,6 +2094,7 @@ async function handleChatSdkMessage(
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
+  let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
   const manualDeliveryState: { placeholder?: unknown } = {}
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
@@ -2068,22 +2141,39 @@ async function handleChatSdkMessage(
       ...(invocation.run ? { run: invocation.run } : {}),
     }
     const chatFinish = createChatFinishExtension(input, registration)
+    progress = manualDelivery
+      ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
+      : undefined
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
       ...(invocation.input as AgentRunInput),
       context: {
         ...(invocation.input as AgentRunInput).context,
         [messageChannelStateContextKey]: state,
+        ...(progress
+          ? {
+              [agentOutputEventObserverContextKey]: (event: unknown) => {
+                const summary = progressSummaryFromEvent(event)
+                if (summary) progress?.update(summary)
+              },
+            }
+          : {}),
         ...(options?.stream === false || manualDelivery ? { [finalChannelOutputContextKey]: true } : {}),
       },
     }, invoker), chatFinish)
     if (!streamsPhasedReplies) {
-      const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
-      const text = await collectAgentOutput(result)
+      // Manual delivery disables Chat SDK reply streaming, but still consumes
+      // normalized Agent events so transient Capability output can update the
+      // framework-owned placeholder without exposing ordinary Agent text.
+      const result = manualDelivery
+        ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
+        : await runAgentInline(agent as never, runContext as never, invocationInput as never)
+      const text = await collectAgentOutput(result, progress?.update)
       if (!manualDelivery && text) {
         if (!await postDiscordSplitContent(thread, { markdown: text })) {
           await thread.post({ markdown: text })
         }
       }
+      await progress?.finish()
       await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
       if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
       manualDeliveryState.placeholder = undefined
@@ -2139,6 +2229,7 @@ async function handleChatSdkMessage(
   }
   catch (error) {
     typing?.stop()
+    await progress?.finish()
     await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState.placeholder)
     throw error
   }

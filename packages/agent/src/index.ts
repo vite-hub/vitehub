@@ -1,5 +1,6 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
@@ -2506,13 +2507,18 @@ async function finalizeAgentInvocationResult<
   }
 }
 
-async function materializeAgentStructuredOutput(result: unknown, abortSignal?: AbortSignal): Promise<unknown> {
+async function materializeAgentStructuredOutput(
+  result: unknown,
+  abortSignal?: AbortSignal,
+  onEvent?: AgentOutputEventObserver,
+): Promise<unknown> {
   if (!isAsyncIterable(result) && !hasTraceableStreamResult(result)) return result
   if (toAgentRunResult(result).text !== undefined) return result
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   const events = withCapabilityCleanup(streamAgentOutputToEvents(result), async () => {}, { abortSignal }) as AsyncIterable<StreamEvent>
   for await (const event of events) {
+    onEvent?.(event)
     if (event.type === "error") throw new Error(event.error)
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
@@ -2569,7 +2575,12 @@ async function executeAgentInvocation<
     if (customRun) {
       result = await agent.run(invocation)
     }
-    else if (options.kind === "stream" && adapter?.stream) {
+    else if (options.kind === "stream"
+      && adapter?.stream
+      && (
+        invocation.context.get<boolean>(finalChannelOutputContextKey) !== true
+        || invocation.context.get<boolean>(progressSummaryOutputContextKey) === true
+      )) {
       result = await adapter.stream(toAgentAdapterRunContext(invocation) as never)
     }
     else {
@@ -2702,7 +2713,13 @@ async function executeAgentInvocation<
         }
       }
       const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
-      const structuredFinal = options.renderOutput && invocation.output ? await materializeAgentStructuredOutput(final, invocation.input.abortSignal) : final
+      const structuredFinal = options.renderOutput && invocation.output
+        ? await materializeAgentStructuredOutput(
+            final,
+            invocation.input.abortSignal,
+            invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
+          )
+        : final
       const structuredUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord

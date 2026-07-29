@@ -7037,6 +7037,299 @@ describe("server helpers", () => {
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "{\"internal\":\"structured output\"}" })
   })
 
+  it("uses generate for manual delivery without progress summaries", async () => {
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const model = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "Generated result" })),
+      stream: vi.fn(async () => ({
+        fullStream: (async function* () {
+          yield { delta: "Streamed result", type: "text-delta" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+      })),
+      tools: {},
+      version: "agent-v1",
+    }
+    const agent = {
+      capabilities: [
+        defineChatCapability({
+          delivery: "manual",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": (event: { reply: (message: string) => unknown, result: { text: string } }) =>
+          event.reply(event.result.text),
+      },
+      resolve: vi.fn(async () => model),
+    }
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_017), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(model.generate).toHaveBeenCalledOnce()
+    expect(model.stream).not.toHaveBeenCalled()
+  })
+
+  it("streams manual progress summaries from invocation-resolved Capabilities", async () => {
+    const { progressSummary } = await import("../src/capabilities/progress-summary.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => typeof value === "object" && value !== null && "title" in value
+          ? { value }
+          : { issues: [{ message: "Expected a title." }] },
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const model = {
+      generate: vi.fn(),
+      stream: vi.fn(async () => ({
+        fullStream: (async function* () {
+          yield { delta: "{\"title\":\"Private result\"}", type: "text-delta" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+      })),
+      tools: {},
+      version: "agent-v1",
+    }
+    const agent = {
+      [Symbol.for("vitehub.baseAgentCapabilitiesResolver")]: () => [
+        progressSummary({ driver: { run: () => "Reviewing the request." }, id: "progress-primary", intervalMs: 0 }),
+        progressSummary({ driver: { run: () => "Still reviewing." }, id: "progress-secondary", intervalMs: 0 }),
+      ],
+      [Symbol.for("vitehub.baseAgentOutput")]: { schema },
+      capabilities: [
+        defineChatCapability({
+          delivery: "manual",
+          fallbackStreamingPlaceholderText: "Analyzing…",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      resolve: vi.fn(async () => model),
+    }
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_018), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(model.generate).not.toHaveBeenCalled()
+    expect(model.stream).toHaveBeenCalledOnce()
+  })
+
+  it("preserves validated structured output for explicit manual replies", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => typeof value === "object"
+          && value !== null
+          && "title" in value
+          && typeof value.title === "string"
+          ? { value: value as { title: string } }
+          : { issues: [{ message: "Expected a title." }] },
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: {
+        output: { schema },
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Validating the result.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { delta: "{\"title\":\"Validated reply\"}", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": event => event.reply((event.result as { title: string }).title),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_016), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1", { markdown: "Validating the result." })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", { markdown: "Validated reply" })
+  })
+
+  it("updates a manual placeholder with progress summaries before the final reply", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            stream: false,
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Reviewing the request.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield {
+              data: { revision: 2, summary: "Checking current inventory.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { delta: "Private model output", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": event => event.reply("Final customer reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_013), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Analyzing photo…")
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1", { markdown: "Reviewing the request." })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", { markdown: "Checking current inventory." })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(3, "telegram:456", "sent-1", { markdown: "Final customer reply" })
+    expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "Private model output" })
+  })
+
+  it("does not block manual completion on a hanging progress edit", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let resolveProgressEdit: (() => void) | undefined
+    adapter.editMessage.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveProgressEdit = resolve
+    }))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Reviewing the request.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": event => event.reply("Final customer reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_014), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final customer reply" })
+    resolveProgressEdit?.()
+  })
+
+  it("quiesces a hanging progress edit before manual error delivery", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let resolveProgressEdit: (() => void) | undefined
+    adapter.editMessage.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveProgressEdit = resolve
+    }))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please send the photo again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Reviewing the request.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { error: "model timeout", type: "error" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_015), "telegram")).rejects.toThrow("model timeout")
+      expect(adapter.editMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
+      resolveProgressEdit?.()
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("posts a buffered manual stream when placeholder editing fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

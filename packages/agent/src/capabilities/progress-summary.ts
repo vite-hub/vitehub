@@ -3,6 +3,7 @@ import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
+import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
@@ -349,7 +350,7 @@ function withProgressSummaryStream(
   let reasoningActive = false
   let previous: string | undefined
   let revision = 0
-  let dirty = false
+  let dirty = true
   let running = false
   let closed = false
   let scheduled = false
@@ -368,7 +369,7 @@ function withProgressSummaryStream(
   }
   abortSignal?.addEventListener("abort", close, { once: true })
 
-  const schedule = () => {
+  const schedule = (immediate = false) => {
     if (closed || running || scheduled || !dirty) return
     scheduled = true
     const run = () => {
@@ -409,7 +410,7 @@ function withProgressSummaryStream(
           schedule()
         })
     }
-    if (intervalMs === 0) queueMicrotask(run)
+    if (immediate || intervalMs === 0) queueMicrotask(run)
     else timer = setTimeout(run, intervalMs)
   }
 
@@ -455,6 +456,10 @@ function withProgressSummaryStream(
   }
 
   const transformed = source.pipeThrough(new TransformStream({
+    start(streamController) {
+      controller = streamController
+      schedule(true)
+    },
     flush: close,
     transform(chunk, streamController) {
       controller = streamController
@@ -502,6 +507,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
   return defineCapability({
     id: options.id || "progress-summary",
     output(context) {
+      context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
       context.output.render((result) => {
         const messages = context.input.messages()
         if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return result

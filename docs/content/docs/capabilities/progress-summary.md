@@ -52,7 +52,7 @@ The part is transient, so it does not become conversation history. Keep structur
 
 ## Understand the runtime behavior
 
-Reasoning deltas and tool start or completion events mark the current activity dirty. While new activity exists, the Capability generates at most one summary per interval and never overlaps generations. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
+The Capability generates an initial summary when the stream starts. Reasoning deltas and tool start or completion events then mark the current activity dirty. While new activity exists, the Capability generates at most one summary per interval and never overlaps generations. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
 
 The default prompt uses only reasoning presence, sanitized tool names, and the previous summary. It does not include user message text, code, commands, paths, traces, hidden instructions, credentials, raw tool details, or trusted `<context>` payloads.
 
@@ -60,7 +60,7 @@ The Capability stops pending timers when the parent invocation aborts. It also d
 
 ## Requirements
 
-The primary Agent Driver must emit reasoning or tool lifecycle events through a compatible async stream or UI message stream. The Capability remains silent when the stream has no new activity to summarize.
+The primary Agent Driver must expose a compatible async stream or UI message stream. After the initial summary, the Capability remains silent until reasoning or tool lifecycle events provide new activity to summarize.
 
 Configure a `driver`, `model`, or `execute` option for summary generation. Without one of those options, the Capability uses the Agent model when available.
 
@@ -74,7 +74,7 @@ Configure a `driver`, `model`, or `execute` option for summary generation. Witho
 
 ## Verify the result
 
-Run an invocation that performs at least one tool call or emits reasoning for longer than `intervalMs`. Confirm that the primary stream continues immediately and that a transient `data-progress-summary` part arrives with a higher `revision`.
+Run an invocation and confirm that the primary stream continues immediately while an initial transient `data-progress-summary` part arrives. Perform at least one tool call or emit reasoning for longer than `intervalMs`, then confirm that a later part arrives with a higher `revision`.
 
 Stop the invocation before the next interval and confirm that no later progress part appears.
 
