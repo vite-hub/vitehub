@@ -441,6 +441,32 @@ describe("vitehub", () => {
     }
   })
 
+  it("keeps deployment-owned Nitro configuration out of development", async () => {
+    const config = {
+      nitro: {
+        commands: { preview: "node ./preview.mjs" },
+        modules: ["local-module"],
+        preset: "node-server",
+        rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs" } },
+      },
+    } as Record<string, unknown>
+    const plugins = vitehub({ preset: "deno" })
+    const presetPlugin = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const presetHook = presetPlugin.config as unknown as (
+      config: Record<string, unknown>,
+      env: { command: "serve", mode: string },
+    ) => void
+
+    await presetHook(config, { command: "serve", mode: "development" })
+
+    expect(config.nitro).toEqual({
+      commands: { preview: "node ./preview.mjs" },
+      modules: ["local-module"],
+      preset: "node-server",
+      rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs" } },
+    })
+  })
+
   it("preserves array-valued Rollup outputs for Deno", async () => {
     const config = {
       nitro: {

@@ -293,7 +293,8 @@ function deploymentPlugins(
           throw new Error("[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + ".")
         }
       },
-      config(config) {
+      config(config, environment) {
+        const building = environment.command === "build"
         for (const service of requestedServices) assertDeploymentService(plan, service)
         const identity = resolveDeploymentIdentity(
           typeof config.root === "string" ? config.root : undefined,
@@ -342,35 +343,38 @@ function deploymentPlugins(
           nitro.cloudflare = cloudflare
         }
         const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
-        if (configuredPreset && normalizeNitroPreset(configuredPreset) !== plan.nitroPreset) {
-          throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + ".")
-        }
-        for (const name of ["NITRO_PRESET", "SERVER_PRESET"] as const) {
-          const value = process.env[name]
-          if (value && normalizeNitroPreset(value) !== plan.nitroPreset) {
-            throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + ".")
-          }
-        }
         const configuredHosting = process.env.VITEHUB_HOSTING
         if (configuredHosting && deploymentPresetFromNitro(configuredHosting) !== plan.preset) {
           throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with VITEHUB_HOSTING=" + JSON.stringify(configuredHosting) + ".")
         }
-        nitro.modules = [
-          ...(Array.isArray(nitro.modules) ? nitro.modules : []),
-          deploymentNitroModule(plan, services, identity),
-        ]
-        if (plan.output.packaging === "deno-node-modules") {
-          nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
-          const rollupConfig = cloneRecord(nitro.rollupConfig)
-          const output = Array.isArray(rollupConfig.output)
-            ? rollupConfig.output.map(options => ({ ...cloneRecord(options), entryFileNames: "index.mjs" }))
-            : { ...cloneRecord(rollupConfig.output), entryFileNames: "index.mjs" }
-          nitro.rollupConfig = {
-            ...rollupConfig,
-            output,
+        if (building) {
+          if (configuredPreset && normalizeNitroPreset(configuredPreset) !== plan.nitroPreset) {
+            throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + ".")
           }
+          for (const name of ["NITRO_PRESET", "SERVER_PRESET"] as const) {
+            const value = process.env[name]
+            if (value && normalizeNitroPreset(value) !== plan.nitroPreset) {
+              throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + ".")
+            }
+          }
+          nitro.modules = [
+            ...(Array.isArray(nitro.modules) ? nitro.modules : []),
+            deploymentNitroModule(plan, services, identity),
+          ]
+          if (plan.output.packaging === "deno-node-modules") {
+            nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
+            const rollupConfig = cloneRecord(nitro.rollupConfig)
+            const output = Array.isArray(rollupConfig.output)
+              ? rollupConfig.output.map(options => ({ ...cloneRecord(options), entryFileNames: "index.mjs" }))
+              : { ...cloneRecord(rollupConfig.output), entryFileNames: "index.mjs" }
+            nitro.rollupConfig = {
+              ...rollupConfig,
+              output,
+            }
+          }
+          nitro.preset = plan.nitroPreset
         }
-        ;(config as { nitro?: unknown }).nitro = { ...nitro, preset: plan.nitroPreset }
+        ;(config as { nitro?: unknown }).nitro = nitro
       },
     },
     {
@@ -378,7 +382,7 @@ function deploymentPlugins(
       enforce: "post",
       configResolved(config) {
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
-        if (nitro.preset !== plan.nitroPreset) {
+        if (config.command === "build" && nitro.preset !== plan.nitroPreset) {
           throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(plan.nitroPreset) + ".")
         }
       },
