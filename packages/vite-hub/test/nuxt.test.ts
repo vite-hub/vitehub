@@ -279,6 +279,9 @@ describe("ViteHub Nuxt integration", () => {
 
   it("installs the Database Nuxt runtime alias through the framework module", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options.vite, {
+      root: "/tmp/vitehub-nuxt/custom-vite-root",
+    })
 
     await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
     const nitroConfig = { preset: "cloudflare_module" }
@@ -289,7 +292,7 @@ describe("ViteHub Nuxt integration", () => {
     )
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/app/.vitehub/database/cloudflare-runtime.mjs",
+        "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/custom-vite-root/.vitehub/database/cloudflare-runtime.mjs",
       },
     })
   })
