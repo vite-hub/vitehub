@@ -1,5 +1,6 @@
 export {
   createDiscordGatewayRouteHandler,
+  createTelegramPollingRouteHandler,
 } from "./server/routes.ts"
 
 export { defineAgentRunEvents } from "./run-events.ts"
@@ -32,4 +33,5 @@ export type {
   AgentChannelChatRouteTrustedInputField,
   AgentChannelWebhookRouteOptions,
   AgentDiscordGatewayRouteOptions,
+  AgentTelegramPollingRouteOptions,
 } from "./server/routes.ts"

@@ -1517,6 +1517,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
   identity?: IdentityResolver
   kind: string
+  listener?: { kind: "telegram-polling" }
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>

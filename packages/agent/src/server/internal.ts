@@ -2,6 +2,7 @@ export {
   createChannelChatRouteHandler,
   createChannelWebhookRouteHandler,
   createDiscordGatewayRouteHandler,
+  createTelegramPollingRouteHandler,
   hasChannelChatRoute,
 } from "./routes.ts"
 export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
@@ -23,4 +24,5 @@ export type {
   AgentChannelChatRouteTrustedInputField,
   AgentChannelWebhookRouteOptions,
   AgentDiscordGatewayRouteOptions,
+  AgentTelegramPollingRouteOptions,
 } from "./routes.ts"

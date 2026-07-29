@@ -122,7 +122,7 @@ Set `routes.discordGateway: true` on `hubAgent()` when the deployment needs a ge
 
 ## Telegram
 
-Use `telegram()` with Telegram credentials and admission settings. ViteHub creates the Chat SDK adapter, registers the webhook with Telegram's secret header, and keeps generic webhook plumbing out of the Agent Definition. Use `mode: 'polling'` to disable the webhook route, or pass `adapter` as an escape hatch for an app-owned adapter.
+Use `telegram()` with Telegram credentials and admission settings. ViteHub creates the Chat SDK adapter, registers the webhook with Telegram's secret header, and keeps generic webhook plumbing out of the Agent Definition. Pass `adapter` as an escape hatch for an app-owned adapter.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -139,6 +139,8 @@ export default defineAgent({
   driver: { run: () => 'ok' },
 })
 ```
+
+For a long-running host, set `mode: 'polling'` and mount `createTelegramPollingRouteHandler(agent)` on a protected `GET` route that the host calls once at startup. The handler initializes every polling Telegram Channel, starts the official adapter's long-poll loop, and is idempotent within the process. Polling disables the Telegram webhook route and is not suitable for request-isolated serverless workers.
 
 ## Boundary map
 

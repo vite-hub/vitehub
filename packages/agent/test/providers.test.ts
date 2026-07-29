@@ -4760,6 +4760,33 @@ describe("server helpers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("initializes polling Telegram Channels through the host-independent polling route", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createTelegramPollingRouteHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          mode: "polling",
+        }),
+      },
+      driver: {
+        run: vi.fn(),
+      },
+    })
+    const handler = createTelegramPollingRouteHandler(agent as never)
+
+    const first = await handler(new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"))
+    const second = await handler(new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"))
+
+    expect(first.status).toBe(200)
+    await expect(first.json()).resolves.toEqual({ ok: true, polling: 1 })
+    expect(second.status).toBe(200)
+    expect(adapter.initialize).toHaveBeenCalledOnce()
+  })
+
   it("rejects generated GitHub webhooks without configured secrets", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")

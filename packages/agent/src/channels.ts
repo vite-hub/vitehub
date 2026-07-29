@@ -2068,6 +2068,7 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   return defineChannel("telegram", {
     ...channelOptions,
     adapter: telegramAdapterResolver(options),
+    ...(mode === "polling" ? { listener: { kind: "telegram-polling" } } : {}),
     webhooks: mode === "polling"
       ? false
       : telegramWebhookDefaults(webhookOptions),
