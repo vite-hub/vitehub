@@ -353,6 +353,7 @@ export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
   MaybeResolvable<T, AgentCallbackContext<TRuntimeConfig>>
+type TelegramSecret = string | { unseal: () => string }
 
 export interface TelegramChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<AgentChannelOptions<TRuntimeConfig>, "adapter"> {
@@ -360,11 +361,11 @@ export interface TelegramChannelOptions<TRuntimeConfig extends AgentRuntimeConfi
   allowedUserIds?: TelegramChannelValue<TelegramAdapterConfig["allowedUserIds"], TRuntimeConfig>
   apiBaseUrl?: TelegramChannelValue<TelegramAdapterConfig["apiBaseUrl"], TRuntimeConfig>
   apiUrl?: TelegramChannelValue<TelegramAdapterConfig["apiUrl"], TRuntimeConfig>
-  botToken?: TelegramChannelValue<string | { unseal: () => string } | undefined, TRuntimeConfig>
+  botToken?: TelegramChannelValue<TelegramSecret | undefined, TRuntimeConfig>
   longPolling?: TelegramChannelValue<TelegramAdapterConfig["longPolling"], TRuntimeConfig>
   mode?: TelegramAdapterConfig["mode"]
   userName?: TelegramChannelValue<TelegramAdapterConfig["userName"], TRuntimeConfig>
-  webhookSecret?: AgentWebhookSecretToken<TRuntimeConfig>
+  webhookSecret?: TelegramChannelValue<false | TelegramSecret | undefined, TRuntimeConfig>
 }
 
 interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -1704,6 +1705,15 @@ function telegramAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+function telegramWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig>(
+  secret: NonNullable<TelegramChannelOptions<TRuntimeConfig>["webhookSecret"]>,
+): AgentWebhookSecretToken<TRuntimeConfig> {
+  return async context => {
+    const resolved = await resolveTelegramOption(secret, context)
+    return resolved === undefined || resolved === false ? false : cleanSecret(resolved) || false
+  }
+}
+
 function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   input: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
 ): AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined {
@@ -2064,7 +2074,7 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
     ...channelOptions
   } = options
   const webhookOptions = webhookSecret !== undefined
-    ? { secretToken: webhookSecret }
+    ? { secretToken: telegramWebhookSecretToken(webhookSecret) }
     : webhooks
   return defineChannel("telegram", {
     ...channelOptions,

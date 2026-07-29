@@ -238,7 +238,7 @@ describe("agent channels", () => {
         botToken: () => ({ unseal: () => "bot-token" }),
         mode: "webhook",
         userName: "support",
-        webhookSecret: () => "webhook-secret",
+        webhookSecret: () => ({ unseal: () => "webhook-secret" }),
       })
 
       if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
