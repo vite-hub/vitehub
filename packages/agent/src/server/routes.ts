@@ -686,6 +686,13 @@ async function collectAgentOutput(
 }
 
 const manualDeliveryProgressDrainTimeoutMs = 100
+const baseAgentOutputSymbol = Symbol.for("vitehub.baseAgentOutput")
+
+function hasAgentStructuredOutput(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
+  return typeof agent === "object"
+    && agent !== null
+    && Object.getOwnPropertyDescriptor(agent, baseAgentOutputSymbol)?.value !== undefined
+}
 
 function createManualDeliveryProgressUpdater(
   manualDelivery: { placeholder?: unknown },
@@ -2151,7 +2158,7 @@ async function handleChatSdkMessage(
       },
     }, invoker), chatFinish)
     if (!streamsPhasedReplies) {
-      const result = manualDelivery
+      const result = manualDelivery && !hasAgentStructuredOutput(agent)
         ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
         : await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result, progress?.update)

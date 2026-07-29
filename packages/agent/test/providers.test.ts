@@ -7037,6 +7037,54 @@ describe("server helpers", () => {
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "{\"internal\":\"structured output\"}" })
   })
 
+  it("preserves validated structured output for explicit manual replies", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => typeof value === "object"
+          && value !== null
+          && "title" in value
+          && typeof value.title === "string"
+          ? { value: value as { title: string } }
+          : { issues: [{ message: "Expected a title." }] },
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: {
+        output: { schema },
+        run: () => ({
+          stream: (async function* () {
+            yield { delta: "{\"title\":\"Validated reply\"}", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": event => event.reply((event.result as { title: string }).title),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_016), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Validated reply" })
+  })
+
   it("updates a manual placeholder with progress summaries before the final reply", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
