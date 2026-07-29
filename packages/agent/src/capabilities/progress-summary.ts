@@ -507,7 +507,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
   return defineCapability({
     id: options.id || "progress-summary",
     output(context) {
-      context.context.set(progressSummaryOutputContextKey, true)
+      context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
       context.output.render((result) => {
         const messages = context.input.messages()
         if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return result

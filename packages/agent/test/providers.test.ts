@@ -7084,11 +7084,20 @@ describe("server helpers", () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => typeof value === "object" && value !== null && "title" in value
+          ? { value }
+          : { issues: [{ message: "Expected a title." }] },
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
     const model = {
       generate: vi.fn(),
       stream: vi.fn(async () => ({
         fullStream: (async function* () {
-          yield { delta: "Private result", type: "text-delta" }
+          yield { delta: "{\"title\":\"Private result\"}", type: "text-delta" }
           yield { finishReason: "stop", type: "finish" }
         })(),
       })),
@@ -7097,8 +7106,10 @@ describe("server helpers", () => {
     }
     const agent = {
       [Symbol.for("vitehub.baseAgentCapabilitiesResolver")]: () => [
-        progressSummary({ driver: { run: () => "Reviewing the request." }, intervalMs: 0 }),
+        progressSummary({ driver: { run: () => "Reviewing the request." }, id: "progress-primary", intervalMs: 0 }),
+        progressSummary({ driver: { run: () => "Still reviewing." }, id: "progress-secondary", intervalMs: 0 }),
       ],
+      [Symbol.for("vitehub.baseAgentOutput")]: { schema },
       capabilities: [
         defineChatCapability({
           delivery: "manual",

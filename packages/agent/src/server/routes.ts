@@ -683,7 +683,6 @@ async function collectAgentOutput(
 }
 
 const manualDeliveryProgressDrainTimeoutMs = 100
-const baseAgentOutputSymbol = Symbol.for("vitehub.baseAgentOutput")
 
 function progressSummaryFromEvent(event: unknown): string | undefined {
   if (!isRecord(event) || event.type !== "data-progress-summary") return
@@ -691,12 +690,6 @@ function progressSummaryFromEvent(event: unknown): string | undefined {
     ? event.data.summary.trim()
     : ""
   return summary || undefined
-}
-
-function hasAgentStructuredOutput(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
-  return typeof agent === "object"
-    && agent !== null
-    && Object.getOwnPropertyDescriptor(agent, baseAgentOutputSymbol)?.value !== undefined
 }
 
 function createManualDeliveryProgressUpdater(
@@ -2171,7 +2164,7 @@ async function handleChatSdkMessage(
       // Manual delivery disables Chat SDK reply streaming, but still consumes
       // normalized Agent events so transient Capability output can update the
       // framework-owned placeholder without exposing ordinary Agent text.
-      const result = manualDelivery && !hasAgentStructuredOutput(agent)
+      const result = manualDelivery
         ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
         : await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result, progress?.update)
