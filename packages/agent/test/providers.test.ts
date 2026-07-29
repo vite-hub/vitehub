@@ -4764,10 +4764,16 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createTelegramPollingRouteHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
+    const triggerOnlyAdapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
         telegram: telegram({
           adapter: () => adapter as never,
+          mode: "polling",
+        }),
+        triggerOnly: telegram({
+          adapter: () => triggerOnlyAdapter as never,
+          messages: false,
           mode: "polling",
         }),
       },
@@ -4784,6 +4790,7 @@ describe("server helpers", () => {
     await expect(first.json()).resolves.toEqual({ ok: true, polling: 1 })
     expect(second.status).toBe(200)
     expect(adapter.initialize).toHaveBeenCalledOnce()
+    expect(triggerOnlyAdapter.initialize).not.toHaveBeenCalled()
   })
 
   it("rejects generated GitHub webhooks without configured secrets", async () => {

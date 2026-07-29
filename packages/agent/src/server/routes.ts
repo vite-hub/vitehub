@@ -2752,6 +2752,7 @@ export function createTelegramPollingRouteHandler(
           isRecord(entry[1])
           && entry[1].kind === "telegram"
           && entry[1].listener?.kind === "telegram-polling"
+          && entry[1].messages !== false
           && entry[1].adapter !== undefined,
         )
       if (entries.length === 0) {
