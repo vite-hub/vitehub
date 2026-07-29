@@ -38,6 +38,7 @@ import type {
   AgentInput,
   AgentHostIdentity,
   AgentInvoker,
+  AgentMessageDeliveryKind,
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
@@ -2013,6 +2014,7 @@ async function handleChatSdkMessage(
   registration: AgentWebhookRegistrationDefinition,
   thread: Thread,
   message: ChatSdkMessage,
+  deliveryKind: AgentMessageDeliveryKind,
   options: AgentChatOptions | undefined,
   state: { keyPrefix: string, state: StateAdapter },
   messageContext?: MessageContext,
@@ -2040,6 +2042,7 @@ async function handleChatSdkMessage(
       const [current] = uiMessagesToAgentMessages([currentMessage])
       if (!current || !await filter({
         ...context,
+        deliveryKind,
         message: current,
         run: input.run,
         thread: {
@@ -2163,13 +2166,13 @@ async function createChatWebhookHandler(
   const state = { keyPrefix: resolvedState.titleKeyPrefix, state: resolvedState.state }
 
   chat.onDirectMessage((thread, message, _channel, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, options, state, messageContext))
+    handleChatSdkMessage(agent, context, registration, thread, message, "direct", options, state, messageContext))
   chat.onNewMention(async (thread, message, messageContext) => {
     await thread.subscribe().catch(() => undefined)
-    await handleChatSdkMessage(agent, context, registration, thread, message, options, state, messageContext)
+    await handleChatSdkMessage(agent, context, registration, thread, message, "mention", options, state, messageContext)
   })
   chat.onSubscribedMessage((thread, message, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, options, state, messageContext))
+    handleChatSdkMessage(agent, context, registration, thread, message, message.isMention ? "mention" : "subscribed", options, state, messageContext))
 
   const handler = chat.webhooks[adapterName]
   if (!handler) {

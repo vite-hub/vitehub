@@ -316,6 +316,7 @@ export type {
   AgentInvokerResolveContext,
   AgentMessageChannelSettings,
   AgentMessageConcurrency,
+  AgentMessageDeliveryKind,
   AgentMessageFilter,
   AgentMessageFilterContext,
   AgentMessageLockScope,

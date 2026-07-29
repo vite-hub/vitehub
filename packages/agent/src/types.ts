@@ -1466,10 +1466,13 @@ export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 
 export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | (string & {})
 
+export type AgentMessageDeliveryKind = "direct" | "mention" | "subscribed"
+
 export type AgentMessageLockScope = "agent" | "channel" | "thread" | (string & {})
 
 export interface AgentMessageFilterContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
+  deliveryKind: AgentMessageDeliveryKind
   message: Message
   thread: {
     post: AgentChatSendMessage

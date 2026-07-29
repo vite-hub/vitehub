@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 
+import type { AgentMessageDeliveryKind } from "../src/index.ts"
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
@@ -41,7 +42,7 @@ const optionalMessageAdapterRuntimeExternals = [
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
-function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, secret?: string } = {}) {
+function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, isDM?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
@@ -124,6 +125,7 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
         },
         formatted: { children: [], type: "root" },
         id: options.missingIncomingMessageId ? undefined as unknown as string : String(rawMessage.message_id ?? "7"),
+        isMention: rawMessage.isMention === true,
         metadata: { dateSent: date, edited: false },
         raw: body,
         text: typeof rawMessage.text === "string" ? rawMessage.text : "",
@@ -143,7 +145,7 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
     initialize: vi.fn(async (chat: ChatInstance) => {
       chatInstance = chat
     }),
-    isDM: vi.fn(() => true),
+    isDM: vi.fn(() => options.isDM ?? true),
     editMessage: vi.fn(async (threadId: string, messageId: string, message: unknown) => ({ id: messageId, raw: { message }, threadId })),
     fetchMessages: vi.fn(async (threadId: string) => ({ messages: cachedMessages.get(threadId) ?? [] })),
     name: "telegram",
@@ -3192,6 +3194,7 @@ describe("server helpers", () => {
 
     expect(filter).toHaveBeenCalledWith(expect.objectContaining({
       agentIdentity: { name: "support" },
+      deliveryKind: "direct",
       message: expect.objectContaining({
         parts: [expect.objectContaining({ text: "hello", type: "text" })],
       }),
@@ -3218,6 +3221,52 @@ describe("server helpers", () => {
     }))
     expect(run).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "accepted" })
+  })
+
+  it("classifies direct, mention, and subscribed deliveries for message filters", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const deliveryKinds: AgentMessageDeliveryKind[] = []
+    const createHandler = (adapter: Adapter) => createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter,
+          messages: {
+            filter: ({ deliveryKind }) => {
+              deliveryKinds.push(deliveryKind)
+              return false
+            },
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    }) as never)
+    const request = (messageId: number, threadId: number, isMention = false) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: messageId,
+          message: {
+            chat: { id: threadId, type: "group" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            isMention,
+            message_id: messageId,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      })
+
+    const directHandler = createHandler(createTestChatAdapter())
+    await directHandler(request(2010, 456), "telegram")
+
+    const groupHandler = createHandler(createTestChatAdapter({ isDM: false }))
+    await groupHandler(request(2011, 789, true), "telegram")
+    await groupHandler(request(2012, 789), "telegram")
+    await groupHandler(request(2013, 789, true), "telegram")
+
+    expect(deliveryKinds).toEqual(["direct", "mention", "subscribed", "mention"])
   })
 
   it("defaults adapter-backed Channels to final-only delivery", async () => {
