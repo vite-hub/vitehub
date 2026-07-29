@@ -6895,6 +6895,32 @@ describe("server helpers", () => {
     }
   })
 
+  it.each([
+    ["parallel", "concurrent"],
+    ["drop", "drop"],
+    ["queue", "queue"],
+  ] as const)("maps ViteHub %s message concurrency to Chat SDK %s", async (concurrency, expectedConcurrency) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: { concurrency, stream: false },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_003), "telegram")
+
+    expect(response.status).toBe(200)
+    expect((adapter._chatInstance() as unknown as { _concurrencyStrategy: string })._concurrencyStrategy).toBe(expectedConcurrency)
+  })
+
   it("preserves automatic chat delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
