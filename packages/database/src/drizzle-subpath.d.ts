@@ -18,3 +18,13 @@ export declare const databases: Record<string, RuntimeDatabaseEntry<Record<strin
 }
 
 export declare const db: DrizzleRuntimeDatabase<typeof schema>
+
+export interface AgentDatabaseHandle {
+  exec(statement: string): Promise<unknown>
+  query(statement: string): Promise<unknown>
+  schema(): Promise<unknown>
+}
+
+export declare const agentDb: AgentDatabaseHandle & {
+  database(name: string): AgentDatabaseHandle
+}
