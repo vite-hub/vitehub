@@ -114,9 +114,6 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
 export default async function viteHubNuxtModule(options: Parameters<typeof vitehub>[0], nuxt?: NuxtLike): Promise<void> {
   if (!nuxt) return
 
-  if (options.database) {
-    await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
-  }
   const plugins = flattenPlugins(vitehub(options))
     .filter(plugin => plugin.name !== "vite-hub/deployment-output")
   const existing = withoutDeploymentOutput(
@@ -152,4 +149,7 @@ export default async function viteHubNuxtModule(options: Parameters<typeof viteh
     ...existing,
   ] as PluginOption[]
   nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
+  if (options.database) {
+    await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
+  }
 }

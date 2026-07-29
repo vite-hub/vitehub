@@ -284,7 +284,7 @@ describe("ViteHub Nuxt integration", () => {
     })
 
     await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
-    const nitroConfig = { preset: "cloudflare_module" }
+    const nitroConfig = {}
     await runNitroConfigHook(nitroConfig)
 
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toContainEqual(
