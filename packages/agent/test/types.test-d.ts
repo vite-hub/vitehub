@@ -1160,7 +1160,10 @@ describe("agent public types", () => {
           adapter: () => ({}) as never,
         }),
         telegram: telegram({
-          adapter: () => ({}) as never,
+          allowedUserIds: ["123"],
+          botToken: () => "telegram-token",
+          mode: "webhook",
+          webhookSecret: () => "webhook-secret",
         }),
         portalWeb: webChat({
           route: {

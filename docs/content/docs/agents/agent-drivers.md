@@ -26,8 +26,7 @@ Custom driver variants are mutually exclusive. A single Agent Definition cannot 
 Use a model-backed driver for normal model execution. Put Model Driver Instructions and model execution settings inside `driver`.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent, gateway } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
@@ -43,6 +42,8 @@ export default defineAgent({
   },
 })
 ```
+
+ViteHub's `gateway()` resolves credentials and creates the AI SDK Gateway provider behind the Agent Driver interface. Pass a settings callback when credentials come from invocation-aware server configuration. A concrete AI SDK model remains accepted as the provider escape hatch.
 
 Capability Driver Contributions such as model-facing tools are filtered for the selected Agent Driver before the model call. Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown.
 

@@ -44,6 +44,8 @@ import type {
 } from "./types.ts"
 import type { PullRequestContextValue } from "./capabilities/repository-host-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
+import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
+import { resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
@@ -348,6 +350,23 @@ export interface DiscordAdapterOptions {
 export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<AgentChannelOptions<TRuntimeConfig>, "adapter"> {
   adapter?: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+}
+
+type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
+  MaybeResolvable<T, AgentCallbackContext<TRuntimeConfig>>
+type TelegramSecret = string | { unseal: () => string }
+
+export interface TelegramChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends Omit<AgentChannelOptions<TRuntimeConfig>, "adapter"> {
+  adapter?: AgentChannelOptions<TRuntimeConfig>["adapter"]
+  allowedUserIds?: TelegramChannelValue<TelegramAdapterConfig["allowedUserIds"], TRuntimeConfig>
+  apiBaseUrl?: TelegramChannelValue<TelegramAdapterConfig["apiBaseUrl"], TRuntimeConfig>
+  apiUrl?: TelegramChannelValue<TelegramAdapterConfig["apiUrl"], TRuntimeConfig>
+  botToken?: TelegramChannelValue<TelegramSecret | undefined, TRuntimeConfig>
+  longPolling?: TelegramChannelValue<TelegramAdapterConfig["longPolling"], TRuntimeConfig>
+  mode?: TelegramAdapterConfig["mode"]
+  userName?: TelegramChannelValue<TelegramAdapterConfig["userName"], TRuntimeConfig>
+  webhookSecret?: TelegramChannelValue<false | TelegramSecret | undefined, TRuntimeConfig>
 }
 
 interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -1639,6 +1658,51 @@ function telegramWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
 }
 
+function telegramAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: TelegramChannelOptions<TRuntimeConfig>,
+): AgentChannelOptions<TRuntimeConfig>["adapter"] {
+  if (options.adapter) return options.adapter
+  return async context => {
+    const [
+      allowedUserIds,
+      apiBaseUrl,
+      apiUrl,
+      botToken,
+      longPolling,
+      userName,
+      webhookSecret,
+    ] = await Promise.all([
+      options.allowedUserIds === undefined ? undefined : resolveRuntimeValue(options.allowedUserIds, context),
+      options.apiBaseUrl === undefined ? undefined : resolveRuntimeValue(options.apiBaseUrl, context),
+      options.apiUrl === undefined ? undefined : resolveRuntimeValue(options.apiUrl, context),
+      options.botToken === undefined ? undefined : resolveRuntimeValue(options.botToken, context),
+      options.longPolling === undefined ? undefined : resolveRuntimeValue(options.longPolling, context),
+      options.userName === undefined ? undefined : resolveRuntimeValue(options.userName, context),
+      options.webhookSecret === undefined ? undefined : resolveRuntimeValue(options.webhookSecret, context),
+    ])
+    const { createTelegramAdapter } = await import("@chat-adapter/telegram")
+    return createTelegramAdapter({
+      ...(allowedUserIds ? { allowedUserIds } : {}),
+      ...(apiBaseUrl ? { apiBaseUrl } : {}),
+      ...(apiUrl ? { apiUrl } : {}),
+      ...(botToken ? { botToken: cleanSecret(botToken) } : {}),
+      ...(longPolling ? { longPolling } : {}),
+      ...(options.mode ? { mode: options.mode } : {}),
+      ...(userName ? { userName } : {}),
+      ...(webhookSecret ? { secretToken: cleanSecret(webhookSecret) } : {}),
+    })
+  }
+}
+
+function telegramWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig>(
+  secret: NonNullable<TelegramChannelOptions<TRuntimeConfig>["webhookSecret"]>,
+): AgentWebhookSecretToken<TRuntimeConfig> {
+  return async context => {
+    const resolved = await resolveRuntimeValue(secret, context)
+    return resolved === undefined || resolved === false ? false : cleanSecret(resolved) || false
+  }
+}
+
 function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   input: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
 ): AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined {
@@ -1980,11 +2044,34 @@ export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 }
 
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+  options: TelegramChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
+  if (options.webhooks !== undefined && options.webhookSecret !== undefined) {
+    throw new TypeError("[vitehub] telegram() accepts webhookSecret or webhooks, not both.")
+  }
+  const {
+    adapter: _adapter,
+    allowedUserIds: _allowedUserIds,
+    apiBaseUrl: _apiBaseUrl,
+    apiUrl: _apiUrl,
+    botToken: _botToken,
+    longPolling: _longPolling,
+    mode,
+    userName: _userName,
+    webhooks,
+    webhookSecret,
+    ...channelOptions
+  } = options
+  const webhookOptions = webhookSecret !== undefined
+    ? { secretToken: telegramWebhookSecretToken(webhookSecret) }
+    : webhooks
   return defineChannel("telegram", {
-    ...options,
-    webhooks: telegramWebhookDefaults(options.webhooks),
+    ...channelOptions,
+    adapter: telegramAdapterResolver(options),
+    ...(mode === "polling" ? { listener: { kind: "telegram-polling" } } : {}),
+    webhooks: mode === "polling"
+      ? false
+      : telegramWebhookDefaults(webhookOptions),
   })
 }
 

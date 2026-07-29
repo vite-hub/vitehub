@@ -227,6 +227,57 @@ describe("agent channels", () => {
     }
   })
 
+  it("creates Telegram adapters and webhook verification from Telegram options", async () => {
+    vi.resetModules()
+    const createTelegramAdapter = vi.fn(() => ({ name: "telegram" }))
+    vi.doMock("@chat-adapter/telegram", () => ({ createTelegramAdapter }))
+    try {
+      const { telegram } = await import("../src/channels.ts")
+      const channel = telegram({
+        allowedUserIds: async () => ["123"],
+        botToken: () => ({ unseal: () => "bot-token" }),
+        mode: "webhook",
+        userName: "support",
+        webhookSecret: () => ({ unseal: () => "webhook-secret" }),
+      })
+
+      if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
+      await expect(channel.adapter({} as never)).resolves.toEqual({ name: "telegram" })
+      expect(createTelegramAdapter).toHaveBeenCalledWith({
+        allowedUserIds: ["123"],
+        botToken: "bot-token",
+        mode: "webhook",
+        secretToken: "webhook-secret",
+        userName: "support",
+      })
+
+      const webhooks = channel.webhooks
+      if (!webhooks || typeof webhooks !== "object" || Array.isArray(webhooks)) {
+        throw new Error("Expected Telegram webhook registration.")
+      }
+      expect(webhooks.secretHeader).toBe("x-telegram-bot-api-secret-token")
+      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      await expect(Promise.resolve(webhooks.secretToken({} as never))).resolves.toBe("webhook-secret")
+    }
+    finally {
+      vi.doUnmock("@chat-adapter/telegram")
+      vi.resetModules()
+    }
+  })
+
+  it("uses polling Telegram channels without a webhook route", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    expect(telegram({ mode: "polling" }).webhooks).toBe(false)
+  })
+
+  it("rejects ambiguous Telegram webhook configuration", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    expect(() => telegram({
+      webhookSecret: "provider-secret",
+      webhooks: { secretToken: "route-secret" },
+    })).toThrow("accepts webhookSecret or webhooks, not both")
+  })
+
   it("marks Discord adapters for long-content splitting without passing ViteHub options through", async () => {
     vi.resetModules()
     const adapter = { name: "discord" }

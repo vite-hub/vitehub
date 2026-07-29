@@ -87,6 +87,11 @@ export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOption
   webhookUrl: string | ((adapterName: string) => string)
 }
 
+export interface AgentTelegramPollingRouteOptions extends AgentRouteRuntimeOptions {
+  agentName?: string
+  state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
+}
+
 export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
   agentName?: string
 }
@@ -2238,7 +2243,7 @@ async function handleChatSdkMessage(
   }
 }
 
-async function createChatWebhookHandler(
+async function createChannelChat(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
@@ -2246,7 +2251,7 @@ async function createChatWebhookHandler(
   adapter: Adapter,
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
-): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
+): Promise<Chat> {
   const resolvedState = await resolveChatState(options, context, registration, handlerOptions)
   const chat = new Chat(createChatSdkConfig(
     adapterName,
@@ -2265,6 +2270,19 @@ async function createChatWebhookHandler(
   chat.onSubscribedMessage((thread, message, messageContext) =>
     handleChatSdkMessage(agent, context, registration, thread, message, message.isMention ? "mention" : "subscribed", options, state, messageContext))
 
+  return chat
+}
+
+async function createChatWebhookHandler(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  adapterName: string,
+  adapter: Adapter,
+  options: AgentChatOptions | undefined,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
+  const chat = await createChannelChat(agent, context, registration, adapterName, adapter, options, handlerOptions)
   const handler = chat.webhooks[adapterName]
   if (!handler) {
     throw new Error(`[vitehub] Chat adapter "${adapterName}" did not expose a webhook handler.`)
@@ -2696,6 +2714,89 @@ export function createChannelWebhookRouteHandler(
         if (response) return response
         throw error
       }
+    })
+  }
+}
+
+const telegramPollingChats = new WeakMap<object, Map<string, Promise<Chat>>>()
+
+async function startChannelChat(chat: Chat): Promise<void> {
+  const initialize = Reflect.get(chat, "initialize")
+  if (typeof initialize !== "function") {
+    throw new TypeError("[vitehub] The installed Chat SDK does not support starting listener-based Channels.")
+  }
+  await Reflect.apply(initialize, chat, [])
+}
+
+export function createTelegramPollingRouteHandler(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+): (request: Request, options?: AgentTelegramPollingRouteOptions) => Promise<Response> {
+  return async (request, handlerOptions = {}) => {
+    if (request.method !== "GET") {
+      return createJsonErrorResponse(405, "Telegram polling route only accepts GET requests.")
+    }
+
+    const context = createRuntimeContext(
+      request,
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    return await runWithRuntimeCloudflareEnv(context, async () => {
+      const channels = isRecord(agent.channels) ? agent.channels : {}
+      const entries = Object.entries(channels)
+        .filter((entry): entry is [string, AgentChannelDefinition] =>
+          isRecord(entry[1])
+          && entry[1].kind === "telegram"
+          && entry[1].listener?.kind === "telegram-polling"
+          && entry[1].messages !== false
+          && entry[1].adapter !== undefined,
+        )
+      if (entries.length === 0) {
+        return createJsonErrorResponse(500, "Telegram polling route requires a polling Telegram Channel.")
+      }
+
+      let chats = telegramPollingChats.get(agent as object)
+      if (!chats) {
+        chats = new Map()
+        telegramPollingChats.set(agent as object, chats)
+      }
+      const chatOptions = getAgentChatOptions(agent)
+      await Promise.all(entries.map(async ([channelId, channel]) => {
+        let chat = chats!.get(channelId)
+        if (!chat) {
+          chat = (async () => {
+            const adapter = await resolveMaybe(channel.adapter, context)
+            if (!adapter) {
+              throw new Error(`[vitehub] Telegram polling Channel "${channelId}" did not resolve a chat adapter.`)
+            }
+            const registration = {
+              adapter: channelId,
+              channelId,
+              id: channelId,
+              provider: "telegram",
+            }
+            const instance = await createChannelChat(
+              agent,
+              context,
+              registration,
+              channelId,
+              adapter as Adapter,
+              getChannelChatOptions(agent, channelId, chatOptions),
+              handlerOptions,
+            )
+            await startChannelChat(instance)
+            return instance
+          })()
+          chats!.set(channelId, chat)
+          chat.catch(() => chats!.delete(channelId))
+        }
+        await chat
+      }))
+      return Response.json({ ok: true, polling: entries.length })
     })
   }
 }
