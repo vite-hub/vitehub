@@ -1,6 +1,6 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
-import { agentOutputEventObserverContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
+import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
@@ -2575,7 +2575,12 @@ async function executeAgentInvocation<
     if (customRun) {
       result = await agent.run(invocation)
     }
-    else if (options.kind === "stream" && adapter?.stream) {
+    else if (options.kind === "stream"
+      && adapter?.stream
+      && (
+        invocation.context.get<boolean>(finalChannelOutputContextKey) !== true
+        || invocation.context.get<boolean>(progressSummaryOutputContextKey) === true
+      )) {
       result = await adapter.stream(toAgentAdapterRunContext(invocation) as never)
     }
     else {

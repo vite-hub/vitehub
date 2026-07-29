@@ -3,6 +3,7 @@ import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
+import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
@@ -503,9 +504,10 @@ function isStreamResult(value: unknown): value is {
 export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: ProgressSummaryOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
-  const capability = defineCapability({
+  return defineCapability({
     id: options.id || "progress-summary",
     output(context) {
+      context.context.set(progressSummaryOutputContextKey, true)
       context.output.render((result) => {
         const messages = context.input.messages()
         if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return result
@@ -549,6 +551,4 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
       })
     },
   })
-  Object.defineProperty(capability, Symbol.for("vitehub.progressSummaryCapability"), { value: true })
-  return capability
 }

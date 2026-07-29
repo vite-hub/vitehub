@@ -7079,6 +7079,49 @@ describe("server helpers", () => {
     expect(model.stream).not.toHaveBeenCalled()
   })
 
+  it("streams manual progress summaries from invocation-resolved Capabilities", async () => {
+    const { progressSummary } = await import("../src/capabilities/progress-summary.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const model = {
+      generate: vi.fn(),
+      stream: vi.fn(async () => ({
+        fullStream: (async function* () {
+          yield { delta: "Private result", type: "text-delta" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+      })),
+      tools: {},
+      version: "agent-v1",
+    }
+    const agent = {
+      [Symbol.for("vitehub.baseAgentCapabilitiesResolver")]: () => [
+        progressSummary({ driver: { run: () => "Reviewing the request." }, intervalMs: 0 }),
+      ],
+      capabilities: [
+        defineChatCapability({
+          delivery: "manual",
+          fallbackStreamingPlaceholderText: "Analyzing…",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      resolve: vi.fn(async () => model),
+    }
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_018), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(model.generate).not.toHaveBeenCalled()
+    expect(model.stream).toHaveBeenCalledOnce()
+  })
+
   it("preserves validated structured output for explicit manual replies", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
