@@ -943,7 +943,7 @@ function generatedCloudflareChatStateHelper(): string[] {
   ]
 }
 
-function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions): string[] {
+function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions, typescript = false): string[] {
   const { authTokenEnvName, durableUrlRequired, ephemeralHosting, ...stateOptions } = state
   const configuredAuthTokenOption = authTokenEnvName
     ? [`  ...(typeof process === 'object' && process.env[${JSON.stringify(authTokenEnvName)}] ? { authToken: process.env[${JSON.stringify(authTokenEnvName)}] } : {}),`]
@@ -951,7 +951,7 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions)
   return [
     "",
     `const viteHubChatStateOptions = ${JSON.stringify(stateOptions)}`,
-    "let viteHubChatState",
+    `let viteHubChatState${typescript ? ": ReturnType<typeof createLibsqlAgentState> | undefined" : ""}`,
     "",
     "function chatStateFromLibsql() {",
     "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
@@ -1200,7 +1200,7 @@ async function generateAgentWebhookRouteHandler(
     "",
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
-    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState) : []),
+    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     "",
     ...routeCapabilities.setup,
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
@@ -1467,7 +1467,7 @@ async function generateAgentDenoServer(
     "})",
     "",
     ...deploymentCatalog.setup,
-    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState) : []),
+    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     ...routeCapabilities.setup,
     "function jsonError(status, message) {",
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
