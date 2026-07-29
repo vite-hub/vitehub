@@ -2092,6 +2092,7 @@ async function handleChatSdkMessage(
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
+  let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
   const manualDeliveryState: { placeholder?: unknown } = {}
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
@@ -2138,7 +2139,7 @@ async function handleChatSdkMessage(
       ...(invocation.run ? { run: invocation.run } : {}),
     }
     const chatFinish = createChatFinishExtension(input, registration)
-    const progress = manualDelivery
+    progress = manualDelivery
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
       : undefined
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
@@ -2215,6 +2216,7 @@ async function handleChatSdkMessage(
   }
   catch (error) {
     typing?.stop()
+    await progress?.finish()
     await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState.placeholder)
     throw error
   }

@@ -7132,6 +7132,53 @@ describe("server helpers", () => {
     resolveProgressEdit?.()
   })
 
+  it("quiesces a hanging progress edit before manual error delivery", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let resolveProgressEdit: (() => void) | undefined
+    adapter.editMessage.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveProgressEdit = resolve
+    }))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please send the photo again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Reviewing the request.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { error: "model timeout", type: "error" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_015), "telegram")).rejects.toThrow("model timeout")
+      expect(adapter.editMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
+      resolveProgressEdit?.()
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("posts a buffered manual stream when placeholder editing fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

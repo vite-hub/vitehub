@@ -368,7 +368,7 @@ function withProgressSummaryStream(
   }
   abortSignal?.addEventListener("abort", close, { once: true })
 
-  const schedule = () => {
+  const schedule = (immediate = false) => {
     if (closed || running || scheduled || !dirty) return
     scheduled = true
     const run = () => {
@@ -409,7 +409,7 @@ function withProgressSummaryStream(
           schedule()
         })
     }
-    if (intervalMs === 0) queueMicrotask(run)
+    if (immediate || intervalMs === 0) queueMicrotask(run)
     else timer = setTimeout(run, intervalMs)
   }
 
@@ -457,7 +457,7 @@ function withProgressSummaryStream(
   const transformed = source.pipeThrough(new TransformStream({
     start(streamController) {
       controller = streamController
-      schedule()
+      schedule(true)
     },
     flush: close,
     transform(chunk, streamController) {

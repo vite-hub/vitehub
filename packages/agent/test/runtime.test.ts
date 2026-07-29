@@ -8532,6 +8532,39 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenNthCalledWith(2, expect.objectContaining({ activeTools: ["inventory search"] }))
   })
 
+  it("generates the initial progress summary without waiting for the revision interval", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Preparing your request.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream()
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: {
+        data: {
+          revision: 1,
+          summary: "Preparing your request.",
+          type: "progress-summary",
+        },
+        transient: true,
+        type: "data-progress-summary",
+      },
+    })
+    await reader.cancel()
+    expect(execute).toHaveBeenCalledOnce()
+  })
+
   it("does not lock alternate progress stream representations before one is consumed", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => "Checking inventory.")
@@ -8676,7 +8709,7 @@ describe("agent message protocol", () => {
     await reader.cancel()
     await new Promise(resolve => setTimeout(resolve, 30))
 
-    expect(execute).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledOnce()
   })
 
   it("cleans up scheduled progress generation when the source errors", async () => {
@@ -8704,7 +8737,7 @@ describe("agent message protocol", () => {
     })()).rejects.toThrow("stream failed")
     await new Promise(resolve => setTimeout(resolve, 30))
 
-    expect(execute).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledOnce()
   })
 
   it("observes phased reasoning text without exposing its contents", async () => {
