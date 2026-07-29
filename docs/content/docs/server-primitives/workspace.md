@@ -408,19 +408,6 @@ export async function testDocs() {
 | `close()` | none | Rolls an uncommitted host tree back to authoritative Workspace state and releases Session resources. |
 | `tools?.aiSdk()` | none | Returns runtime-provided AI SDK tools when the Session supports them. |
 
-### Mount method options
-
-The exported `Workspace` contract also exposes `mount()` for integrations that hold the full Workspace implementation.
-
-| Surface | Options or result | Behavior |
-| --- | --- | --- |
-| `mount(options?)` | `mode: 'read-only' \| 'read-write' \| 'copy-on-write'`, `target?: string` | Declares the mount mode and target. With no options, mode defaults to `read-only` and target defaults to `/workspace`. |
-| `mount.diff()` | none | Returns changes made through the mount. |
-| `mount.commit(options?)` | `message?: string` | Commits mounted changes with an optional message. |
-| `mount.export()` | none | Exports the mounted Workspace as a snapshot. |
-
-The returned `WorkspaceMount` also exposes its `workspace`, resolved `mode`, and resolved `target`.
-
 Workspace owns the file tree and commit behavior. Box owns execution and provider adapters. Sandbox composes both for discovered named work, while Agent Definitions compose them for harness execution.
 
 ### Run sessions from the CLI

@@ -175,22 +175,6 @@ export interface WorkspaceSessionHost {
   ): Promise<{ code: number, stderr: string, stdout: string }>
 }
 
-export type WorkspaceMountMode = "read-only" | "read-write" | "copy-on-write"
-
-export interface WorkspaceMountOptions {
-  mode: WorkspaceMountMode
-  target?: string
-}
-
-export interface WorkspaceMount {
-  workspace: Workspace
-  mode: WorkspaceMountMode
-  target: string
-  diff(): Promise<WorkspaceDiff>
-  commit(options?: { message?: string }): Promise<void>
-  export(): Promise<WorkspaceSnapshot>
-}
-
 export interface ExecOptions {
   abortSignal?: AbortSignal
   cwd?: string
@@ -679,7 +663,6 @@ export interface Workspace {
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
-  mount(options?: WorkspaceMountOptions): WorkspaceMount
 }
 
 export interface WorkspaceSourceSyncCounts {
