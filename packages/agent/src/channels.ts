@@ -45,6 +45,7 @@ import type {
 import type { PullRequestContextValue } from "./capabilities/repository-host-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
+import { resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
@@ -1657,18 +1658,6 @@ function telegramWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
 }
 
-async function resolveTelegramOption<T, TRuntimeConfig extends AgentRuntimeConfig>(
-  value: TelegramChannelValue<T, TRuntimeConfig> | undefined,
-  context: AgentCallbackContext<TRuntimeConfig>,
-): Promise<T | undefined> {
-  if (value === undefined) return undefined
-  if (typeof value === "function") return await (value as (context: AgentCallbackContext<TRuntimeConfig>) => T | Promise<T>)(context)
-  if (isRecord(value) && typeof value.resolve === "function") {
-    return await (value.resolve as (context: AgentCallbackContext<TRuntimeConfig>) => T | Promise<T>)(context)
-  }
-  return value as T
-}
-
 function telegramAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   options: TelegramChannelOptions<TRuntimeConfig>,
 ): AgentChannelOptions<TRuntimeConfig>["adapter"] {
@@ -1683,13 +1672,13 @@ function telegramAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
       userName,
       webhookSecret,
     ] = await Promise.all([
-      resolveTelegramOption(options.allowedUserIds, context),
-      resolveTelegramOption(options.apiBaseUrl, context),
-      resolveTelegramOption(options.apiUrl, context),
-      resolveTelegramOption(options.botToken, context),
-      resolveTelegramOption(options.longPolling, context),
-      resolveTelegramOption(options.userName, context),
-      resolveTelegramOption(options.webhookSecret, context),
+      options.allowedUserIds === undefined ? undefined : resolveRuntimeValue(options.allowedUserIds, context),
+      options.apiBaseUrl === undefined ? undefined : resolveRuntimeValue(options.apiBaseUrl, context),
+      options.apiUrl === undefined ? undefined : resolveRuntimeValue(options.apiUrl, context),
+      options.botToken === undefined ? undefined : resolveRuntimeValue(options.botToken, context),
+      options.longPolling === undefined ? undefined : resolveRuntimeValue(options.longPolling, context),
+      options.userName === undefined ? undefined : resolveRuntimeValue(options.userName, context),
+      options.webhookSecret === undefined ? undefined : resolveRuntimeValue(options.webhookSecret, context),
     ])
     const { createTelegramAdapter } = await import("@chat-adapter/telegram")
     return createTelegramAdapter({
@@ -1709,7 +1698,7 @@ function telegramWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig>(
   secret: NonNullable<TelegramChannelOptions<TRuntimeConfig>["webhookSecret"]>,
 ): AgentWebhookSecretToken<TRuntimeConfig> {
   return async context => {
-    const resolved = await resolveTelegramOption(secret, context)
+    const resolved = await resolveRuntimeValue(secret, context)
     return resolved === undefined || resolved === false ? false : cleanSecret(resolved) || false
   }
 }
