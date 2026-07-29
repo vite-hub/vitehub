@@ -264,27 +264,6 @@ describe("drizzle runtime", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("exposes guarded raw SQL handles for hosted Agents", async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-agent-runtime-"))
-    runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`
-    runtimeState.analyticsDbPath = `file:${join(tempDir, "analytics.sqlite")}`
-
-    const { agentDb } = await import("../src/drizzle.ts")
-
-    await agentDb.exec("create table notes (id integer primary key, title text not null)")
-    await agentDb.exec("insert into notes (id, title) values (1, 'agent note')")
-    await expect(agentDb.query("select id, title from notes")).resolves.toEqual([{ id: 1, title: "agent note" }])
-    await expect(agentDb.schema()).resolves.toEqual([
-      expect.objectContaining({ name: "notes", type: "table" }),
-    ])
-
-    const analytics = agentDb.database("analytics")
-    await analytics.exec("create table analytics_events (id integer primary key, name text not null)")
-    await analytics.exec("insert into analytics_events (id, name) values (1, 'page-view')")
-    await expect(analytics.query("select id, name from analytics_events")).resolves.toEqual([{ id: 1, name: "page-view" }])
-    expect(() => agentDb.database("missing")).toThrow('Database "missing" is not configured.')
-  })
-
   it("queries configured Cloudflare D1 over HTTP from the generated local runtime", async () => {
     runtimeDatabaseEntriesFactory = () => ({
       analytics: {
