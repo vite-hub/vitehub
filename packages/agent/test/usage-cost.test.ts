@@ -146,6 +146,45 @@ describe("usageCost", () => {
     expect(pricing).toHaveBeenCalledOnce()
   })
 
+  it("preserves richer raw usage while attaching the canonical record", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const usage = {
+      inputTokens: 10,
+      outputTokens: 2,
+      providerMetadata: {
+        cacheTier: "ephemeral",
+      },
+      totalTokens: 12,
+    }
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usage,
+        }),
+      },
+    })
+
+    const result = await runAgent(agent, runtime(), { prompt: "hello" })
+    expect((result as { usage?: unknown }).usage).toBe(usage)
+    expect(result).toMatchObject({
+      usageRecord: {
+        cost: {
+          amount: "0.02",
+        },
+      },
+    })
+  })
+
   it("returns the enriched resolved record when usage metadata is added", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

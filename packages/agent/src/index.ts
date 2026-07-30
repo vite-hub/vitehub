@@ -1984,7 +1984,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
     if (Object.isExtensible(result)) {
       try {
         Object.defineProperties(result, {
-          ...(usageRecord.usage
+          ...(usageRecord.usage && !("usage" in result)
             ? {
                 usage: {
                   configurable: true,
@@ -2015,7 +2015,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
     }
   }
   return cloneWithPropertyDescriptors(result, {
-    ...(usageRecord.usage
+    ...(usageRecord.usage && !("usage" in result)
       ? {
           usage: {
             configurable: true,
