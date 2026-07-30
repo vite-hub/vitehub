@@ -2854,6 +2854,66 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
   })
 
+  it("composes colocated, Channel, and output instructions", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
+    agentGenerate.mockResolvedValueOnce({ finishReason: "stop", text: "{\"title\":\"ok\"}" })
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMessage } = await import("../src/messages.ts")
+    const schema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({
+            properties: { title: { type: "string" } },
+            required: ["title"],
+            type: "object",
+          }),
+          output: () => ({ type: "object" }),
+        },
+        validate: (value: unknown) => ({ value: value as { title: string } }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = withExplicitWorkspaceName(defineAgent({
+      channels: { support: telegram() },
+      workspace: { sourceRootDir },
+      driver: {
+        model: {} as never,
+        output: { schema },
+      },
+    }), { workspace: "docs" })
+
+    await agent.run!(Object.assign(context() as object, {
+      input: {
+        messages: [createMessage({ role: "user", text: "Show dinner." })],
+      },
+      run: {
+        channelId: "support",
+        origin: "support",
+        runId: "support:1",
+        threadId: "support:1",
+      },
+    }) as never)
+
+    const instructions = agentSettings.at(-1)?.instructions as string
+    const ordered = [
+      "Use colocated workspace instructions.",
+      "Write the final response for Telegram.",
+      "Return only one valid JSON value for the configured Agent output.",
+    ]
+    let previousIndex = -1
+    for (const instruction of ordered) {
+      const index = instructions.indexOf(instruction)
+      expect(index).toBeGreaterThan(previousIndex)
+      expect(instructions.indexOf(instruction, index + instruction.length)).toBe(-1)
+      previousIndex = index
+    }
+  })
+
   it("applies discovered source roots to workspace agents", async () => {
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)

@@ -5,6 +5,7 @@ import {
   teeingAsyncIterableStreamDescriptor,
 } from "./internal/stream-result.ts"
 import { loadAiSdk } from "./internal/ai-sdk-runtime.ts"
+import { resolveMessageChannelInstructions } from "./internal/channels.ts"
 import {
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
@@ -1028,7 +1029,9 @@ async function createAgent(
     : model
   const instructions = await composeInstructions(
     joinInstructions(
-      context.instructions ?? await resolveInstructions(options, metadataContext),
+      await resolveInstructions(options, metadataContext),
+      context.instructions,
+      resolveMessageChannelInstructions(context.context),
       agentOutputInstructions(context.output),
     ),
     metadataContext,

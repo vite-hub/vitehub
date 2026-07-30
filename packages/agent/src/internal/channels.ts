@@ -14,6 +14,8 @@ import type { Lock, StateAdapter } from "chat"
 export const messageChannelTitleDeliveredContextKey = "channel.delivery.titleDelivered"
 export const messageChannelStateContextKey = "chat.channelState"
 const messageChannelTitleClaimTtlMs = 5 * 60 * 1000
+const messageChannelInstructions = new WeakMap<object, string>()
+const messageChannelInvocationInstructions = new WeakMap<AgentInvocationContextStore, string>()
 const messageChannelTitleEffectIntents = new WeakSet<AgentChannelDeliveryEffectIntent>()
 const messageChannelTitleDeliveryPolicies = new WeakMap<AgentChannelDeliveryEffectIntent, "always" | "once-per-thread">()
 const messageChannelTitleDeliveryAttempts = new WeakMap<AgentChannelDeliveryEffectIntent, MessageChannelTitleDeliveryAttempt>()
@@ -36,6 +38,29 @@ export interface MessageChannelTitleDeliveryAttempt {
   error?: unknown
   persist?: boolean
   reason?: "already-delivered" | "pending"
+}
+
+export function defineMessageChannelInstructions<
+  TChannel extends object,
+>(channel: TChannel, instructions: string): TChannel {
+  const value = instructions.trim()
+  if (!value) {
+    throw new TypeError("[vitehub] Internal Channel instructions must be a non-empty string.")
+  }
+  messageChannelInstructions.set(channel, value)
+  return channel
+}
+
+export function bindMessageChannelInstructions(
+  context: AgentInvocationContextStore,
+  channel: object | undefined,
+): void {
+  const instructions = channel && messageChannelInstructions.get(channel)
+  if (instructions) messageChannelInvocationInstructions.set(context, instructions)
+}
+
+export function resolveMessageChannelInstructions(context: AgentInvocationContextStore): string | undefined {
+  return messageChannelInvocationInstructions.get(context)
 }
 
 export function createMessageChannelTitleEffectIntent(

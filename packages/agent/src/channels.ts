@@ -42,6 +42,7 @@ import type {
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
+import { defineMessageChannelInstructions } from "./internal/channels.ts"
 import type { PullRequestContextValue } from "./capabilities/repository-host-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
@@ -2065,14 +2066,14 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   const webhookOptions = webhookSecret !== undefined
     ? { secretToken: telegramWebhookSecretToken(webhookSecret) }
     : webhooks
-  return defineChannel("telegram", {
+  return defineMessageChannelInstructions(defineChannel("telegram", {
     ...channelOptions,
     adapter: telegramAdapterResolver(options),
     ...(mode === "polling" ? { listener: { kind: "telegram-polling" } } : {}),
     webhooks: mode === "polling"
       ? false
       : telegramWebhookDefaults(webhookOptions),
-  })
+  }), "Write the final response for Telegram. Match the language of the user's latest message. Prefer short paragraphs or bullets and keep the answer concise. Do not use Markdown tables; express rows as bullets because Telegram fallback delivery exposes table syntax. Avoid decorative emoji, redundant restatement, and generic follow-up questions. Follow the Agent's own instructions when they require a different format.")
 }
 
 export function webChat<
