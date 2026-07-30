@@ -647,6 +647,47 @@ describe("usageCost", () => {
     expect(result.usageRecord?.cost?.amount).toBe("0.02")
   })
 
+  it("attaches deferred usage to returned UI message stream results", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
+    const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "text-delta", delta: "ok" })
+                resolveUsage({ inputTokens: 10, outputTokens: 2, totalTokens: 12 })
+                controller.close()
+              },
+            })
+          },
+          usage,
+        }),
+      },
+    })
+
+    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+      usageRecord?: { cost?: { amount: string } }
+    }
+    for await (const _chunk of result.toUIMessageStream()) {}
+
+    expect(result.usageRecord?.cost?.amount).toBe("0.02")
+  })
+
   it("returns runAgent UI message results before their usage promise settles", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

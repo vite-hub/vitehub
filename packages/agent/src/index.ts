@@ -2839,7 +2839,18 @@ async function executeAgentInvocation<
                   invocation,
                   rendered,
                 )),
-                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText, streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+                async (outcome) => {
+                  if (finishTask) return await finishTask
+                  const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
+                  finishTask = (async () => {
+                    await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                    const usageRecord = finishResult && typeof finishResult === "object"
+                      ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                      : undefined
+                    if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+                  })()
+                  return await finishTask
+                },
                 {
                   onChunk(chunk) {
                     streamedText += uiMessageTextDelta(chunk) || ""
