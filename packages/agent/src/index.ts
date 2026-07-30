@@ -2868,6 +2868,9 @@ async function executeAgentInvocation<
         for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
           textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
         if (textStreamDescriptor) {
+          const resolveTextStream = "get" in textStreamDescriptor
+            ? () => textStreamDescriptor.get?.call(rendered)
+            : () => textStreamDescriptor.value
           let preservedTextStream: unknown
           let initialized = false
           descriptors.textStream = {
@@ -2875,7 +2878,7 @@ async function executeAgentInvocation<
             enumerable: textStreamDescriptor.enumerable ?? false,
             get() {
               if (!initialized) {
-                const textStream = Reflect.get(rendered as object, "textStream")
+                const textStream = resolveTextStream()
                 preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
                 initialized = true
               }

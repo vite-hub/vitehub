@@ -834,6 +834,7 @@ describe("usageCost", () => {
       value() {
         return this.#value
       }
+
     }
     const result = new DriverResult()
     const agent = defineAgent({
@@ -883,6 +884,13 @@ describe("usageCost", () => {
       value() {
         return this.#value
       }
+
+      get textStream() {
+        const value = this.#value
+        return (async function* () {
+          yield value
+        })()
+      }
     }
     const result = new DriverStreamResult()
     const agent = defineAgent({
@@ -902,6 +910,9 @@ describe("usageCost", () => {
     const enriched = await runAgent(agent, runtime(), { prompt: "hello" }) as DriverStreamResult
     expect(enriched).toBe(result)
     expect(enriched.value()).toBe("preserved")
+    const text = []
+    for await (const chunk of enriched.textStream) text.push(chunk)
+    expect(text).toEqual(["preserved"])
     const chunks = []
     for await (const chunk of enriched.stream) chunks.push(chunk)
     expect(chunks).toContainEqual(expect.objectContaining({
