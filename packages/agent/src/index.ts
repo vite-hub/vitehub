@@ -2783,14 +2783,17 @@ async function executeAgentInvocation<
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
-      if (options.renderOutput
+      const shouldPreserveEagerStreamResult = hasTraceableStreamResult(rendered)
+        && invocation.finishExtensionProviders.some(provider => provider.eager)
+        && shouldWrapInvocationOutput(invocation)
+      if (shouldPreserveEagerStreamResult || (options.renderOutput
         && !invocation.output
         && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
         && rendered !== result
         && (isAsyncIterable((rendered as { stream?: unknown }).stream)
           || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
           || isUIMessageStreamResult(rendered))
-        && shouldWrapInvocationOutput(invocation)) {
+        && shouldWrapInvocationOutput(invocation))) {
         if (isUIMessageStreamResult(rendered)
           && !isAsyncIterable((rendered as { stream?: unknown }).stream)
           && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {

@@ -407,6 +407,37 @@ describe("usageCost", () => {
     for await (const _chunk of stream as AsyncIterable<unknown>) {}
   })
 
+  it("returns runAgent stream results before their usage promise settles", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing: () => undefined })],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { type: "text-delta", text: "ok" }
+          })(),
+          usage,
+        }),
+      },
+    })
+
+    const pending = runAgent(agent, runtime(), { prompt: "hello" })
+    const outcome = await Promise.race([
+      pending.then(() => "returned"),
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])
+    resolveUsage({ totalTokens: 1 })
+
+    expect(outcome).toBe("returned")
+    const result = await pending as { stream: AsyncIterable<unknown> }
+    for await (const _chunk of result.stream) {}
+  })
+
   it("prices usage records before yielding runAgent streams", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
