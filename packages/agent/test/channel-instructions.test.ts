@@ -203,6 +203,18 @@ describe("Channel instructions", () => {
     expect(await resolveAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
   })
 
+  it("does not resolve opaque definitions without Channel guidance during inspection", async () => {
+    let resolved = false
+    const resolve = () => {
+      resolved = true
+      throw new Error("resolver must not run")
+    }
+    const agent = { channels: { discord: discord() }, resolve } as never
+
+    expect(await resolveAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
+    expect(resolved).toBe(false)
+  })
+
   it("preserves instructions when an internal runtime wraps a Channel", () => {
     const source = telegram()
     const wrapped = inheritMessageChannelInstructions({ ...source, effects: {} }, source)

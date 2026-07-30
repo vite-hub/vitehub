@@ -1458,9 +1458,13 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
 ): Promise<AgentInspectionMetadata> {
   const settings = agentSettings(definition)
   if (!settings) {
+    const definedChannelInstructions = inspectMessageChannelInstructions(definition.channels)
+    if (!definedChannelInstructions.length) {
+      return { files: [], ...agentInspectionMetadata(definition as never), tools: [] }
+    }
     const adapter = await definition.resolve(createInspectionMetadataRuntime(resolution))
     const channelInstructions = consumesMessageChannelInstructions(adapter)
-      ? inspectMessageChannelInstructions(definition.channels)
+      ? definedChannelInstructions
       : []
     return {
       files: [],
