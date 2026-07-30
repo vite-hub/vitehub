@@ -17,7 +17,7 @@ const messageChannelTitleClaimTtlMs = 5 * 60 * 1000
 const messageChannelInstructions = new WeakMap<object, string>()
 const messageChannelInvocationInstructions = new WeakMap<AgentInvocationContextStore, string>()
 const auxiliaryMessageChannelInstructionContexts = new WeakSet<object>()
-const messageChannelInstructionConsumers = new WeakSet<object>()
+const messageChannelInstructionConsumer = Symbol("vitehub.messageChannelInstructionConsumer")
 const messageChannelTitleEffectIntents = new WeakSet<AgentChannelDeliveryEffectIntent>()
 const messageChannelTitleDeliveryPolicies = new WeakMap<AgentChannelDeliveryEffectIntent, "always" | "once-per-thread">()
 const messageChannelTitleDeliveryAttempts = new WeakMap<AgentChannelDeliveryEffectIntent, MessageChannelTitleDeliveryAttempt>()
@@ -90,12 +90,15 @@ export function markAuxiliaryMessageChannelInstructionContext<TContext extends o
 export function markMessageChannelInstructionConsumer<TConsumer extends object>(
   consumer: TConsumer,
 ): TConsumer {
-  messageChannelInstructionConsumers.add(consumer)
+  Object.defineProperty(consumer, messageChannelInstructionConsumer, {
+    enumerable: true,
+    value: true,
+  })
   return consumer
 }
 
 export function consumesMessageChannelInstructions(consumer: object): boolean {
-  return messageChannelInstructionConsumers.has(consumer)
+  return (consumer as { [messageChannelInstructionConsumer]?: unknown })[messageChannelInstructionConsumer] === true
 }
 
 export function resolveMessageChannelInstructions(

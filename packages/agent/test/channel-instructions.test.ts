@@ -175,6 +175,22 @@ describe("Channel instructions", () => {
     expect((await resolveAgentInspectionMetadata(agent)).instructions).toEqual(inspected)
   })
 
+  it("retains consumer classification when an opaque definition decorates an adapter", async () => {
+    const agent = {
+      channels: { support: telegram() },
+      async resolve() {
+        return {
+          ...createAiSdkAdapter({ model: createModel() as never }),
+          decorated: true,
+        }
+      },
+    } as never
+
+    expect((await resolveAgentInspectionMetadata(agent)).instructions).toEqual([
+      `Channel "support" instructions:\n\n${telegramInstructions}`,
+    ])
+  })
+
   it("omits guidance for opaque custom adapters that do not consume it", async () => {
     const agent = {
       channels: { support: telegram() },
