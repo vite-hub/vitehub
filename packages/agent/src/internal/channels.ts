@@ -14,7 +14,7 @@ import type { Lock, StateAdapter } from "chat"
 export const messageChannelTitleDeliveredContextKey = "channel.delivery.titleDelivered"
 export const messageChannelStateContextKey = "chat.channelState"
 const messageChannelTitleClaimTtlMs = 5 * 60 * 1000
-const messageChannelInstructions = new WeakMap<object, string>()
+const messageChannelInstructions = Symbol("vitehub.messageChannelInstructions")
 const messageChannelInvocationInstructions = new WeakMap<AgentInvocationContextStore, string>()
 const auxiliaryMessageChannelInstructionContexts = new WeakSet<object>()
 const messageChannelInstructionConsumer = Symbol("vitehub.messageChannelInstructionConsumer")
@@ -49,15 +49,18 @@ export function defineMessageChannelInstructions<
   if (!value) {
     throw new TypeError("[vitehub] Internal Channel instructions must be a non-empty string.")
   }
-  messageChannelInstructions.set(channel, value)
+  Object.defineProperty(channel, messageChannelInstructions, {
+    enumerable: true,
+    value,
+  })
   return channel
 }
 
 export function inheritMessageChannelInstructions<
   TChannel extends object,
 >(channel: TChannel, source: object): TChannel {
-  const instructions = messageChannelInstructions.get(source)
-  if (instructions) messageChannelInstructions.set(channel, instructions)
+  const instructions = (source as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+  if (instructions) defineMessageChannelInstructions(channel, instructions)
   return channel
 }
 
@@ -66,7 +69,7 @@ export function inspectMessageChannelInstructions(
 ): string[] {
   return Object.entries(channels || {}).flatMap(([channelId, channel]) => {
     const instructions = channel && typeof channel === "object"
-      ? messageChannelInstructions.get(channel)
+      ? (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
       : undefined
     return instructions ? [`Channel "${channelId}" instructions:\n\n${instructions}`] : []
   })
@@ -76,7 +79,7 @@ export function bindMessageChannelInstructions(
   context: AgentInvocationContextStore,
   channel: object | undefined,
 ): void {
-  const instructions = channel && messageChannelInstructions.get(channel)
+  const instructions = channel && (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
   if (instructions) messageChannelInvocationInstructions.set(context, instructions)
 }
 

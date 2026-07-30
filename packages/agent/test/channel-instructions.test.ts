@@ -225,6 +225,15 @@ describe("Channel instructions", () => {
     expect(resolveMessageChannelInstructions(context)).toBe(telegramInstructions)
   })
 
+  it("preserves instructions when an app decorates a Channel", () => {
+    const decorated = { ...telegram(), capabilities: [] }
+    const context = createAgentInvocationContextStore()
+
+    bindMessageChannelInstructions(context, decorated)
+
+    expect(resolveMessageChannelInstructions(context)).toBe(telegramInstructions)
+  })
+
   it("reproduces the AI SDK rejection for synthetic system history", async () => {
     await expect(modelCallFor("telegram", [
       {
