@@ -24,12 +24,14 @@ interface StaticModelPrice {
 }
 
 interface VercelAiGatewayPricingOptions {
+  maxAge?: number
   fetch?: typeof fetch
   modelsUrl?: string
   timeout?: number
 }
 
 const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
+const vercelAiGatewayPricingMaxAge = 5 * 60_000
 const vercelAiGatewayPricingTimeout = 10_000
 
 function hasTokenUsage(usage: AgentUsage): boolean {
@@ -123,30 +125,36 @@ function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undef
 
 export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = {}): AgentUsagePricing {
   const fetcher = options.fetch || globalThis.fetch
+  const maxAge = options.maxAge ?? vercelAiGatewayPricingMaxAge
   const modelsUrl = options.modelsUrl || vercelAiGatewayModelsUrl
   const timeout = options.timeout ?? vercelAiGatewayPricingTimeout
   let prices: Promise<Record<string, StaticModelPrice>> | undefined
+  let pricesExpiresAt = 0
 
   async function loadPrices() {
-    prices ??= (async () => {
-      const response = await fetcher(modelsUrl, { signal: AbortSignal.timeout(timeout) })
-      if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)
-      const body = await response.json() as { data?: Array<{ id?: unknown, pricing?: Record<string, unknown> }> }
-      const result: Record<string, StaticModelPrice> = {}
-      for (const model of body.data || []) {
-        if (typeof model.id !== "string" || !model.pricing) continue
-        result[model.id] = {
-          input: normalizeVercelPrice(model.pricing.input),
-          inputCacheRead: normalizeVercelPrice(model.pricing.input_cache_read),
-          inputCacheWrite: normalizeVercelPrice(model.pricing.input_cache_write),
-          output: normalizeVercelPrice(model.pricing.output),
+    if (!prices || (pricesExpiresAt > 0 && Date.now() >= pricesExpiresAt)) {
+      prices = (async () => {
+        const response = await fetcher(modelsUrl, { signal: AbortSignal.timeout(timeout) })
+        if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)
+        const body = await response.json() as { data?: Array<{ id?: unknown, pricing?: Record<string, unknown> }> }
+        const result: Record<string, StaticModelPrice> = {}
+        for (const model of body.data || []) {
+          if (typeof model.id !== "string" || !model.pricing) continue
+          result[model.id] = {
+            input: normalizeVercelPrice(model.pricing.input),
+            inputCacheRead: normalizeVercelPrice(model.pricing.input_cache_read),
+            inputCacheWrite: normalizeVercelPrice(model.pricing.input_cache_write),
+            output: normalizeVercelPrice(model.pricing.output),
+          }
         }
-      }
-      return result
-    })().catch((error) => {
-      prices = undefined
-      throw error
-    })
+        pricesExpiresAt = Date.now() + maxAge
+        return result
+      })().catch((error) => {
+        prices = undefined
+        pricesExpiresAt = 0
+        throw error
+      })
+    }
     return await prices
   }
 

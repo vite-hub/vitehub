@@ -9,6 +9,7 @@ const runtime = () => ({
 
 describe("usageCost", () => {
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -472,6 +473,42 @@ describe("usageCost", () => {
     expect(outcome).toBe("returned")
     const result = await pending as { toUIMessageStream: () => ReadableStream<unknown> }
     for await (const _chunk of result.toUIMessageStream()) {}
+  })
+
+  it("returns streamAgent UI message results before their usage promise settles", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing: () => undefined })],
+      driver: {
+        run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "finish" })
+                controller.close()
+              },
+            })
+          },
+          usage,
+        }),
+      },
+    })
+
+    const pending = streamAgent(agent, runtime(), { prompt: "hello" }, { output: "ui-message-stream" })
+    const outcome = await Promise.race([
+      pending.then(() => "returned"),
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])
+    resolveUsage({ totalTokens: 1 })
+
+    expect(outcome).toBe("returned")
+    const stream = await pending as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
   })
 
   it("prices usage records before yielding runAgent streams", async () => {
@@ -969,6 +1006,56 @@ describe("usageCost", () => {
       estimated: true,
       source: "vercel-ai-gateway",
     })
+  })
+
+  it("refreshes cached catalog pricing after its freshness window", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"))
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        data: [{
+          id: "custom/model",
+          pricing: {
+            input: "0.000001",
+            output: "0.000002",
+          },
+        }],
+      }))
+      .mockResolvedValueOnce(Response.json({
+        data: [{
+          id: "custom/model",
+          pricing: {
+            input: "0.000002",
+            output: "0.000004",
+          },
+        }],
+      }))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+    })
+
+    const first = await runAgent(agent, runtime(), { prompt: "first" })
+    vi.advanceTimersByTime(5 * 60_000)
+    const second = await runAgent(agent, runtime(), { prompt: "second" })
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(first).toMatchObject({ usageRecord: { cost: { amount: "0.000014" } } })
+    expect(second).toMatchObject({ usageRecord: { cost: { amount: "0.000028" } } })
   })
 
   it.each([
