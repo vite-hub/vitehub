@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
 import { discord, telegram } from "../src/channels.ts"
-import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgentTrigger } from "../src/index.ts"
 import { bindMessageChannelInstructions, inheritMessageChannelInstructions, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
@@ -138,6 +138,20 @@ async function modelCallFor(channel: "discord" | "telegram", messages = history)
 }
 
 describe("Channel instructions", () => {
+  it("exposes private Channel guidance through Agent inspection", async () => {
+    const agent = defineAgent({
+      channels: {
+        discord: discord(),
+        support: telegram(),
+      },
+      driver: { model: {} as never },
+    })
+    const inspected = [`Channel "support" instructions:\n\n${telegramInstructions}`]
+
+    expect(createAgentInspectionMetadata(agent).instructions).toEqual(inspected)
+    expect((await resolveAgentInspectionMetadata(agent)).instructions).toEqual(inspected)
+  })
+
   it("preserves instructions when an internal runtime wraps a Channel", () => {
     const source = telegram()
     const wrapped = inheritMessageChannelInstructions({ ...source, effects: {} }, source)

@@ -26,6 +26,7 @@ import {
   resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "./internal/agent-driver.ts"
+import { inspectMessageChannelInstructions } from "./internal/channels.ts"
 
 import type {
   AgentAdapterMetadataContext,
@@ -1446,7 +1447,15 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
   resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>,
 ): Promise<AgentInspectionMetadata> {
   const settings = agentSettings(definition)
-  if (!settings) return { files: [], ...agentInspectionMetadata(definition as never), tools: [] }
+  const channelInstructions = inspectMessageChannelInstructions(definition.channels)
+  if (!settings) {
+    return {
+      files: [],
+      ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
+      ...agentInspectionMetadata(definition as never),
+      tools: [],
+    }
+  }
 
   const selection = await resolveMetadataCapabilitySelection(settings as never, resolution)
   validateAgentCapabilityComposition(selection.capabilities, { hasWorkspace: false })
@@ -1485,6 +1494,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     }
     return {
       files: [],
+      ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
       ...agentInspectionMetadata(definition as never),
       ...(config ? { config } : {}),
       tools: capabilityMetadataTools(selection.capabilities, { driverKind: selection.driverKind }),
@@ -1499,14 +1509,20 @@ export function createAgentInspectionMetadata<
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentInspectionMetadata {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
+  const channelInstructions = inspectMessageChannelInstructions(definition.channels)
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], ...agentInspectionMetadata(definition), tools: [] }
+    return {
+      files: [],
+      ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
+      ...agentInspectionMetadata(definition),
+      tools: [],
+    }
   }
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   return {
     files: workspaceMetadataFiles(options),
-    instructions: workspaceMetadataInstructions(options),
+    instructions: [...workspaceMetadataInstructions(options), ...channelInstructions],
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     tools: workspaceMetadataTools(options),
   }
@@ -1556,7 +1572,10 @@ export async function resolveAgentInspectionMetadata<
 
     return {
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
-      instructions: instructionMetadata.instructions,
+      instructions: [
+        ...instructionMetadata.instructions,
+        ...inspectMessageChannelInstructions(workspaceDefinition.channels),
+      ],
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
       tools: await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),

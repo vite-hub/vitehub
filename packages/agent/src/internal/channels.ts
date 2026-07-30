@@ -59,6 +59,17 @@ export function inheritMessageChannelInstructions<
   return channel
 }
 
+export function inspectMessageChannelInstructions(
+  channels: Record<string, unknown> | undefined,
+): string[] {
+  return Object.entries(channels || {}).flatMap(([channelId, channel]) => {
+    const instructions = channel && typeof channel === "object"
+      ? messageChannelInstructions.get(channel)
+      : undefined
+    return instructions ? [`Channel "${channelId}" instructions:\n\n${instructions}`] : []
+  })
+}
+
 export function bindMessageChannelInstructions(
   context: AgentInvocationContextStore,
   channel: object | undefined,
