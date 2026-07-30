@@ -2611,8 +2611,8 @@ async function finalizeAgentInvocationResult<
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
-      const wrappedStream = options.wrapStream?.(result) || result
-      const stream = withEagerStreamUsageExtensions(wrappedStream, context, result)
+      const enrichedStream = withEagerStreamUsageExtensions(result, context, result)
+      const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
