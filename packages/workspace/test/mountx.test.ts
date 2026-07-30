@@ -37,6 +37,7 @@ describe("MountX Workspace driver", () => {
     await fs.rename("/script.sh", "/run.sh")
     await fs.unlink("/remove.md")
 
+    expect((await fs.stat("/run.sh")).mode & 0o111).toBe(0o111)
     await expect(session.readFile("README.md")).resolves.toBe("after")
     await expect(session.readFile("notes/final.md")).resolves.toBe("draft")
     await expect(session.readFile("remove.md")).rejects.toThrow("does not exist")
@@ -79,6 +80,19 @@ describe("MountX Workspace driver", () => {
 
     expect(new TextDecoder().decode(await fs.readFile("/README.md"))).toBe("readable")
     await expect(fs.writeFile("/README.md", "blocked")).rejects.toMatchObject({ code: "EROFS" })
+    await session.close()
+  })
+
+  it("rejects Workspace symlinks instead of projecting them as regular files", async () => {
+    const docs = workspace()
+    await docs.writeFile("linked.md", "README.md", {
+      metadata: { gitMode: "120000" },
+    })
+
+    const session = await docs.startSession()
+    const fs = createLoopback(createWorkspaceDriver(session))
+
+    await expect(fs.stat("/linked.md")).rejects.toMatchObject({ code: "ENOTSUP" })
     await session.close()
   })
 })

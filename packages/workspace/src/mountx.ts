@@ -30,12 +30,20 @@ async function findEntry(session: WorkspaceSession, path: string): Promise<Works
   return (await session.list(parent === "." ? "" : parent)).find(entry => entry.path === path)
 }
 
+function assertProjectableEntry(entry: WorkspaceEntry | undefined) {
+  if (entry?.metadata?.gitMode !== "120000") return entry
+  throw Object.assign(
+    new Error(`MountX cannot project Workspace symlink semantics: ${entry.path}`),
+    { code: "ENOTSUP", path: entry.path },
+  )
+}
+
 function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
   const writeOptionsByValue = new WeakMap<Uint8Array, WriteFileOptions>()
 
   async function readItem(key: string) {
     const path = keyToPath(key)
-    const entry = await findEntry(session, path)
+    const entry = assertProjectableEntry(await findEntry(session, path))
     if (entry?.type !== "file") return null
     const value = valueToBytes(await session.readFile(path, { encoding: "binary" }))
     writeOptionsByValue.set(value, { mediaType: entry.mediaType, metadata: entry.metadata })
@@ -49,11 +57,11 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
       const path = keyToPath(base)
       const entries = await session.list(path, { recursive: true })
       return entries
-        .filter(entry => entry.type === "file")
+        .filter(entry => assertProjectableEntry(entry)?.type === "file")
         .map(entry => pathToKey(entry.path))
     },
     async getMeta(key: string) {
-      const entry = await findEntry(session, keyToPath(key))
+      const entry = assertProjectableEntry(await findEntry(session, keyToPath(key)))
       if (!entry) return null
       return {
         mtime: entry.mtime === undefined ? undefined : new Date(entry.mtime),
@@ -61,7 +69,7 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
       }
     },
     async hasItem(key: string) {
-      return (await findEntry(session, keyToPath(key)))?.type === "file"
+      return assertProjectableEntry(await findEntry(session, keyToPath(key)))?.type === "file"
     },
     ...(readOnly
       ? {}
@@ -71,7 +79,7 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
           },
           async setItemRaw(key: string, value: unknown) {
             const path = keyToPath(key)
-            const entry = await findEntry(session, path)
+            const entry = assertProjectableEntry(await findEntry(session, path))
             const writeOptions = value instanceof Uint8Array
               ? writeOptionsByValue.get(value)
               : undefined
@@ -91,7 +99,20 @@ export function createWorkspaceDriver(
   options: WorkspaceMountXDriverOptions = {},
 ): FsDriver {
   const readOnly = options.readOnly ?? false
-  return createUnstorageDriver(createWorkspaceStorage(session, readOnly), {
+  const driver = createUnstorageDriver(createWorkspaceStorage(session, readOnly), {
     readOnly,
   })
+
+  async function stat(path: string) {
+    const stats = await driver.stat(path)
+    const entry = assertProjectableEntry(await findEntry(session, path.replace(/^\/+/, "")))
+    if (entry?.metadata?.gitMode === "100755") stats.mode |= 0o111
+    return stats
+  }
+
+  return {
+    ...driver,
+    stat,
+    lstat: stat,
+  }
 }
