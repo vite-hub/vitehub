@@ -3041,7 +3041,18 @@ async function executeAgentInvocation<
     const shouldWrapOutput = shouldWrapInvocationOutput(invocation)
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
-          await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          const finishResult = streamed.finishResult()
+          if (!outcome.failed && !outcome.completed) {
+            await lifecycle.finish({
+              result: finishResult,
+              status: "success",
+              ...(streamed.finishUsage() ? { usage: streamed.finishUsage() } : {}),
+              usageResolved: true,
+            })
+          }
+          else {
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          }
         }, { abortSignal: invocation.input.abortSignal }) as AsyncIterable<StreamEvent>
       : tracedStream
     return {
@@ -3060,8 +3071,18 @@ async function executeAgentInvocation<
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
           }, invocation)
           const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
-            const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
-            await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            if (!outcome.failed && !outcome.completed) {
+              await lifecycle.finish({
+                result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
+                status: "success",
+                ...(streamedUsageRecord ? { usage: streamedUsageRecord } : {}),
+                usageResolved: true,
+              })
+            }
+            else {
+              const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
+              await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            }
           }, projection)
           const headers = new Headers(response.headers)
           headers.delete("content-encoding")

@@ -724,6 +724,39 @@ describe("usageCost", () => {
     expect(finish.mock.calls[0]![0].invocation.usage).toBeUndefined()
   })
 
+  it("does not await unresolved event usage when a streamAgent result is closed early", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing: () => undefined })],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { type: "text-delta", text: "ok" }
+            await new Promise(() => {})
+          })(),
+          usage: new Promise(() => {}),
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    const stream = await streamAgent(agent, runtime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    const consume = (async () => {
+      for await (const _chunk of stream) break
+    })()
+
+    await expect(Promise.race([
+      consume.then(() => "closed"),
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])).resolves.toBe("closed")
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].invocation.usage).toBeUndefined()
+  })
+
   it("returns runAgent UI message results before their usage promise settles", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
