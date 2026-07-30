@@ -6,11 +6,7 @@ import type { WorkspaceEntry, WorkspaceSession } from "./core/types.ts"
 import type { FsDriver } from "mountx"
 
 export interface WorkspaceMountXDriverOptions {
-  dirMode?: number
-  fileMode?: number
-  gid?: number
   readOnly?: boolean
-  uid?: number
 }
 
 function keyToPath(key: string) {
@@ -35,19 +31,16 @@ async function findEntry(session: WorkspaceSession, path: string): Promise<Works
 }
 
 function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
+  async function readItem(key: string) {
+    const path = keyToPath(key)
+    const entry = await findEntry(session, path)
+    if (entry?.type !== "file") return null
+    return await session.readFile(path, { encoding: "binary" })
+  }
+
   const storage = {
-    async getItem(key: string) {
-      const path = keyToPath(key)
-      const entry = await findEntry(session, path)
-      if (entry?.type !== "file") return null
-      return await session.readFile(path, { encoding: "binary" })
-    },
-    async getItemRaw(key: string) {
-      const path = keyToPath(key)
-      const entry = await findEntry(session, path)
-      if (entry?.type !== "file") return null
-      return await session.readFile(path, { encoding: "binary" })
-    },
+    getItem: readItem,
+    getItemRaw: readItem,
     async getKeys(base: string) {
       const path = keyToPath(base)
       const entries = await session.list(path, { recursive: true })
@@ -87,10 +80,6 @@ export function createWorkspaceDriver(
 ): FsDriver {
   const readOnly = options.readOnly ?? false
   return createUnstorageDriver(createWorkspaceStorage(session, readOnly), {
-    dirMode: options.dirMode,
-    fileMode: options.fileMode,
-    gid: options.gid,
     readOnly,
-    uid: options.uid,
   })
 }
