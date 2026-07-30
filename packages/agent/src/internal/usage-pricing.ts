@@ -24,19 +24,15 @@ interface StaticModelPrice {
 }
 
 interface VercelAiGatewayPricingOptions {
+  maxAge?: number
   fetch?: typeof fetch
   modelsUrl?: string
+  timeout?: number
 }
 
 const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
-
-function hasTokenUsage(usage: AgentUsage): boolean {
-  return usage.inputTokens !== undefined
-    || usage.outputTokens !== undefined
-    || usage.totalTokens !== undefined
-    || usage.inputTokenDetails !== undefined
-    || usage.outputTokenDetails !== undefined
-}
+const vercelAiGatewayPricingMaxAge = 5 * 60_000
+const vercelAiGatewayPricingTimeout = 10_000
 
 function decimalToParts(value: string): { scale: bigint, units: bigint } {
   const trimmed = value.trim()
@@ -68,17 +64,22 @@ function multiplyDecimal(value: string | undefined, count: number | undefined): 
   }
 }
 
-function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string {
+function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string | undefined {
+  if (usage.inputTokens === undefined || usage.outputTokens === undefined) return
   const inputDetails = usage.inputTokenDetails || {}
   const cacheReadTokens = inputDetails.cacheReadTokens || inputDetails.cachedTokens || 0
   const cacheWriteTokens = inputDetails.cacheWriteTokens || 0
   const regularInputTokens = Math.max(0, (usage.inputTokens || 0) - cacheReadTokens - cacheWriteTokens)
-  return addDecimalParts([
-    multiplyDecimal(price.input, regularInputTokens),
-    multiplyDecimal(price.inputCacheRead || price.input, cacheReadTokens),
-    multiplyDecimal(price.inputCacheWrite || price.input, cacheWriteTokens),
-    multiplyDecimal(price.output, usage.outputTokens),
-  ].filter((item): item is { scale: bigint, units: bigint } => Boolean(item)))
+  const categories = [
+    [price.input, regularInputTokens],
+    [price.inputCacheRead || price.input, cacheReadTokens],
+    [price.inputCacheWrite || price.input, cacheWriteTokens],
+    [price.output, usage.outputTokens],
+  ] as const
+  if (categories.some(([value, count]) => count > 0 && value === undefined)) return
+  return addDecimalParts(categories
+    .map(([value, count]) => multiplyDecimal(value, count))
+    .filter((item): item is { scale: bigint, units: bigint } => Boolean(item)))
 }
 
 function normalizeVercelPrice(value: unknown): string | undefined {
@@ -104,6 +105,10 @@ function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undef
 
   const unscoped = modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId
   const provider = typeof model?.provider === "string" ? model.provider.toLowerCase() : ""
+  if (!modelId.includes("/") && provider) {
+    const providerScope = provider.split(".", 1)[0]!
+    addModelIdCandidate(candidates, `${providerScope}/${unscoped}`)
+  }
   const isAnthropic = modelId.startsWith("anthropic/") || unscoped.startsWith("claude-") || provider.includes("anthropic")
   if (isAnthropic) {
     addModelIdCandidate(candidates, `anthropic/${unscoped}`)
@@ -115,38 +120,53 @@ function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undef
 
 export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = {}): AgentUsagePricing {
   const fetcher = options.fetch || globalThis.fetch
+  const maxAge = options.maxAge ?? vercelAiGatewayPricingMaxAge
   const modelsUrl = options.modelsUrl || vercelAiGatewayModelsUrl
+  const timeout = options.timeout ?? vercelAiGatewayPricingTimeout
   let prices: Promise<Record<string, StaticModelPrice>> | undefined
+  let pricesExpiresAt = 0
 
   async function loadPrices() {
-    prices ??= (async () => {
-      const response = await fetcher(modelsUrl)
-      if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)
-      const body = await response.json() as { data?: Array<{ id?: unknown, pricing?: Record<string, unknown> }> }
-      const result: Record<string, StaticModelPrice> = {}
-      for (const model of body.data || []) {
-        if (typeof model.id !== "string" || !model.pricing) continue
-        result[model.id] = {
-          input: normalizeVercelPrice(model.pricing.input),
-          inputCacheRead: normalizeVercelPrice(model.pricing.input_cache_read),
-          inputCacheWrite: normalizeVercelPrice(model.pricing.input_cache_write),
-          output: normalizeVercelPrice(model.pricing.output),
+    if (!prices || (pricesExpiresAt > 0 && Date.now() >= pricesExpiresAt)) {
+      pricesExpiresAt = 0
+      prices = (async () => {
+        const response = await fetcher(modelsUrl, { signal: AbortSignal.timeout(timeout) })
+        if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)
+        const body = await response.json() as { data?: Array<{ id?: unknown, pricing?: Record<string, unknown> }> }
+        const result: Record<string, StaticModelPrice> = {}
+        for (const model of body.data || []) {
+          if (typeof model.id !== "string" || !model.pricing) continue
+          result[model.id] = {
+            input: normalizeVercelPrice(model.pricing.input),
+            inputCacheRead: normalizeVercelPrice(model.pricing.input_cache_read),
+            inputCacheWrite: normalizeVercelPrice(model.pricing.input_cache_write),
+            output: normalizeVercelPrice(model.pricing.output),
+          }
         }
-      }
-      return result
-    })()
+        pricesExpiresAt = Date.now() + maxAge
+        return result
+      })().catch((error) => {
+        prices = undefined
+        pricesExpiresAt = 0
+        throw error
+      })
+    }
     return await prices
   }
 
   return async ({ model, usage }) => {
-    if (!hasTokenUsage(usage)) return
+    if (usage.inputTokens === undefined || usage.outputTokens === undefined) return
+    const modelIds = vercelGatewayModelIdCandidates(model)
+    if (!modelIds.length) return
     const catalog = await loadPrices()
-    const price = vercelGatewayModelIdCandidates(model)
+    const price = modelIds
       .map(modelId => catalog[modelId])
       .find((item): item is StaticModelPrice => Boolean(item))
     if (!price) return
+    const amount = pricedTokens(usage, price)
+    if (amount === undefined) return
     return {
-      amount: pricedTokens(usage, price),
+      amount,
       currency: price.currency || "USD",
       estimated: true,
       source: "vercel-ai-gateway",

@@ -1934,6 +1934,92 @@ function maybeTraceAgentStream<
   return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
 }
 
+function withEagerStreamUsageExtensions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  stream: AsyncIterable<unknown>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  result: unknown,
+): AsyncIterable<unknown> {
+  const providers = context.finishExtensionProviders.filter(provider => provider.eager)
+  if (!providers.length) return stream
+  return (async function* () {
+    const toolNames = new Map<string, string>()
+    const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+    for await (const chunk of stream) {
+      const event = toAgentStreamEvent(chunk, toolNames, textPhases)
+      const usageRecord = usageRecordFromStreamChunk(chunk, result)
+      if (!usageRecord) {
+        yield chunk
+        continue
+      }
+      const usage = { ...usageRecord }
+      const eventBase = {
+        actor: context.actor,
+        input: context.input,
+        invoker: context.invoker,
+        invocation: {
+          durationMs: Date.now() - context.startedAt,
+          ...(context.run ? { run: context.run } : {}),
+          usage,
+        },
+        result,
+        runtime: context.runtimeContext,
+      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      await createAgentInvocationExtensions(eventBase as never, providers)
+      if (chunk && typeof chunk === "object") {
+        const prototype = Object.getPrototypeOf(chunk)
+        if (prototype !== Object.prototype && prototype !== null) {
+          if (Object.isExtensible(chunk)) {
+            try {
+              Object.defineProperty(chunk, "usageRecord", {
+                configurable: true,
+                enumerable: true,
+                value: usage,
+                writable: true,
+              })
+              yield chunk
+              continue
+            }
+            catch {
+              // Preserve the custom chunk and emit the canonical record separately.
+            }
+          }
+          yield chunk
+          yield { type: "usage", usageRecord: usage }
+          continue
+        }
+        yield { ...chunk, usageRecord: usage }
+        continue
+      }
+      yield { type: "usage", usageRecord: usage }
+    }
+  })()
+}
+
+function withEagerUiMessageStreamUsageExtensions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  rendered: unknown,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): unknown {
+  if (!isUIMessageStreamResult(rendered)) return rendered
+  const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+  return cloneWithPropertyDescriptors(rendered, {
+    toUIMessageStream: {
+      configurable: true,
+      enumerable: false,
+      value: (...args: unknown[]) => toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
+        toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)),
+        context,
+        rendered,
+      )),
+    },
+  })
+}
+
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
   if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
   Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
@@ -1949,7 +2035,10 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
   if (result && typeof result === "object" && !(result instanceof Response)) {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
-    return typeof current === "string" && current ? result : cloneWithPropertyDescriptors(result, {
+    if (typeof current === "string" && current) return result
+    const prototype = Object.getPrototypeOf(result)
+    if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) return result
+    return resultWithPreservedProperties(result, {
       text: {
         configurable: true,
         enumerable: true,
@@ -1976,6 +2065,78 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
   return result
 }
 
+function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
+  if (!usageRecord || result instanceof Response) return result
+  if (!result || typeof result !== "object") return resultWithUsageRecord(result, usageRecord)
+  const prototype = Object.getPrototypeOf(result)
+  if (prototype !== Object.prototype && prototype !== null) {
+    if (Object.isExtensible(result)) {
+      try {
+        Object.defineProperties(result, {
+          ...(usageRecord.usage && !("usage" in result)
+            ? {
+                usage: {
+                  configurable: true,
+                  enumerable: true,
+                  value: usageRecord.usage,
+                  writable: true,
+                },
+              }
+            : {}),
+          usageRecord: {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord,
+            writable: true,
+          },
+        })
+        return result
+      }
+      catch {
+        // Fall through to a wrapper when an existing property cannot be replaced.
+      }
+    }
+    return {
+      ...toAgentRunResult(result),
+      raw: result,
+      usage: usageRecord.usage,
+      usageRecord,
+    }
+  }
+  return cloneWithPropertyDescriptors(result, {
+    ...(usageRecord.usage && !("usage" in result)
+      ? {
+          usage: {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord.usage,
+            writable: true,
+          },
+        }
+      : {}),
+    usageRecord: {
+      configurable: true,
+      enumerable: true,
+      value: usageRecord,
+      writable: true,
+    },
+  })
+}
+
+function resultWithPreservedProperties(result: object, descriptors: PropertyDescriptorMap): object {
+  const prototype = Object.getPrototypeOf(result)
+  if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
+    try {
+      Object.defineProperties(result, descriptors)
+      return result
+    }
+    catch {
+      // Fall through to descriptor cloning for plain result objects and immutable properties.
+    }
+  }
+  return cloneWithPropertyDescriptors(result, descriptors)
+}
+
 function resultWithStreamedTextAndUsage(
   result: unknown,
   text: string,
@@ -1997,8 +2158,8 @@ function withStreamedResult(
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   return {
-    finishResult() {
-      return resultWithStreamedTextAndUsage(result, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
+    finishResult(resultOverride: unknown = result) {
+      return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
     finishUsage() {
       return usageRecord ?? fallbackUsageRecord
@@ -2017,7 +2178,12 @@ function withStreamedResult(
           if (event.phase === "final") finalText += event.text
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
-        if (event?.type === "usage") usageRecord = event.usageRecord
+        const attachedUsageRecord = chunk && typeof chunk === "object" && "usageRecord" in chunk
+          ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
+          : undefined
+        usageRecord = event?.type === "usage"
+          ? event.usageRecord
+          : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
         yield chunk
       }
     })(),
@@ -2044,7 +2210,21 @@ async function finishStreamAgentInvocation<
   try {
     const usageRecord = await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
-    finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
+    const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
+    if (usageRecord && resolvedResult !== result && result && typeof result === "object" && Object.isExtensible(result)) {
+      try {
+        Object.defineProperty(result, "usageRecord", {
+          configurable: true,
+          enumerable: true,
+          value: usageRecord,
+          writable: true,
+        })
+      }
+      catch {
+        // The resolved wrapper still carries usage when the original result cannot.
+      }
+    }
+    finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
     finishResult = context.output
       ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal), { allowMaterializedObject: finishResult !== result })
       : resultWithUsageRecord(finishResult, usageRecord)
@@ -2129,11 +2309,18 @@ function maybeTraceUiMessageStreamOutput<
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered
 }
 
-function hasFinishWork<
+function hasFinishConsumer<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
   return Boolean(context.finishHook || context.finishDeliveryEffectProviders.length)
+}
+
+function hasFinishWork<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+  return hasFinishConsumer(context) || context.finishExtensionProviders.some(provider => provider.eager)
 }
 
 async function resolveFinishUsageRecord<
@@ -2143,8 +2330,8 @@ async function resolveFinishUsageRecord<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
 ): Promise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined> {
-  if (hasFinishWork(context)) return await resolveAgentUsageRecord(result, context.run)
-  if (!context.runtimeContext.traceLog) return undefined
+  if (hasFinishConsumer(context)) return await resolveAgentUsageRecord(result, context.run)
+  if (!context.runtimeContext.traceLog && !context.finishExtensionProviders.some(provider => provider.eager)) return undefined
   try {
     return await resolveAgentUsageRecord(result, context.run)
   }
@@ -2155,7 +2342,7 @@ async function resolveFinishUsageRecord<
 }
 
 type AgentInvocationFinishOutcome =
-  | { result?: unknown, status: "success", usage?: AgentUsageRecord }
+  | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { error: unknown, status: "error" }
 
 function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
@@ -2380,7 +2567,7 @@ async function finishAgentInvocation<
     if (!failed) {
       try {
         resultKind = agentResultKind(result)
-        usage ??= await resolveAgentUsageRecord(result, context.run)
+        if (!outcome.usageResolved) usage ??= await resolveAgentUsageRecord(result, context.run)
       }
       catch {
         // Invocation data must not change Agent output or mask the original failure.
@@ -2405,8 +2592,12 @@ async function finishAgentInvocation<
         ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
-      if (context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
-        const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
+      const hasFinishConsumer = Boolean(context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders))
+      const finishExtensionProviders = hasFinishConsumer
+        ? context.finishExtensionProviders
+        : context.finishExtensionProviders.filter(provider => provider.eager)
+      if (hasFinishConsumer || finishExtensionProviders.length) {
+        const extensions = await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
         await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
@@ -2487,20 +2678,34 @@ async function finalizeAgentInvocationResult<
         const finishResult = responseText && !outcome.failed
           ? { raw: result, text: responseText }
           : result
-        await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+        if (!outcome.failed && !outcome.completed) {
+          await lifecycle.finish({ result: finishResult, status: "success", usageResolved: true })
+        }
+        else {
+          await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+        }
       }, {
         onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
       }) : result
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
-      const stream = options.wrapStream?.(result) || result
+      const enrichedStream = withEagerStreamUsageExtensions(result, context, result)
+      const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           return withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
             const usage = streamed.finishUsage()
+            if (!outcome.failed && !outcome.completed) {
+              return lifecycle.finish({
+                result,
+                status: "success",
+                ...(usage ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, context.run) } : {}),
+                usageResolved: true,
+              })
+            }
             return lifecycle.finish(finishOutcome.status === "success"
               ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
               : finishOutcome)
@@ -2637,18 +2842,23 @@ async function executeAgentInvocation<
 
   if (options.kind === "run") {
     return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-      const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
+      const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+        ? undefined
+        : await resolveFinishUsageRecord(invocation, result)
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
-      if (options.renderOutput
+      const shouldPreserveEagerStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
+        && invocation.finishExtensionProviders.some(provider => provider.eager)
+        && shouldWrapInvocationOutput(invocation)
+      if (shouldPreserveEagerStreamResult || (options.renderOutput
         && !invocation.output
         && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
         && rendered !== result
         && (isAsyncIterable((rendered as { stream?: unknown }).stream)
           || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
           || isUIMessageStreamResult(rendered))
-        && shouldWrapInvocationOutput(invocation)) {
+        && shouldWrapInvocationOutput(invocation))) {
         if (isUIMessageStreamResult(rendered)
           && !isAsyncIterable((rendered as { stream?: unknown }).stream)
           && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {
@@ -2656,13 +2866,40 @@ async function executeAgentInvocation<
           let finishTask: Promise<void> | undefined
           let streamedText = ""
           let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-          const preserved = cloneWithPropertyDescriptors(rendered, {
+          const preserved = resultWithPreservedProperties(rendered, {
             toUIMessageStream: {
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => withReadableStreamCleanup(
-                normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)),
-                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText, streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+                toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
+                  toReadableAsyncIterableStream(normalizeUiMessageStream(toUIMessageStream.apply(rendered, args))),
+                  invocation,
+                  rendered,
+                )),
+                async (outcome) => {
+                  if (finishTask) return await finishTask
+                  const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
+                  finishTask = (async () => {
+                    if (!outcome.failed && !outcome.completed) {
+                      await lifecycle.finish({
+                        result: finishResult,
+                        status: "success",
+                        ...(streamedUsageRecord
+                          ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+                          : {}),
+                        usageResolved: true,
+                      })
+                    }
+                    else {
+                      await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                    }
+                    const usageRecord = finishResult && typeof finishResult === "object"
+                      ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                      : undefined
+                    if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+                  })()
+                  return await finishTask
+                },
                 {
                   onChunk(chunk) {
                     streamedText += uiMessageTextDelta(chunk) || ""
@@ -2681,10 +2918,30 @@ async function executeAgentInvocation<
         const streamProperties = (["stream", "fullStream"] as const)
           .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
         let finishTask: Promise<void> | undefined
+        let preserved: object
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
-          const streamed = withStreamedResult(renderedStream, rendered, driverUsageRecord)
-          const value = withCapabilityCleanup(streamed.stream, (outcome) => {
-            return finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+          const enrichedStream = withEagerStreamUsageExtensions(renderedStream, invocation, rendered)
+          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
+          const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+            if (finishTask) return await finishTask
+            const finishResult = streamed.finishResult(preserved)
+            finishTask = !outcome.failed && !outcome.completed
+              ? lifecycle.finish({
+                  result: finishResult,
+                  status: "success",
+                  ...(streamed.finishUsage()
+                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+                    : {}),
+                  usageResolved: true,
+                })
+              : (async () => {
+                  await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                  const usageRecord = finishResult && typeof finishResult === "object"
+                    ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                    : undefined
+                  if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+                })()
+            return await finishTask
           }, { abortSignal: invocation.input.abortSignal })
           const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
             ? toReadableAsyncIterableStream(value)
@@ -2704,6 +2961,9 @@ async function executeAgentInvocation<
         for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
           textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
         if (textStreamDescriptor) {
+          const resolveTextStream = "get" in textStreamDescriptor
+            ? () => textStreamDescriptor.get?.call(rendered)
+            : () => textStreamDescriptor.value
           let preservedTextStream: unknown
           let initialized = false
           descriptors.textStream = {
@@ -2711,7 +2971,7 @@ async function executeAgentInvocation<
             enumerable: textStreamDescriptor.enumerable ?? false,
             get() {
               if (!initialized) {
-                const textStream = Reflect.get(rendered as object, "textStream")
+                const textStream = resolveTextStream()
                 preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
                 initialized = true
               }
@@ -2719,7 +2979,7 @@ async function executeAgentInvocation<
             },
           }
         }
-        const preserved = cloneWithPropertyDescriptors(rendered as object, descriptors)
+        preserved = resultWithPreservedProperties(rendered as object, descriptors)
         return {
           deferFinish: true,
           finishResult: preserved,
@@ -2734,18 +2994,29 @@ async function executeAgentInvocation<
             invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
           )
         : final
-      const structuredUsageRecord = options.renderOutput && invocation.output
+      const resolvedUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
+      const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
+      const structuredUsageRecord = hasEagerFinishExtension && resolvedUsageRecord
+        ? { ...resolvedUsageRecord }
+        : resolvedUsageRecord
+      const finishResult = invocation.output
+        ? undefined
+        : hasEagerFinishExtension
+          ? resultWithResolvedUsageRecord(final, structuredUsageRecord)
+          : hasFinishWork(invocation) ? resultWithUsageRecord(final, structuredUsageRecord) : final
       const value = options.renderOutput && invocation.output
         ? await validateAgentOutput(invocation.output, structuredFinal, {
             allowMaterializedObject: customRun
               ? structuredFinal === final
               : structuredFinal === final && final !== result,
           })
-        : customRun ? final : options.renderOutput ? toAgentRunResult(final) : final
+        : customRun
+          ? hasEagerFinishExtension ? finishResult : final
+          : options.renderOutput ? toAgentRunResult(finishResult) : final
       return {
-        finishResult: invocation.output ? value : hasFinishWork(invocation) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+        finishResult: invocation.output ? value : finishResult,
         finishUsage: structuredUsageRecord,
         value,
       }
@@ -2753,20 +3024,42 @@ async function executeAgentInvocation<
       finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
       outputExtensions,
       ...(customRun
-        ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
+        ? {
+            wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation),
+          }
         : {}),
     })
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
+    const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
+    const driverUsageRecord = hasEagerFinishExtension
+      && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
+      ? undefined
+      : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
       const projection = typeof definition?.uiMessageStream === "function"
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
-        await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+      const enrichedRendered = isAsyncIterable(rendered)
+        ? withEagerStreamUsageExtensions(rendered, invocation, rendered)
+        : withEagerUiMessageStreamUsageExtensions(rendered, invocation)
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
+        const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
+        if (!outcome.failed && !outcome.completed) {
+          await lifecycle.finish({
+            result: finishResult,
+            status: "success",
+            ...(streamedUsageRecord
+              ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+              : {}),
+            usageResolved: true,
+          })
+        }
+        else {
+          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+        }
       }, projection)
     }
 
@@ -2786,12 +3079,25 @@ async function executeAgentInvocation<
     const stream = isStreamResult
       ? streamAgentOutputToEvents(rendered)
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
-    const streamed = withStreamedResult(stream, rendered, driverUsageRecord)
+    const streamed = withStreamedResult(withEagerStreamUsageExtensions(stream, invocation, rendered), rendered, driverUsageRecord)
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const shouldWrapOutput = shouldWrapInvocationOutput(invocation)
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
-          await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          const finishResult = streamed.finishResult()
+          if (!outcome.failed && !outcome.completed) {
+            await lifecycle.finish({
+              result: finishResult,
+              status: "success",
+              ...(streamed.finishUsage()
+                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+                : {}),
+              usageResolved: true,
+            })
+          }
+          else {
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          }
         }, { abortSignal: invocation.input.abortSignal }) as AsyncIterable<StreamEvent>
       : tracedStream
     return {
@@ -2806,11 +3112,24 @@ async function executeAgentInvocation<
           const projection = typeof definition?.uiMessageStream === "function"
             ? await definition.uiMessageStream(invocation)
             : definition?.uiMessageStream
-          const finalized = await finalizeUiMessageStreamOutput({
+          const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
-          }, shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
-            const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
-            await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          }, invocation)
+          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
+            if (!outcome.failed && !outcome.completed) {
+              await lifecycle.finish({
+                result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
+                status: "success",
+                ...(streamedUsageRecord
+                  ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+                  : {}),
+                usageResolved: true,
+              })
+            }
+            else {
+              const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
+              await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            }
           }, projection)
           const headers = new Headers(response.headers)
           headers.delete("content-encoding")

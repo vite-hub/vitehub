@@ -14,7 +14,7 @@ interface AgentUIMessageStreamWriter {
 }
 
 type StreamCleanupOutcome =
-  | { failed: false }
+  | { completed?: boolean, failed: false }
   | { error: unknown, failed: true }
 
 const uiMessageStreamHeaders = {
@@ -133,7 +133,7 @@ export function withReadableStreamCleanup<T>(
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
-  const runCleanup = async (outcome: StreamCleanupOutcome = { failed: false }) => {
+  const runCleanup = async (outcome: StreamCleanupOutcome = { completed: true, failed: false }) => {
     if (cleaned) return
     cleaned = true
     await cleanup(outcome)
@@ -156,7 +156,7 @@ export function withReadableStreamCleanup<T>(
       }
     },
     async cancel(reason) {
-      let outcome: StreamCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
+      let outcome: StreamCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
       try {
         await reader.cancel(reason)
       }
