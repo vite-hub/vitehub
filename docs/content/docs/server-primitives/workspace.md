@@ -408,6 +408,42 @@ export async function testDocs() {
 | `close()` | none | Rolls an uncommitted host tree back to authoritative Workspace state and releases Session resources. |
 | `tools?.aiSdk()` | none | Returns runtime-provided AI SDK tools when the Session supports them. |
 
+### Project a Session through MountX
+
+Use `@vite-hub/workspace/mountx` when an Agent, editor, CLI, or VM needs a real filesystem path or protocol instead of Workspace methods. ViteHub keeps the transactional Session and explicit commit boundary; MountX turns that Session into a driver for its local FUSE, 9P, NFS, and S3 transports.
+
+Install MountX directly before importing its transport entry points:
+
+```bash
+pnpm add mountx@0.0.2
+```
+
+```ts [server/tasks/edit-docs.ts]
+import { createWorkspaceDriver } from '@vite-hub/workspace/mountx'
+import { mount } from 'mountx/auto'
+import { useWorkspace } from '@vite-hub/workspace'
+
+const session = await useWorkspace('docs', { mode: 'write' }).startSession()
+
+try {
+  const mounted = await mount(createWorkspaceDriver(session), '/tmp/vitehub-docs')
+
+  try {
+    // Any local program can now use /tmp/vitehub-docs.
+  }
+  finally {
+    await mounted.unmount()
+  }
+
+  await session.commit({ message: 'accept projected changes' })
+}
+finally {
+  await session.close()
+}
+```
+
+Pass `{ readOnly: true }` to `createWorkspaceDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
+
 Workspace owns the file tree and commit behavior. Box owns execution and provider adapters. Sandbox composes both for discovered named work, while Agent Definitions compose them for harness execution.
 
 ### Run sessions from the CLI
