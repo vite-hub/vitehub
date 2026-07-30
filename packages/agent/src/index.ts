@@ -1976,6 +1976,29 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
   return result
 }
 
+function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
+  if (!usageRecord || result instanceof Response) return result
+  if (!result || typeof result !== "object") return resultWithUsageRecord(result, usageRecord)
+  return cloneWithPropertyDescriptors(result, {
+    ...(usageRecord.usage
+      ? {
+          usage: {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord.usage,
+            writable: true,
+          },
+        }
+      : {}),
+    usageRecord: {
+      configurable: true,
+      enumerable: true,
+      value: usageRecord,
+      writable: true,
+    },
+  })
+}
+
 function resultWithStreamedTextAndUsage(
   result: unknown,
   text: string,
@@ -2745,16 +2768,21 @@ async function executeAgentInvocation<
       const structuredUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
+      const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
       const finishResult = invocation.output
         ? undefined
-        : hasFinishWork(invocation) ? resultWithUsageRecord(final, driverUsageRecord) : final
+        : hasEagerFinishExtension
+          ? resultWithResolvedUsageRecord(final, driverUsageRecord)
+          : hasFinishWork(invocation) ? resultWithUsageRecord(final, driverUsageRecord) : final
       const value = options.renderOutput && invocation.output
         ? await validateAgentOutput(invocation.output, structuredFinal, {
             allowMaterializedObject: customRun
               ? structuredFinal === final
               : structuredFinal === final && final !== result,
           })
-        : customRun ? final : options.renderOutput ? toAgentRunResult(finishResult) : final
+        : customRun
+          ? hasEagerFinishExtension ? finishResult : final
+          : options.renderOutput ? toAgentRunResult(finishResult) : final
       return {
         finishResult: invocation.output ? value : finishResult,
         finishUsage: structuredUsageRecord,

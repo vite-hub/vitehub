@@ -146,6 +146,89 @@ describe("usageCost", () => {
     expect(pricing).toHaveBeenCalledOnce()
   })
 
+  it("returns the enriched resolved record when usage metadata is added", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usageRecord: {
+            usage: {
+              inputTokens: 10,
+              outputTokens: 2,
+              totalTokens: 12,
+            },
+          },
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, {
+      ...runtime(),
+      run: { runId: "run-1" },
+    }, { prompt: "hello" })).resolves.toMatchObject({
+      usageRecord: {
+        cost: {
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        },
+        model: {
+          id: "custom/model",
+        },
+        run: {
+          runId: "run-1",
+        },
+      },
+    })
+  })
+
+  it("enriches immutable driver results without mutating them", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const result = Object.freeze({
+      text: "ok",
+      usage: {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => result,
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      usageRecord: {
+        cost: {
+          amount: "0.02",
+        },
+      },
+    })
+    expect(result).not.toHaveProperty("usageRecord")
+  })
+
   it("does not resolve unrelated lazy finish extensions during eager-only work", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
