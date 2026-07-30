@@ -240,6 +240,51 @@ describe("usageCost", () => {
     expect(pricing).toHaveBeenCalledOnce()
   })
 
+  it("prices UI message stream usage before tracing it", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => (async function* () {
+          yield {
+            type: "usage" as const,
+            usageRecord: {
+              usage: {
+                inputTokens: 10,
+                outputTokens: 2,
+                totalTokens: 12,
+              },
+            },
+          }
+        })(),
+      },
+    })
+
+    const stream = await streamAgent(agent, {
+      ...runtime(),
+      traceLog,
+    }, { prompt: "hello" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
+
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "usage.hasCost": true,
+        "usage.totalTokens": 12,
+      }),
+      name: "agent.usage.recorded",
+    }))
+  })
+
   it("prices usage records before yielding runAgent streams", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
