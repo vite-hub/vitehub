@@ -1949,9 +1949,7 @@ function withEagerStreamUsageExtensions<
     const textPhases = new Map<string, AgentMessagePhase | "hidden">()
     for await (const chunk of stream) {
       const event = toAgentStreamEvent(chunk, toolNames, textPhases)
-      const usageRecord = event?.type === "usage"
-        ? event.usageRecord
-        : usageRecordFromStreamChunk(chunk, result)
+      const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
         yield chunk
         continue
