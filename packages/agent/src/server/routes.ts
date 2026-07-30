@@ -257,25 +257,89 @@ function createBadRequest(message: string): Response {
   return createJsonErrorResponse(400, message)
 }
 
-function serializeErrorForLog(error: unknown, seen = new WeakSet<object>()): unknown {
-  if (!(error instanceof Error)) {
-    return error
-  }
-  if (seen.has(error)) {
-    return { message: "[Circular Error]", name: error.name }
-  }
-  seen.add(error)
+interface ErrorLogSerializationState {
+  nodes: number
+  remainingStringCharacters: number
+  seen: WeakSet<object>
+}
 
-  const output: Record<string, unknown> = {
-    message: error.message,
-    name: error.name,
+const errorLogMaxDepth = 5
+const errorLogMaxNodes = 100
+const errorLogMaxProperties = 20
+const errorLogMaxStringLength = 2_048
+const errorLogStringBudget = 12_000
+
+function serializeLogString(value: string, state: ErrorLogSerializationState): string {
+  if (value.startsWith("data:")) return `[Data URL ${value.length} characters]`
+  if (state.remainingStringCharacters <= 0) return "[Truncated]"
+  const available = Math.min(errorLogMaxStringLength, state.remainingStringCharacters)
+  if (value.length <= available) {
+    state.remainingStringCharacters -= value.length
+    return value
   }
-  if (error.stack) output.stack = error.stack
-  for (const key of Object.keys(error)) {
-    output[key] = serializeErrorForLog((error as unknown as Record<string, unknown>)[key], seen)
+  const suffix = `… [${value.length - available} chars omitted]`
+  const result = available > suffix.length
+    ? `${value.slice(0, available - suffix.length)}${suffix}`
+    : "[Truncated]"
+  state.remainingStringCharacters -= result.length
+  return result
+}
+
+function serializeErrorForLog(
+  value: unknown,
+  state: ErrorLogSerializationState = {
+    nodes: 0,
+    remainingStringCharacters: errorLogStringBudget,
+    seen: new WeakSet<object>(),
+  },
+  depth = 0,
+): unknown {
+  if (typeof value === "string") return serializeLogString(value, state)
+  if (value === null || typeof value === "number" || typeof value === "boolean" || typeof value === "undefined") return value
+  if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function") {
+    return serializeLogString(String(value), state)
   }
-  if ("cause" in error && typeof error.cause !== "undefined") {
-    output.cause = serializeErrorForLog(error.cause, seen)
+  if (typeof value !== "object") return serializeLogString(String(value), state)
+  if (value instanceof ArrayBuffer) return `[ArrayBuffer ${value.byteLength} bytes]`
+  if (ArrayBuffer.isView(value)) return `[${value.constructor.name} ${value.byteLength} bytes]`
+  if (value instanceof Blob) return `[Blob ${value.size} bytes, ${value.type || "unknown type"}]`
+  if (value instanceof Date) return value.toISOString()
+  if (state.seen.has(value)) return "[Circular]"
+  if (depth >= errorLogMaxDepth || state.nodes >= errorLogMaxNodes) return "[Truncated]"
+  state.seen.add(value)
+  state.nodes++
+
+  if (Array.isArray(value)) {
+    const output = value.slice(0, errorLogMaxProperties)
+      .map(item => serializeErrorForLog(item, state, depth + 1))
+    if (value.length > output.length) output.push(`[${value.length - output.length} items omitted]`)
+    return output
+  }
+
+  const output: Record<string, unknown> = {}
+  const source = value as Record<string, unknown>
+  if (value instanceof Error) {
+    output.message = serializeErrorForLog(value.message, state, depth + 1)
+    output.name = serializeErrorForLog(value.name, state, depth + 1)
+    if (value.stack) output.stack = serializeErrorForLog(value.stack, state, depth + 1)
+  }
+  const keys = Object.keys(value)
+    .filter(key => !(value instanceof Error && (key === "message" || key === "name" || key === "stack" || key === "cause")))
+    .slice(0, errorLogMaxProperties)
+  for (const key of keys) {
+    const outputKey = key.length > 128 ? `${key.slice(0, 112)}… [key truncated]` : key
+    try {
+      output[outputKey] = serializeErrorForLog(source[key], state, depth + 1)
+    }
+    catch {
+      output[outputKey] = "[Unserializable property]"
+    }
+  }
+  if (Object.keys(value).length > keys.length) {
+    output["[truncated]"] = `${Object.keys(value).length - keys.length} properties omitted`
+  }
+  if (value instanceof Error && "cause" in value && typeof value.cause !== "undefined") {
+    output.cause = serializeErrorForLog(value.cause, state, depth + 1)
   }
   return output
 }
@@ -2085,6 +2149,15 @@ async function isChatMessageAuthorized(
   return invoker
 }
 
+const cloudflareChatBackgroundTimeoutMs = 25_000
+
+function chatInvocationTimeout(
+  timeout: number | undefined,
+  maximum: number | undefined,
+): number | undefined {
+  return timeout === undefined || maximum === undefined ? timeout : Math.min(timeout, maximum)
+}
+
 async function handleChatSdkMessage(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -2095,6 +2168,7 @@ async function handleChatSdkMessage(
   options: AgentChatOptions | undefined,
   state: { keyPrefix: string, state: StateAdapter },
   messageContext?: MessageContext,
+  maximumInvocationTimeout?: number,
 ): Promise<void> {
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
@@ -2149,10 +2223,12 @@ async function handleChatSdkMessage(
     progress = manualDelivery
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
       : undefined
+    const resolvedInvocationInput = invocation.input as AgentRunInput
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
-      ...(invocation.input as AgentRunInput),
+      ...resolvedInvocationInput,
+      timeout: chatInvocationTimeout(resolvedInvocationInput.timeout, maximumInvocationTimeout),
       context: {
-        ...(invocation.input as AgentRunInput).context,
+        ...resolvedInvocationInput.context,
         [messageChannelStateContextKey]: state,
         ...(progress
           ? {
@@ -2260,15 +2336,19 @@ async function createChannelChat(
     options,
   ))
   const state = { keyPrefix: resolvedState.titleKeyPrefix, state: resolvedState.state }
+  // Cloudflare cancels waitUntil after 30 seconds, so fallback delivery needs its own time budget.
+  const maximumInvocationTimeout = context.runtime === "cloudflare-agents" && handlerOptions.waitUntil
+    ? cloudflareChatBackgroundTimeoutMs
+    : undefined
 
   chat.onDirectMessage((thread, message, _channel, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, "direct", options, state, messageContext))
+    handleChatSdkMessage(agent, context, registration, thread, message, "direct", options, state, messageContext, maximumInvocationTimeout))
   chat.onNewMention(async (thread, message, messageContext) => {
     await thread.subscribe().catch(() => undefined)
-    await handleChatSdkMessage(agent, context, registration, thread, message, "mention", options, state, messageContext)
+    await handleChatSdkMessage(agent, context, registration, thread, message, "mention", options, state, messageContext, maximumInvocationTimeout)
   })
   chat.onSubscribedMessage((thread, message, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, message.isMention ? "mention" : "subscribed", options, state, messageContext))
+    handleChatSdkMessage(agent, context, registration, thread, message, message.isMention ? "mention" : "subscribed", options, state, messageContext, maximumInvocationTimeout))
 
   return chat
 }

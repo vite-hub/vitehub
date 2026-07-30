@@ -7476,6 +7476,90 @@ describe("server helpers", () => {
     }
   })
 
+  it("bounds provider error details in chat logs", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const providerError = Object.assign(new Error("Service temporarily unavailable"), {
+      requestBodyValues: {
+        image: `data:image/jpeg;base64,${"a".repeat(300_000)}`,
+      },
+      statusCode: 503,
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => { throw providerError } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(chatWebhookRequest(91_018), "telegram")
+      expect(response.status).toBe(503)
+      const logEntry = consoleError.mock.calls[0]?.[0] as { error?: unknown }
+      const serializedLogEntry = JSON.stringify(logEntry)
+      expect(serializedLogEntry.length).toBeLessThan(20_000)
+      expect(serializedLogEntry).not.toContain("data:image/jpeg;base64")
+      expect(logEntry.error).toMatchObject({
+        message: "Service temporarily unavailable",
+        name: "Error",
+        statusCode: 503,
+      })
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it("reserves Cloudflare background time for manual error delivery", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ input }) => {
+      expect(input.timeout).toBe(25_000)
+      throw new Error("model timeout")
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_019), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      })).rejects.toThrow("model timeout")
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("removes a manual placeholder when the error fallback is disabled", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
