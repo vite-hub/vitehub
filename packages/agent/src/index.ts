@@ -2777,13 +2777,13 @@ async function executeAgentInvocation<
 
   if (options.kind === "run") {
     return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-      const driverUsageRecord = hasTraceableStreamResult(result)
+      const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
-      const shouldPreserveEagerStreamResult = hasTraceableStreamResult(rendered)
+      const shouldPreserveEagerStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
         && invocation.finishExtensionProviders.some(provider => provider.eager)
         && shouldWrapInvocationOutput(invocation)
       if (shouldPreserveEagerStreamResult || (options.renderOutput

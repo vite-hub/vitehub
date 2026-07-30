@@ -438,6 +438,42 @@ describe("usageCost", () => {
     for await (const _chunk of result.stream) {}
   })
 
+  it("returns runAgent UI message results before their usage promise settles", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing: () => undefined })],
+      driver: {
+        run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "finish" })
+                controller.close()
+              },
+            })
+          },
+          usage,
+        }),
+      },
+    })
+
+    const pending = runAgent(agent, runtime(), { prompt: "hello" })
+    const outcome = await Promise.race([
+      pending.then(() => "returned"),
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])
+    resolveUsage({ totalTokens: 1 })
+
+    expect(outcome).toBe("returned")
+    const result = await pending as { toUIMessageStream: () => ReadableStream<unknown> }
+    for await (const _chunk of result.toUIMessageStream()) {}
+  })
+
   it("prices usage records before yielding runAgent streams", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
