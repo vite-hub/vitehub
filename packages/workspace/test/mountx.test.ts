@@ -95,4 +95,16 @@ describe("MountX Workspace driver", () => {
     await expect(fs.stat("/linked.md")).rejects.toMatchObject({ code: "ENOTSUP" })
     await session.close()
   })
+
+  it("rejects unstorage-incompatible Workspace filenames during enumeration", async () => {
+    const docs = workspace()
+    await docs.writeFile("report:final.txt", "colon")
+    await docs.writeFile("report/final.txt", "directory")
+
+    const session = await docs.startSession()
+    const fs = createLoopback(createWorkspaceDriver(session))
+
+    await expect(fs.readdir("/", { withFileTypes: true })).rejects.toMatchObject({ code: "EINVAL" })
+    await session.close()
+  })
 })

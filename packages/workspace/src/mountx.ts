@@ -31,6 +31,15 @@ async function findEntry(session: WorkspaceSession, path: string): Promise<Works
 }
 
 function assertProjectableEntry(entry: WorkspaceEntry | undefined) {
+  const invalidName = entry?.path.split("/").find(segment =>
+    segment.includes(":") || segment.includes("?") || segment.endsWith("$"),
+  )
+  if (invalidName) {
+    throw Object.assign(
+      new Error(`Workspace filename is not representable as an unstorage key: ${invalidName}`),
+      { code: "EINVAL", path: entry?.path },
+    )
+  }
   if (entry?.metadata?.gitMode !== "120000") return entry
   throw Object.assign(
     new Error(`MountX cannot project Workspace symlink semantics: ${entry.path}`),
