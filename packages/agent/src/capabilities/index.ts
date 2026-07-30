@@ -83,6 +83,14 @@ export {
   elevenLabsScribe,
 } from "./transcription-elevenlabs.ts"
 export {
+  usageCost,
+} from "./usage-cost.ts"
+export type {
+  AgentUsagePricing,
+  AgentUsagePricingContext,
+  UsageCostOptions,
+} from "./usage-cost.ts"
+export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export type {
