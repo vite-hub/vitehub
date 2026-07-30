@@ -1970,9 +1970,32 @@ function withEagerStreamUsageExtensions<
         runtime: context.runtimeContext,
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       await createAgentInvocationExtensions(eventBase as never, providers)
-      yield chunk && typeof chunk === "object"
-        ? { ...chunk, usageRecord: usage }
-        : { type: "usage", usageRecord: usage }
+      if (chunk && typeof chunk === "object") {
+        const prototype = Object.getPrototypeOf(chunk)
+        if (prototype !== Object.prototype && prototype !== null) {
+          if (Object.isExtensible(chunk)) {
+            try {
+              Object.defineProperty(chunk, "usageRecord", {
+                configurable: true,
+                enumerable: true,
+                value: usage,
+                writable: true,
+              })
+              yield chunk
+              continue
+            }
+            catch {
+              // Preserve the custom chunk and emit the canonical record separately.
+            }
+          }
+          yield chunk
+          yield { type: "usage", usageRecord: usage }
+          continue
+        }
+        yield { ...chunk, usageRecord: usage }
+        continue
+      }
+      yield { type: "usage", usageRecord: usage }
     }
   })()
 }
@@ -2014,7 +2037,10 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
   if (result && typeof result === "object" && !(result instanceof Response)) {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
-    return typeof current === "string" && current ? result : cloneWithPropertyDescriptors(result, {
+    if (typeof current === "string" && current) return result
+    const prototype = Object.getPrototypeOf(result)
+    if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) return result
+    return resultWithPreservedProperties(result, {
       text: {
         configurable: true,
         enumerable: true,
@@ -2654,7 +2680,12 @@ async function finalizeAgentInvocationResult<
         const finishResult = responseText && !outcome.failed
           ? { raw: result, text: responseText }
           : result
-        await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+        if (!outcome.failed && !outcome.completed) {
+          await lifecycle.finish({ result: finishResult, status: "success", usageResolved: true })
+        }
+        else {
+          await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+        }
       }, {
         onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
       }) : result
@@ -2669,6 +2700,14 @@ async function finalizeAgentInvocationResult<
           return withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
             const usage = streamed.finishUsage()
+            if (!outcome.failed && !outcome.completed) {
+              return lifecycle.finish({
+                result,
+                status: "success",
+                ...(usage ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, context.run) } : {}),
+                usageResolved: true,
+              })
+            }
             return lifecycle.finish(finishOutcome.status === "success"
               ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
               : finishOutcome)

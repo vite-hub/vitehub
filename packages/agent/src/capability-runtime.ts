@@ -1458,18 +1458,18 @@ export function withResponseCleanup(
   options: { onChunk?: (chunk: Uint8Array) => void } = {},
 ): Response | Promise<Response> {
   if (!response.body) {
-    return close({ failed: false }).then(() => response)
+    return close({ completed: true, failed: false }).then(() => response)
   }
   const reader = response.body.getReader()
   let closed = false
-  async function closeOnce(outcome: CapabilityCleanupOutcome = { failed: false }) {
+  async function closeOnce(outcome: CapabilityCleanupOutcome = { completed: true, failed: false }) {
     if (closed) return
     closed = true
     await close(outcome)
   }
   const wrapped = new Response(new ReadableStream({
     async cancel(reason) {
-      let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
+      let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
       try {
         await reader.cancel(reason)
       }
