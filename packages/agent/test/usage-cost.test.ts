@@ -511,6 +511,38 @@ describe("usageCost", () => {
     for await (const _chunk of stream) {}
   })
 
+  it("preserves resolved stream usage for finish hooks without eager extensions", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { type: "text-delta", text: "ok" }
+          })(),
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    const stream = await streamAgent(agent, runtime(), { prompt: "hello" })
+    for await (const _chunk of stream as AsyncIterable<unknown>) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: {
+        totalTokens: 12,
+      },
+    })
+  })
+
   it("prices usage records before yielding runAgent streams", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
@@ -1056,6 +1088,62 @@ describe("usageCost", () => {
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(first).toMatchObject({ usageRecord: { cost: { amount: "0.000014" } } })
     expect(second).toMatchObject({ usageRecord: { cost: { amount: "0.000028" } } })
+  })
+
+  it("shares one catalog refresh across concurrent invocations", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"))
+    let resolveRefresh!: (response: Response) => void
+    const refresh = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve
+    })
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        data: [{
+          id: "custom/model",
+          pricing: {
+            input: "0.000001",
+            output: "0.000002",
+          },
+        }],
+      }))
+      .mockReturnValueOnce(refresh)
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "prime" })
+    vi.advanceTimersByTime(5 * 60_000)
+    const first = runAgent(agent, runtime(), { prompt: "first" })
+    const second = runAgent(agent, runtime(), { prompt: "second" })
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    resolveRefresh(Response.json({
+      data: [{
+        id: "custom/model",
+        pricing: {
+          input: "0.000002",
+          output: "0.000004",
+        },
+      }],
+    }))
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2)
+    expect(fetch).toHaveBeenCalledTimes(2)
   })
 
   it.each([

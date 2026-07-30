@@ -133,6 +133,7 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
 
   async function loadPrices() {
     if (!prices || (pricesExpiresAt > 0 && Date.now() >= pricesExpiresAt)) {
+      pricesExpiresAt = 0
       prices = (async () => {
         const response = await fetcher(modelsUrl, { signal: AbortSignal.timeout(timeout) })
         if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)

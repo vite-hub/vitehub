@@ -2922,7 +2922,9 @@ async function executeAgentInvocation<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+    const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
+    const driverUsageRecord = hasEagerFinishExtension
+      && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
       ? undefined
       : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
