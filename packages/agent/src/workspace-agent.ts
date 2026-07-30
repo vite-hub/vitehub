@@ -766,6 +766,16 @@ function agentInspectionMetadata<
   }
 }
 
+function agentChannelMetadataInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+>(
+  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+): string[] {
+  const settings = agentSettings(definition)
+  if (!settings || normalizeAgentDriver(settings).kind === "run") return []
+  return inspectMessageChannelInstructions(definition.channels)
+}
+
 function normalizedSourcesFromOptions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -1447,7 +1457,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
   resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>,
 ): Promise<AgentInspectionMetadata> {
   const settings = agentSettings(definition)
-  const channelInstructions = inspectMessageChannelInstructions(definition.channels)
+  const channelInstructions = agentChannelMetadataInstructions(definition)
   if (!settings) {
     return {
       files: [],
@@ -1509,7 +1519,7 @@ export function createAgentInspectionMetadata<
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentInspectionMetadata {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
-  const channelInstructions = inspectMessageChannelInstructions(definition.channels)
+  const channelInstructions = agentChannelMetadataInstructions(definition)
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
     return {
       files: [],
@@ -1574,7 +1584,7 @@ export async function resolveAgentInspectionMetadata<
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,
-        ...inspectMessageChannelInstructions(workspaceDefinition.channels),
+        ...agentChannelMetadataInstructions(workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>),
       ],
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
@@ -1648,7 +1658,7 @@ export async function materializeAgentInspectionSourceMetadata<
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: [
         ...instructionMetadata.instructions,
-        ...inspectMessageChannelInstructions(workspaceDefinition.channels),
+        ...agentChannelMetadataInstructions(workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>),
       ],
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),

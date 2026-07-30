@@ -152,6 +152,16 @@ describe("Channel instructions", () => {
     expect((await resolveAgentInspectionMetadata(agent)).instructions).toEqual(inspected)
   })
 
+  it("does not advertise Channel guidance for custom run Drivers", async () => {
+    const agent = defineAgent({
+      channels: { support: telegram() },
+      driver: { run: () => "ok" },
+    })
+
+    expect(createAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
+    expect(await resolveAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
+  })
+
   it("preserves instructions when an internal runtime wraps a Channel", () => {
     const source = telegram()
     const wrapped = inheritMessageChannelInstructions({ ...source, effects: {} }, source)
