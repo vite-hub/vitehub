@@ -112,26 +112,29 @@ function blobServeNitroRoute(serve: BlobServeConfig): string {
   return `${normalizeNitroRoute(serve.route).replace(/\/+$/, "")}/**`
 }
 
+function isGeneratedNitroRegistration(value: unknown, generatedPath: string): boolean {
+  return typeof value === "string"
+    && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${generatedPath}`))
+}
+
 function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
   const plugins = Array.isArray(nitro.plugins)
-    ? nitro.plugins.filter(entry => entry !== generatedNitroBlobPlugin && entry !== plugin)
+    ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedNitroBlobPlugin))
     : []
   plugins.push(plugin)
   const handlers = Array.isArray(nitro.handlers)
     ? nitro.handlers.filter(handler =>
-        handler?.handler !== generatedNitroBlobMiddleware
-        && handler?.handler !== middleware,
+        !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware),
       )
     : []
   if (cloudflare) handlers.unshift({ handler: middleware, middleware: true, route: "/**" })
   if (!serve) return { ...nitro, handlers, plugins }
   const existingHandlers = handlers.filter(handler =>
-    handler?.handler !== generatedBlobServeRouteHandler
-    && handler?.handler !== serveHandler,
+    !isGeneratedNitroRegistration(handler?.handler, generatedBlobServeRouteHandler),
   )
   return {
     ...nitro,

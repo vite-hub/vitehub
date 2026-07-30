@@ -153,6 +153,7 @@ describe("hubBlob", () => {
 
   it("resolves generated Nitro registrations from the final Vite root", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-root-"))
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-stale-root-"))
     const plugin = hubBlob({
       bucketName: "assets",
       driver: "cloudflare-r2",
@@ -188,11 +189,14 @@ describe("hubBlob", () => {
         ...userConfig.nitro,
         handlers: [
           ...(userConfig.nitro.handlers ?? []),
+          { handler: resolve(staleRoot, generatedMiddleware), middleware: true, route: "/**" },
+          { handler: resolve(staleRoot, generatedServeHandler), route: "/api/_vitehub/blob/**" },
           { handler: resolvedMiddleware, middleware: true, route: "/**" },
           { handler: resolvedServeHandler, route: "/api/_vitehub/blob/**" },
         ],
         plugins: [
           ...(userConfig.nitro.plugins ?? []),
+          resolve(staleRoot, generatedPlugin),
           resolvedPlugin,
         ],
       },
@@ -212,6 +216,7 @@ describe("hubBlob", () => {
     }
     finally {
       await rm(root, { force: true, recursive: true })
+      await rm(staleRoot, { force: true, recursive: true })
     }
   })
 
