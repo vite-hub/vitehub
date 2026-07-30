@@ -51,6 +51,14 @@ export function defineMessageChannelInstructions<
   return channel
 }
 
+export function inheritMessageChannelInstructions<
+  TChannel extends object,
+>(channel: TChannel, source: object): TChannel {
+  const instructions = messageChannelInstructions.get(source)
+  if (instructions) messageChannelInstructions.set(channel, instructions)
+  return channel
+}
+
 export function bindMessageChannelInstructions(
   context: AgentInvocationContextStore,
   channel: object | undefined,

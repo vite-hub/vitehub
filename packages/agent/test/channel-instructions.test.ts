@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
 import { discord, telegram } from "../src/channels.ts"
 import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { bindMessageChannelInstructions, inheritMessageChannelInstructions, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
 
@@ -137,6 +138,16 @@ async function modelCallFor(channel: "discord" | "telegram", messages = history)
 }
 
 describe("Channel instructions", () => {
+  it("preserves instructions when an internal runtime wraps a Channel", () => {
+    const source = telegram()
+    const wrapped = inheritMessageChannelInstructions({ ...source, effects: {} }, source)
+    const context = createAgentInvocationContextStore()
+
+    bindMessageChannelInstructions(context, wrapped)
+
+    expect(resolveMessageChannelInstructions(context)).toBe(telegramInstructions)
+  })
+
   it("reproduces the AI SDK rejection for synthetic system history", async () => {
     await expect(modelCallFor("telegram", [
       {
