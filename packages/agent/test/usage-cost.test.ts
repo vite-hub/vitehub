@@ -109,6 +109,78 @@ describe("usageCost", () => {
     })
   })
 
+  it("enriches canonical usage without requiring a finish hook", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const pricing = vi.fn(() => ({
+      amount: "0.02",
+      currency: "USD" as const,
+      estimated: true,
+      source: "custom" as const,
+    }))
+    const usageRecord = {
+      usage: {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      },
+    }
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing })],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usageRecord,
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      text: "ok",
+    })
+    expect(pricing).toHaveBeenCalledOnce()
+  })
+
+  it("does not estimate cost from total-only token usage", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "custom/model",
+        pricing: {
+          input: "0.000001",
+          output: "0.000002",
+        },
+      }],
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const usageRecord = {
+      usage: {
+        totalTokens: 12,
+      },
+    }
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usageRecord,
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      usageRecord: {
+        usage: {
+          totalTokens: 12,
+        },
+      },
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it.each([
     {
       name: "throws",

@@ -2133,7 +2133,11 @@ function hasFinishWork<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return Boolean(context.finishHook || context.finishDeliveryEffectProviders.length)
+  return Boolean(
+    context.finishHook
+    || context.finishDeliveryEffectProviders.length
+    || context.finishExtensionProviders.some(provider => provider.eager),
+  )
 }
 
 async function resolveFinishUsageRecord<
@@ -2405,7 +2409,7 @@ async function finishAgentInvocation<
         ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
-      if (context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
+      if (context.finishHook || context.finishExtensionProviders.some(provider => provider.eager) || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
         const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)

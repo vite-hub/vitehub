@@ -31,11 +31,12 @@ interface VercelAiGatewayPricingOptions {
 const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
 
 function hasTokenUsage(usage: AgentUsage): boolean {
+  const inputDetails = usage.inputTokenDetails
   return usage.inputTokens !== undefined
     || usage.outputTokens !== undefined
-    || usage.totalTokens !== undefined
-    || usage.inputTokenDetails !== undefined
-    || usage.outputTokenDetails !== undefined
+    || Boolean(inputDetails?.cacheReadTokens)
+    || Boolean(inputDetails?.cachedTokens)
+    || Boolean(inputDetails?.cacheWriteTokens)
 }
 
 function decimalToParts(value: string): { scale: bigint, units: bigint } {

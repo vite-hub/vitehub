@@ -1,4 +1,4 @@
-import { defineCapability } from "../capability-runtime.ts"
+import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { vercelAiGatewayPricing } from "../internal/usage-pricing.ts"
 
 import type { AgentCapabilityDefinition, AgentRuntimeConfig, AgentUsageRecord } from "../types.ts"
@@ -24,7 +24,7 @@ export function usageCost<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   const pricing = options.pricing || vercelAiGatewayPricing()
 
-  return defineCapability<TRuntimeConfig>({
+  return Object.assign(defineCapability<TRuntimeConfig>({
     id: "usage-cost",
     metadata: {
       kind: "usage-cost",
@@ -48,5 +48,7 @@ export function usageCost<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
 
       return record
     },
+  }), {
+    [eagerFinishExtensionSymbol]: true,
   })
 }

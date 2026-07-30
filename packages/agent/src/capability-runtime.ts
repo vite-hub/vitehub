@@ -69,11 +69,13 @@ type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputEx
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
 export const globalSkillsSymbol: unique symbol = Symbol.for("vitehub.agent.globalSkills")
 export const capabilityInvocationStartSymbol: unique symbol = Symbol("vitehub.agent.capabilityInvocationStart")
+export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
 type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
   [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  [eagerFinishExtensionSymbol]?: boolean
   [globalSkillsSymbol]?: AgentGlobalSkill
   [workspaceMaterializationPathsSymbol]?: readonly string[]
 }
@@ -91,6 +93,7 @@ type AgentCapabilityRuntimePhase = typeof defaultCapabilityRuntimePhases[number]
 export const optionalWorkspaceCapabilitySymbol: unique symbol = Symbol("vitehub.agent.optionalWorkspaceCapability")
 
 export interface ResolvedAgentFinishExtensionProvider {
+  eager?: boolean
   id: string
   resolve: AgentFinishExtensionProvider
 }
@@ -908,8 +911,9 @@ export async function resolveAgentCapabilities<
     })
   }
 
-  function addFinishExtensionProvider(capabilityId: string, value: unknown | AgentFinishExtensionProvider) {
+  function addFinishExtensionProvider(capabilityId: string, value: unknown | AgentFinishExtensionProvider, eager?: boolean) {
     registries.finishExtensionProviders.push({
+      ...(eager ? { eager: true } : {}),
       id: capabilityId,
       resolve: typeof value === "function"
         ? value as AgentFinishExtensionProvider
@@ -1116,7 +1120,13 @@ export async function resolveAgentCapabilities<
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContexts.push({ capability, context: capabilityContext })
-      if (capability.finish) addFinishExtensionProvider(capability.id, capability.finish)
+      if (capability.finish) {
+        addFinishExtensionProvider(
+          capability.id,
+          capability.finish,
+          (capability as InternalAgentCapabilityDefinition<TRuntimeConfig, Name>)[eagerFinishExtensionSymbol],
+        )
+      }
 
       for (const [name, trigger] of Object.entries(capability.triggers || {})) {
         assertTriggerName(name, capability.id)
