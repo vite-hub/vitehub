@@ -833,7 +833,7 @@ describe("agent message protocol", () => {
 
     await stream.cancel()
 
-    expect(outcomes).toEqual([{ failed: false }])
+    expect(outcomes).toEqual([{ completed: false, failed: false }])
   })
 
   it("propagates post-chunk UI message response read failures", async () => {

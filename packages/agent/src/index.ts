@@ -2843,7 +2843,17 @@ async function executeAgentInvocation<
                   if (finishTask) return await finishTask
                   const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
                   finishTask = (async () => {
-                    await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                    if (!outcome.failed && !outcome.completed) {
+                      await lifecycle.finish({
+                        result: finishResult,
+                        status: "success",
+                        ...(streamedUsageRecord ? { usage: streamedUsageRecord } : {}),
+                        usageResolved: true,
+                      })
+                    }
+                    else {
+                      await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                    }
                     const usageRecord = finishResult && typeof finishResult === "object"
                       ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                       : undefined
@@ -2995,7 +3005,18 @@ async function executeAgentInvocation<
         ? withEagerStreamUsageExtensions(rendered, invocation, rendered)
         : withEagerUiMessageStreamUsageExtensions(rendered, invocation)
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
-        await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+        const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
+        if (!outcome.failed && !outcome.completed) {
+          await lifecycle.finish({
+            result: finishResult,
+            status: "success",
+            ...(streamedUsageRecord ? { usage: streamedUsageRecord } : {}),
+            usageResolved: true,
+          })
+        }
+        else {
+          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+        }
       }, projection)
     }
 
