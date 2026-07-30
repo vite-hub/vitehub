@@ -1979,6 +1979,15 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
 function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
   if (!usageRecord || result instanceof Response) return result
   if (!result || typeof result !== "object") return resultWithUsageRecord(result, usageRecord)
+  const prototype = Object.getPrototypeOf(result)
+  if (prototype !== Object.prototype && prototype !== null) {
+    return {
+      ...toAgentRunResult(result),
+      raw: result,
+      usage: usageRecord.usage,
+      usageRecord,
+    }
+  }
   return cloneWithPropertyDescriptors(result, {
     ...(usageRecord.usage
       ? {
@@ -2765,15 +2774,18 @@ async function executeAgentInvocation<
             invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
           )
         : final
-      const structuredUsageRecord = options.renderOutput && invocation.output
+      const resolvedUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
       const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
+      const structuredUsageRecord = hasEagerFinishExtension && resolvedUsageRecord
+        ? { ...resolvedUsageRecord }
+        : resolvedUsageRecord
       const finishResult = invocation.output
         ? undefined
         : hasEagerFinishExtension
-          ? resultWithResolvedUsageRecord(final, driverUsageRecord)
-          : hasFinishWork(invocation) ? resultWithUsageRecord(final, driverUsageRecord) : final
+          ? resultWithResolvedUsageRecord(final, structuredUsageRecord)
+          : hasFinishWork(invocation) ? resultWithUsageRecord(final, structuredUsageRecord) : final
       const value = options.renderOutput && invocation.output
         ? await validateAgentOutput(invocation.output, structuredFinal, {
             allowMaterializedObject: customRun

@@ -229,6 +229,85 @@ describe("usageCost", () => {
     expect(result).not.toHaveProperty("usageRecord")
   })
 
+  it("enriches immutable usage records through a mutable canonical copy", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const usageRecord = Object.freeze({
+      usage: {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usageRecord,
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      usageRecord: {
+        cost: {
+          amount: "0.02",
+        },
+      },
+    })
+    expect(usageRecord).not.toHaveProperty("cost")
+  })
+
+  it("wraps class-backed results without cloning their private state", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    class DriverResult {
+      #value = "preserved"
+      text = "ok"
+      usage = {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      }
+
+      value() {
+        return this.#value
+      }
+    }
+    const result = new DriverResult()
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => result,
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      raw: result,
+      usageRecord: {
+        cost: {
+          amount: "0.02",
+        },
+      },
+    })
+    expect(result.value()).toBe("preserved")
+  })
+
   it("does not resolve unrelated lazy finish extensions during eager-only work", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
