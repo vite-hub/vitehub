@@ -2884,7 +2884,9 @@ async function executeAgentInvocation<
                       await lifecycle.finish({
                         result: finishResult,
                         status: "success",
-                        ...(streamedUsageRecord ? { usage: streamedUsageRecord } : {}),
+                        ...(streamedUsageRecord
+                          ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+                          : {}),
                         usageResolved: true,
                       })
                     }
@@ -2927,7 +2929,9 @@ async function executeAgentInvocation<
               ? lifecycle.finish({
                   result: finishResult,
                   status: "success",
-                  ...(streamed.finishUsage() ? { usage: streamed.finishUsage() } : {}),
+                  ...(streamed.finishUsage()
+                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+                    : {}),
                   usageResolved: true,
                 })
               : (async () => {
@@ -3047,7 +3051,9 @@ async function executeAgentInvocation<
           await lifecycle.finish({
             result: finishResult,
             status: "success",
-            ...(streamedUsageRecord ? { usage: streamedUsageRecord } : {}),
+            ...(streamedUsageRecord
+              ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+              : {}),
             usageResolved: true,
           })
         }
@@ -3083,7 +3089,9 @@ async function executeAgentInvocation<
             await lifecycle.finish({
               result: finishResult,
               status: "success",
-              ...(streamed.finishUsage() ? { usage: streamed.finishUsage() } : {}),
+              ...(streamed.finishUsage()
+                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+                : {}),
               usageResolved: true,
             })
           }
@@ -3112,7 +3120,9 @@ async function executeAgentInvocation<
               await lifecycle.finish({
                 result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
                 status: "success",
-                ...(streamedUsageRecord ? { usage: streamedUsageRecord } : {}),
+                ...(streamedUsageRecord
+                  ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+                  : {}),
                 usageResolved: true,
               })
             }

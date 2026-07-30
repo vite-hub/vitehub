@@ -34,15 +34,6 @@ const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
 const vercelAiGatewayPricingMaxAge = 5 * 60_000
 const vercelAiGatewayPricingTimeout = 10_000
 
-function hasTokenUsage(usage: AgentUsage): boolean {
-  const inputDetails = usage.inputTokenDetails
-  return usage.inputTokens !== undefined
-    || usage.outputTokens !== undefined
-    || Boolean(inputDetails?.cacheReadTokens)
-    || Boolean(inputDetails?.cachedTokens)
-    || Boolean(inputDetails?.cacheWriteTokens)
-}
-
 function decimalToParts(value: string): { scale: bigint, units: bigint } {
   const trimmed = value.trim()
   if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
@@ -164,7 +155,7 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
   }
 
   return async ({ model, usage }) => {
-    if (!hasTokenUsage(usage)) return
+    if (usage.inputTokens === undefined || usage.outputTokens === undefined) return
     const modelIds = vercelGatewayModelIdCandidates(model)
     if (!modelIds.length) return
     const catalog = await loadPrices()

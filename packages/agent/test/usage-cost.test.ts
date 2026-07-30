@@ -158,6 +158,7 @@ describe("usageCost", () => {
       usageRecord?: { cost?: unknown }
     }
     expect(result.usageRecord?.cost).toBeUndefined()
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("supports custom pricing without provider dependencies", async () => {
@@ -755,6 +756,50 @@ describe("usageCost", () => {
     ])).resolves.toBe("closed")
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].invocation.usage).toBeUndefined()
+  })
+
+  it("normalizes observed usage when a streamAgent result is closed early", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing: () => undefined })],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              type: "usage" as const,
+              usageRecord: {
+                usage: {
+                  inputTokens: 10,
+                  outputTokens: 2,
+                  totalTokens: 12,
+                },
+              },
+            }
+            yield { type: "text-delta" as const, text: "unconsumed" }
+          })(),
+          usage: new Promise(() => {}),
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    const stream = await streamAgent(agent, {
+      ...runtime(),
+      run: { runId: "run-1" },
+    }, { prompt: "hello" }) as AsyncIterable<unknown>
+    for await (const chunk of stream) {
+      if ((chunk as { type?: string }).type === "usage") break
+    }
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      run: { runId: "run-1" },
+      usage: { totalTokens: 12 },
+    })
   })
 
   it("returns runAgent UI message results before their usage promise settles", async () => {
