@@ -152,6 +152,35 @@ Workspace definitions are runtime-free. To run generated code, open a [`@vite-hu
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 
+## MountX projection
+
+Use the `@vite-hub/workspace/mountx` integration when an Agent, editor, CLI, or VM needs a real filesystem instead of Workspace methods. The adapter keeps Workspace Session diff and commit semantics in ViteHub while MountX owns the host transport.
+
+```ts
+import { createWorkspaceDriver } from "@vite-hub/workspace/mountx"
+import { mount } from "mountx/auto"
+
+const session = await workspace.startSession()
+
+try {
+  const mounted = await mount(createWorkspaceDriver(session), "/tmp/vitehub-docs")
+
+  try {
+    // Programs can now use /tmp/vitehub-docs as an ordinary directory.
+  }
+  finally {
+    await mounted.unmount()
+  }
+
+  await session.commit({ message: "accept projected changes" })
+}
+finally {
+  await session.close()
+}
+```
+
+The same driver works with MountX's 9P and NFSv4.1 servers for Linux guests, or its S3 gateway for S3-compatible clients. Use `{ readOnly: true }` when the consumer only needs inspection. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. MountX is still alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
+
 Harness-backed Agents use the Workspace Package to prepare Harness Workspace Sessions for `defineAgent({ driver: { harness }, workspace })`. The Agent Package keeps the harness inside the Agent Driver boundary, Capabilities keep tools and Skills opt-in, and Workspace owns materializing the selected Workspace Scope plus write-mode sync back through Workspace rules.
 
 ## Vite Integration

@@ -25,6 +25,7 @@ export default defineConfig({
       "src/hosted-vercel-blob.ts",
       "src/index.ts",
       "src/loader.ts",
+      "src/mountx.ts",
       "src/nitro.ts",
       "src/nuxt.ts",
       "src/publish.ts",

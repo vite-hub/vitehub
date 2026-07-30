@@ -60,6 +60,10 @@
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js"
     },
+    "./mountx": {
+      "types": "./dist/mountx.d.ts",
+      "import": "./dist/mountx.js"
+    },
     "./nitro": {
       "types": "./dist/nitro.d.ts",
       "import": "./dist/nitro.js"
@@ -135,6 +139,7 @@
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
+    "mountx": "catalog:workspace",
     "minimatch": "catalog:workspace",
     "mrmime": "catalog:workspace",
     "ofetch": "catalog:unjs"
