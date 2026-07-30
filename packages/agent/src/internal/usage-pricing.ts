@@ -144,8 +144,10 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
 
   return async ({ model, usage }) => {
     if (!hasTokenUsage(usage)) return
+    const modelIds = vercelGatewayModelIdCandidates(model)
+    if (!modelIds.length) return
     const catalog = await loadPrices()
-    const price = vercelGatewayModelIdCandidates(model)
+    const price = modelIds
       .map(modelId => catalog[modelId])
       .find((item): item is StaticModelPrice => Boolean(item))
     if (!price) return

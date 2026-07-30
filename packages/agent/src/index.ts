@@ -1938,16 +1938,19 @@ function withEagerStreamUsageExtensions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
-  stream: AsyncIterable<StreamEvent>,
+  stream: AsyncIterable<unknown>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
-): AsyncIterable<StreamEvent> {
+): AsyncIterable<unknown> {
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
-    for await (const event of stream) {
-      if (event.type !== "usage") {
-        yield event
+    const toolNames = new Map<string, string>()
+    const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+    for await (const chunk of stream) {
+      const event = toAgentStreamEvent(chunk, toolNames, textPhases)
+      if (event?.type !== "usage") {
+        yield chunk
         continue
       }
       const usage = { ...event.usageRecord }
@@ -1964,7 +1967,9 @@ function withEagerStreamUsageExtensions<
         runtime: context.runtimeContext,
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       await createAgentInvocationExtensions(eventBase as never, providers)
-      yield { ...event, usageRecord: usage }
+      yield chunk && typeof chunk === "object"
+        ? { ...chunk, usageRecord: usage }
+        : { ...event, usageRecord: usage }
     }
   })()
 }
@@ -2786,7 +2791,8 @@ async function executeAgentInvocation<
           .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
         let finishTask: Promise<void> | undefined
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
-          const streamed = withStreamedResult(renderedStream, rendered, driverUsageRecord)
+          const enrichedStream = withEagerStreamUsageExtensions(renderedStream, invocation, rendered)
+          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
           const value = withCapabilityCleanup(streamed.stream, (outcome) => {
             return finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
           }, { abortSignal: invocation.input.abortSignal })
@@ -2868,7 +2874,12 @@ async function executeAgentInvocation<
       finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
       outputExtensions,
       ...(customRun
-        ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
+        ? {
+            wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(
+              withEagerStreamUsageExtensions(stream, invocation, result) as AsyncIterable<StreamEvent>,
+              invocation,
+            ),
+          }
         : {}),
     })
   }
