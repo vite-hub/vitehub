@@ -1981,6 +1981,32 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
   if (!result || typeof result !== "object") return resultWithUsageRecord(result, usageRecord)
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null) {
+    if (Object.isExtensible(result)) {
+      try {
+        Object.defineProperties(result, {
+          ...(usageRecord.usage
+            ? {
+                usage: {
+                  configurable: true,
+                  enumerable: true,
+                  value: usageRecord.usage,
+                  writable: true,
+                },
+              }
+            : {}),
+          usageRecord: {
+            configurable: true,
+            enumerable: true,
+            value: usageRecord,
+            writable: true,
+          },
+        })
+        return result
+      }
+      catch {
+        // Fall through to a wrapper when an existing property cannot be replaced.
+      }
+    }
     return {
       ...toAgentRunResult(result),
       raw: result,
@@ -2161,15 +2187,18 @@ function maybeTraceUiMessageStreamOutput<
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered
 }
 
+function hasFinishConsumer<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+  return Boolean(context.finishHook || context.finishDeliveryEffectProviders.length)
+}
+
 function hasFinishWork<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return Boolean(
-    context.finishHook
-    || context.finishDeliveryEffectProviders.length
-    || context.finishExtensionProviders.some(provider => provider.eager),
-  )
+  return hasFinishConsumer(context) || context.finishExtensionProviders.some(provider => provider.eager)
 }
 
 async function resolveFinishUsageRecord<
@@ -2179,8 +2208,8 @@ async function resolveFinishUsageRecord<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
 ): Promise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined> {
-  if (hasFinishWork(context)) return await resolveAgentUsageRecord(result, context.run)
-  if (!context.runtimeContext.traceLog) return undefined
+  if (hasFinishConsumer(context)) return await resolveAgentUsageRecord(result, context.run)
+  if (!context.runtimeContext.traceLog && !context.finishExtensionProviders.some(provider => provider.eager)) return undefined
   try {
     return await resolveAgentUsageRecord(result, context.run)
   }

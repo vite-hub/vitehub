@@ -297,8 +297,9 @@ describe("usageCost", () => {
       },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
-      raw: result,
+    const enriched = await runAgent(agent, runtime(), { prompt: "hello" })
+    expect(enriched).toBe(result)
+    expect(enriched).toMatchObject({
       usageRecord: {
         cost: {
           amount: "0.02",
@@ -306,6 +307,26 @@ describe("usageCost", () => {
       },
     })
     expect(result.value()).toBe("preserved")
+  })
+
+  it("preserves Agent success when eager usage extraction fails", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const pricing = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing })],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usage: Promise.reject(new Error("usage unavailable")),
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      text: "ok",
+    })
+    expect(pricing).not.toHaveBeenCalled()
   })
 
   it("does not resolve unrelated lazy finish extensions during eager-only work", async () => {
