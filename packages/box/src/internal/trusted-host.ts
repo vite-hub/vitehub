@@ -467,6 +467,9 @@ async function createTrustedHostSession(options: {
         }
       }
     },
+    async localPath({ path }: { abortSignal?: AbortSignal; path: string }) {
+      return resolveSessionPath(options.root, path);
+    },
     async makeDirectory({ path, recursive = false }: { path: string; recursive?: boolean }) {
       await mkdir(resolveSessionPath(options.root, path), { recursive });
     },
@@ -536,8 +539,11 @@ async function createTrustedHostSession(options: {
         options.root,
         runOptions.workingDirectory ?? this.defaultWorkingDirectory,
       );
-      const child = spawnChildProcess(runOptions.command, {
-        cwd,
+      const darwinMountedCwd = process.platform === "darwin"
+        ? `cd -- ${shellQuote(cwd)} && exec /bin/sh -c ${shellQuote(runOptions.command)}`
+        : undefined;
+      const child = spawnChildProcess(darwinMountedCwd ?? runOptions.command, {
+        cwd: darwinMountedCwd ? options.root : cwd,
         detached: process.platform !== "win32",
         env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
         shell: true,
@@ -834,6 +840,10 @@ async function findExecutable(
     )
       return candidate;
   }
+}
+
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function isWindowsCommandShim(path: string) {

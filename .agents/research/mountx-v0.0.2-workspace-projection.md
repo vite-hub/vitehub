@@ -4,9 +4,9 @@ Research snapshot: 2026-07-30. Sources are limited to MountX and ViteHub's repos
 
 ## Verdict
 
-MountX v0.0.2 is ready for a narrow experimental integration: expose an existing ViteHub Workspace Session as a MountX `FsDriver`, while leaving transport selection and lifecycle with MountX and leaving Sources, scopes, rules, snapshots, persistence, diffing, and explicit commit with ViteHub.
+MountX v0.0.2 is ready for an experimental integration: expose an existing ViteHub Workspace Session as a MountX `FsDriver`, and use that projection automatically for trusted local Box Sessions when `mountx/auto` finds a supported transport. Sources, scopes, rules, snapshots, persistence, diffing, and explicit commit remain with ViteHub.
 
-The right first surface is an optional `@vite-hub/workspace/mountx` adapter such as `createWorkspaceDriver(session, { readOnly })`. It should not restore `Workspace.mount()` or make MountX the Workspace store. A caller can pass the returned driver to `mountx/auto`, `mountx/9p`, `mountx/nfs`, or `mountx/s3`, and it must still explicitly unmount, commit if desired, and close the Workspace Session.
+The public surface is an optional `@vite-hub/workspace/mountx` adapter, `createWorkspaceDriver(session, { readOnly })`. It does not restore `Workspace.mount()` or make MountX the Workspace store. A manual caller can pass the driver to `mountx/auto`, `mountx/9p`, `mountx/nfs`, or `mountx/s3`, and must still explicitly unmount, commit if desired, and close the Workspace Session. The hosted Session integration owns that lifecycle when a trusted-host Box exposes its local path; remote Box providers and hosts without a supported transport retain the copy-based path.
 
 ## What v0.0.2 changes
 
@@ -57,15 +57,15 @@ That can be useful for bounded artifact transfer or a provider whose native clie
 - The adapter must expose only capabilities ViteHub really supports. In particular, it should not claim durable handles, atomic rename, permissions, timestamps, or symlinks unless the Session contract can preserve them end to end.
 - Unmount before closing the Session, and close the Session even when unmount or the consumer fails. The caller, not a hidden Workspace method, should decide whether to commit.
 
-## Recommended first pull request
+## Implemented pull-request scope
 
 1. Add `mountx@0.0.2` as a pinned Workspace package dependency and publish an optional `@vite-hub/workspace/mountx` subpath.
-2. Export one adapter, `createWorkspaceDriver(session, options)`, accepting only the Session file operations it needs. Support `{ readOnly: true }` explicitly and leave transport selection out of the adapter.
-3. Prove the adapter through MountX's in-process `createLoopback()` boundary: read, create, write, rename, remove, read-only refusal, Session isolation before commit, and persistence after explicit commit. This exercises the same normalization and capability layer as a mount without requiring FUSE or root in CI. [Loopback testing contract](https://github.com/pithings/mountx/blob/v0.0.2/docs/1.guide/3.drivers/2.custom.md#L187-L204)
-4. Document local projection with `mountx/auto` and explicit `try/finally`, while naming 9P/NFSv4.1/S3 as consumer-selected follow-ups rather than adding provider wiring in the first change.
-5. Defer replacement of `createHostedWorkspaceSession`, remote binds, and automatic VM transport selection until a provider-specific proof measures startup, I/O, teardown, and failure behavior with one isolated guest.
+2. Export a native Workspace driver that supports `{ readOnly: true }` and preserves empty directories, special filenames, symlinks, executable metadata, truncation, and live open-file identity across rename.
+3. Prove the driver through MountX's in-process `createLoopback()` boundary: read, create, write, rename, remove, symlink, read-only refusal, Session isolation before commit, and persistence after explicit commit. This exercises the same normalization and capability layer as a mount without requiring FUSE or root in CI. [Loopback testing contract](https://github.com/pithings/mountx/blob/v0.0.2/docs/1.guide/3.drivers/2.custom.md#L187-L204)
+4. Let trusted-host Box Sessions expose a safe physical path and automatically replace hosted Workspace materialization with `mountx/auto` projection when a local transport is available.
+5. Keep the existing materialization path for attached Sessions, remote Box providers, and hosts where MountX cannot mount. Automatic VM transport selection remains deferred until a provider-specific proof measures startup, I/O, teardown, and failure behavior with one isolated guest.
 
-This is the smallest boundary that captures v0.0.2's value: one filesystem-shaped adapter, many transports, and no change to Workspace ownership.
+This captures v0.0.2's immediate value in both public composition and ViteHub's local execution path without changing Workspace ownership or forcing MountX onto remote providers.
 
 ## Live repository and pull-request state
 

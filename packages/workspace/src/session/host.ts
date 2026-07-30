@@ -4,6 +4,7 @@ import { normalizeExecutionAuthority } from "@vite-hub/runtime"
 import { workspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
+import { normalizeHostTarget, toHostCwd, toHostPath } from "./host-path.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 
 import type {
@@ -23,30 +24,9 @@ import type {
   WriteFileOptions,
 } from "../core/types.ts"
 
-function normalizeTarget(target = "/workspace") {
-  const normalized = posix.resolve("/", target.replace(/\\/g, "/"))
-  if (normalized === "/") throw workspaceError("[vitehub] Workspace session target cannot be the host root.")
-  return normalized
-}
-
 function normalizeSearchRoot(path: string) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
   return normalized === "." ? "" : normalizeSafeWorkspacePath(normalized, { allowEmpty: true })
-}
-
-function toHostPath(root: string, path = "") {
-  const normalized = normalizeSafeWorkspacePath(path, { allowEmpty: true })
-  return normalized ? posix.join(root, normalized) : root
-}
-
-function toHostCwd(root: string, cwd: string | undefined) {
-  if (cwd === undefined) return root
-  if (!posix.isAbsolute(cwd)) return toHostPath(root, cwd)
-  const normalized = posix.normalize(cwd)
-  if (normalized === root || normalized.startsWith(`${root}/`)) return normalized
-  if (normalized === "/workspace" || normalized.startsWith("/workspace/"))
-    return toHostPath(root, normalized.slice("/workspace".length))
-  throw workspaceError(`[vitehub] Workspace exec cwd must stay inside ${root}: ${cwd}.`)
 }
 
 function fromHostPath(root: string, path: string) {
@@ -306,6 +286,19 @@ export async function createHostedWorkspaceSession(
   options: WorkspaceSessionOptions & { host: WorkspaceSessionHost },
 ): Promise<WorkspaceSession> {
   const host = options.host
+  if (!options.attach && host.files.localPath) {
+    const { tryCreateMountXHostedWorkspaceSession } = await import("./mountx-host.ts")
+    const root = normalizeHostTarget(options.target)
+    const projected = await tryCreateMountXHostedWorkspaceSession(
+      workspace,
+      options,
+      undefined,
+      async () => {
+        await materializeWorkspace(workspace, host, root, options)
+      },
+    )
+    if (projected) return projected
+  }
   let executionAuthority
   try {
     executionAuthority = normalizeExecutionAuthority(host.executionAuthority)
@@ -313,7 +306,7 @@ export async function createHostedWorkspaceSession(
   catch {
     throw new TypeError("[vitehub] Workspace session host must declare executionAuthority.")
   }
-  const root = normalizeTarget(options.target)
+  const root = normalizeHostTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
   let closed = false
   let attachedState = options.attach ? await captureHostState(host, root, "host-attach") : undefined

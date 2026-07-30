@@ -154,6 +154,7 @@ export interface BoxRemoveFileOptions extends BoxFileOptions {
 
 export interface BoxFiles {
   exists(path: string, options?: BoxFileOptions): Promise<boolean>;
+  localPath?(path: string, options?: BoxFileOptions): Promise<string>;
   list(path: string, options?: BoxListFilesOptions): Promise<readonly BoxFileEntry[]>;
   mkdir(path: string, options?: BoxFileOptions & { recursive?: boolean }): Promise<void>;
   move?(source: string, destination: string, options?: BoxFileOptions): Promise<void>;
