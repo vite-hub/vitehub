@@ -2118,7 +2118,12 @@ function withStreamedResult(
           if (event.phase === "final") finalText += event.text
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
-        if (event?.type === "usage") usageRecord = event.usageRecord
+        const attachedUsageRecord = chunk && typeof chunk === "object" && "usageRecord" in chunk
+          ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
+          : undefined
+        usageRecord = event?.type === "usage"
+          ? event.usageRecord
+          : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
         yield chunk
       }
     })(),

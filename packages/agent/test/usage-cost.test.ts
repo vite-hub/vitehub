@@ -205,6 +205,7 @@ describe("usageCost", () => {
       estimated: true,
       source: "custom" as const,
     }))
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCost({ pricing })],
       driver: {
@@ -220,6 +221,9 @@ describe("usageCost", () => {
             },
           }
         })(),
+      },
+      hooks: {
+        "agent:finish": finish,
       },
     })
 
@@ -239,6 +243,14 @@ describe("usageCost", () => {
       }),
     }])
     expect(pricing).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].invocation.usage).toEqual(expect.objectContaining({
+      cost: {
+        amount: "0.02",
+        currency: "USD",
+        estimated: true,
+        source: "custom",
+      },
+    }))
   })
 
   it("prices usage carried by raw finish chunks before yielding", async () => {
@@ -250,6 +262,7 @@ describe("usageCost", () => {
       estimated: true,
       source: "custom" as const,
     }))
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [usageCost({ pricing })],
       driver: {
@@ -263,6 +276,9 @@ describe("usageCost", () => {
             type: "finish" as const,
           }
         })(),
+      },
+      hooks: {
+        "agent:finish": finish,
       },
     })
 
@@ -287,6 +303,14 @@ describe("usageCost", () => {
       }),
     }])
     expect(pricing).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].invocation.usage).toEqual(expect.objectContaining({
+      cost: {
+        amount: "0.02",
+        currency: "USD",
+        estimated: true,
+        source: "custom",
+      },
+    }))
   })
 
   it("preserves richer raw usage while attaching the canonical record", async () => {
