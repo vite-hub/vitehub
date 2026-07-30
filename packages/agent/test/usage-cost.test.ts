@@ -118,25 +118,30 @@ describe("usageCost", () => {
       estimated: true,
       source: "custom" as const,
     }))
-    const usageRecord = {
-      usage: {
-        inputTokens: 10,
-        outputTokens: 2,
-        totalTokens: 12,
-      },
-    }
     const agent = defineAgent({
       capabilities: [usageCost({ pricing })],
       driver: {
         run: () => ({
           text: "ok",
-          usageRecord,
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
         }),
       },
     })
 
     await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
+      usageRecord: {
+        cost: {
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        },
+      },
     })
     expect(pricing).toHaveBeenCalledOnce()
   })

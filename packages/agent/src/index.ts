@@ -2745,15 +2745,18 @@ async function executeAgentInvocation<
       const structuredUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
+      const finishResult = invocation.output
+        ? undefined
+        : hasFinishWork(invocation) ? resultWithUsageRecord(final, driverUsageRecord) : final
       const value = options.renderOutput && invocation.output
         ? await validateAgentOutput(invocation.output, structuredFinal, {
             allowMaterializedObject: customRun
               ? structuredFinal === final
               : structuredFinal === final && final !== result,
           })
-        : customRun ? final : options.renderOutput ? toAgentRunResult(final) : final
+        : customRun ? final : options.renderOutput ? toAgentRunResult(finishResult) : final
       return {
-        finishResult: invocation.output ? value : hasFinishWork(invocation) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+        finishResult: invocation.output ? value : finishResult,
         finishUsage: structuredUsageRecord,
         value,
       }
