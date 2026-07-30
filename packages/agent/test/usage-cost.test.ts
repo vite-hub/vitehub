@@ -285,6 +285,89 @@ describe("usageCost", () => {
     }))
   })
 
+  it("prices toUIMessageStream usage before tracing it", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({
+                  type: "usage",
+                  usageRecord: {
+                    usage: {
+                      inputTokens: 10,
+                      outputTokens: 2,
+                      totalTokens: 12,
+                    },
+                  },
+                })
+                controller.close()
+              },
+            })
+          },
+        }),
+      },
+    })
+
+    const stream = await streamAgent(agent, {
+      ...runtime(),
+      traceLog,
+    }, { prompt: "hello" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
+
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "usage.hasCost": true,
+        "usage.totalTokens": 12,
+      }),
+      name: "agent.usage.recorded",
+    }))
+  })
+
+  it("returns stream results before their usage promise settles", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let resolveUsage!: (usage: { totalTokens: number }) => void
+    const usage = new Promise<{ totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing: () => undefined })],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { type: "text-delta", text: "ok" }
+          })(),
+          usage,
+        }),
+      },
+    })
+
+    const pending = streamAgent(agent, runtime(), { prompt: "hello" })
+    const outcome = await Promise.race([
+      pending.then(() => "returned"),
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])
+    resolveUsage({ totalTokens: 1 })
+
+    expect(outcome).toBe("returned")
+    const stream = await pending
+    for await (const _chunk of stream as AsyncIterable<unknown>) {}
+  })
+
   it("prices usage records before yielding runAgent streams", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

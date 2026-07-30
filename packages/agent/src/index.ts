@@ -1977,6 +1977,28 @@ function withEagerStreamUsageExtensions<
   })()
 }
 
+function withEagerUiMessageStreamUsageExtensions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  rendered: unknown,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): unknown {
+  if (!isUIMessageStreamResult(rendered)) return rendered
+  const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+  return cloneWithPropertyDescriptors(rendered, {
+    toUIMessageStream: {
+      configurable: true,
+      enumerable: false,
+      value: (...args: unknown[]) => toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
+        toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)),
+        context,
+        rendered,
+      )),
+    },
+  })
+}
+
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
   if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
   Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
@@ -2755,7 +2777,9 @@ async function executeAgentInvocation<
 
   if (options.kind === "run") {
     return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-      const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
+      const driverUsageRecord = hasTraceableStreamResult(result)
+        ? undefined
+        : await resolveFinishUsageRecord(invocation, result)
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
@@ -2891,7 +2915,9 @@ async function executeAgentInvocation<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
+    const driverUsageRecord = hasTraceableStreamResult(result)
+      ? undefined
+      : await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
       const projection = typeof definition?.uiMessageStream === "function"
@@ -2899,7 +2925,7 @@ async function executeAgentInvocation<
         : definition?.uiMessageStream
       const enrichedRendered = isAsyncIterable(rendered)
         ? withEagerStreamUsageExtensions(rendered, invocation, rendered)
-        : rendered
+        : withEagerUiMessageStreamUsageExtensions(rendered, invocation)
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
         await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
       }, projection)
