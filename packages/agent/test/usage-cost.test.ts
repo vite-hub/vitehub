@@ -862,6 +862,57 @@ describe("usageCost", () => {
     expect(result.value()).toBe("preserved")
   })
 
+  it("preserves class-backed stream results while enriching their streams", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    class DriverStreamResult {
+      #value = "preserved"
+      stream = (async function* () {
+        yield {
+          type: "usage",
+          usageRecord: {
+            usage: {
+              inputTokens: 10,
+              outputTokens: 2,
+              totalTokens: 12,
+            },
+          },
+        }
+      })()
+
+      value() {
+        return this.#value
+      }
+    }
+    const result = new DriverStreamResult()
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => result,
+      },
+    })
+
+    const enriched = await runAgent(agent, runtime(), { prompt: "hello" }) as DriverStreamResult
+    expect(enriched).toBe(result)
+    expect(enriched.value()).toBe("preserved")
+    const chunks = []
+    for await (const chunk of enriched.stream) chunks.push(chunk)
+    expect(chunks).toContainEqual(expect.objectContaining({
+      usageRecord: expect.objectContaining({
+        cost: expect.objectContaining({
+          amount: "0.02",
+        }),
+      }),
+    }))
+  })
+
   it("preserves Agent success when eager usage extraction fails", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

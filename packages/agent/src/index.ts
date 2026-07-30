@@ -2099,6 +2099,20 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
   })
 }
 
+function resultWithPreservedProperties(result: object, descriptors: PropertyDescriptorMap): object {
+  const prototype = Object.getPrototypeOf(result)
+  if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
+    try {
+      Object.defineProperties(result, descriptors)
+      return result
+    }
+    catch {
+      // Fall through to descriptor cloning for plain result objects and immutable properties.
+    }
+  }
+  return cloneWithPropertyDescriptors(result, descriptors)
+}
+
 function resultWithStreamedTextAndUsage(
   result: unknown,
   text: string,
@@ -2801,7 +2815,7 @@ async function executeAgentInvocation<
           let finishTask: Promise<void> | undefined
           let streamedText = ""
           let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-          const preserved = cloneWithPropertyDescriptors(rendered, {
+          const preserved = resultWithPreservedProperties(rendered, {
             toUIMessageStream: {
               configurable: true,
               enumerable: false,
@@ -2869,7 +2883,7 @@ async function executeAgentInvocation<
             },
           }
         }
-        const preserved = cloneWithPropertyDescriptors(rendered as object, descriptors)
+        const preserved = resultWithPreservedProperties(rendered as object, descriptors)
         return {
           deferFinish: true,
           finishResult: preserved,
