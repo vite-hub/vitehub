@@ -1478,6 +1478,46 @@ describe("agent message protocol", () => {
     expect(harnessAgentSettings.at(-1)?.instructions).toContain('"title"')
   })
 
+  it("guides Telegram harness turns without changing other Channels", async () => {
+    const { discord, telegram } = await import("../src/channels.ts")
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    harnessCreateSession.mockResolvedValue({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+    const agent = defineAgent({
+      channels: {
+        discord: discord(),
+        support: telegram(),
+      },
+      driver: {
+        harness: { provider: "codex" },
+        instructions: "Configured Agent instructions.",
+      },
+    })
+    const invoke = async (channelId: "discord" | "support") => {
+      await runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, "chat.message", {
+        messages: [createMessage({ role: "user", text: "Hello" })],
+        run: {
+          channelId,
+          origin: channelId,
+          runId: `${channelId}:1`,
+          threadId: `${channelId}:1`,
+        },
+      })
+      return harnessAgentSettings.at(-1)?.instructions as string
+    }
+
+    const telegramInstructions = await invoke("support")
+    const discordInstructions = await invoke("discord")
+
+    expect(telegramInstructions).toContain("Configured Agent instructions.")
+    expect(telegramInstructions).toContain("Write the final response for Telegram.")
+    expect(discordInstructions).toBe("Configured Agent instructions.")
+  })
+
   it("guides model Drivers with configured structured output", async () => {
     const agentSettings: Record<string, unknown>[] = []
     loadAiSdk.mockResolvedValue({

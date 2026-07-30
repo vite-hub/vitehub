@@ -19,6 +19,7 @@ import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from
 import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
+  bindMessageChannelInstructions,
   finishMessageChannelTitleDelivery,
   isMessageChannelTitleEffectIntent,
   messageChannelTitleDeliveredContextKey,
@@ -1655,6 +1656,10 @@ async function createAgentInvocationContext<
     : tracedRuntimeContext
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  bindMessageChannelInstructions(
+    invocationContext,
+    activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
+  )
   invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
   invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
   const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]

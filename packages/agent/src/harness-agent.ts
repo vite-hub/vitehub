@@ -19,6 +19,7 @@ import {
 } from "./workspace-agent.ts"
 import { abortSignalError, nextWithAbort } from "./internal/abortable-stream.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
+import { markMessageChannelInstructionConsumer, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import {
   colocatedAgentSkillsContextKey,
   type ColocatedAgentSkills,
@@ -709,7 +710,11 @@ async function resolveHarnessDriverInstructions<
     throw new TypeError("[vitehub] defineAgent({ driver.instructions }) must resolve to a string.")
   }
   const configured = resolved ? await composeHarnessInstructions(resolved, context) : undefined
-  return [configured, agentOutputInstructions(context.output)].filter(Boolean).join("\n\n") || undefined
+  return [
+    configured,
+    resolveMessageChannelInstructions(context.context, context),
+    agentOutputInstructions(context.output),
+  ].filter(Boolean).join("\n\n") || undefined
 }
 
 async function resolveHarnessWorkDir<
@@ -1450,7 +1455,7 @@ export function createHarnessAgentAdapter<
     }
   }
 
-  return {
+  return markMessageChannelInstructionConsumer({
     async generate(context) {
       const { agent, chatPrompt, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
@@ -1481,6 +1486,6 @@ export function createHarnessAgentAdapter<
         throw error
       }
     },
-  }
+  })
 }
 import { posix } from "node:path"

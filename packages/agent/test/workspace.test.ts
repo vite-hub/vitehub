@@ -2854,6 +2854,66 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
   })
 
+  it("composes colocated, Channel, and output instructions", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
+    agentGenerate.mockResolvedValueOnce({ finishReason: "stop", text: "{\"title\":\"ok\"}" })
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMessage } = await import("../src/messages.ts")
+    const schema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({
+            properties: { title: { type: "string" } },
+            required: ["title"],
+            type: "object",
+          }),
+          output: () => ({ type: "object" }),
+        },
+        validate: (value: unknown) => ({ value: value as { title: string } }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = withExplicitWorkspaceName(defineAgent({
+      channels: { support: telegram() },
+      workspace: { sourceRootDir },
+      driver: {
+        model: {} as never,
+        output: { schema },
+      },
+    }), { workspace: "docs" })
+
+    await agent.run!(Object.assign(context() as object, {
+      input: {
+        messages: [createMessage({ role: "user", text: "Show dinner." })],
+      },
+      run: {
+        channelId: "support",
+        origin: "support",
+        runId: "support:1",
+        threadId: "support:1",
+      },
+    }) as never)
+
+    const instructions = agentSettings.at(-1)?.instructions as string
+    const ordered = [
+      "Use colocated workspace instructions.",
+      "Write the final response for Telegram.",
+      "Return only one valid JSON value for the configured Agent output.",
+    ]
+    let previousIndex = -1
+    for (const instruction of ordered) {
+      const index = instructions.indexOf(instruction)
+      expect(index).toBeGreaterThan(previousIndex)
+      expect(instructions.indexOf(instruction, index + instruction.length)).toBe(-1)
+      previousIndex = index
+    }
+  })
+
   it("applies discovered source roots to workspace agents", async () => {
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)
@@ -3303,6 +3363,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("synthesizes an answer when tool loop stops without text after tool results", async () => {
+    const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     agentGenerate.mockResolvedValueOnce({
       finishReason: "stop",
@@ -3317,12 +3378,21 @@ describe("defineAgent workspace option", () => {
     })
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      channels: { support: telegram() },
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
 
-    await expect(agent.run!(context())).resolves.toBe("fallback answer")
+    await expect(agent.run!(Object.assign(context() as object, {
+      run: {
+        channelId: "support",
+        origin: "support",
+        runId: "support:1",
+        threadId: "support:1",
+      },
+    }) as never)).resolves.toBe("fallback answer")
     expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      instructions: expect.stringContaining("Write the final response for Telegram."),
       prompt: expect.stringContaining("client.py:7"),
     }))
   })
@@ -4493,6 +4563,20 @@ describe("defineAgent workspace option", () => {
       "::",
       "{{ context.missing }}",
     ].join("\n")])
+  })
+
+  it("keeps Channel guidance in materialized Agent inspection metadata", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent, materializeAgentInspectionSourceMetadata } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      channels: { support: telegram() },
+      workspace: {},
+      driver: { model: {} as never },
+    }), { workspace: "support" })
+
+    expect((await materializeAgentInspectionSourceMetadata(agent)).instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('Channel "support" instructions:\n\nWrite the final response for Telegram.'),
+    ]))
   })
 
   it("includes skill sources in Agent inspection file metadata", async () => {

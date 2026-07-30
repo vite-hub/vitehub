@@ -12,6 +12,7 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
+import { inheritMessageChannelInstructions } from "../internal/channels.ts"
 import { workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
@@ -153,7 +154,7 @@ function withDeliveryPreviewChannels(
         type: "delivery-preview",
       })
     }]))
-    return [channelId, { ...channel, effects }]
+    return [channelId, inheritMessageChannelInstructions({ ...channel, effects }, channel)]
   }))
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<ViteAgentRuntimeContext>
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))

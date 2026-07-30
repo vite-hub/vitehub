@@ -5,6 +5,7 @@ import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeUiMessageStreamChunk } from "../stream-output.ts"
@@ -170,7 +171,7 @@ function progressSummaryAdapterRunContext(
   if (!context.runtimeContext) {
     throw new Error("[vitehub] progressSummary({ driver }) requires an agent runtime context.")
   }
-  return {
+  return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
     context: context.context,
     toolStepReporter: context.runtimeContext.toolStepReporter,
@@ -179,7 +180,7 @@ function progressSummaryAdapterRunContext(
     messages: [],
     prompt,
     runtime: context.runtimeContext,
-  }
+  })
 }
 
 function progressSummaryRunContext(
