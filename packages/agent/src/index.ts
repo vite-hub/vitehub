@@ -1656,7 +1656,10 @@ async function createAgentInvocationContext<
     : tracedRuntimeContext
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
-  bindMessageChannelInstructions(invocationContext, context.run?.channelId ? definition?.channels?.[context.run.channelId] : undefined)
+  bindMessageChannelInstructions(
+    invocationContext,
+    activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
+  )
   invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
   invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
   const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]

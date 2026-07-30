@@ -4555,6 +4555,20 @@ describe("defineAgent workspace option", () => {
     ].join("\n")])
   })
 
+  it("keeps Channel guidance in materialized Agent inspection metadata", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent, materializeAgentInspectionSourceMetadata } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      channels: { support: telegram() },
+      workspace: {},
+      driver: { model: {} as never },
+    }), { workspace: "support" })
+
+    expect((await materializeAgentInspectionSourceMetadata(agent)).instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('Channel "support" instructions:\n\nWrite the final response for Telegram.'),
+    ]))
+  })
+
   it("includes skill sources in Agent inspection file metadata", async () => {
     const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

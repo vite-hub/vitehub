@@ -196,6 +196,35 @@ describe("Channel instructions", () => {
     expect(systemMessages[0]!.content).not.toContain(telegramInstructions)
   })
 
+  it("selects guidance from trusted trigger context when run metadata is omitted", async () => {
+    const model = createModel()
+    const agent = defineAgent({
+      channels: {
+        support: telegram({
+          triggers: {
+            ping: {
+              invoke: () => ({
+                input: {
+                  messages: [createMessage({ role: "user", text: "Hello" })],
+                },
+              }),
+            },
+          },
+        }),
+      },
+      driver: {
+        instructions: agentInstructions,
+        model: model as never,
+      },
+    })
+
+    await runAgentTrigger(agent, runtime, "support.ping", {})
+
+    const systemMessages = model.doGenerateCalls[0]!.prompt.filter(message => message.role === "system")
+    expect(systemMessages).toHaveLength(1)
+    expectInstructionsOnceInOrder(systemMessages[0]!.content, [agentInstructions, telegramInstructions])
+  })
+
   it("composes configured and resolved instructions without trusting public context", async () => {
     const model = createModel()
     const adapter = createAiSdkAdapter({

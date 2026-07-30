@@ -1646,7 +1646,10 @@ export async function materializeAgentInspectionSourceMetadata<
 
     return {
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
-      instructions: instructionMetadata.instructions,
+      instructions: [
+        ...instructionMetadata.instructions,
+        ...inspectMessageChannelInstructions(workspaceDefinition.channels),
+      ],
       ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
       tools: await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
