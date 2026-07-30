@@ -38,6 +38,9 @@ describe("MountX Workspace driver", () => {
     await fs.unlink("/remove.md")
 
     expect((await fs.stat("/run.sh")).mode & 0o111).toBe(0o111)
+    const executable = await fs.open("/run.sh", "r")
+    expect((await executable.stat()).mode & 0o111).toBe(0o111)
+    await executable.close()
     await expect(session.readFile("README.md")).resolves.toBe("after")
     await expect(session.readFile("notes/final.md")).resolves.toBe("draft")
     await expect(session.readFile("remove.md")).rejects.toThrow("does not exist")

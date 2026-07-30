@@ -116,12 +116,15 @@ export function createWorkspaceDriver(
     readOnly,
   })
 
-  async function stat(path: string) {
-    assertProjectablePath(path)
-    const stats = await driver.stat(path)
+  async function projectStats(path: string, stats: Awaited<ReturnType<FsDriver["stat"]>>) {
     const entry = assertProjectableEntry(await findEntry(session, path.replace(/^\/+/, "")))
     if (entry?.metadata?.gitMode === "100755") stats.mode |= 0o111
     return stats
+  }
+
+  async function stat(path: string) {
+    assertProjectablePath(path)
+    return await projectStats(path, await driver.stat(path))
   }
 
   const singlePathMethods = new Set([
@@ -130,7 +133,6 @@ export function createWorkspaceDriver(
     "lchown",
     "lutimes",
     "mkdir",
-    "open",
     "readlink",
     "readdir",
     "rmdir",
@@ -146,6 +148,21 @@ export function createWorkspaceDriver(
       if (property === "stat" || property === "lstat") return stat
       const value = Reflect.get(target, property, target)
       if (typeof value !== "function") return value
+      if (property === "open") {
+        return async (path: string, ...args: unknown[]) => {
+          assertProjectablePath(path)
+          const handle = await value.call(target, path, ...args)
+          return new Proxy(handle, {
+            get(handleTarget, handleProperty) {
+              if (handleProperty === "stat") {
+                return async () => await projectStats(path, await handleTarget.stat())
+              }
+              const handleValue = Reflect.get(handleTarget, handleProperty, handleTarget)
+              return typeof handleValue === "function" ? handleValue.bind(handleTarget) : handleValue
+            },
+          })
+        }
+      }
       if (singlePathMethods.has(property as string)) {
         return (path: string, ...args: unknown[]) => {
           assertProjectablePath(path)
