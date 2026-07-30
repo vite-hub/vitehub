@@ -1801,7 +1801,7 @@ describe("agent capability runtime", () => {
     for await (const _chunk of withCapabilityCleanup(stream, close)) break
 
     expect(iterator.return).toHaveBeenCalledTimes(1)
-    expect(close).toHaveBeenCalledWith({ failed: false })
+    expect(close).toHaveBeenCalledWith({ completed: false, failed: false })
   })
 
   it("closes streamed output as failed when source iterator return rejects", async () => {

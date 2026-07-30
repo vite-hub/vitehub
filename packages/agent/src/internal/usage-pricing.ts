@@ -74,6 +74,7 @@ function multiplyDecimal(value: string | undefined, count: number | undefined): 
 }
 
 function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string | undefined {
+  if (usage.inputTokens === undefined || usage.outputTokens === undefined) return
   const inputDetails = usage.inputTokenDetails || {}
   const cacheReadTokens = inputDetails.cacheReadTokens || inputDetails.cachedTokens || 0
   const cacheWriteTokens = inputDetails.cacheWriteTokens || 0
@@ -82,7 +83,7 @@ function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string | unde
     [price.input, regularInputTokens],
     [price.inputCacheRead || price.input, cacheReadTokens],
     [price.inputCacheWrite || price.input, cacheWriteTokens],
-    [price.output, usage.outputTokens || 0],
+    [price.output, usage.outputTokens],
   ] as const
   if (categories.some(([value, count]) => count > 0 && value === undefined)) return
   return addDecimalParts(categories

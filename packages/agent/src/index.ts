@@ -2134,8 +2134,8 @@ function withStreamedResult(
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   return {
-    finishResult() {
-      return resultWithStreamedTextAndUsage(result, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
+    finishResult(resultOverride: unknown = result) {
+      return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
     finishUsage() {
       return usageRecord ?? fallbackUsageRecord
@@ -2186,7 +2186,21 @@ async function finishStreamAgentInvocation<
   try {
     const usageRecord = await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
-    finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
+    const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
+    if (usageRecord && resolvedResult !== result && result && typeof result === "object" && Object.isExtensible(result)) {
+      try {
+        Object.defineProperty(result, "usageRecord", {
+          configurable: true,
+          enumerable: true,
+          value: usageRecord,
+          writable: true,
+        })
+      }
+      catch {
+        // The resolved wrapper still carries usage when the original result cannot.
+      }
+    }
+    finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
     finishResult = context.output
       ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal), { allowMaterializedObject: finishResult !== result })
       : resultWithUsageRecord(finishResult, usageRecord)
@@ -2304,7 +2318,7 @@ async function resolveFinishUsageRecord<
 }
 
 type AgentInvocationFinishOutcome =
-  | { result?: unknown, status: "success", usage?: AgentUsageRecord }
+  | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { error: unknown, status: "error" }
 
 function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
@@ -2529,7 +2543,7 @@ async function finishAgentInvocation<
     if (!failed) {
       try {
         resultKind = agentResultKind(result)
-        usage ??= await resolveAgentUsageRecord(result, context.run)
+        if (!outcome.usageResolved) usage ??= await resolveAgentUsageRecord(result, context.run)
       }
       catch {
         // Invocation data must not change Agent output or mask the original failure.
@@ -2844,11 +2858,28 @@ async function executeAgentInvocation<
         const streamProperties = (["stream", "fullStream"] as const)
           .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
         let finishTask: Promise<void> | undefined
+        let preserved: object
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
           const enrichedStream = withEagerStreamUsageExtensions(renderedStream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
-          const value = withCapabilityCleanup(streamed.stream, (outcome) => {
-            return finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+          const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+            if (finishTask) return await finishTask
+            const finishResult = streamed.finishResult(preserved)
+            finishTask = !outcome.failed && !outcome.completed
+              ? lifecycle.finish({
+                  result: finishResult,
+                  status: "success",
+                  ...(streamed.finishUsage() ? { usage: streamed.finishUsage() } : {}),
+                  usageResolved: true,
+                })
+              : (async () => {
+                  await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                  const usageRecord = finishResult && typeof finishResult === "object"
+                    ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                    : undefined
+                  if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+                })()
+            return await finishTask
           }, { abortSignal: invocation.input.abortSignal })
           const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
             ? toReadableAsyncIterableStream(value)
@@ -2886,7 +2917,7 @@ async function executeAgentInvocation<
             },
           }
         }
-        const preserved = resultWithPreservedProperties(rendered as object, descriptors)
+        preserved = resultWithPreservedProperties(rendered as object, descriptors)
         return {
           deferFinish: true,
           finishResult: preserved,

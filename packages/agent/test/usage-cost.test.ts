@@ -120,6 +120,46 @@ describe("usageCost", () => {
     expect(finish.mock.calls[0]![0].invocation.usage?.cost).toBeUndefined()
   })
 
+  it.each([
+    {
+      name: "input",
+      usage: { inputTokens: 10 },
+    },
+    {
+      name: "output",
+      usage: { outputTokens: 2 },
+    },
+  ])("does not estimate cost when only $name token usage is reported", async ({ usage }) => {
+    const fetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "custom/model",
+        pricing: {
+          input: "0.000001",
+          output: "0.000002",
+        },
+      }],
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usage,
+        }),
+      },
+    })
+
+    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
+      usageRecord?: { cost?: unknown }
+    }
+    expect(result.usageRecord?.cost).toBeUndefined()
+  })
+
   it("supports custom pricing without provider dependencies", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
@@ -535,6 +575,76 @@ describe("usageCost", () => {
     expect(outcome).toBe("returned")
     const result = await pending as { stream: AsyncIterable<unknown> }
     for await (const _chunk of result.stream) {}
+  })
+
+  it("does not await unresolved result usage when a runAgent stream is closed early", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const usage = new Promise(() => {})
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing: () => undefined })],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { type: "text-delta", text: "ok" }
+            await new Promise(() => {})
+          })(),
+          usage,
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as { stream: AsyncIterable<unknown> }
+    const consume = (async () => {
+      for await (const _chunk of result.stream) break
+    })()
+
+    await expect(Promise.race([
+      consume.then(() => "closed"),
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])).resolves.toBe("closed")
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].invocation.usage).toBeUndefined()
+  })
+
+  it("attaches deferred usage to returned plain stream results", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
+    const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
+      resolveUsage = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { type: "text-delta", text: "ok" }
+            resolveUsage({ inputTokens: 10, outputTokens: 2, totalTokens: 12 })
+          })(),
+          usage,
+        }),
+      },
+    })
+
+    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
+      stream: AsyncIterable<unknown>
+      usageRecord?: { cost?: { amount: string } }
+    }
+    for await (const _chunk of result.stream) {}
+
+    expect(result.usageRecord?.cost?.amount).toBe("0.02")
   })
 
   it("returns runAgent UI message results before their usage promise settles", async () => {

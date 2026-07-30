@@ -1385,7 +1385,7 @@ export async function createAgentInvocationExtensions(
 }
 
 type CapabilityCleanupOutcome =
-  | { failed: false }
+  | { completed?: boolean, failed: false }
   | { error: unknown, failed: true }
 
 async function closeCapabilityStreamIterator(
@@ -1418,7 +1418,7 @@ async function closeCapabilityStreamIterator(
       }
     }
   }
-  await close(outcome)
+  await close(outcome.failed ? outcome : { completed, failed: false })
 }
 
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
