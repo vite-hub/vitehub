@@ -73,17 +73,21 @@ function multiplyDecimal(value: string | undefined, count: number | undefined): 
   }
 }
 
-function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string {
+function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string | undefined {
   const inputDetails = usage.inputTokenDetails || {}
   const cacheReadTokens = inputDetails.cacheReadTokens || inputDetails.cachedTokens || 0
   const cacheWriteTokens = inputDetails.cacheWriteTokens || 0
   const regularInputTokens = Math.max(0, (usage.inputTokens || 0) - cacheReadTokens - cacheWriteTokens)
-  return addDecimalParts([
-    multiplyDecimal(price.input, regularInputTokens),
-    multiplyDecimal(price.inputCacheRead || price.input, cacheReadTokens),
-    multiplyDecimal(price.inputCacheWrite || price.input, cacheWriteTokens),
-    multiplyDecimal(price.output, usage.outputTokens),
-  ].filter((item): item is { scale: bigint, units: bigint } => Boolean(item)))
+  const categories = [
+    [price.input, regularInputTokens],
+    [price.inputCacheRead || price.input, cacheReadTokens],
+    [price.inputCacheWrite || price.input, cacheWriteTokens],
+    [price.output, usage.outputTokens || 0],
+  ] as const
+  if (categories.some(([value, count]) => count > 0 && value === undefined)) return
+  return addDecimalParts(categories
+    .map(([value, count]) => multiplyDecimal(value, count))
+    .filter((item): item is { scale: bigint, units: bigint } => Boolean(item)))
 }
 
 function normalizeVercelPrice(value: unknown): string | undefined {
@@ -167,8 +171,10 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
       .map(modelId => catalog[modelId])
       .find((item): item is StaticModelPrice => Boolean(item))
     if (!price) return
+    const amount = pricedTokens(usage, price)
+    if (amount === undefined) return
     return {
-      amount: pricedTokens(usage, price),
+      amount,
       currency: price.currency || "USD",
       estimated: true,
       source: "vercel-ai-gateway",

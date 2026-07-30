@@ -69,6 +69,57 @@ describe("usageCost", () => {
     expect(fetch.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal)
   })
 
+  it.each([
+    {
+      name: "input",
+      pricing: { output: "0.000002" },
+    },
+    {
+      name: "output",
+      pricing: { input: "0.000001" },
+    },
+  ])("does not estimate partial cost when $name pricing is missing", async ({ pricing }) => {
+    const fetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "custom/model",
+        pricing,
+      }],
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      },
+    })
+    expect(finish.mock.calls[0]![0].invocation.usage?.cost).toBeUndefined()
+  })
+
   it("supports custom pricing without provider dependencies", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
