@@ -2611,7 +2611,8 @@ async function finalizeAgentInvocationResult<
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
-      const stream = options.wrapStream?.(result) || result
+      const wrappedStream = options.wrapStream?.(result) || result
+      const stream = withEagerStreamUsageExtensions(wrappedStream, context, result)
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
@@ -2883,10 +2884,7 @@ async function executeAgentInvocation<
       outputExtensions,
       ...(customRun
         ? {
-            wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(
-              withEagerStreamUsageExtensions(stream, invocation, result) as AsyncIterable<StreamEvent>,
-              invocation,
-            ),
+            wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation),
           }
         : {}),
     })

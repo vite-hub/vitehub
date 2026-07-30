@@ -26,9 +26,11 @@ interface StaticModelPrice {
 interface VercelAiGatewayPricingOptions {
   fetch?: typeof fetch
   modelsUrl?: string
+  timeout?: number
 }
 
 const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
+const vercelAiGatewayPricingTimeout = 10_000
 
 function hasTokenUsage(usage: AgentUsage): boolean {
   const inputDetails = usage.inputTokenDetails
@@ -117,11 +119,12 @@ function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undef
 export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = {}): AgentUsagePricing {
   const fetcher = options.fetch || globalThis.fetch
   const modelsUrl = options.modelsUrl || vercelAiGatewayModelsUrl
+  const timeout = options.timeout ?? vercelAiGatewayPricingTimeout
   let prices: Promise<Record<string, StaticModelPrice>> | undefined
 
   async function loadPrices() {
     prices ??= (async () => {
-      const response = await fetcher(modelsUrl)
+      const response = await fetcher(modelsUrl, { signal: AbortSignal.timeout(timeout) })
       if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)
       const body = await response.json() as { data?: Array<{ id?: unknown, pricing?: Record<string, unknown> }> }
       const result: Record<string, StaticModelPrice> = {}

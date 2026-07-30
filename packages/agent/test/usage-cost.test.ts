@@ -13,7 +13,7 @@ describe("usageCost", () => {
   })
 
   it("enriches canonical usage with cache-aware Vercel AI Gateway cost", async () => {
-    const fetch = vi.fn(async () => Response.json({
+    const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0], _init?: RequestInit) => Response.json({
       data: [{
         id: "zai/glm-5v-turbo",
         pricing: {
@@ -65,6 +65,7 @@ describe("usageCost", () => {
       source: "vercel-ai-gateway",
     })
     expect(fetch).toHaveBeenCalledOnce()
+    expect(fetch.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal)
   })
 
   it("supports custom pricing without provider dependencies", async () => {
