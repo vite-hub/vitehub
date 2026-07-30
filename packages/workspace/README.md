@@ -156,6 +156,12 @@ Use `startSession({ attach: true, host })` only when another integration already
 
 Use the `@vite-hub/workspace/mountx` integration when an Agent, editor, CLI, or VM needs a real filesystem instead of Workspace methods. The adapter keeps Workspace Session diff and commit semantics in ViteHub while MountX owns the host transport.
 
+Install MountX directly before importing its transport entry points:
+
+```bash
+pnpm add mountx@0.0.2
+```
+
 ```ts
 import { createWorkspaceDriver } from "@vite-hub/workspace/mountx"
 import { mount } from "mountx/auto"

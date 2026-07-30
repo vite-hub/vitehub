@@ -412,6 +412,12 @@ export async function testDocs() {
 
 Use `@vite-hub/workspace/mountx` when an Agent, editor, CLI, or VM needs a real filesystem path or protocol instead of Workspace methods. ViteHub keeps the transactional Session and explicit commit boundary; MountX turns that Session into a driver for its local FUSE, 9P, NFS, and S3 transports.
 
+Install MountX directly before importing its transport entry points:
+
+```bash
+pnpm add mountx@0.0.2
+```
+
 ```ts [server/tasks/edit-docs.ts]
 import { createWorkspaceDriver } from '@vite-hub/workspace/mountx'
 import { mount } from 'mountx/auto'
