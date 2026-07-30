@@ -78,7 +78,7 @@ try {
 }
 ```
 
-Binary file reads and writes, directory operations, recursive listing, removal, and command execution are required across runtimes. A trusted-host Session also exposes `session.files.localPath()` so local integrations can project state directly without pretending remote providers share the ViteHub process filesystem. Long-running processes and exposed ports are explicit optional capabilities through `session.spawn` and `session.ports`. `close()` is idempotent, and every operation rejects after closure.
+Binary file reads and writes, directory operations, recursive listing, removal, and command execution are required across runtimes. Long-running processes and exposed ports are explicit optional capabilities through `session.spawn` and `session.ports`. `close()` is idempotent, and every operation rejects after closure.
 
 Hosted runtimes use tagged values from the same root API:
 
@@ -193,4 +193,4 @@ A Box isolates Home, configuration, and declared process environment from ambien
 
 Resolved environment values, file contents, state, and physical Home paths are excluded from `box.plan`. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 
-Box does not own Workspace snapshots, diffs, or commits. Workspace projects a Session directly into a trusted local Box when MountX is available and otherwise materializes through `BoxSession.files`; Box remains responsible for execution and lifecycle.
+Box does not own Workspace snapshots, diffs, or commits. Workspace materializes those files through `BoxSession.files`, while Box remains responsible for execution and lifecycle.

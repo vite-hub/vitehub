@@ -397,7 +397,7 @@ export async function testDocs() {
 
 ### Session method options
 
-`startSession({ host, paths, target })` composes Workspace state with an already-open Box Session. `host` is required for execution; `paths` limits projection or materialization and commit scope; `target` defaults to `/workspace`. The caller owns the Box lifecycle, so closing the Workspace Session does not close its host. Trusted-host Sessions project the transactional Workspace directly through MountX when the machine has a usable local transport, avoiding a host copy and tree rescans. Remote hosts and unsupported machines fall back to materialization. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
+`startSession({ host, paths, target })` composes Workspace state with an already-open Box Session. `host` is required for execution; `paths` limits materialization and commit scope; `target` defaults to `/workspace`. The caller owns the Box lifecycle, so closing the Workspace Session does not close its host. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
 
 | Method | Options | Behavior |
 | --- | --- | --- |
@@ -405,7 +405,7 @@ export async function testDocs() {
 | `exec(command, args?, options?)` | `abortSignal?`, `cwd?`, `env?`, `timeout?` | Runs through the supplied Box Session, defaulting cwd to the Workspace target. Basic Sessions without a host reject this method. |
 | `diff()` | none | Returns changes inside the Session path scope. |
 | `commit(options?)` | `message?: string` | Writes Session changes back and snapshots them with an optional message. |
-| `close()` | none | Discards uncommitted changes, unmounts a projected Session or restores a materialized host tree, and releases Session resources. |
+| `close()` | none | Rolls an uncommitted host tree back to authoritative Workspace state and releases Session resources. |
 | `tools?.aiSdk()` | none | Returns runtime-provided AI SDK tools when the Session supports them. |
 
 ### Project a Session through MountX
@@ -442,7 +442,7 @@ finally {
 }
 ```
 
-Pass `{ readOnly: true }` to `createWorkspaceDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The native Workspace driver preserves empty directories, special filenames, symlinks, executable metadata, and open-file identity across rename. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
+Pass `{ readOnly: true }` to `createWorkspaceDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
 Workspace owns the file tree and commit behavior. Box owns execution and provider adapters. Sandbox composes both for discovered named work, while Agent Definitions compose them for harness execution.
 

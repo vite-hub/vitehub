@@ -30,7 +30,6 @@ export interface RuntimeSession {
     path: string;
     recursive?: boolean;
   }): Promise<readonly BoxFileEntry[]>;
-  localPath?(options: { abortSignal?: AbortSignal; path: string }): Promise<string>;
   makeDirectory(options: {
     abortSignal?: AbortSignal;
     path: string;
@@ -134,16 +133,6 @@ export function createBoxSession(
           path,
         });
       },
-      ...(runtime.localPath
-        ? {
-            async localPath(path: string, options?: { signal?: AbortSignal }) {
-              return await runtime.localPath!({
-                abortSignal: operationSignal(options?.signal),
-                path,
-              });
-            },
-          }
-        : {}),
       async list(path, options) {
         return await runtime.listFiles({
           abortSignal: operationSignal(options?.signal),

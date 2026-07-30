@@ -16,18 +16,6 @@ afterEach(async () => {
 });
 
 describe("createTrustedHostRuntime", () => {
-  it("exposes the local path behind trusted-host files", async () => {
-    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
-    const session = await box.open();
-
-    try {
-      expect(session.files.localPath).toBeTypeOf("function");
-      await expect(session.files.localPath!("workspace")).resolves.toBe(session.cwd);
-    } finally {
-      await session.close();
-    }
-  });
-
   it("keeps the default workspace separate from runtime-owned paths", async () => {
     const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
     const session = (await boxProvider(box).createSession()) as

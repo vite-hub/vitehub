@@ -153,7 +153,6 @@ export interface WorkspaceSessionHostFileEntry {
 
 export interface WorkspaceSessionHostFiles {
   exists(path: string): Promise<boolean>
-  localPath?(path: string): Promise<string>
   list(path: string, options?: { recursive?: boolean }): Promise<readonly WorkspaceSessionHostFileEntry[]>
   mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
   read(path: string): Promise<Uint8Array | null>
