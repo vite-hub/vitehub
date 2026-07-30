@@ -185,7 +185,7 @@ finally {
 }
 ```
 
-The same driver works with MountX's 9P and NFSv4.1 servers for Linux guests, or its S3 gateway for S3-compatible clients. Use `{ readOnly: true }` when the consumer only needs inspection. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is still alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
+The same driver works with MountX's 9P and NFSv4.1 servers for Linux guests, or its S3 gateway for S3-compatible clients. Use `{ readOnly: true }` when the consumer only needs inspection. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is still alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
 Harness-backed Agents use the Workspace Package to prepare Harness Workspace Sessions for `defineAgent({ driver: { harness }, workspace })`. The Agent Package keeps the harness inside the Agent Driver boundary, Capabilities keep tools and Skills opt-in, and Workspace owns materializing the selected Workspace Scope plus write-mode sync back through Workspace rules.
 

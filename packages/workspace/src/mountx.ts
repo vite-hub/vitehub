@@ -116,10 +116,17 @@ export function createWorkspaceDriver(
     readOnly,
   })
 
+  function projectExecutableMode(
+    stats: Awaited<ReturnType<FsDriver["stat"]>>,
+    executable: boolean,
+  ) {
+    if (executable) stats.mode |= 0o111
+    return stats
+  }
+
   async function projectStats(path: string, stats: Awaited<ReturnType<FsDriver["stat"]>>) {
     const entry = assertProjectableEntry(await findEntry(session, path.replace(/^\/+/, "")))
-    if (entry?.metadata?.gitMode === "100755") stats.mode |= 0o111
-    return stats
+    return projectExecutableMode(stats, entry?.metadata?.gitMode === "100755")
   }
 
   async function stat(path: string) {
@@ -151,11 +158,13 @@ export function createWorkspaceDriver(
       if (property === "open") {
         return async (path: string, ...args: unknown[]) => {
           assertProjectablePath(path)
+          const entry = assertProjectableEntry(await findEntry(session, path.replace(/^\/+/, "")))
+          const executable = entry?.metadata?.gitMode === "100755"
           const handle = await value.call(target, path, ...args)
           return new Proxy(handle, {
             get(handleTarget, handleProperty) {
               if (handleProperty === "stat") {
-                return async () => await projectStats(path, await handleTarget.stat())
+                return async () => projectExecutableMode(await handleTarget.stat(), executable)
               }
               const handleValue = Reflect.get(handleTarget, handleProperty, handleTarget)
               return typeof handleValue === "function" ? handleValue.bind(handleTarget) : handleValue

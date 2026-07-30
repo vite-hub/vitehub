@@ -34,11 +34,11 @@ describe("MountX Workspace driver", () => {
     await fs.writeFile("/notes/draft.md", "draft")
     await fs.rename("/notes/draft.md", "/notes/final.md")
     await fs.writeFile("/README.md", "after")
+    const executable = await fs.open("/script.sh", "r")
     await fs.rename("/script.sh", "/run.sh")
     await fs.unlink("/remove.md")
 
     expect((await fs.stat("/run.sh")).mode & 0o111).toBe(0o111)
-    const executable = await fs.open("/run.sh", "r")
     expect((await executable.stat()).mode & 0o111).toBe(0o111)
     await executable.close()
     await expect(session.readFile("README.md")).resolves.toBe("after")
