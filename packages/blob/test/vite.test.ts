@@ -151,6 +151,70 @@ describe("hubBlob", () => {
     expect(driverImports(nitroRuntime)[0]).toContain("/drivers/fs")
   })
 
+  it("resolves generated Nitro registrations from the final Vite root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-root-"))
+    const plugin = hubBlob({
+      bucketName: "assets",
+      driver: "cloudflare-r2",
+      nitroOwned: true,
+      serve: true,
+    } as never)
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+    const generatedPlugin = ".vitehub/nitro/blob/plugin.ts"
+    const generatedMiddleware = ".vitehub/nitro/blob/middleware.ts"
+    const generatedServeHandler = ".vitehub/blob/serve-route.ts"
+    const resolvedPlugin = resolve(root, generatedPlugin)
+    const resolvedMiddleware = resolve(root, generatedMiddleware)
+    const resolvedServeHandler = resolve(root, generatedServeHandler)
+    const userConfig: {
+      nitro: {
+        handlers?: unknown[]
+        plugins?: string[]
+        preset: string
+      }
+    } = { nitro: { preset: "cloudflare_module" } }
+
+    config(userConfig, { command: "build" })
+    expect(userConfig).toHaveProperty("nitro.plugins", [generatedPlugin])
+    expect(userConfig).toHaveProperty("nitro.handlers", [
+      { handler: generatedMiddleware, middleware: true, route: "/**" },
+      { handler: generatedServeHandler, route: "/api/_vitehub/blob/**" },
+    ])
+
+    const resolvedConfig = {
+      build: { outDir: "dist" },
+      nitro: {
+        ...userConfig.nitro,
+        handlers: [
+          ...(userConfig.nitro.handlers ?? []),
+          { handler: resolvedMiddleware, middleware: true, route: "/**" },
+          { handler: resolvedServeHandler, route: "/api/_vitehub/blob/**" },
+        ],
+        plugins: [
+          ...(userConfig.nitro.plugins ?? []),
+          resolvedPlugin,
+        ],
+      },
+      root,
+    }
+
+    try {
+      await configResolved(resolvedConfig as never)
+      await configResolved(resolvedConfig as never)
+
+      expect(root).not.toBe(process.cwd())
+      expect(resolvedConfig).toHaveProperty("nitro.plugins", [resolvedPlugin])
+      expect(resolvedConfig).toHaveProperty("nitro.handlers", [
+        { handler: resolvedMiddleware, middleware: true, route: "/**" },
+        { handler: resolvedServeHandler, route: "/api/_vitehub/blob/**" },
+      ])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("runs selected default and named Blob stores from a standalone Node artifact", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-node-"))
     const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-artifact-"))
