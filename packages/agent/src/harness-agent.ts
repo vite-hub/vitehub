@@ -227,6 +227,9 @@ function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] 
   const sources = context.workspaceDefinition?.sources
   if (!sources) return []
   return normalizeWorkspaceSourcesMetadata(sources).flatMap((source) => {
+    if (source.materialize === "lazy" && !source.requestOnly) {
+      return [source.mountPath]
+    }
     if (source.probeKeys?.length) {
       return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
     }

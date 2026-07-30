@@ -7504,7 +7504,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = await handler(chatWebhookRequest(91_018), "telegram")
+      const response = await handler(chatWebhookRequest(91_020), "telegram")
       expect(response.status).toBe(503)
       const logEntry = consoleError.mock.calls[0]?.[0] as { error?: unknown }
       const serializedLogEntry = JSON.stringify(logEntry)
