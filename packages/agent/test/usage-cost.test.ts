@@ -110,6 +110,49 @@ describe("usageCost", () => {
     })
   })
 
+  it("matches provider-scoped catalog entries for unscoped model IDs", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "openai/gpt-5",
+        pricing: {
+          input: "0.000001",
+          output: "0.000002",
+        },
+      }],
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "gpt-5",
+          provider: "openai.responses",
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      usageRecord: {
+        cost: {
+          amount: "0.000014",
+          currency: "USD",
+          estimated: true,
+          source: "vercel-ai-gateway",
+        },
+      },
+    })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("enriches canonical usage without requiring a finish hook", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
