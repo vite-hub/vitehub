@@ -135,7 +135,10 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
         }
       }
       return result
-    })()
+    })().catch((error) => {
+      prices = undefined
+      throw error
+    })
     return await prices
   }
 

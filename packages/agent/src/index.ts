@@ -2409,8 +2409,12 @@ async function finishAgentInvocation<
         ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
-      if (context.finishHook || context.finishExtensionProviders.some(provider => provider.eager) || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
-        const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
+      const hasFinishConsumer = Boolean(context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders))
+      const finishExtensionProviders = hasFinishConsumer
+        ? context.finishExtensionProviders
+        : context.finishExtensionProviders.filter(provider => provider.eager)
+      if (hasFinishConsumer || finishExtensionProviders.length) {
+        const extensions = await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
         await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)

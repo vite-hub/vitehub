@@ -141,6 +141,45 @@ describe("usageCost", () => {
     expect(pricing).toHaveBeenCalledOnce()
   })
 
+  it("does not resolve unrelated lazy finish extensions during eager-only work", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const lazy = vi.fn(() => {
+      throw new Error("lazy extension should not run")
+    })
+    const pricing = vi.fn(() => ({
+      amount: "0.02",
+      currency: "USD" as const,
+      estimated: true,
+      source: "custom" as const,
+    }))
+    const agent = defineAgent({
+      capabilities: [
+        {
+          id: "lazy",
+          finish: lazy,
+        },
+        usageCost({ pricing }),
+      ],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      text: "ok",
+    })
+    expect(pricing).toHaveBeenCalledOnce()
+    expect(lazy).not.toHaveBeenCalled()
+  })
+
   it("does not estimate cost from total-only token usage", async () => {
     const fetch = vi.fn(async () => Response.json({
       data: [{
@@ -179,6 +218,54 @@ describe("usageCost", () => {
       },
     })
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("retries catalog loading after a transient failure", async () => {
+    const fetch = vi.fn()
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValue(Response.json({
+        data: [{
+          id: "custom/model",
+          pricing: {
+            input: "0.000001",
+            output: "0.000002",
+          },
+        }],
+      }))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "first" })
+    await runAgent(agent, runtime(), { prompt: "second" })
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(finish.mock.calls[0]![0].invocation.usage?.cost).toBeUndefined()
+    expect(finish.mock.calls[1]![0].invocation.usage?.cost).toEqual({
+      amount: "0.000014",
+      currency: "USD",
+      estimated: true,
+      source: "vercel-ai-gateway",
+    })
   })
 
   it.each([
