@@ -98,12 +98,16 @@ describe("MountX Workspace driver", () => {
 
   it("rejects unstorage-incompatible Workspace filenames during enumeration", async () => {
     const docs = workspace()
-    await docs.writeFile("report:final.txt", "colon")
     await docs.writeFile("report/final.txt", "directory")
 
     const session = await docs.startSession()
     const fs = createLoopback(createWorkspaceDriver(session))
 
+    await expect(fs.writeFile("/report:final.txt", "colon")).rejects.toMatchObject({ code: "EINVAL" })
+    await expect(fs.unlink("/report:final.txt")).rejects.toMatchObject({ code: "EINVAL" })
+    await expect(session.readFile("report/final.txt")).resolves.toBe("directory")
+
+    await session.writeFile("report:final.txt", "colon")
     await expect(fs.readdir("/", { withFileTypes: true })).rejects.toMatchObject({ code: "EINVAL" })
     await session.close()
   })

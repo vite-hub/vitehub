@@ -30,16 +30,20 @@ async function findEntry(session: WorkspaceSession, path: string): Promise<Works
   return (await session.list(parent === "." ? "" : parent)).find(entry => entry.path === path)
 }
 
-function assertProjectableEntry(entry: WorkspaceEntry | undefined) {
-  const invalidName = entry?.path.split("/").find(segment =>
+function assertProjectablePath(path: string) {
+  const invalidName = path.split("/").find(segment =>
     segment.includes(":") || segment.includes("?") || segment.endsWith("$"),
   )
   if (invalidName) {
     throw Object.assign(
       new Error(`Workspace filename is not representable as an unstorage key: ${invalidName}`),
-      { code: "EINVAL", path: entry?.path },
+      { code: "EINVAL", path },
     )
   }
+}
+
+function assertProjectableEntry(entry: WorkspaceEntry | undefined) {
+  if (entry) assertProjectablePath(entry.path)
   if (entry?.metadata?.gitMode !== "120000") return entry
   throw Object.assign(
     new Error(`MountX cannot project Workspace symlink semantics: ${entry.path}`),
@@ -113,15 +117,55 @@ export function createWorkspaceDriver(
   })
 
   async function stat(path: string) {
+    assertProjectablePath(path)
     const stats = await driver.stat(path)
     const entry = assertProjectableEntry(await findEntry(session, path.replace(/^\/+/, "")))
     if (entry?.metadata?.gitMode === "100755") stats.mode |= 0o111
     return stats
   }
 
-  return {
-    ...driver,
-    stat,
-    lstat: stat,
-  }
+  const singlePathMethods = new Set([
+    "chmod",
+    "chown",
+    "lchown",
+    "lutimes",
+    "mkdir",
+    "open",
+    "readlink",
+    "readdir",
+    "rmdir",
+    "statfs",
+    "truncate",
+    "unlink",
+    "utimes",
+  ])
+  const twoPathMethods = new Set(["link", "rename"])
+
+  return new Proxy(driver, {
+    get(target, property) {
+      if (property === "stat" || property === "lstat") return stat
+      const value = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (singlePathMethods.has(property as string)) {
+        return (path: string, ...args: unknown[]) => {
+          assertProjectablePath(path)
+          return value.call(target, path, ...args)
+        }
+      }
+      if (twoPathMethods.has(property as string)) {
+        return (from: string, to: string, ...args: unknown[]) => {
+          assertProjectablePath(from)
+          assertProjectablePath(to)
+          return value.call(target, from, to, ...args)
+        }
+      }
+      if (property === "symlink") {
+        return (linkTarget: string, path: string, ...args: unknown[]) => {
+          assertProjectablePath(path)
+          return value.call(target, linkTarget, path, ...args)
+        }
+      }
+      return value.bind(target)
+    },
+  })
 }
