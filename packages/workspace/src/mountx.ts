@@ -2,7 +2,7 @@ import { posix } from "node:path"
 
 import { createUnstorageDriver } from "mountx/drivers/unstorage"
 
-import type { WorkspaceEntry, WorkspaceSession } from "./core/types.ts"
+import type { WorkspaceEntry, WorkspaceSession, WriteFileOptions } from "./core/types.ts"
 import type { FsDriver } from "mountx"
 
 export interface WorkspaceMountXDriverOptions {
@@ -31,11 +31,15 @@ async function findEntry(session: WorkspaceSession, path: string): Promise<Works
 }
 
 function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
+  const writeOptionsByValue = new WeakMap<Uint8Array, WriteFileOptions>()
+
   async function readItem(key: string) {
     const path = keyToPath(key)
     const entry = await findEntry(session, path)
     if (entry?.type !== "file") return null
-    return await session.readFile(path, { encoding: "binary" })
+    const value = valueToBytes(await session.readFile(path, { encoding: "binary" }))
+    writeOptionsByValue.set(value, { mediaType: entry.mediaType, metadata: entry.metadata })
+    return value
   }
 
   const storage = {
@@ -66,7 +70,15 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
             await session.rm(keyToPath(key), { force: true })
           },
           async setItemRaw(key: string, value: unknown) {
-            await session.writeFile(keyToPath(key), valueToBytes(value))
+            const path = keyToPath(key)
+            const entry = await findEntry(session, path)
+            const writeOptions = value instanceof Uint8Array
+              ? writeOptionsByValue.get(value)
+              : undefined
+            await session.writeFile(path, valueToBytes(value), writeOptions ?? {
+              mediaType: entry?.mediaType,
+              metadata: entry?.metadata,
+            })
           },
         }),
   }
