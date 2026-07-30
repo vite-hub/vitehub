@@ -1934,6 +1934,41 @@ function maybeTraceAgentStream<
   return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
 }
 
+function withEagerStreamUsageExtensions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  stream: AsyncIterable<StreamEvent>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  result: unknown,
+): AsyncIterable<StreamEvent> {
+  const providers = context.finishExtensionProviders.filter(provider => provider.eager)
+  if (!providers.length) return stream
+  return (async function* () {
+    for await (const event of stream) {
+      if (event.type !== "usage") {
+        yield event
+        continue
+      }
+      const usage = { ...event.usageRecord }
+      const eventBase = {
+        actor: context.actor,
+        input: context.input,
+        invoker: context.invoker,
+        invocation: {
+          durationMs: Date.now() - context.startedAt,
+          ...(context.run ? { run: context.run } : {}),
+          usage,
+        },
+        result,
+        runtime: context.runtimeContext,
+      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      await createAgentInvocationExtensions(eventBase as never, providers)
+      yield { ...event, usageRecord: usage }
+    }
+  })()
+}
+
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
   if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
   Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
@@ -2866,7 +2901,7 @@ async function executeAgentInvocation<
     const stream = isStreamResult
       ? streamAgentOutputToEvents(rendered)
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
-    const streamed = withStreamedResult(stream, rendered, driverUsageRecord)
+    const streamed = withStreamedResult(withEagerStreamUsageExtensions(stream, invocation, rendered), rendered, driverUsageRecord)
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const shouldWrapOutput = shouldWrapInvocationOutput(invocation)
     const value = shouldWrapOutput

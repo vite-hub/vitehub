@@ -146,6 +146,56 @@ describe("usageCost", () => {
     expect(pricing).toHaveBeenCalledOnce()
   })
 
+  it("prices usage records before yielding them from streamAgent", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const pricing = vi.fn(() => ({
+      amount: "0.02",
+      currency: "USD" as const,
+      estimated: true,
+      source: "custom" as const,
+    }))
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing })],
+      driver: {
+        run: () => (async function* () {
+          yield {
+            type: "usage" as const,
+            usageRecord: {
+              usage: {
+                inputTokens: 10,
+                outputTokens: 2,
+                totalTokens: 12,
+              },
+            },
+          }
+        })(),
+      },
+    })
+
+    const stream = await streamAgent(agent, runtime(), { prompt: "hello" })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toEqual([{
+      type: "usage",
+      usageRecord: {
+        cost: {
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        },
+        usage: {
+          inputTokens: 10,
+          outputTokens: 2,
+          totalTokens: 12,
+        },
+      },
+    }])
+    expect(pricing).toHaveBeenCalledOnce()
+  })
+
   it("preserves richer raw usage while attaching the canonical record", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
