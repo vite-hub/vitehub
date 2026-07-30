@@ -772,7 +772,7 @@ function agentChannelMetadataInstructions<
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): string[] {
   const settings = agentSettings(definition)
-  if (!settings || normalizeAgentDriver(settings).kind === "run") return []
+  if (settings && normalizeAgentDriver(settings).kind === "run") return []
   return inspectMessageChannelInstructions(definition.channels)
 }
 

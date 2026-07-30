@@ -162,6 +162,19 @@ describe("Channel instructions", () => {
     expect(await resolveAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
   })
 
+  it("retains Channel guidance for opaque adapter definitions", async () => {
+    const agent = {
+      channels: { support: telegram() },
+      async resolve() {
+        return createAiSdkAdapter({ model: createModel() as never })
+      },
+    } as never
+    const inspected = [`Channel "support" instructions:\n\n${telegramInstructions}`]
+
+    expect(createAgentInspectionMetadata(agent).instructions).toEqual(inspected)
+    expect((await resolveAgentInspectionMetadata(agent)).instructions).toEqual(inspected)
+  })
+
   it("preserves instructions when an internal runtime wraps a Channel", () => {
     const source = telegram()
     const wrapped = inheritMessageChannelInstructions({ ...source, effects: {} }, source)
