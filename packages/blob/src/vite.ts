@@ -112,21 +112,35 @@ function blobServeNitroRoute(serve: BlobServeConfig): string {
   return `${normalizeNitroRoute(serve.route).replace(/\/+$/, "")}/**`
 }
 
-function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean): Record<string, unknown> {
+function isGeneratedNitroRegistration(value: unknown, generatedPath: string): boolean {
+  return typeof value === "string"
+    && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${generatedPath}`))
+}
+
+function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
-  const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
-  if (!plugins.includes(generatedNitroBlobPlugin)) plugins.push(generatedNitroBlobPlugin)
-  const handlers = Array.isArray(nitro.handlers)
-    ? nitro.handlers.filter(handler => handler?.handler !== generatedNitroBlobMiddleware)
+  const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
+  const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
+  const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
+  const plugins = Array.isArray(nitro.plugins)
+    ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedNitroBlobPlugin))
     : []
-  if (cloudflare) handlers.unshift({ handler: generatedNitroBlobMiddleware, middleware: true, route: "/**" })
+  plugins.push(plugin)
+  const handlers = Array.isArray(nitro.handlers)
+    ? nitro.handlers.filter(handler =>
+        !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware),
+      )
+    : []
+  if (cloudflare) handlers.unshift({ handler: middleware, middleware: true, route: "/**" })
   if (!serve) return { ...nitro, handlers, plugins }
-  const existingHandlers = handlers.filter(handler => handler?.handler !== generatedBlobServeRouteHandler)
+  const existingHandlers = handlers.filter(handler =>
+    !isGeneratedNitroRegistration(handler?.handler, generatedBlobServeRouteHandler),
+  )
   return {
     ...nitro,
     handlers: [
       ...existingHandlers,
-      { handler: generatedBlobServeRouteHandler, route: blobServeNitroRoute(serve) },
+      { handler: serveHandler, route: blobServeNitroRoute(serve) },
     ],
     plugins,
   }
@@ -274,6 +288,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflareOwnedByNitro,
+        config.root,
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useComposedProviderOutput(config)
