@@ -171,8 +171,20 @@ describe("Channel instructions", () => {
     } as never
     const inspected = [`Channel "support" instructions:\n\n${telegramInstructions}`]
 
-    expect(createAgentInspectionMetadata(agent).instructions).toEqual(inspected)
+    expect(createAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
     expect((await resolveAgentInspectionMetadata(agent)).instructions).toEqual(inspected)
+  })
+
+  it("omits guidance for opaque custom adapters that do not consume it", async () => {
+    const agent = {
+      channels: { support: telegram() },
+      async resolve() {
+        return { generate: () => "ok" }
+      },
+    } as never
+
+    expect(createAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
+    expect(await resolveAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
   })
 
   it("preserves instructions when an internal runtime wraps a Channel", () => {

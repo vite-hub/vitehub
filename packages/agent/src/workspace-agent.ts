@@ -26,7 +26,7 @@ import {
   resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "./internal/agent-driver.ts"
-import { inspectMessageChannelInstructions } from "./internal/channels.ts"
+import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 
 import type {
   AgentAdapterMetadataContext,
@@ -772,7 +772,7 @@ function agentChannelMetadataInstructions<
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): string[] {
   const settings = agentSettings(definition)
-  if (settings && normalizeAgentDriver(settings).kind === "run") return []
+  if (!settings || normalizeAgentDriver(settings).kind === "run") return []
   return inspectMessageChannelInstructions(definition.channels)
 }
 
@@ -1457,8 +1457,11 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
   resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>,
 ): Promise<AgentInspectionMetadata> {
   const settings = agentSettings(definition)
-  const channelInstructions = agentChannelMetadataInstructions(definition)
   if (!settings) {
+    const adapter = await definition.resolve(createInspectionMetadataRuntime(resolution))
+    const channelInstructions = consumesMessageChannelInstructions(adapter)
+      ? inspectMessageChannelInstructions(definition.channels)
+      : []
     return {
       files: [],
       ...(channelInstructions.length ? { instructions: channelInstructions } : {}),
@@ -1466,6 +1469,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       tools: [],
     }
   }
+  const channelInstructions = agentChannelMetadataInstructions(definition)
 
   const selection = await resolveMetadataCapabilitySelection(settings as never, resolution)
   validateAgentCapabilityComposition(selection.capabilities, { hasWorkspace: false })

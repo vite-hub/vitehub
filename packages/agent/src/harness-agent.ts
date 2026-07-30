@@ -19,7 +19,7 @@ import {
 } from "./workspace-agent.ts"
 import { abortSignalError, nextWithAbort } from "./internal/abortable-stream.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
-import { resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { markMessageChannelInstructionConsumer, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import {
   colocatedAgentSkillsContextKey,
   type ColocatedAgentSkills,
@@ -1455,7 +1455,7 @@ export function createHarnessAgentAdapter<
     }
   }
 
-  return {
+  return markMessageChannelInstructionConsumer({
     async generate(context) {
       const { agent, chatPrompt, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
@@ -1486,6 +1486,6 @@ export function createHarnessAgentAdapter<
         throw error
       }
     },
-  }
+  })
 }
 import { posix } from "node:path"

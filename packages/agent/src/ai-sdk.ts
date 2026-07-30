@@ -5,7 +5,7 @@ import {
   teeingAsyncIterableStreamDescriptor,
 } from "./internal/stream-result.ts"
 import { loadAiSdk } from "./internal/ai-sdk-runtime.ts"
-import { resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { markMessageChannelInstructionConsumer, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import {
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
@@ -1087,7 +1087,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   const staticTools = typeof options.tools === "object" && options.tools
     ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(options.tools as AgentToolSet) || {}))
     : undefined
-  return {
+  return markMessageChannelInstructionConsumer({
     async generate(context) {
       const execution = options.execution
       const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
@@ -1159,7 +1159,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },
-  }
+  })
 }
 
 export function fromAiSdkAgent(agent: Agent): AgentAdapter {
