@@ -112,7 +112,6 @@ function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undef
   if (!modelId.includes("/") && provider) {
     const providerScope = provider.split(".", 1)[0]!
     addModelIdCandidate(candidates, `${providerScope}/${unscoped}`)
-    addModelIdCandidate(candidates, `${providerScope.split("-", 1)[0]}/${unscoped}`)
   }
   const isAnthropic = modelId.startsWith("anthropic/") || unscoped.startsWith("claude-") || provider.includes("anthropic")
   if (isAnthropic) {

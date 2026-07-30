@@ -154,6 +154,53 @@ describe("usageCost", () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it("does not map compatible providers to vendor catalog scopes", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "openai/gpt-5",
+        pricing: {
+          input: "0.000001",
+          output: "0.000002",
+        },
+      }],
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [usageCost()],
+      driver: {
+        run: () => ({
+          modelId: "gpt-5",
+          provider: "openai-compatible",
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+          },
+        }),
+      },
+    })
+
+    const result = await runAgent(agent, runtime(), { prompt: "hello" })
+
+    expect(result).toMatchObject({
+      usageRecord: {
+        usage: {
+          totalTokens: 12,
+        },
+      },
+    })
+    expect(result).not.toMatchObject({
+      usageRecord: {
+        cost: expect.anything(),
+      },
+    })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("enriches canonical usage without requiring a finish hook", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
