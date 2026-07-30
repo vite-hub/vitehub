@@ -2803,7 +2803,11 @@ async function executeAgentInvocation<
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => withReadableStreamCleanup(
-                normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)),
+                toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
+                  toReadableAsyncIterableStream(normalizeUiMessageStream(toUIMessageStream.apply(rendered, args))),
+                  invocation,
+                  rendered,
+                )),
                 outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText, streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
                 {
                   onChunk(chunk) {
@@ -2967,9 +2971,10 @@ async function executeAgentInvocation<
           const projection = typeof definition?.uiMessageStream === "function"
             ? await definition.uiMessageStream(invocation)
             : definition?.uiMessageStream
-          const finalized = await finalizeUiMessageStreamOutput({
+          const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
-          }, shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
+          }, invocation)
+          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
             const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
             await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
           }, projection)

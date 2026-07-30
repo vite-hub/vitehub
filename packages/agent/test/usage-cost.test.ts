@@ -337,6 +337,45 @@ describe("usageCost", () => {
     }))
   })
 
+  it("prices serialized UI message response usage before returning it", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        pricing: () => ({
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => new Response(`data: ${JSON.stringify({
+          type: "usage",
+          usageRecord: {
+            usage: {
+              inputTokens: 10,
+              outputTokens: 2,
+              totalTokens: 12,
+            },
+          },
+        })}\n\n`, {
+          headers: { "x-vercel-ai-ui-message-stream": "v1" },
+        }),
+      },
+    })
+
+    const response = await streamAgent(agent, runtime(), { prompt: "hello" }, {
+      output: "ui-message-stream",
+    }) as Response
+    const chunks = []
+    const body = response.body!
+      .pipeThrough(new TextDecoderStream())
+    for await (const chunk of body) chunks.push(chunk)
+
+    expect(chunks.join("")).toContain("\"amount\":\"0.02\"")
+  })
+
   it("returns stream results before their usage promise settles", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
