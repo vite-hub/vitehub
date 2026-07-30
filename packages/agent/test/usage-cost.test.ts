@@ -241,6 +241,54 @@ describe("usageCost", () => {
     expect(pricing).toHaveBeenCalledOnce()
   })
 
+  it("prices usage carried by raw finish chunks before yielding", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const pricing = vi.fn(() => ({
+      amount: "0.02",
+      currency: "USD" as const,
+      estimated: true,
+      source: "custom" as const,
+    }))
+    const agent = defineAgent({
+      capabilities: [usageCost({ pricing })],
+      driver: {
+        run: () => (async function* () {
+          yield {
+            totalUsage: {
+              inputTokens: 10,
+              outputTokens: 2,
+              totalTokens: 12,
+            },
+            type: "finish" as const,
+          }
+        })(),
+      },
+    })
+
+    const stream = await runAgent(agent, runtime(), { prompt: "hello" })
+    const chunks = []
+    for await (const chunk of stream as AsyncIterable<unknown>) chunks.push(chunk)
+
+    expect(chunks).toEqual([{
+      totalUsage: {
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      },
+      type: "finish",
+      usageRecord: expect.objectContaining({
+        cost: {
+          amount: "0.02",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        },
+      }),
+    }])
+    expect(pricing).toHaveBeenCalledOnce()
+  })
+
   it("preserves richer raw usage while attaching the canonical record", async () => {
     const { usageCost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
