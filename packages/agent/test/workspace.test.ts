@@ -3363,6 +3363,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("synthesizes an answer when tool loop stops without text after tool results", async () => {
+    const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     agentGenerate.mockResolvedValueOnce({
       finishReason: "stop",
@@ -3377,12 +3378,21 @@ describe("defineAgent workspace option", () => {
     })
 
     const agent = withExplicitWorkspaceName(defineAgent({
+      channels: { support: telegram() },
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
 
-    await expect(agent.run!(context())).resolves.toBe("fallback answer")
+    await expect(agent.run!(Object.assign(context() as object, {
+      run: {
+        channelId: "support",
+        origin: "support",
+        runId: "support:1",
+        threadId: "support:1",
+      },
+    }) as never)).resolves.toBe("fallback answer")
     expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      instructions: expect.stringContaining("Write the final response for Telegram."),
       prompt: expect.stringContaining("client.py:7"),
     }))
   })

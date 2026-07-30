@@ -5,6 +5,7 @@ import {
   claimMessageChannelTitleDelivery,
   createMessageChannelTitleEffectIntent,
   finishMessageChannelTitleDelivery,
+  markAuxiliaryMessageChannelInstructionContext,
   messageChannelStateContextKey,
   messageChannelTitleDeliveredContextKey,
   resetMessageChannelTitleDelivery,
@@ -266,7 +267,7 @@ function titleAdapterRunContext(
   if (!context.runtimeContext) {
     throw new Error("[vitehub] title({ driver }) requires an agent runtime context.")
   }
-  return {
+  return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
     context: context.context,
     toolStepReporter: context.runtimeContext.toolStepReporter,
@@ -275,7 +276,7 @@ function titleAdapterRunContext(
     messages: [],
     prompt,
     runtime: context.runtimeContext,
-  }
+  })
 }
 
 function titleRunContext(

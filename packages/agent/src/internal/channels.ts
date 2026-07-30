@@ -16,6 +16,7 @@ export const messageChannelStateContextKey = "chat.channelState"
 const messageChannelTitleClaimTtlMs = 5 * 60 * 1000
 const messageChannelInstructions = new WeakMap<object, string>()
 const messageChannelInvocationInstructions = new WeakMap<AgentInvocationContextStore, string>()
+const auxiliaryMessageChannelInstructionContexts = new WeakSet<object>()
 const messageChannelTitleEffectIntents = new WeakSet<AgentChannelDeliveryEffectIntent>()
 const messageChannelTitleDeliveryPolicies = new WeakMap<AgentChannelDeliveryEffectIntent, "always" | "once-per-thread">()
 const messageChannelTitleDeliveryAttempts = new WeakMap<AgentChannelDeliveryEffectIntent, MessageChannelTitleDeliveryAttempt>()
@@ -78,7 +79,18 @@ export function bindMessageChannelInstructions(
   if (instructions) messageChannelInvocationInstructions.set(context, instructions)
 }
 
-export function resolveMessageChannelInstructions(context: AgentInvocationContextStore): string | undefined {
+export function markAuxiliaryMessageChannelInstructionContext<TContext extends object>(
+  context: TContext,
+): TContext {
+  auxiliaryMessageChannelInstructionContexts.add(context)
+  return context
+}
+
+export function resolveMessageChannelInstructions(
+  context: AgentInvocationContextStore,
+  adapterContext?: object,
+): string | undefined {
+  if (adapterContext && auxiliaryMessageChannelInstructionContexts.has(adapterContext)) return undefined
   return messageChannelInvocationInstructions.get(context)
 }
 

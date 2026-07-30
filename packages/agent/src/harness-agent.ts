@@ -712,7 +712,7 @@ async function resolveHarnessDriverInstructions<
   const configured = resolved ? await composeHarnessInstructions(resolved, context) : undefined
   return [
     configured,
-    resolveMessageChannelInstructions(context.context),
+    resolveMessageChannelInstructions(context.context, context),
     agentOutputInstructions(context.output),
   ].filter(Boolean).join("\n\n") || undefined
 }

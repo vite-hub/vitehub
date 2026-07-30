@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
 import { discord, telegram } from "../src/channels.ts"
 import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgentTrigger } from "../src/index.ts"
-import { bindMessageChannelInstructions, inheritMessageChannelInstructions, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
+import { bindMessageChannelInstructions, inheritMessageChannelInstructions, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
 
@@ -254,5 +254,31 @@ describe("Channel instructions", () => {
       outputInstructions,
     ])
     expect(systemMessages[0]!.content).not.toContain("Injected Channel instructions.")
+  })
+
+  it("does not apply final-response guidance to auxiliary model calls", async () => {
+    const model = createModel()
+    const adapter = createAiSdkAdapter({
+      instructions: "Generate one short title.",
+      model: model as never,
+    })
+    const context = createAgentInvocationContextStore()
+    bindMessageChannelInstructions(context, telegram())
+    const invoker = { id: "channel-test", kind: "user" }
+
+    await adapter.generate(markAuxiliaryMessageChannelInstructionContext({
+      actor: invoker,
+      context,
+      input: {},
+      invoker,
+      messages: [],
+      prompt: "Dinner plans",
+      runtime,
+    }) as never)
+
+    const systemMessages = model.doGenerateCalls[0]!.prompt.filter(message => message.role === "system")
+    expect(systemMessages).toHaveLength(1)
+    expect(systemMessages[0]!.content).toContain("Generate one short title.")
+    expect(systemMessages[0]!.content).not.toContain(telegramInstructions)
   })
 })
