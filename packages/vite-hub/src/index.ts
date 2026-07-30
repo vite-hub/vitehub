@@ -191,6 +191,10 @@ export interface ViteHubOptions {
 
 export type DeploymentPreset = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
 
+export interface ViteHubConfig {
+  preset?: DeploymentPreset
+}
+
 type DeploymentIdentitySource = "VITEHUB_DEPLOYMENT_NAME" | "package.json" | "root" | "vitehub.name"
 
 interface DeploymentIdentity {
@@ -295,6 +299,10 @@ function deploymentPlugins(
       },
       config(config, environment) {
         const building = environment.command === "build"
+        ;(config as { vitehub?: unknown }).vitehub = {
+          ...cloneRecord((config as { vitehub?: unknown }).vitehub),
+          preset: plan.preset,
+        }
         for (const service of requestedServices) assertDeploymentService(plan, service)
         const identity = resolveDeploymentIdentity(
           typeof config.root === "string" ? config.root : undefined,
@@ -545,4 +553,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(viteHubTypesPlugin())
   return plugins as PluginOption[]
+}
+
+declare module "vite" {
+  interface UserConfig {
+    vitehub?: ViteHubConfig
+  }
 }

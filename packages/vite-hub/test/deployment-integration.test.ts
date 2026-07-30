@@ -40,8 +40,12 @@ describe("built-in deployment preset integration", () => {
           queue: false,
           rateLimit: false,
         })],
+        vitehub: {
+          marker: "preserved",
+        },
       } as Parameters<typeof resolveConfig>[0] & {
         nitro: { modules: string[], preset: string }
+        vitehub: { marker: string }
       }
       const development = await resolveConfig(developmentConfig, "serve")
       expect((development as typeof development & {
@@ -49,6 +53,10 @@ describe("built-in deployment preset integration", () => {
       }).nitro).toMatchObject({
         modules: ["local-module"],
         preset: "node-server",
+      })
+      expect(development.vitehub).toEqual({
+        marker: "preserved",
+        preset: "cloudflare",
       })
 
       const production = await resolveConfig({
@@ -66,6 +74,9 @@ describe("built-in deployment preset integration", () => {
       }).nitro).toMatchObject({
         modules: [expect.any(Function)],
         preset: "cloudflare-module",
+      })
+      expect(production.vitehub).toEqual({
+        preset: "cloudflare",
       })
     }
     finally {
