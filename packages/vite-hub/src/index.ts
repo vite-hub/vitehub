@@ -296,7 +296,7 @@ function deploymentNitroModule(
       const outputRelative = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
       const serverDir = /^[\w./-]+$/.test(outputRelative)
         ? `./${outputRelative}`
-        : shellQuote(`./${relative(nitro.options.rootDir, nitro.options.output.serverDir).replaceAll("\\", "/")}`)
+        : shellQuote(`./${outputRelative}`)
       nitro.options.commands.deploy = `npx wrangler --cwd ${serverDir} deploy --containers-rollout=gradual`
     }
     nitro.hooks.hook("compiled", async () => {

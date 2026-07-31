@@ -471,7 +471,7 @@ describe("vitehub", () => {
 
     expect(nitro.options).toMatchObject({
       commands: {
-        deploy: "npx wrangler --cwd './.output/cloudflare worker' deploy --containers-rollout=gradual",
+        deploy: "npx wrangler --cwd './cloudflare worker' deploy --containers-rollout=gradual",
         preview: "node ./preview.mjs",
       },
     })
