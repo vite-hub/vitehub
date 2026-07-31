@@ -104,13 +104,6 @@ describe("hosted Blob consumer runtime", () => {
               },
               name: "vitehub-blob-private-vercel-consumer",
               packageManager: "pnpm@10.33.0",
-              pnpm: {
-                overrides: {
-                  "@vite-hub/runtime": `file:${runtimeTarball}`,
-                  // Rolldown 1.1.5 pins @emnapi/* 1.x, while wasm-runtime 1.2 requires 2.x peers.
-                  "@napi-rs/wasm-runtime": "1.1.6",
-                },
-              },
               private: true,
               scripts: { build: "vite build" },
               type: "module",
@@ -122,7 +115,15 @@ describe("hosted Blob consumer runtime", () => {
         )
         await writeFile(
           join(appDir, "pnpm-workspace.yaml"),
-          ["packages:", "  - .", "allowBuilds:", "  esbuild: true", ""].join("\n"),
+          [
+            "packages:",
+            "  - .",
+            "allowBuilds:",
+            "  esbuild: true",
+            "overrides:",
+            `  "@vite-hub/runtime": "file:${runtimeTarball}"`,
+            "",
+          ].join("\n"),
           "utf8",
         )
 
