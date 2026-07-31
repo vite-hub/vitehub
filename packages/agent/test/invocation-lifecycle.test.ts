@@ -57,6 +57,87 @@ function createInvocationRuntime() {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+function createHarnessAdapterContext(options: {
+  abortSignal?: AbortSignal
+  waitUntil: (task: Promise<unknown>) => void
+}) {
+  const values = new Map<string, unknown>()
+  return {
+    actor: { id: "actor" },
+    context: {
+      entries: () => values.entries(),
+      get: (key: string) => values.get(key),
+      has: (key: string) => values.has(key),
+      set: (key: string, value: unknown) => {
+        values.set(key, value)
+      },
+      toJSON: () => Object.fromEntries(values),
+    },
+    input: {
+      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+      prompt: "hello",
+    },
+    invoker: { id: "invoker" },
+    messages: [],
+    prompt: "hello",
+    runtime: {
+      memo: vi.fn(),
+      runtime: "unknown",
+      runtimeConfig: {},
+      waitUntil: options.waitUntil,
+    },
+  }
+}
+
+function streamOf<T>(values: T[]) {
+  return new ReadableStream<T>({
+    start(controller) {
+      for (const value of values) controller.enqueue(value)
+      controller.close()
+    },
+  })
+}
+
+async function createHarnessCleanupProbe(options: { abortSignal?: AbortSignal } = {}) {
+  const { createHarnessAgentAdapter } = await import("../src/harness-agent.ts")
+  const completion = deferred<unknown[]>()
+  const destroy = vi.fn()
+  const tasks: Promise<unknown>[] = []
+  const eventStream = streamOf([
+    { text: "first", type: "text-delta" },
+    { text: "second", type: "text-delta" },
+  ])
+  harnessCreateSession.mockResolvedValueOnce({ destroy })
+  harnessStream.mockResolvedValueOnce({
+    fullStream: eventStream,
+    responseMessages: completion.promise,
+    stream: eventStream,
+    textStream: streamOf(["first", "second"]),
+  })
+  const adapter = createHarnessAgentAdapter({
+    harness: { harnessId: "test" },
+    sandbox: { providerId: "test" },
+  } as never)
+  const result = await adapter.stream?.(createHarnessAdapterContext({
+    abortSignal: options.abortSignal,
+    waitUntil(task) {
+      tasks.push(task)
+    },
+  }) as never) as {
+    stream: AsyncIterable<{ text: string }>
+    textStream: AsyncIterable<string>
+  }
+  return { completion, destroy, result, tasks }
+}
+
 function createInvocationDriverFixture(
   kind: DriverKind,
   form: InvocationForm,
@@ -286,6 +367,47 @@ describe("Agent Invocation Interface lifecycle", () => {
 
     await expect(response.text()).resolves.toBe("handled")
     probe.expectFinished(["input", "close", "finish"])
+  })
+})
+
+describe("Harness Agent Driver session cleanup", () => {
+  it("cleans an unconsumed multi-stream result when production settles", async () => {
+    const { completion, destroy, tasks } = await createHarnessCleanupProbe()
+    expect(destroy).not.toHaveBeenCalled()
+
+    completion.resolve([])
+    await Promise.all(tasks)
+
+    expect(destroy).toHaveBeenCalledOnce()
+  })
+
+  it("cleans an unconsumed result when its invocation is aborted", async () => {
+    const abort = new AbortController()
+    const { destroy, tasks } = await createHarnessCleanupProbe({ abortSignal: abort.signal })
+    abort.abort(new Error("abandoned"))
+    await Promise.all(tasks)
+
+    expect(destroy).toHaveBeenCalledOnce()
+  })
+
+  it("keeps buffered sibling streams readable after producer cleanup", async () => {
+    const { completion, destroy, result, tasks } = await createHarnessCleanupProbe()
+    const events = result.stream[Symbol.asyncIterator]()
+    const text = result.textStream[Symbol.asyncIterator]()
+
+    await expect(events.next()).resolves.toMatchObject({ done: false, value: { text: "first" } })
+    await expect(text.next()).resolves.toEqual({ done: false, value: "first" })
+    expect(destroy).not.toHaveBeenCalled()
+
+    completion.resolve([])
+    await Promise.all(tasks)
+    expect(destroy).toHaveBeenCalledOnce()
+
+    await expect(events.next()).resolves.toMatchObject({ done: false, value: { text: "second" } })
+    await expect(text.next()).resolves.toEqual({ done: false, value: "second" })
+    await expect(events.next()).resolves.toMatchObject({ done: true })
+    await expect(text.next()).resolves.toMatchObject({ done: true })
+    expect(destroy).toHaveBeenCalledOnce()
   })
 })
 
