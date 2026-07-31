@@ -447,9 +447,28 @@ describe("vitehub", () => {
       { nitro: { commands: { preview: "node ./preview.mjs" } } },
     )
 
-    expect(config.nitro).toMatchObject({
+    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
+    const module = nitroConfig.modules.at(-1) as (nitro: {
+      hooks: { hook: ReturnType<typeof vi.fn> }
+      options: {
+        commands: Record<string, unknown>
+        output: { dir: string, serverDir: string }
+        rootDir: string
+      }
+    }) => void
+    const nitro = {
+      hooks: { hook: vi.fn() },
+      options: {
+        commands: nitroConfig.commands,
+        output: { dir: "/app/.output", serverDir: "/app/.output/worker" },
+        rootDir: "/app",
+      },
+    }
+    module(nitro)
+
+    expect(nitro.options).toMatchObject({
       commands: {
-        deploy: "npx wrangler --cwd ./server deploy --containers-rollout=gradual",
+        deploy: "npx wrangler --cwd ./worker deploy --containers-rollout=gradual",
         preview: "node ./preview.mjs",
       },
     })

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { basename, dirname, join, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
@@ -277,11 +277,21 @@ function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
-function deploymentNitroModule(plan: DeploymentPlan, services: object, identity: DeploymentIdentity) {
+function deploymentNitroModule(
+  plan: DeploymentPlan,
+  services: object,
+  identity: DeploymentIdentity,
+  sandboxRequested: boolean,
+  deployCommandOwned: boolean,
+) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
-    options: { output: { dir: string }, rootDir: string }
+    options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, rootDir: string }
   }) => {
+    if (plan.preset === "cloudflare" && sandboxRequested && !deployCommandOwned) {
+      const serverDir = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
+      nitro.options.commands.deploy = `npx wrangler --cwd ./${serverDir} deploy --containers-rollout=gradual`
+    }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
@@ -347,6 +357,7 @@ function deploymentPlugins(
           }
         }
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
+        const deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
         if (blobEnabled && plan.services.blob.supported && plan.services.blob.adapter === "cloudflare-r2") {
           const optionBlob = options.blob === true ? undefined : options.blob
           const configuredBlob = (config as { blob?: BlobModuleOptions }).blob
@@ -381,15 +392,8 @@ function deploymentPlugins(
           }
           nitro.modules = [
             ...(Array.isArray(nitro.modules) ? nitro.modules : []),
-            deploymentNitroModule(plan, services, identity),
+            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), deployCommandOwned),
           ]
-          if (plan.preset === "cloudflare" && requestedServices.includes("sandbox")) {
-            const commands = cloneRecord(nitro.commands)
-            if (typeof commands.deploy !== "string") {
-              commands.deploy = "npx wrangler --cwd ./server deploy --containers-rollout=gradual"
-            }
-            nitro.commands = commands
-          }
           if (plan.output.packaging === "deno-node-modules") {
             nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
             const rollupConfig = cloneRecord(nitro.rollupConfig)
