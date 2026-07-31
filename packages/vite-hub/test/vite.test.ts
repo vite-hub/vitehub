@@ -449,7 +449,7 @@ describe("vitehub", () => {
 
     expect(config.nitro).toMatchObject({
       commands: {
-        deploy: "npx wrangler --cwd ./ deploy --containers-rollout=gradual",
+        deploy: "npx wrangler --cwd ./server deploy --containers-rollout=gradual",
         preview: "node ./preview.mjs",
       },
     })

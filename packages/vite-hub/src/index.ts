@@ -386,7 +386,7 @@ function deploymentPlugins(
           if (plan.preset === "cloudflare" && requestedServices.includes("sandbox")) {
             const commands = cloneRecord(nitro.commands)
             if (typeof commands.deploy !== "string") {
-              commands.deploy = "npx wrangler --cwd ./ deploy --containers-rollout=gradual"
+              commands.deploy = "npx wrangler --cwd ./server deploy --containers-rollout=gradual"
             }
             nitro.commands = commands
           }
