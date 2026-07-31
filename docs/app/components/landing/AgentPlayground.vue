@@ -214,7 +214,7 @@ export default defineAgent({
     web: webChat(),
   },
   capabilities: [
-    webSearch({ mode: "tool" }),
+    webSearch({ mode: "tool", provider: "exa" }),
     browser(),
     memory({
       stores: {
@@ -355,7 +355,7 @@ const capabilityOptions = [
   { code: "repositoryHost({ mode: 'read' })", icon: "i-lucide-git-pull-request", key: "repository", label: "Repository host" },
   { code: "repositoryHostContext()", icon: "i-lucide-git-pull-request-arrow", key: "repository-context", label: "Repository host context" },
   { code: "mcp({ servers: { nuxt } })", icon: "i-lucide-plug-zap", key: "mcp", label: "MCP servers" },
-  { code: "webSearch({ mode: 'tool' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
+  { code: "webSearch({ mode: 'tool', provider: 'exa' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
   { code: "openapi({ spec, operations })", icon: "i-lucide-braces", key: "openapi", label: "OpenAPI tools" },
   { code: "transcribe({ model: transcriptionModel })", icon: "i-lucide-audio-lines", key: "transcribe", label: "Transcription" },
