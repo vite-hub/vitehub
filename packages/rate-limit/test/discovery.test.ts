@@ -29,6 +29,19 @@ describe("Rate Limit declarations", () => {
     }])
   })
 
+  it("collects framework auto-imported guards", () => {
+    const source = [
+      "export default defineEventHandler(async (event) => {",
+      '  await requireRateLimit(event, "code-image", { failure: "deny", limit: 5, window: "1m" })',
+      "})",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("/project/server/api/code.post.ts", source)).toMatchObject([{
+      name: "code-image",
+      policy: { failure: "deny", limit: 5, window: "1m" },
+    }])
+  })
+
   it("collects guards through namespace imports", () => {
     const source = [
       'import * as rateLimit from "vite-hub/rate-limit"',
@@ -50,11 +63,17 @@ describe("Rate Limit declarations", () => {
       '  const rateLimit = await import("@vite-hub/rate-limit")',
       '  await rateLimit.requireRateLimit(event, "search", { limit: 10, window: "10s" })',
       "}",
+      "export async function canonicalNamespace(event) {",
+      '  const requireRateLimit = await import("vite-hub/rate-limit")',
+      '  await requireRateLimit.requireRateLimit(event, "canonical-namespace", { limit: 3, window: "1m" })',
+      '  await requireRateLimit(event, "not-a-guard", { limit: 1, window: "1m" })',
+      "}",
     ].join("\n")
 
     expect(extractRateLimitDeclarations("/project/limits.ts", source)).toMatchObject([
       { name: "image-upload", policy: { failure: "deny", limit: 5, window: "1m" } },
       { name: "search", policy: { limit: 10, window: "10s" } },
+      { name: "canonical-namespace", policy: { limit: 3, window: "1m" } },
     ])
   })
 
@@ -149,6 +168,114 @@ describe("Rate Limit declarations", () => {
       'try {} catch (requireLimit) { requireLimit(event, "local", { limit: 2, window: "1m" }) }',
     ].join("\n")
     expect(extractRateLimitDeclarations("declaration-shadow.ts", declarations)).toEqual([])
+  })
+
+  it("ignores top-level bindings that own the auto-import name", () => {
+    const sources = [
+      [
+        'import { requireRateLimit } from "other-package"',
+        'requireRateLimit(event, "unrelated-import", { limit: 1, window: "1m" })',
+      ],
+      [
+        "export function requireRateLimit() {}",
+        'requireRateLimit(event, "exported-function", { limit: 1, window: "1m" })',
+      ],
+      [
+        "export default class requireRateLimit {}",
+        'requireRateLimit(event, "exported-class", { limit: 1, window: "1m" })',
+      ],
+      [
+        "const requireRateLimit = local",
+        'requireRateLimit(event, "local-variable", { limit: 1, window: "1m" })',
+      ],
+      [
+        "enum requireRateLimit { Local }",
+        'requireRateLimit(event, "local-enum", { limit: 1, window: "1m" })',
+      ],
+      [
+        "namespace requireRateLimit { export const local = true }",
+        'requireRateLimit(event, "local-namespace", { limit: 1, window: "1m" })',
+      ],
+      [
+        'import requireRateLimit = require("other-package")',
+        'requireRateLimit(event, "import-equals", { limit: 1, window: "1m" })',
+      ],
+    ]
+
+    for (const [index, source] of sources.entries()) {
+      expect(extractRateLimitDeclarations(`top-level-shadow-${index}.ts`, source.join("\n"))).toEqual([])
+    }
+  })
+
+  it("ignores parameter and block bindings that shadow an auto-import", () => {
+    const source = [
+      "async function parameter(event, requireRateLimit) {",
+      '  await requireRateLimit(event, "parameter", { limit: 1, window: "1m" })',
+      "}",
+      "async function route(event) {",
+      '  await requireRateLimit(event, "before-block", { limit: 2, window: "1m" })',
+      "  {",
+      "    const requireRateLimit = local",
+      '    await requireRateLimit(event, "block", { limit: 1, window: "1m" })',
+      "  }",
+      '  await requireRateLimit(event, "after-block", { limit: 3, window: "1m" })',
+      "}",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("nested-shadow.ts", source)).toMatchObject([
+      { name: "before-block" },
+      { name: "after-block" },
+    ])
+  })
+
+  it("respects var hoisting across nested statements", () => {
+    const functionSource = [
+      'requireRateLimit(event, "module", { limit: 1, window: "1m" })',
+      "async function route(event) {",
+      '  await requireRateLimit(event, "before-var", { limit: 1, window: "1m" })',
+      "  if (enabled) { var requireRateLimit = local }",
+      '  await requireRateLimit(event, "after-var", { limit: 1, window: "1m" })',
+      "}",
+    ].join("\n")
+    expect(extractRateLimitDeclarations("function-var.ts", functionSource)).toMatchObject([{ name: "module" }])
+
+    const programSource = [
+      "if (enabled) { var requireRateLimit = local }",
+      'requireRateLimit(event, "program-var", { limit: 1, window: "1m" })',
+    ].join("\n")
+    expect(extractRateLimitDeclarations("program-var.ts", programSource)).toEqual([])
+  })
+
+  it("keeps namespace and static-block bindings in their own scopes", () => {
+    const source = [
+      "namespace Helpers {",
+      "  var requireRateLimit = local",
+      '  requireRateLimit(event, "namespace-local", { limit: 1, window: "1m" })',
+      "}",
+      "class HelpersClass {",
+      "  static {",
+      "    var requireRateLimit = local",
+      '    requireRateLimit(event, "static-local", { limit: 1, window: "1m" })',
+      "  }",
+      "}",
+      'requireRateLimit(event, "module", { limit: 2, window: "1m" })',
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("nested-var-scopes.ts", source)).toMatchObject([{ name: "module" }])
+  })
+
+  it("resolves default parameters outside body var bindings", () => {
+    const source = [
+      "function route(",
+      "  event,",
+      '  limited = requireRateLimit(event, "default-parameter", { limit: 1, window: "1m" }),',
+      ") {",
+      "  var requireRateLimit = local",
+      '  requireRateLimit(event, "body-local", { limit: 1, window: "1m" })',
+      "}",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("default-parameter.ts", source)).toMatchObject([{ name: "default-parameter" }])
   })
 
   it("deduplicates identical IDs and policies", async () => {

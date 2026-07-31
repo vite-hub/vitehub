@@ -43,9 +43,9 @@ interface RateLimitScope extends RateLimitBindings {
 function requireRateLimitBindings(program: ESTree.Program): RateLimitBindings {
   const bindings: RateLimitBindings = { direct: new Set(), namespaces: new Set() }
   for (const statement of program.body) {
-    if (statement.type !== "ImportDeclaration" || !rateLimitImports.has(statement.source.value)) continue
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !rateLimitImports.has(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportSpecifier" && specifier.imported.type === "Identifier" && specifier.imported.name === "requireRateLimit") {
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && specifier.imported.type === "Identifier" && specifier.imported.name === "requireRateLimit") {
         bindings.direct.add(specifier.local.name)
       }
       if (specifier.type === "ImportNamespaceSpecifier") bindings.namespaces.add(specifier.local.name)
@@ -86,7 +86,6 @@ function addDynamicRateLimitBindings(declaration: ESTree.VariableDeclaration, sc
   for (const declarator of declaration.declarations) {
     if (!rateLimitDynamicImport(declarator.init)) continue
     if (declarator.id.type === "Identifier") {
-      scope.shadows.delete(declarator.id.name)
       scope.namespaces.add(declarator.id.name)
       continue
     }
@@ -99,15 +98,14 @@ function addDynamicRateLimitBindings(declaration: ESTree.VariableDeclaration, sc
       if (name !== "requireRateLimit") continue
       const value = property.value.type === "AssignmentPattern" ? property.value.left : property.value
       if (value.type !== "Identifier") continue
-      scope.shadows.delete(value.name)
       scope.direct.add(value.name)
     }
   }
 }
 
 function variableDeclaration(statement: ESTree.Statement | ESTree.ModuleDeclaration): ESTree.VariableDeclaration | undefined {
-  if (statement.type === "VariableDeclaration") return statement
-  if (statement.type === "ExportNamedDeclaration" && statement.declaration?.type === "VariableDeclaration") return statement.declaration
+  const declaration = runtimeDeclaration(statement)
+  return declaration?.type === "VariableDeclaration" ? declaration : undefined
 }
 
 function addDynamicRateLimitBindingsFromStatements(statements: (ESTree.Statement | ESTree.ModuleDeclaration)[], scope: RateLimitScope): void {
@@ -145,9 +143,100 @@ function addBindingNames(pattern: ESTree.BindingPattern | ESTree.ParamPattern, n
   }
 }
 
-function functionBindings(params: ESTree.ParamPattern[]): Set<string> {
+function hoistedVariableBindings(root: ESTree.Program | ESTree.FunctionBody): Set<string> {
   const names = new Set<string>()
-  for (const parameter of params) addBindingNames(parameter, names)
+  let nestedScopeDepth = 0
+  const enterNestedScope = (): void => {
+    nestedScopeDepth += 1
+  }
+  const exitNestedScope = (): void => {
+    nestedScopeDepth -= 1
+  }
+  const program: ESTree.Program = root.type === "Program"
+    ? root
+    : { ...root, type: "Program", sourceType: "module", hashbang: null, parent: null }
+  new Visitor({
+    ArrowFunctionExpression: enterNestedScope,
+    "ArrowFunctionExpression:exit": exitNestedScope,
+    ClassDeclaration: enterNestedScope,
+    "ClassDeclaration:exit": exitNestedScope,
+    ClassExpression: enterNestedScope,
+    "ClassExpression:exit": exitNestedScope,
+    FunctionDeclaration: enterNestedScope,
+    "FunctionDeclaration:exit": exitNestedScope,
+    FunctionExpression: enterNestedScope,
+    "FunctionExpression:exit": exitNestedScope,
+    StaticBlock: enterNestedScope,
+    "StaticBlock:exit": exitNestedScope,
+    TSModuleDeclaration: enterNestedScope,
+    "TSModuleDeclaration:exit": exitNestedScope,
+    VariableDeclaration(declaration) {
+      if (nestedScopeDepth === 0 && declaration.kind === "var" && !declaration.declare) {
+        for (const declarator of declaration.declarations) addBindingNames(declarator.id, names)
+      }
+    },
+  }).visit(program)
+  return names
+}
+
+function functionBindings(node: ESTree.Function | ESTree.ArrowFunctionExpression): Set<string> {
+  const names = new Set<string>()
+  if (node.type === "FunctionExpression" && node.id) names.add(node.id.name)
+  for (const parameter of node.params) addBindingNames(parameter, names)
+  return names
+}
+
+function runtimeDeclaration(statement: ESTree.Statement | ESTree.ModuleDeclaration): ESTree.Declaration | undefined {
+  if (statement.type === "ExportNamedDeclaration") return statement.declaration ?? undefined
+  if (statement.type === "ExportDefaultDeclaration") {
+    const declaration = statement.declaration
+    if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") return declaration
+  }
+  if (statement.type === "VariableDeclaration"
+    || statement.type === "FunctionDeclaration"
+    || statement.type === "ClassDeclaration"
+    || statement.type === "TSEnumDeclaration"
+    || statement.type === "TSModuleDeclaration"
+    || statement.type === "TSImportEqualsDeclaration") return statement
+}
+
+function lexicalBindings(statements: (ESTree.Statement | ESTree.ModuleDeclaration)[]): Set<string> {
+  const names = new Set<string>()
+  for (const statement of statements) {
+    const declaration = runtimeDeclaration(statement)
+    if ((declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration") && declaration.id) {
+      if (!declaration.declare) names.add(declaration.id.name)
+    }
+    if (declaration?.type === "VariableDeclaration" && declaration.kind !== "var" && !declaration.declare) {
+      for (const declarator of declaration.declarations) addBindingNames(declarator.id, names)
+    }
+    if (declaration?.type === "TSEnumDeclaration" && !declaration.declare) names.add(declaration.id.name)
+    if (declaration?.type === "TSModuleDeclaration" && !declaration.declare && !declaration.global && declaration.id.type === "Identifier") names.add(declaration.id.name)
+    if (declaration?.type === "TSImportEqualsDeclaration" && declaration.importKind !== "type") names.add(declaration.id.name)
+  }
+  return names
+}
+
+function programBindings(program: ESTree.Program): Set<string> {
+  const names = lexicalBindings(program.body)
+  for (const name of hoistedVariableBindings(program)) names.add(name)
+  for (const statement of program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== "ImportSpecifier" || specifier.importKind !== "type") names.add(specifier.local.name)
+    }
+  }
+  return names
+}
+
+function blockBindings(block: ESTree.BlockStatement): Set<string> {
+  return lexicalBindings(block.body)
+}
+
+function scopedStatementBindings(statements: (ESTree.Statement | ESTree.ModuleDeclaration)[]): Set<string> {
+  const names = lexicalBindings(statements)
+  const program: ESTree.Program = { type: "Program", body: statements, sourceType: "module", hashbang: null, parent: null, start: 0, end: 0 }
+  for (const name of hoistedVariableBindings(program)) names.add(name)
   return names
 }
 
@@ -157,33 +246,13 @@ function variableBindings(declaration: ESTree.VariableDeclaration | null | undef
   return names
 }
 
-function blockBindings(block: ESTree.BlockStatement): Set<string> {
-  const names = new Set<string>()
-  for (const statement of block.body) {
-    if ((statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") && statement.id) {
-      names.add(statement.id.name)
-    }
-    const declaration = statement.type === "VariableDeclaration"
-      ? statement
-      : statement.type === "ExportNamedDeclaration" && statement.declaration?.type === "VariableDeclaration"
-        ? statement.declaration
-        : undefined
-    for (const declarator of declaration?.declarations ?? []) addBindingNames(declarator.id, names)
-  }
-  return names
+function loopBindings(declaration: ESTree.VariableDeclaration | null | undefined): Set<string> {
+  if (declaration?.kind === "var") return new Set()
+  return variableBindings(declaration)
 }
 
 function switchBindings(statement: ESTree.SwitchStatement): Set<string> {
-  const names = new Set<string>()
-  for (const switchCase of statement.cases) {
-    for (const child of switchCase.consequent) {
-      if ((child.type === "FunctionDeclaration" || child.type === "ClassDeclaration") && child.id) names.add(child.id.name)
-      if (child.type === "VariableDeclaration") {
-        for (const name of variableBindings(child)) names.add(name)
-      }
-    }
-  }
-  return names
+  return lexicalBindings(statement.cases.flatMap(switchCase => switchCase.consequent))
 }
 
 function staticPropertyName(property: ESTree.ObjectProperty): string | undefined {
@@ -252,17 +321,19 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     throw new Error(`[vitehub] Could not parse ${file} while collecting Rate Limits: ${parsed.errors[0]?.message}`)
   }
 
+  const rootShadows = programBindings(parsed.program)
   const bindings = requireRateLimitBindings(parsed.program)
+  if (!rootShadows.has("requireRateLimit")) bindings.direct.add("requireRateLimit")
   const declarations: RateLimitDeclaration[] = []
-  const scopes: RateLimitScope[] = [{ ...bindings, shadows: new Set() }]
+  const scopes: RateLimitScope[] = [{ ...bindings, shadows: rootShadows }]
+  const functionBodies = new WeakSet<ESTree.BlockStatement>()
   addDynamicRateLimitBindingsFromStatements(parsed.program.body, scopes[0]!)
   const enterScope = (shadows: Set<string>): void => {
     scopes.push({ direct: new Set(), namespaces: new Set(), shadows })
   }
   const enterFunction = (node: ESTree.Function | ESTree.ArrowFunctionExpression): void => {
-    const shadows = functionBindings(node.params)
-    if (node.type === "FunctionExpression" && node.id) shadows.add(node.id.name)
-    enterScope(shadows)
+    enterScope(functionBindings(node))
+    if (node.body?.type === "BlockStatement") functionBodies.add(node.body)
   }
   const exitScope = (): void => {
     scopes.pop()
@@ -271,7 +342,7 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     ArrowFunctionExpression: enterFunction,
     "ArrowFunctionExpression:exit": exitScope,
     BlockStatement(block) {
-      enterScope(blockBindings(block))
+      enterScope(functionBodies.has(block) ? scopedStatementBindings(block.body) : blockBindings(block))
       addDynamicRateLimitBindingsFromStatements(block.body, scopes.at(-1)!)
     },
     "BlockStatement:exit": exitScope,
@@ -309,15 +380,15 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     FunctionExpression: enterFunction,
     "FunctionExpression:exit": exitScope,
     ForInStatement(node) {
-      enterScope(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
+      enterScope(node.left.type === "VariableDeclaration" ? loopBindings(node.left) : new Set())
     },
     "ForInStatement:exit": exitScope,
     ForOfStatement(node) {
-      enterScope(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
+      enterScope(node.left.type === "VariableDeclaration" ? loopBindings(node.left) : new Set())
     },
     "ForOfStatement:exit": exitScope,
     ForStatement(node) {
-      enterScope(node.init?.type === "VariableDeclaration" ? variableBindings(node.init) : new Set())
+      enterScope(node.init?.type === "VariableDeclaration" ? loopBindings(node.init) : new Set())
     },
     "ForStatement:exit": exitScope,
     SwitchStatement(node) {
@@ -325,6 +396,16 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
       for (const switchCase of node.cases) addDynamicRateLimitBindingsFromStatements(switchCase.consequent, scopes.at(-1)!)
     },
     "SwitchStatement:exit": exitScope,
+    StaticBlock(node) {
+      enterScope(scopedStatementBindings(node.body))
+      addDynamicRateLimitBindingsFromStatements(node.body, scopes.at(-1)!)
+    },
+    "StaticBlock:exit": exitScope,
+    TSModuleBlock(node) {
+      enterScope(scopedStatementBindings(node.body))
+      addDynamicRateLimitBindingsFromStatements(node.body, scopes.at(-1)!)
+    },
+    "TSModuleBlock:exit": exitScope,
   })
   visitor.visit(parsed.program)
   return declarations
