@@ -121,17 +121,7 @@ describe("Vite schedule integration", () => {
       { command: "build", mode: "production" },
     )
 
-    expect(config).toMatchObject({
-      nitro: {
-        cloudflare: {
-          wrangler: {
-            triggers: { crons: ["0 0 * * *", "*/10 * * * *"] },
-          },
-        },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
-        plugins: [".vitehub/nitro/schedule/plugin.ts"],
-      },
-    })
+    expect(config).toBeUndefined()
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: {
@@ -139,16 +129,21 @@ describe("Vite schedule integration", () => {
             triggers: { crons: ["0 0 * * *", "*/10 * * * *"] },
           },
         },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        modules: ["./.vitehub/nitro/schedule/module.mjs"],
         plugins: [".vitehub/nitro/schedule/plugin.ts"],
       },
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("../../schedule/registry.js")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("@vite-hub/schedule/runtime/static")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("build:before")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("dedupeCloudflareCrons")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"*/10 * * * *\"")
+    const moduleSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")
+    expect(moduleSource).toContain("build:before")
+    expect(moduleSource).toContain("dedupeCloudflareCrons")
+    expect(moduleSource).toContain("\"*/10 * * * *\"")
+    expect(moduleSource).not.toContain("import type")
+    expect(moduleSource).not.toContain(": Nitro")
+    expect(moduleSource).not.toContain(": void")
+    expect(moduleSource).not.toContain("cron is string")
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.js"), "utf8")).resolves.toContain("\"mirror\": async () => import(")
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.d.ts"), "utf8")).resolves.toContain("ScheduleRegistryDefinition")
   })
@@ -177,12 +172,12 @@ describe("Vite schedule integration", () => {
       { command: "serve", mode: "development" },
     )
 
-    expect(config).toEqual({
+    expect(config).toBeUndefined()
+    expect(userConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/schedule/plugin.ts"],
       },
     })
-    expect(userConfig).toMatchObject(config as Record<string, unknown>)
     expect(userConfig).not.toHaveProperty("nitro.cloudflare")
     expect(userConfig).not.toHaveProperty("nitro.modules")
 
@@ -231,7 +226,8 @@ describe("Vite schedule integration", () => {
       { command: "serve", mode: "development" },
     )
 
-    expect(config).toEqual({
+    expect(config).toBeUndefined()
+    expect(userConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/schedule/plugin.ts"],
       },
@@ -321,7 +317,7 @@ describe("Vite schedule integration", () => {
 
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.not.toContain("src/cleanup.schedule.ts")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"0 0 * * *\"")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"0 0 * * *\"")
   })
 
   it("honors explicit standalone Provider Wake output with the Process Runtime", async () => {
@@ -459,11 +455,11 @@ describe("Vite schedule integration", () => {
           triggers: { crons: ["0 0 * * *", "*/15 * * * *"] },
         },
       },
-      modules: ["existing-module", "./.vitehub/nitro/schedule/module.ts"],
+      modules: ["existing-module", "./.vitehub/nitro/schedule/module.mjs"],
       plugins: [".vitehub/nitro/schedule/plugin.ts"],
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"*/15 * * * *\"")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"*/15 * * * *\"")
   })
 
   it("discovers project server schedules when the Vite root is nested", async () => {
@@ -491,17 +487,7 @@ describe("Vite schedule integration", () => {
     resolvePluginConfig(plugin, appRoot)
     const registry = await loadScheduleRegistry(plugin)
 
-    expect(config).toMatchObject({
-      nitro: {
-        cloudflare: {
-          wrangler: {
-            triggers: { crons: ["0 4 * * *"] },
-          },
-        },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
-        plugins: [".vitehub/nitro/schedule/plugin.ts"],
-      },
-    })
+    expect(config).toBeUndefined()
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: {
@@ -509,13 +495,13 @@ describe("Vite schedule integration", () => {
             triggers: { crons: ["0 4 * * *"] },
           },
         },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        modules: ["./.vitehub/nitro/schedule/module.mjs"],
         plugins: [".vitehub/nitro/schedule/plugin.ts"],
       },
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"0 4 * * *\"")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.not.toContain("\"0 0 * * *\"")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"0 4 * * *\"")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.not.toContain("\"0 0 * * *\"")
     await expect(readFile(join(appRoot, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).rejects.toThrow()
     expect(registry).toContain("\"cleanup\": async () => import(")
     expect(registry).toContain("\"sync\": async () => import(")
@@ -539,7 +525,7 @@ describe("Vite schedule integration", () => {
 
     expect(config).toBeNull()
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).rejects.toThrow()
   })
 
   it("can force Nitro plugin output for suffix schedules", async () => {
@@ -560,17 +546,7 @@ describe("Vite schedule integration", () => {
       { command: "build", mode: "production" },
     )
 
-    expect(config).toMatchObject({
-      nitro: {
-        cloudflare: {
-          wrangler: {
-            triggers: { crons: ["0 0 * * *"] },
-          },
-        },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
-        plugins: [".vitehub/nitro/schedule/plugin.ts"],
-      },
-    })
+    expect(config).toBeUndefined()
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: {
@@ -578,7 +554,7 @@ describe("Vite schedule integration", () => {
             triggers: { crons: ["0 0 * * *"] },
           },
         },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        modules: ["./.vitehub/nitro/schedule/module.mjs"],
         plugins: [".vitehub/nitro/schedule/plugin.ts"],
       },
     })
@@ -607,13 +583,7 @@ describe("Vite schedule integration", () => {
       { command: "build", mode: "production" },
     )
 
-    expect(config).toMatchObject({
-      nitro: {
-        hooks: { "build:before": expect.any(Function) },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
-        plugins: [".vitehub/nitro/schedule/plugin.ts"],
-      },
-    })
+    expect(config).toBeUndefined()
     const buildBefore = ((userConfig.nitro as { hooks?: Record<string, unknown> }).hooks?.["build:before"]) as () => void
     buildBefore()
 
@@ -621,7 +591,7 @@ describe("Vite schedule integration", () => {
     expect(userConfig).toMatchObject({
       nitro: {
         hooks: { "build:before": buildBefore },
-        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        modules: ["./.vitehub/nitro/schedule/module.mjs"],
         plugins: [".vitehub/nitro/schedule/plugin.ts"],
       },
     })
@@ -693,8 +663,8 @@ describe("Vite schedule integration", () => {
         },
       },
     })
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"0 4 * * *\"")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.not.toContain("\"0 0 * * *\"")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"0 4 * * *\"")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.not.toContain("\"0 0 * * *\"")
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.toContain("\"cleanup\"")
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("\"sync\"")
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")

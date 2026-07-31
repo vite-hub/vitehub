@@ -21,7 +21,7 @@ const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
-const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.ts"
+const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export interface ScheduleProcessRuntimeOptions {
@@ -274,17 +274,15 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
 
 function renderNitroCloudflareModule(crons: string[]): string {
   return [
-    "import type { Nitro } from 'nitro/types'",
-    "",
     `const crons = ${JSON.stringify(crons)}`,
     "",
-    "function dedupeCloudflareCrons(nitro: Nitro): void {",
+    "function dedupeCloudflareCrons(nitro) {",
     "  const wrangler = nitro.options.cloudflare?.wrangler",
     "  if (!wrangler?.triggers || !Array.isArray(wrangler.triggers.crons)) return",
-    "  wrangler.triggers.crons = [...new Set(wrangler.triggers.crons.filter((cron): cron is string => typeof cron === 'string'))]",
+    "  wrangler.triggers.crons = [...new Set(wrangler.triggers.crons.filter((cron) => typeof cron === 'string'))]",
     "}",
     "",
-    "export default function vitehubScheduleModule(nitro: Nitro): void {",
+    "export default function vitehubScheduleModule(nitro) {",
     "  nitro.options.cloudflare ??= {}",
     "  nitro.options.cloudflare.wrangler ??= {}",
     "  nitro.options.cloudflare.wrangler.triggers ??= {}",
@@ -489,7 +487,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       })
       if (!nitro) return null
       ;(config as ViteConfigWithNitro).nitro = nitro
-      return { nitro } as unknown as Omit<UserConfig, "plugins">
     },
     configResolved(config) {
       resolved = config

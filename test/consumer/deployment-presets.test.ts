@@ -243,6 +243,58 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
   }
 }, 30_000)
 
+it("loads the generated Schedule module and emits each Cloudflare cron once", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-cloudflare-schedule-output-")))
+  const cron = "0 * * * *"
+  try {
+    await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
+    await mkdir(join(root, "server/schedules"), { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "schedule-cloudflare-fixture" }), "utf8")
+    await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
+    await writeFile(join(root, "server/schedules/cleanup.ts"), [
+      'import { defineSchedule } from "vite-hub/schedule"',
+      `export default defineSchedule({ cron: ${JSON.stringify(cron)}, handler: () => undefined })`,
+      "",
+    ].join("\n"), "utf8")
+
+    const builder = await createBuilder({
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            triggers: { crons: [cron] },
+          },
+        },
+        compatibilityDate: "2026-07-20",
+        serverDir: true,
+      },
+      plugins: [
+        vitehub({
+          preset: "cloudflare",
+          agent: false,
+          blob: false,
+          database: false,
+          env: false,
+          kv: false,
+          queue: false,
+          rateLimit: false,
+          schedule: true,
+          workflow: false,
+          workspace: false,
+        }),
+        nitro(),
+      ],
+      root,
+    })
+    await builder.buildApp()
+
+    expect(existsSync(join(root, ".vitehub/nitro/schedule/module.mjs"))).toBe(true)
+    const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8"))
+    expect(wrangler.triggers?.crons).toEqual([cron])
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}, 30_000)
+
 it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and executes native packages when updating an existing Deno app", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-deno-native-update-"))
   const workspaceRoot = resolve(import.meta.dirname, "../..")
