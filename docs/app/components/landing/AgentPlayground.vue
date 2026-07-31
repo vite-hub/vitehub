@@ -662,13 +662,14 @@ function capabilityOption(key: string) {
   }
 }
 
-function capabilityItemsFor(currentKey: string) {
+function capabilityItemsFor(currentKey: string, index: number) {
   return capabilityOptions
     .filter(option =>
       option.key === currentKey
       || (
         !selectedAgentConfig.value.capabilityKeys.includes(option.key)
         && (option.key !== "access" || hasHarnessDriver.value)
+        && (option.key !== "access" || index === 0)
         && (option.key !== "browser" || hasVisibleBox.value)
         && (
           option.key !== "chat"
@@ -733,7 +734,12 @@ async function addCapability(value: unknown) {
     return
   }
 
-  selectedAgentConfig.value.capabilityKeys.push(value)
+  if (value === "access") {
+    selectedAgentConfig.value.capabilityKeys.unshift(value)
+  }
+  else {
+    selectedAgentConfig.value.capabilityKeys.push(value)
+  }
   await nextTick()
   capabilitySelectionKey.value = undefined
 }
@@ -915,7 +921,7 @@ function selectHost(key: string) {
                 >
                   <USelect
                     v-model="selectedAgentConfig.capabilityKeys[index]"
-                    :items="capabilityItemsFor(capabilityKey)"
+                    :items="capabilityItemsFor(capabilityKey, index)"
                     :icon="capabilityOption(capabilityKey).icon"
                     :content="selectContent"
                     :ui="catalogSelectUi"
