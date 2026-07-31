@@ -315,7 +315,7 @@ const agentPropertyOrder = Object.keys(agentProperties) as AgentPropertyKey[]
 
 const driverOptions = [
   { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex harness" },
-  { code: '"claude-code"', icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code harness" },
+  { code: "{ kind: 'claude-code', sandbox: false }", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code harness" },
   { code: "{ model: gateway('openai/gpt-5.1-mini') }", icon: "i-simple-icons-vercel", key: "model", label: "Bare model" },
   { code: "{ run: customAgent }", icon: "i-lucide-braces", key: "custom", label: "Custom runner" },
 ] satisfies PlaygroundOption[]
@@ -327,7 +327,7 @@ const runtimeOptions = [
 
 const boxOptions = [
   { code: "{ runtime: 'trusted-host' }", icon: "i-lucide-server-cog", key: "trusted", label: "Trusted host" },
-  { code: "{ runtime: 'crabbox' }", icon: "i-lucide-box", key: "crabbox", label: "Crabbox sandbox" },
+  { code: "{ runtime: 'crabbox', cwd: process.cwd() }", icon: "i-lucide-box", key: "crabbox", label: "Crabbox sandbox" },
 ] satisfies PlaygroundOption[]
 
 const workspaceOptions = [
@@ -499,14 +499,20 @@ const availablePropertyItems = computed(() => agentPropertyOrder
     value: key,
   })))
 const availableCapabilityItems = computed(() => capabilityOptions
-  .filter(option => !selectedAgentConfig.value.capabilityKeys.includes(option.key))
+  .filter(option =>
+    !selectedAgentConfig.value.capabilityKeys.includes(option.key)
+    && (option.key !== "chat" || selectedAgentConfig.value.channelKeys.length === 0),
+  )
   .map(option => ({
     icon: option.icon,
     label: option.label,
     value: option.key,
   })))
 const availableChannelItems = computed(() => channelOptions
-  .filter(option => !selectedAgentConfig.value.channelKeys.includes(option.key))
+  .filter(option =>
+    !selectedAgentConfig.value.channelKeys.includes(option.key)
+    && !selectedAgentConfig.value.capabilityKeys.includes("chat"),
+  )
   .map(option => ({
     icon: option.icon,
     label: option.label,
@@ -623,7 +629,13 @@ function capabilityOption(key: string) {
 
 function capabilityItemsFor(currentKey: string) {
   return capabilityOptions
-    .filter(option => option.key === currentKey || !selectedAgentConfig.value.capabilityKeys.includes(option.key))
+    .filter(option =>
+      option.key === currentKey
+      || (
+        !selectedAgentConfig.value.capabilityKeys.includes(option.key)
+        && (option.key !== "chat" || selectedAgentConfig.value.channelKeys.length === 0)
+      ),
+    )
     .map(option => ({
       icon: option.icon,
       label: option.label,
