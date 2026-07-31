@@ -18,7 +18,7 @@ Browser is a server primitive, not an Agent Capability. Server code invokes Brow
 ### Install
 
 ```bash [Terminal]
-pnpm add vite-hub @cloudflare/playwright
+pnpm add vite-hub
 ```
 
 ### Configure

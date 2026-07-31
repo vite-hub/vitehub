@@ -392,7 +392,7 @@ async function assertVercelRuntimeImportsResolveInside(
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
-  it("publishes Browser types without consumer-owned Playwright", async () => {
+  it("publishes Browser types and Cloudflare adapter without consumer-owned Playwright", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -426,6 +426,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/browser"])
+      await run(process.execPath, ["--input-type=module", "--eval", `
+        import { createRequire } from "node:module"
+        const browserRequire = createRequire(import.meta.resolve("@vite-hub/browser/package.json"))
+        browserRequire.resolve("@cloudflare/playwright")
+      `], appDir)
       await run(process.execPath, [
         resolve(repoRoot, "node_modules/typescript/bin/tsc"),
         "--module",
