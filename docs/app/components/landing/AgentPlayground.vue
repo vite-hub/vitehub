@@ -417,7 +417,7 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
   },
   nuxt: {
     defaultPropertyKeys: ["driver"],
-    visiblePropertyKeys: ["driver", "runtime", "capabilities", "channels"],
+    visiblePropertyKeys: ["driver", "runtime", "workspace", "capabilities", "channels"],
     driverKey: "model",
     runtimeKey: "workflow",
     boxKey: "trusted",
@@ -483,7 +483,11 @@ const selectedFile = computed(() =>
   ?? selectedProject.value.files[0]!,
 )
 const selectedAgentConfig = computed(() => projectAgentConfigs[selectedProjectId.value]!)
-const driverItems = driverOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
+const hasVisibleBox = computed(() => selectedAgentConfig.value.visiblePropertyKeys.includes("box"))
+const hasVisibleChannels = computed(() => selectedAgentConfig.value.visiblePropertyKeys.includes("channels"))
+const driverItems = computed(() => driverOptions
+  .filter(option => !hasVisibleBox.value || option.key === "codex" || option.key === "claude")
+  .map(option => ({ icon: option.icon, label: option.label, value: option.key })))
 const runtimeItems = runtimeOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
 const boxItems = boxOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
 const workspaceItems = workspaceOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
@@ -492,7 +496,11 @@ const selectedRuntime = computed(() => runtimeOptions.find(option => option.key 
 const selectedBox = computed(() => boxOptions.find(option => option.key === selectedAgentConfig.value.boxKey)!)
 const selectedWorkspace = computed(() => workspaceOptions.find(option => option.key === selectedAgentConfig.value.workspaceKey)!)
 const availablePropertyItems = computed(() => agentPropertyOrder
-  .filter(key => !selectedAgentConfig.value.visiblePropertyKeys.includes(key))
+  .filter(key =>
+    !selectedAgentConfig.value.visiblePropertyKeys.includes(key)
+    && (key !== "box" || selectedAgentConfig.value.driverKey === "codex" || selectedAgentConfig.value.driverKey === "claude")
+    && (key !== "channels" || !selectedAgentConfig.value.capabilityKeys.includes("chat")),
+  )
   .map(key => ({
     icon: agentProperties[key].icon,
     label: agentProperties[key].title,
@@ -501,7 +509,11 @@ const availablePropertyItems = computed(() => agentPropertyOrder
 const availableCapabilityItems = computed(() => capabilityOptions
   .filter(option =>
     !selectedAgentConfig.value.capabilityKeys.includes(option.key)
-    && (option.key !== "chat" || selectedAgentConfig.value.channelKeys.length === 0),
+    && (
+      option.key !== "chat"
+      || !hasVisibleChannels.value
+      || selectedAgentConfig.value.channelKeys.length === 0
+    ),
   )
   .map(option => ({
     icon: option.icon,
@@ -633,7 +645,11 @@ function capabilityItemsFor(currentKey: string) {
       option.key === currentKey
       || (
         !selectedAgentConfig.value.capabilityKeys.includes(option.key)
-        && (option.key !== "chat" || selectedAgentConfig.value.channelKeys.length === 0)
+        && (
+          option.key !== "chat"
+          || !hasVisibleChannels.value
+          || selectedAgentConfig.value.channelKeys.length === 0
+        )
       ),
     )
     .map(option => ({
