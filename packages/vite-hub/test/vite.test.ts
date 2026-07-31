@@ -441,6 +441,29 @@ describe("vitehub", () => {
     }
   })
 
+  it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
+    const config = await applyDeploymentConfig(
+      { preset: "cloudflare", sandbox: true },
+      { nitro: { commands: { preview: "node ./preview.mjs" } } },
+    )
+
+    expect(config.nitro).toMatchObject({
+      commands: {
+        deploy: "npx wrangler --cwd ./ deploy --containers-rollout=gradual",
+        preview: "node ./preview.mjs",
+      },
+    })
+  })
+
+  it("preserves an explicit Cloudflare Sandbox deploy command", async () => {
+    const config = await applyDeploymentConfig(
+      { preset: "cloudflare", sandbox: true },
+      { nitro: { commands: { deploy: "node ./deploy.mjs" } } },
+    )
+
+    expect(config.nitro).toMatchObject({ commands: { deploy: "node ./deploy.mjs" } })
+  })
+
   it("keeps deployment-owned Nitro configuration out of development", async () => {
     const config = {
       nitro: {

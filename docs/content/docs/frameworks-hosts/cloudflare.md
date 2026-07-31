@@ -76,6 +76,16 @@ find dist -maxdepth 4 -type f | sort
 
 Agent routes should come from generated Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
 
+### Workers Builds
+
+Use Nitro's generated deployment command for production and non-production Workers Builds:
+
+```bash [Deploy command]
+pnpm exec nitro deploy --prebuilt
+```
+
+When Sandbox is enabled, ViteHub writes an explicit gradual Container rollout into `.output/nitro.json`. This deploys the Worker and its Container application through the same generated contract. A direct Wrangler command with `--containers-rollout=none` bypasses ViteHub's deployment command and can leave a newly scoped Sandbox binding without a Container application to run.
+
 ### Rate Limiting bindings
 
 Register the Rate Limit integration. A Cloudflare Nitro preset infers the provider, and each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`; plain Vite builds continue to write them to generated `wrangler.json`.

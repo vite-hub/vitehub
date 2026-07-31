@@ -383,6 +383,13 @@ function deploymentPlugins(
             ...(Array.isArray(nitro.modules) ? nitro.modules : []),
             deploymentNitroModule(plan, services, identity),
           ]
+          if (plan.preset === "cloudflare" && requestedServices.includes("sandbox")) {
+            const commands = cloneRecord(nitro.commands)
+            if (typeof commands.deploy !== "string") {
+              commands.deploy = "npx wrangler --cwd ./ deploy --containers-rollout=gradual"
+            }
+            nitro.commands = commands
+          }
           if (plan.output.packaging === "deno-node-modules") {
             nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
             const rollupConfig = cloneRecord(nitro.rollupConfig)
