@@ -484,8 +484,16 @@ const selectedFile = computed(() =>
 const selectedAgentConfig = computed(() => projectAgentConfigs[selectedProjectId.value]!)
 const hasVisibleBox = computed(() => selectedAgentConfig.value.visiblePropertyKeys.includes("box"))
 const hasVisibleChannels = computed(() => selectedAgentConfig.value.visiblePropertyKeys.includes("channels"))
+const hasHarnessDriver = computed(() =>
+  selectedAgentConfig.value.driverKey === "codex" || selectedAgentConfig.value.driverKey === "claude",
+)
+const hasHarnessOnlyCapability = computed(() => selectedAgentConfig.value.capabilityKeys.includes("access"))
 const driverItems = computed(() => driverOptions
-  .filter(option => !hasVisibleBox.value || option.key === "codex" || option.key === "claude")
+  .filter(option =>
+    (!hasVisibleBox.value && !hasHarnessOnlyCapability.value)
+    || option.key === "codex"
+    || option.key === "claude",
+  )
   .map(option => ({ icon: option.icon, label: option.label, value: option.key })))
 const runtimeItems = runtimeOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
 const boxItems = boxOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
@@ -508,6 +516,7 @@ const availablePropertyItems = computed(() => agentPropertyOrder
 const availableCapabilityItems = computed(() => capabilityOptions
   .filter(option =>
     !selectedAgentConfig.value.capabilityKeys.includes(option.key)
+    && (option.key !== "access" || hasHarnessDriver.value)
     && (option.key !== "browser" || hasVisibleBox.value)
     && (
       option.key !== "chat"
@@ -645,6 +654,7 @@ function capabilityItemsFor(currentKey: string) {
       option.key === currentKey
       || (
         !selectedAgentConfig.value.capabilityKeys.includes(option.key)
+        && (option.key !== "access" || hasHarnessDriver.value)
         && (option.key !== "browser" || hasVisibleBox.value)
         && (
           option.key !== "chat"
