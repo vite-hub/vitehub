@@ -277,6 +277,10 @@ function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
+}
+
 function deploymentNitroModule(
   plan: DeploymentPlan,
   services: object,
@@ -289,8 +293,11 @@ function deploymentNitroModule(
     options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, rootDir: string }
   }) => {
     if (plan.preset === "cloudflare" && sandboxRequested && !isDeployCommandOwned()) {
-      const serverDir = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
-      nitro.options.commands.deploy = `npx wrangler --cwd ./${serverDir} deploy --containers-rollout=gradual`
+      const outputRelative = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
+      const serverDir = /^[\w./-]+$/.test(outputRelative)
+        ? `./${outputRelative}`
+        : shellQuote(`./${relative(nitro.options.rootDir, nitro.options.output.serverDir).replaceAll("\\", "/")}`)
+      nitro.options.commands.deploy = `npx wrangler --cwd ${serverDir} deploy --containers-rollout=gradual`
     }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
@@ -391,8 +398,8 @@ function deploymentPlugins(
             }
           }
           nitro.modules = [
-            ...(Array.isArray(nitro.modules) ? nitro.modules : []),
             deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned),
+            ...(Array.isArray(nitro.modules) ? nitro.modules : []),
           ]
           if (plan.output.packaging === "deno-node-modules") {
             nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }

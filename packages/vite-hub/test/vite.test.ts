@@ -442,13 +442,16 @@ describe("vitehub", () => {
   })
 
   it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
+    const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
+      nitro.options.commands.deploy = "node ./deploy.mjs"
+    }
     const config = await applyDeploymentConfig(
       { preset: "cloudflare", sandbox: true },
-      { nitro: { commands: { preview: "node ./preview.mjs" } } },
+      { nitro: { commands: { preview: "node ./preview.mjs" }, modules: [userModule] } },
     )
 
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
-    const module = nitroConfig.modules.at(-1) as (nitro: {
+    const module = nitroConfig.modules[0] as (nitro: {
       hooks: { hook: ReturnType<typeof vi.fn> }
       options: {
         commands: Record<string, unknown>
@@ -460,7 +463,7 @@ describe("vitehub", () => {
       hooks: { hook: vi.fn() },
       options: {
         commands: nitroConfig.commands,
-        output: { dir: "/app/.output", serverDir: "/app/.output/worker" },
+        output: { dir: "/app/.output", serverDir: "/app/.output/cloudflare worker" },
         rootDir: "/app",
       },
     }
@@ -468,10 +471,13 @@ describe("vitehub", () => {
 
     expect(nitro.options).toMatchObject({
       commands: {
-        deploy: "npx wrangler --cwd ./worker deploy --containers-rollout=gradual",
+        deploy: "npx wrangler --cwd './.output/cloudflare worker' deploy --containers-rollout=gradual",
         preview: "node ./preview.mjs",
       },
     })
+    expect(nitroConfig.modules[1]).toBe(userModule)
+    userModule(nitro)
+    expect(nitro.options.commands.deploy).toBe("node ./deploy.mjs")
   })
 
   it("preserves an explicit Cloudflare Sandbox deploy command", async () => {
@@ -497,7 +503,7 @@ describe("vitehub", () => {
         rootDir: "/app",
       },
     }
-    const module = nitroConfig.modules.at(-1) as (target: typeof nitro) => void
+    const module = nitroConfig.modules[0] as (target: typeof nitro) => void
     module(nitro)
 
     expect(nitro.options).toMatchObject({ commands: { deploy: "npx wrangler --cwd ./ deploy" } })
@@ -560,7 +566,7 @@ describe("vitehub", () => {
     const plugin = vitehub({ preset: "node" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
     await hook(config, { command: "build", mode: "production" })
-    expect(config.nitro).toMatchObject({ modules: ["existing-module", expect.any(Function)] })
+    expect(config.nitro).toMatchObject({ modules: [expect.any(Function), "existing-module"] })
   })
 
   it.each([
