@@ -53,13 +53,13 @@
     "test": "vp run -t @vite-hub/browser#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "playwright-core": "catalog:browser"
   },
   "devDependencies": {
     "@cloudflare/playwright": "catalog:browser",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -68,7 +68,6 @@
   },
   "peerDependencies": {
     "@cloudflare/playwright": "catalog:browser",
-    "playwright-core": "catalog:browser",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

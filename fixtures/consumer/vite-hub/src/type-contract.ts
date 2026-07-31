@@ -13,6 +13,7 @@ import * as agentServer from "vite-hub/agent/server"
 import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import * as authAgent from "vite-hub/auth/agent"
 import { resolveBox } from "vite-hub/box"
+import type { BrowserDownload } from "vite-hub/browser"
 import * as smtp from "vite-hub/email/drivers/smtp"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
@@ -61,6 +62,7 @@ export const contract = {
 }
 
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
+export type BrowserDownloadUrl = ReturnType<BrowserDownload["url"]>
 export const configuredCodex = { kind: "codex", reasoningEffort: "high" } satisfies BuiltInAgentDriver
 export const codexOptions = { model: "gpt-5.5" } satisfies CodexDriverOptions
 export const claudeCodeOptions = { maxTurns: 12 } satisfies ClaudeCodeDriverOptions
