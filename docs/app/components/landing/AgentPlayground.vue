@@ -645,7 +645,21 @@ watch(selectedProjectId, () => {
 })
 
 function capabilityOption(key: string) {
-  return capabilityOptions.find(option => option.key === key)!
+  const option = capabilityOptions.find(option => option.key === key)!
+  if (key !== "skills") {
+    return option
+  }
+
+  const directory = {
+    nuxt: "docs",
+    reviewer: "review",
+    status: "research",
+  }[selectedProjectId.value]
+
+  return {
+    ...option,
+    code: `skills({ path: './skills/${directory}' })`,
+  }
 }
 
 function capabilityItemsFor(currentKey: string) {
@@ -705,6 +719,13 @@ function removeProperty(key: AgentPropertyKey) {
 
   selectedAgentConfig.value.visiblePropertyKeys = selectedAgentConfig.value.visiblePropertyKeys
     .filter(propertyKey => propertyKey !== key)
+
+  if (key === "capabilities") {
+    selectedAgentConfig.value.capabilityKeys = []
+  }
+  if (key === "channels") {
+    selectedAgentConfig.value.channelKeys = []
+  }
 }
 
 async function addCapability(value: unknown) {
