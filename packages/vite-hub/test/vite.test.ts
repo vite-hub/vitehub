@@ -480,7 +480,19 @@ describe("vitehub", () => {
       { nitro: { commands: { deploy: "node ./deploy.mjs" } } },
     )
 
-    expect(config.nitro).toMatchObject({ commands: { deploy: "node ./deploy.mjs" } })
+    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
+    const nitro = {
+      hooks: { hook: vi.fn() },
+      options: {
+        commands: { deploy: "node ./later-deploy.mjs" },
+        output: { dir: "/app/.output", serverDir: "/app/.output/server" },
+        rootDir: "/app",
+      },
+    }
+    const module = nitroConfig.modules.at(-1) as (target: typeof nitro) => void
+    module(nitro)
+
+    expect(nitro.options).toMatchObject({ commands: { deploy: "node ./later-deploy.mjs" } })
   })
 
   it("keeps deployment-owned Nitro configuration out of development", async () => {
