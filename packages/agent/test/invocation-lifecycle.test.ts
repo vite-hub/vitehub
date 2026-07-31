@@ -385,7 +385,7 @@ describe("Harness Agent Driver session cleanup", () => {
     const abort = new AbortController()
     const { destroy, tasks } = await createHarnessCleanupProbe({ abortSignal: abort.signal })
     abort.abort(new Error("abandoned"))
-    await tasks.at(-1)
+    await Promise.all(tasks)
 
     expect(destroy).toHaveBeenCalledOnce()
   })

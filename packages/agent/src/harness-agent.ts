@@ -1173,11 +1173,18 @@ async function withSessionCleanup(
   waitUntil: AgentWaitUntil,
 ): Promise<unknown> {
   let cleanupTask: Promise<void> | undefined
+  let markCleanupStarted!: () => void
+  const cleanupStarted = new Promise<void>((resolve) => {
+    markCleanupStarted = resolve
+  })
   let onAbort: (() => void) | undefined
   const cleanupOnce = (error?: unknown) => {
-    cleanupTask ||= cleanup(error).finally(() => {
-      if (onAbort) abortSignal?.removeEventListener("abort", onAbort)
-    })
+    if (!cleanupTask) {
+      cleanupTask = cleanup(error).finally(() => {
+        if (onAbort) abortSignal?.removeEventListener("abort", onAbort)
+      })
+      markCleanupStarted()
+    }
     return cleanupTask
   }
   const observeAbort = () => {
@@ -1256,10 +1263,14 @@ async function withSessionCleanup(
     const then = (responseMessages as { then?: unknown }).then
     if (typeof then === "function") {
       // Harness closes its eagerly produced streams before this terminal promise settles.
-      waitUntil(Promise.resolve(responseMessages).then(
+      const producerCleanup = Promise.resolve(responseMessages).then(
         () => cleanupOnce(),
         error => cleanupOnce(error),
-      ))
+      )
+      waitUntil(Promise.race([
+        producerCleanup,
+        cleanupStarted.then(() => cleanupTask),
+      ]))
     }
   }
   return clone
