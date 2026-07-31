@@ -26,6 +26,8 @@ export async function handleImageUpload(event): Promise<Response> {
 
 `requireRateLimit()` can live inside any ordinary H3 handler. Its stable ID and provider policy must use static literals so the Vite integration can generate infrastructure; `event` and an optional dynamic `key` are runtime inputs. The guard defaults to the request's client address and throws an `HTTPError` with status `429` when the budget is exhausted. Pass `key: authenticatedUser.id` when a user or tenant is the correct budget boundary.
 
+A framework may auto-import the canonical `requireRateLimit` name from this package instead. Discovery recognizes that bare call only when no local runtime binding owns the name.
+
 Provider unavailability follows the declared `failure` policy: fail-open guards continue, while fail-closed guards throw status `503` and preserve the provider cause. Invalid configuration and provider contract violations still throw normally. Use `createRateLimiter()` when the application needs a decision for a custom response or another transport.
 
 Add the build integration:

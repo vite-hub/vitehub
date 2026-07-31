@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { discoverRateLimitDeclarations } from "../src/discovery.ts"
 import { getCloudflareRateLimitBindingName } from "../src/drivers/cloudflare.ts"
 import { createCloudflareRateLimitBindings, resolveRateLimitNamespace, writeRateLimitProviderOutput } from "../src/internal/provider-output.ts"
 
@@ -33,6 +34,30 @@ describe("Rate Limit Provider Output", () => {
       namespace_id: expect.stringMatching(/^\d+$/),
       simple: { limit: 10, period: 60 },
     }])
+  })
+
+  it("emits bindings only for discovered ViteHub guards", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-discovered-output-"))
+    roots.push(root)
+    const routes = join(root, "server", "api")
+    await mkdir(routes, { recursive: true })
+    await writeFile(join(routes, "code.post.ts"), 'requireRateLimit(event, "code-image", { limit: 5, window: "1m" })\n')
+    await writeFile(join(routes, "files.post.ts"), [
+      'import { requireRateLimit as requireUploadLimit } from "vite-hub/rate-limit"',
+      'requireUploadLimit(event, "file-upload", { limit: 10, window: "1m" })',
+      "",
+    ].join("\n"))
+    await writeFile(join(routes, "local.post.ts"), [
+      "const requireRateLimit = local",
+      'requireRateLimit(event, "lookalike", { limit: 1, window: "1m" })',
+      "",
+    ].join("\n"))
+
+    const declarations = discoverRateLimitDeclarations({ rootDir: root })
+    expect(createCloudflareRateLimitBindings(declarations, "drop-production").map(binding => binding.name)).toEqual([
+      getCloudflareRateLimitBindingName("code-image"),
+      getCloudflareRateLimitBindingName("file-upload"),
+    ])
   })
 
   it("requires a project-unique Cloudflare namespace", async () => {
