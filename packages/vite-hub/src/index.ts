@@ -282,17 +282,13 @@ function deploymentNitroModule(
   services: object,
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
+  isDeployCommandOwned: () => boolean,
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
     options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, rootDir: string }
   }) => {
-    const deployCommand = nitro.options.commands.deploy
-    if (
-      plan.preset === "cloudflare"
-      && sandboxRequested
-      && (deployCommand === undefined || deployCommand === "npx wrangler --cwd ./ deploy")
-    ) {
+    if (plan.preset === "cloudflare" && sandboxRequested && !isDeployCommandOwned()) {
       const serverDir = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
       nitro.options.commands.deploy = `npx wrangler --cwd ./${serverDir} deploy --containers-rollout=gradual`
     }
@@ -314,6 +310,7 @@ function deploymentPlugins(
   services: object,
   options: ViteHubOptions,
 ): Plugin[] {
+  let deployCommandOwned = false
   return [
     {
       name: "vite-hub/deployment-preset",
@@ -395,7 +392,7 @@ function deploymentPlugins(
           }
           nitro.modules = [
             ...(Array.isArray(nitro.modules) ? nitro.modules : []),
-            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox")),
+            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned),
           ]
           if (plan.output.packaging === "deno-node-modules") {
             nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
@@ -418,6 +415,7 @@ function deploymentPlugins(
       enforce: "post",
       configResolved(config) {
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
+        deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
         if (config.command === "build" && nitro.preset !== plan.nitroPreset) {
           throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(plan.nitroPreset) + ".")
         }

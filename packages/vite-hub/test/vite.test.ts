@@ -475,16 +475,24 @@ describe("vitehub", () => {
   })
 
   it("preserves an explicit Cloudflare Sandbox deploy command", async () => {
-    const config = await applyDeploymentConfig(
-      { preset: "cloudflare", sandbox: true },
-      { nitro: { commands: { deploy: "node ./deploy.mjs" } } },
-    )
+    const plugins = vitehub({ preset: "cloudflare", sandbox: true })
+    const preset = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const output = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-output") as Plugin
+    const config = { nitro: { commands: { deploy: "node ./deploy.mjs" } } } as Record<string, unknown>
+    const configure = preset.config as unknown as (
+      config: Record<string, unknown>,
+      env: { command: "build", mode: string },
+    ) => void
+    await configure(config, { command: "build", mode: "production" })
 
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
+    nitroConfig.commands.deploy = "npx wrangler --cwd ./ deploy"
+    const resolveConfig = output.configResolved as unknown as (config: Record<string, unknown>) => void
+    resolveConfig({ command: "build", nitro: nitroConfig })
     const nitro = {
       hooks: { hook: vi.fn() },
       options: {
-        commands: { deploy: "node ./later-deploy.mjs" },
+        commands: nitroConfig.commands,
         output: { dir: "/app/.output", serverDir: "/app/.output/server" },
         rootDir: "/app",
       },
@@ -492,7 +500,7 @@ describe("vitehub", () => {
     const module = nitroConfig.modules.at(-1) as (target: typeof nitro) => void
     module(nitro)
 
-    expect(nitro.options).toMatchObject({ commands: { deploy: "node ./later-deploy.mjs" } })
+    expect(nitro.options).toMatchObject({ commands: { deploy: "npx wrangler --cwd ./ deploy" } })
   })
 
   it("keeps deployment-owned Nitro configuration out of development", async () => {
