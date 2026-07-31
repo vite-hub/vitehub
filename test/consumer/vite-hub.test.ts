@@ -392,6 +392,60 @@ async function assertVercelRuntimeImportsResolveInside(
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("publishes Browser types without consumer-owned Playwright", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        mkdir(appDir, { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir, new Set([
+        "@vite-hub/browser",
+        "@vite-hub/runtime",
+      ]))
+      await Promise.all([
+        writeFile(join(appDir, "index.ts"), `
+          import type { BrowserDownload } from "@vite-hub/browser"
+          declare const download: BrowserDownload
+          download.url()
+        `, "utf8"),
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            "@vite-hub/browser": specs["@vite-hub/browser"],
+          },
+          devDependencies: {
+            "@types/node": "24.13.3",
+          },
+          private: true,
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/browser"])
+      await run(process.execPath, [
+        resolve(repoRoot, "node_modules/typescript/bin/tsc"),
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        "--noEmit",
+        "--strict",
+        "--target",
+        "ESNext",
+        "--types",
+        "node",
+        "index.ts",
+      ], appDir)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
   it("reports the missing Workspace shell runtime from a packed consumer", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-workspace-consumer-"))
     const appDir = join(root, "app")

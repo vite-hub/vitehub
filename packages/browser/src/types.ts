@@ -7,8 +7,11 @@ import type {
 import type {
   Browser as PlaywrightBrowser,
   BrowserContext,
+  Download as PlaywrightDownload,
   Page,
 } from "playwright-core"
+
+export type BrowserDownload = PlaywrightDownload
 
 export interface BrowserFeatures {
   liveHandoff: boolean

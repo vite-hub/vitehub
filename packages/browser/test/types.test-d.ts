@@ -3,6 +3,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import {
   createBrowser,
   defineBrowser,
+  type BrowserDownload,
   type BrowserPageSession,
   type BrowserRunResult,
   type BrowserSessionRef,
@@ -28,6 +29,10 @@ describe("published Browser types", () => {
       expectTypeOf(browser.open()).resolves.toEqualTypeOf<BrowserPageSession>()
       return input.url
     })
+  })
+
+  it("exports the complete Browser Download event type", () => {
+    expectTypeOf<BrowserDownload>().toEqualTypeOf<import("playwright-core").Download>()
   })
 
   it("types error-first Browser Definition results", () => {
