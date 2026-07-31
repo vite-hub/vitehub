@@ -13,7 +13,7 @@ import { createBuilder, resolveConfig } from "vite"
 import { vitehub } from "vite-hub"
 import { expect, it } from "vitest"
 
-import { getCloudflareRateLimitBindingName } from "../../packages/rate-limit/src/integrations/cloudflare.ts"
+import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/provider-output.ts"
 
 const execFile = promisify(execFileCallback)
 
@@ -119,21 +119,23 @@ it("bundles the Agent AI SDK module into Nitro Cloudflare output", async () => {
   }
 }, 30_000)
 
-it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async () => {
+it("derives Cloudflare provider output from the Workers Builds target", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-provider-output-"))
-  const deploymentName = "vitehub-drop-pm-20260719"
+  const deploymentName = "vitehub-drop-preview"
   const generatedQueue = `${deploymentName}-image-optimization`
   const manualQueue = "manual-queue"
   const manualBucket = { binding: "MANUAL_BUCKET", bucket_name: "manual-bucket" }
   const manualContainer = { class_name: "ManualContainer", name: "manual-container" }
   const manualRateLimit = { name: "MANUAL", namespace_id: "9", simple: { limit: 1, period: 10 } }
   const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
+  const previousProviderName = process.env.WRANGLER_CI_OVERRIDE_NAME
   try {
     delete process.env.VITEHUB_DEPLOYMENT_NAME
+    process.env.WRANGLER_CI_OVERRIDE_NAME = deploymentName
     await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/api"), { recursive: true })
     await mkdir(join(root, "server/queues"), { recursive: true })
-    await writeFile(join(root, "package.json"), JSON.stringify({ name: deploymentName }), "utf8")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "package-default" }), "utf8")
     await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
     await writeFile(join(root, "server/queues/image-optimization.ts"), "export default async () => undefined\n", "utf8")
     await writeFile(join(root, "server/api/upload.get.ts"), [
@@ -188,9 +190,19 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
     })
     await builder.buildApp()
 
-    const bindingName = getCloudflareRateLimitBindingName("image-upload")
+    const generatedRateLimit = createCloudflareRateLimitBindings([{
+      name: "image-upload",
+      policy: { failure: "deny", limit: 5, window: "1m" },
+      source: { column: 3, file: "server/api/upload.get.ts", line: 3 },
+    }], deploymentName)[0]
     await expect(readFile(join(root, ".vitehub/rate-limit/manifest.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       rateLimits: [{ name: "image-upload", provider: "cloudflare" }],
+    })
+    await expect(readFile(join(root, ".output/deployment.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      identity: {
+        name: deploymentName,
+        source: "WRANGLER_CI_OVERRIDE_NAME",
+      },
     })
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8"))
     expect(wrangler).toMatchObject({
@@ -201,11 +213,7 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
       name: deploymentName,
       ratelimits: [
         manualRateLimit,
-        {
-          name: bindingName,
-          namespace_id: expect.stringMatching(/^\d+$/),
-          simple: { limit: 5, period: 60 },
-        },
+        generatedRateLimit,
       ],
       r2_buckets: expect.arrayContaining([
         manualBucket,
@@ -239,6 +247,8 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
   } finally {
     if (typeof previousDeploymentName === "undefined") delete process.env.VITEHUB_DEPLOYMENT_NAME
     else process.env.VITEHUB_DEPLOYMENT_NAME = previousDeploymentName
+    if (typeof previousProviderName === "undefined") delete process.env.WRANGLER_CI_OVERRIDE_NAME
+    else process.env.WRANGLER_CI_OVERRIDE_NAME = previousProviderName
     await rm(root, { force: true, recursive: true })
   }
 }, 30_000)

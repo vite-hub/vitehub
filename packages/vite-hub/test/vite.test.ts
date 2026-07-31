@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
@@ -582,6 +582,94 @@ describe("vitehub", () => {
     finally {
       await rm(root, { recursive: true })
     }
+  })
+
+  describe("Cloudflare Workers Builds deployment identity", () => {
+    const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
+    const previousProviderName = process.env.WRANGLER_CI_OVERRIDE_NAME
+
+    beforeEach(() => {
+      delete process.env.VITEHUB_DEPLOYMENT_NAME
+      delete process.env.WRANGLER_CI_OVERRIDE_NAME
+    })
+
+    afterEach(() => {
+      if (previousDeploymentName === undefined) delete process.env.VITEHUB_DEPLOYMENT_NAME
+      else process.env.VITEHUB_DEPLOYMENT_NAME = previousDeploymentName
+      if (previousProviderName === undefined) delete process.env.WRANGLER_CI_OVERRIDE_NAME
+      else process.env.WRANGLER_CI_OVERRIDE_NAME = previousProviderName
+    })
+
+    it("uses the connected Worker for every Cloudflare resource default", async () => {
+      process.env.WRANGLER_CI_OVERRIDE_NAME = "vitehub-drop-preview"
+
+      const config = await applyDeploymentConfig({
+        blob: true,
+        preset: "cloudflare",
+        queue: true,
+        rateLimit: true,
+        sandbox: true,
+      })
+
+      expect(config).toMatchObject({
+        blob: { bucketName: "vitehub-drop-preview", driver: "cloudflare-r2" },
+        nitro: { cloudflare: { wrangler: { name: "vitehub-drop-preview" } } },
+        queue: { namePrefix: "vitehub-drop-preview-", provider: "cloudflare" },
+        rateLimit: { namespace: "vitehub-drop-preview", provider: "cloudflare" },
+        sandbox: { name: "vitehub-drop-preview-sandbox", provider: "cloudflare" },
+      })
+    })
+
+    it("allows a matching explicit deployment identity", async () => {
+      process.env.WRANGLER_CI_OVERRIDE_NAME = "vitehub-drop-preview"
+
+      const config = await applyDeploymentConfig({
+        name: "ViteHub Drop Preview",
+        preset: "cloudflare",
+      })
+
+      expect(config.nitro).toMatchObject({
+        cloudflare: { wrangler: { name: "vitehub-drop-preview" } },
+      })
+    })
+
+    it("rejects an explicit deployment identity that conflicts with the connected Worker", async () => {
+      process.env.WRANGLER_CI_OVERRIDE_NAME = "vitehub-drop-preview"
+
+      await expect(applyDeploymentConfig({
+        name: "vitehub-drop-production",
+        preset: "cloudflare",
+      })).rejects.toThrow("conflicts with WRANGLER_CI_OVERRIDE_NAME")
+
+      process.env.VITEHUB_DEPLOYMENT_NAME = "vitehub-drop-production"
+      await expect(applyDeploymentConfig({
+        preset: "cloudflare",
+      })).rejects.toThrow("conflicts with WRANGLER_CI_OVERRIDE_NAME")
+    })
+
+    it("rejects an invalid connected Worker identity", async () => {
+      process.env.WRANGLER_CI_OVERRIDE_NAME = "---"
+
+      await expect(applyDeploymentConfig({
+        preset: "cloudflare",
+      })).rejects.toThrow("WRANGLER_CI_OVERRIDE_NAME must contain at least one letter or number")
+    })
+
+    it("ignores the connected Worker for non-Cloudflare presets", async () => {
+      process.env.WRANGLER_CI_OVERRIDE_NAME = "vitehub-drop-preview"
+
+      const config = await applyDeploymentConfig({
+        name: "node-app",
+        preset: "node",
+        rateLimit: true,
+      })
+
+      expect(config.rateLimit).toEqual({
+        namespace: "node-app",
+        provider: "memory",
+      })
+      expect(config.nitro).not.toHaveProperty("cloudflare")
+    })
   })
 
   it("keeps the full identity while bounding Cloudflare resource defaults", async () => {
