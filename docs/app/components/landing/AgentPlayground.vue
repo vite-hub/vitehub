@@ -327,7 +327,6 @@ const runtimeOptions = [
 
 const boxOptions = [
   { code: "{ runtime: 'trusted-host' }", icon: "i-lucide-server-cog", key: "trusted", label: "Trusted host" },
-  { code: "{ runtime: 'crabbox', cwd: process.cwd() }", icon: "i-lucide-box", key: "crabbox", label: "Crabbox sandbox" },
 ] satisfies PlaygroundOption[]
 
 const workspaceOptions = [
@@ -360,8 +359,8 @@ const capabilityOptions = [
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
   { code: "openapi({ spec, operations })", icon: "i-lucide-braces", key: "openapi", label: "OpenAPI tools" },
   { code: "transcribe({ model: transcriptionModel })", icon: "i-lucide-audio-lines", key: "transcribe", label: "Transcription" },
-  { code: "llmRoute({ choices })", icon: "i-lucide-route", key: "llm-route", label: "LLM routing" },
-  { code: "llmGate({ allow, reject })", icon: "i-lucide-shield", key: "llm-gate", label: "LLM gate" },
+  { code: "llmRoute({ choices, model: decisionModel })", icon: "i-lucide-route", key: "llm-route", label: "LLM routing" },
+  { code: "llmGate({ allow, reject, model: decisionModel })", icon: "i-lucide-shield", key: "llm-gate", label: "LLM gate" },
   { code: "rateLimit({ limiter: messages })", icon: "i-lucide-gauge", key: "rate-limit", label: "Rate limit" },
   { code: "title()", icon: "i-lucide-heading", key: "title", label: "Title" },
   { code: "chatSummary()", icon: "i-lucide-message-square-text", key: "chat-summary", label: "Chat summary" },
@@ -406,11 +405,11 @@ const frameworkKey = ref("nuxt")
 const hostKey = ref("cloudflare")
 const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
   reviewer: {
-    defaultPropertyKeys: ["driver", "workspace"],
+    defaultPropertyKeys: ["driver", "box", "workspace"],
     visiblePropertyKeys: ["driver", "runtime", "box", "workspace", "capabilities", "channels"],
     driverKey: "codex",
     runtimeKey: "workflow",
-    boxKey: "crabbox",
+    boxKey: "trusted",
     workspaceKey: "github",
     capabilityKeys: ["browser", "repository", "skills"],
     channelKeys: ["github"],
@@ -426,11 +425,11 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
     channelKeys: ["http"],
   },
   status: {
-    defaultPropertyKeys: ["driver", "workspace"],
+    defaultPropertyKeys: ["driver", "box", "workspace"],
     visiblePropertyKeys: ["driver", "runtime", "box", "workspace", "capabilities", "channels"],
     driverKey: "claude",
     runtimeKey: "workflow",
-    boxKey: "crabbox",
+    boxKey: "trusted",
     workspaceKey: "local",
     capabilityKeys: ["web-search", "browser", "memory", "skills"],
     channelKeys: ["web-chat"],
@@ -509,6 +508,7 @@ const availablePropertyItems = computed(() => agentPropertyOrder
 const availableCapabilityItems = computed(() => capabilityOptions
   .filter(option =>
     !selectedAgentConfig.value.capabilityKeys.includes(option.key)
+    && (option.key !== "browser" || hasVisibleBox.value)
     && (
       option.key !== "chat"
       || !hasVisibleChannels.value
@@ -645,6 +645,7 @@ function capabilityItemsFor(currentKey: string) {
       option.key === currentKey
       || (
         !selectedAgentConfig.value.capabilityKeys.includes(option.key)
+        && (option.key !== "browser" || hasVisibleBox.value)
         && (
           option.key !== "chat"
           || !hasVisibleChannels.value
