@@ -166,6 +166,10 @@ function hoistedVariableBindings(root: ESTree.Program | ESTree.FunctionBody): Se
     "FunctionDeclaration:exit": exitNestedScope,
     FunctionExpression: enterNestedScope,
     "FunctionExpression:exit": exitNestedScope,
+    StaticBlock: enterNestedScope,
+    "StaticBlock:exit": exitNestedScope,
+    TSModuleDeclaration: enterNestedScope,
+    "TSModuleDeclaration:exit": exitNestedScope,
     VariableDeclaration(declaration) {
       if (nestedScopeDepth === 0 && declaration.kind === "var" && !declaration.declare) {
         for (const declarator of declaration.declarations) addBindingNames(declarator.id, names)
@@ -176,7 +180,7 @@ function hoistedVariableBindings(root: ESTree.Program | ESTree.FunctionBody): Se
 }
 
 function functionBindings(node: ESTree.Function | ESTree.ArrowFunctionExpression): Set<string> {
-  const names = node.body?.type === "BlockStatement" ? hoistedVariableBindings(node.body) : new Set<string>()
+  const names = new Set<string>()
   if (node.type === "FunctionExpression" && node.id) names.add(node.id.name)
   for (const parameter of node.params) addBindingNames(parameter, names)
   return names
@@ -227,6 +231,13 @@ function programBindings(program: ESTree.Program): Set<string> {
 
 function blockBindings(block: ESTree.BlockStatement): Set<string> {
   return lexicalBindings(block.body)
+}
+
+function scopedStatementBindings(statements: (ESTree.Statement | ESTree.ModuleDeclaration)[]): Set<string> {
+  const names = lexicalBindings(statements)
+  const program: ESTree.Program = { type: "Program", body: statements, sourceType: "module", hashbang: null, parent: null, start: 0, end: 0 }
+  for (const name of hoistedVariableBindings(program)) names.add(name)
+  return names
 }
 
 function variableBindings(declaration: ESTree.VariableDeclaration | null | undefined): Set<string> {
@@ -315,12 +326,14 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
   if (!rootShadows.has("requireRateLimit")) bindings.direct.add("requireRateLimit")
   const declarations: RateLimitDeclaration[] = []
   const scopes: RateLimitScope[] = [{ ...bindings, shadows: rootShadows }]
+  const functionBodies = new WeakSet<ESTree.BlockStatement>()
   addDynamicRateLimitBindingsFromStatements(parsed.program.body, scopes[0]!)
   const enterScope = (shadows: Set<string>): void => {
     scopes.push({ direct: new Set(), namespaces: new Set(), shadows })
   }
   const enterFunction = (node: ESTree.Function | ESTree.ArrowFunctionExpression): void => {
     enterScope(functionBindings(node))
+    if (node.body?.type === "BlockStatement") functionBodies.add(node.body)
   }
   const exitScope = (): void => {
     scopes.pop()
@@ -329,7 +342,7 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     ArrowFunctionExpression: enterFunction,
     "ArrowFunctionExpression:exit": exitScope,
     BlockStatement(block) {
-      enterScope(blockBindings(block))
+      enterScope(functionBodies.has(block) ? scopedStatementBindings(block.body) : blockBindings(block))
       addDynamicRateLimitBindingsFromStatements(block.body, scopes.at(-1)!)
     },
     "BlockStatement:exit": exitScope,
@@ -383,6 +396,16 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
       for (const switchCase of node.cases) addDynamicRateLimitBindingsFromStatements(switchCase.consequent, scopes.at(-1)!)
     },
     "SwitchStatement:exit": exitScope,
+    StaticBlock(node) {
+      enterScope(scopedStatementBindings(node.body))
+      addDynamicRateLimitBindingsFromStatements(node.body, scopes.at(-1)!)
+    },
+    "StaticBlock:exit": exitScope,
+    TSModuleBlock(node) {
+      enterScope(scopedStatementBindings(node.body))
+      addDynamicRateLimitBindingsFromStatements(node.body, scopes.at(-1)!)
+    },
+    "TSModuleBlock:exit": exitScope,
   })
   visitor.visit(parsed.program)
   return declarations

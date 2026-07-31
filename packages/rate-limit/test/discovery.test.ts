@@ -246,6 +246,38 @@ describe("Rate Limit declarations", () => {
     expect(extractRateLimitDeclarations("program-var.ts", programSource)).toEqual([])
   })
 
+  it("keeps namespace and static-block bindings in their own scopes", () => {
+    const source = [
+      "namespace Helpers {",
+      "  var requireRateLimit = local",
+      '  requireRateLimit(event, "namespace-local", { limit: 1, window: "1m" })',
+      "}",
+      "class HelpersClass {",
+      "  static {",
+      "    var requireRateLimit = local",
+      '    requireRateLimit(event, "static-local", { limit: 1, window: "1m" })',
+      "  }",
+      "}",
+      'requireRateLimit(event, "module", { limit: 2, window: "1m" })',
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("nested-var-scopes.ts", source)).toMatchObject([{ name: "module" }])
+  })
+
+  it("resolves default parameters outside body var bindings", () => {
+    const source = [
+      "function route(",
+      "  event,",
+      '  limited = requireRateLimit(event, "default-parameter", { limit: 1, window: "1m" }),',
+      ") {",
+      "  var requireRateLimit = local",
+      '  requireRateLimit(event, "body-local", { limit: 1, window: "1m" })',
+      "}",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("default-parameter.ts", source)).toMatchObject([{ name: "default-parameter" }])
+  })
+
   it("deduplicates identical IDs and policies", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-declarations-"))
     roots.push(root)
