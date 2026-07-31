@@ -8,35 +8,18 @@ defineProps<{
 </script>
 
 <template>
-  <UPopover
-    :content="{ align: 'start', side: 'top', sideOffset: 8 }"
-    :ui="{ content: 'max-w-64 p-3' }"
+  <ULink
+    :to="to"
+    class="property-help"
+    :aria-label="`${title}: ${description}`"
   >
-    <button type="button" class="property-help" :aria-label="`About ${label}`">
-      {{ label }}
-    </button>
-
-    <template #content>
-      <div class="space-y-1.5">
-        <p class="text-xs font-semibold text-highlighted">
-          {{ title }}
-        </p>
-        <p class="text-xs/5 text-muted">
-          {{ description }}
-        </p>
-        <ULink :to="to" class="inline-flex text-xs font-medium text-primary hover:underline">
-          Read the docs&nbsp;→
-        </ULink>
-      </div>
-    </template>
-  </UPopover>
+    {{ label }}
+  </ULink>
 </template>
 
 <style scoped>
 .property-help {
-  border: 0;
   color: var(--ui-text-highlighted);
-  cursor: help;
   font: inherit;
   line-height: inherit;
   text-decoration-line: underline;
