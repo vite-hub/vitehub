@@ -195,7 +195,7 @@ export interface ViteHubConfig {
   preset?: DeploymentPreset
 }
 
-type DeploymentIdentitySource = "VITEHUB_DEPLOYMENT_NAME" | "package.json" | "root" | "vitehub.name"
+type DeploymentIdentitySource = "VITEHUB_DEPLOYMENT_NAME" | "WRANGLER_CI_OVERRIDE_NAME" | "package.json" | "root" | "vitehub.name"
 
 interface DeploymentIdentity {
   name: string
@@ -233,7 +233,11 @@ function packageName(root?: string): string | undefined {
   }
 }
 
-function resolveDeploymentIdentity(root: string | undefined, configuredName: string | undefined): DeploymentIdentity {
+function resolveDeploymentIdentity(
+  root: string | undefined,
+  configuredName: string | undefined,
+  workersBuildsName?: string,
+): DeploymentIdentity {
   const configured = normalizeDeploymentName(configuredName)
   if (configuredName !== undefined && !configured) {
     throw new Error("[vitehub] vitehub name must contain at least one letter or number.")
@@ -243,11 +247,20 @@ function resolveDeploymentIdentity(root: string | undefined, configuredName: str
   if (environmentName?.trim() && !environment) {
     throw new Error("[vitehub] VITEHUB_DEPLOYMENT_NAME must contain at least one letter or number.")
   }
+  const workersBuilds = normalizeDeploymentName(workersBuildsName)
+  if (workersBuildsName?.trim() && !workersBuilds) {
+    throw new Error("[vitehub] WRANGLER_CI_OVERRIDE_NAME must contain at least one letter or number.")
+  }
   if (configured && environment && configured !== environment) {
     throw new Error(`[vitehub] vitehub name ${JSON.stringify(configuredName)} conflicts with VITEHUB_DEPLOYMENT_NAME=${JSON.stringify(environmentName)}.`)
   }
+  const explicit = configured || environment
+  if (explicit && workersBuilds && explicit !== workersBuilds) {
+    throw new Error(`[vitehub] deployment identity ${JSON.stringify(explicit)} conflicts with WRANGLER_CI_OVERRIDE_NAME=${JSON.stringify(workersBuildsName)}.`)
+  }
   if (configured) return { name: configured, source: "vitehub.name" }
   if (environment) return { name: environment, source: "VITEHUB_DEPLOYMENT_NAME" }
+  if (workersBuilds) return { name: workersBuilds, source: "WRANGLER_CI_OVERRIDE_NAME" }
   const manifestName = normalizeDeploymentName(packageName(root))
   if (manifestName) return { name: manifestName, source: "package.json" }
   return {
@@ -307,6 +320,7 @@ function deploymentPlugins(
         const identity = resolveDeploymentIdentity(
           typeof config.root === "string" ? config.root : undefined,
           options.name,
+          plan.preset === "cloudflare" ? process.env.WRANGLER_CI_OVERRIDE_NAME : undefined,
         )
         const name = identity.name
         if (requestedServices.includes("queue") && plan.services.queue.supported) {
