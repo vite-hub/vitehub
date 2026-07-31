@@ -727,6 +727,10 @@ function removeProperty(key: AgentPropertyKey) {
   if (key === "channels") {
     selectedAgentConfig.value.channelKeys = []
   }
+  if (key === "box") {
+    selectedAgentConfig.value.capabilityKeys = selectedAgentConfig.value.capabilityKeys
+      .filter(capabilityKey => capabilityKey !== "browser")
+  }
 }
 
 async function addCapability(value: unknown) {
