@@ -7484,6 +7484,57 @@ describe("server helpers", () => {
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "{\"internal\":\"structured output\"}" })
   })
 
+  it("starts typing immediately for manual delivery while work continues", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun!: () => void
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing request…",
+          },
+        }),
+      },
+      driver: { run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "done"
+      } },
+      hooks: {
+        "agent:finish": event => event.reply("done"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(chatWebhookRequest(91_018), "telegram")
+
+    await runStartedPromise
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Analyzing request…")
+    const typingOrder = adapter.startTyping.mock.invocationCallOrder[0]
+    const fallbackOrder = adapter.postMessage.mock.invocationCallOrder[0]
+    expect(typingOrder).toBeDefined()
+    expect(fallbackOrder).toBeDefined()
+    expect(typingOrder!).toBeLessThan(fallbackOrder!)
+
+    finishRun()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+  })
+
   it("uses generate for manual delivery without progress summaries", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")

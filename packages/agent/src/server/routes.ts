@@ -2554,7 +2554,6 @@ async function handleChatSdkMessage(
     const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) return
-
     const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
@@ -2580,6 +2579,7 @@ async function handleChatSdkMessage(
     assertChatDeliveryOptions(options || {})
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
+    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
       const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
@@ -2595,7 +2595,6 @@ async function handleChatSdkMessage(
         invocationDeadlineAbort,
       )
     }
-    typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
     const runContext = {
       ...context,
