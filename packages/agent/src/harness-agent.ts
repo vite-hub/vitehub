@@ -46,6 +46,7 @@ import type {
   AgentRunCallbackContext,
   AgentRuntimeConfig,
   AgentToolSet,
+  AgentWaitUntil,
   MaybePromise,
 } from "./types.ts"
 import type { AttachmentData, Message } from "./messages.ts"
@@ -1165,15 +1166,31 @@ function createSharedCleanupIterableWrapper(cleanup: (error?: unknown) => Promis
   }
 }
 
-async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal): Promise<unknown> {
-  let cleanupCalled = false
-  const cleanupOnce = async (error?: unknown) => {
-    if (cleanupCalled) return
-    cleanupCalled = true
-    await cleanup(error)
+async function withSessionCleanup(
+  result: unknown,
+  cleanup: (error?: unknown) => Promise<void>,
+  abortSignal: AbortSignal | undefined,
+  waitUntil: AgentWaitUntil,
+): Promise<unknown> {
+  let cleanupTask: Promise<void> | undefined
+  let onAbort: (() => void) | undefined
+  const cleanupOnce = (error?: unknown) => {
+    cleanupTask ||= cleanup(error).finally(() => {
+      if (onAbort) abortSignal?.removeEventListener("abort", onAbort)
+    })
+    return cleanupTask
+  }
+  const observeAbort = () => {
+    if (!abortSignal) return
+    onAbort = () => {
+      waitUntil(cleanupOnce(abortSignal.reason))
+    }
+    if (abortSignal.aborted) onAbort()
+    else abortSignal.addEventListener("abort", onAbort, { once: true })
   }
 
   if (isAsyncIterable(result)) {
+    observeAbort()
     return withCleanup(result, cleanupOnce, abortSignal)
   }
   if (!result || typeof result !== "object") {
@@ -1230,6 +1247,21 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
     configurable: true,
     value: () => streamAgentOutputToEvents(clone)[Symbol.asyncIterator](),
   })
+  observeAbort()
+  const responseMessages = (result as { responseMessages?: unknown }).responseMessages
+  if (
+    (typeof responseMessages === "object" && responseMessages !== null)
+    || typeof responseMessages === "function"
+  ) {
+    const then = (responseMessages as { then?: unknown }).then
+    if (typeof then === "function") {
+      // Harness closes its eagerly produced streams before this terminal promise settles.
+      waitUntil(Promise.resolve(responseMessages).then(
+        () => cleanupOnce(),
+        error => cleanupOnce(error),
+      ))
+    }
+  }
   return clone
 }
 
@@ -1482,7 +1514,7 @@ export function createHarnessAgentAdapter<
           ...await toHarnessCallInput(context, resumesSession, chatPrompt),
           session,
         }), usageMetadata)
-        return await withSessionCleanup(result, cleanup, context.input.abortSignal)
+        return await withSessionCleanup(result, cleanup, context.input.abortSignal, context.runtime.waitUntil)
       }
       catch (error) {
         await cleanup(error)
