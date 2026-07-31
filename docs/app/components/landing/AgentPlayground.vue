@@ -356,7 +356,7 @@ const capabilityOptions = [
   { code: "repositoryHost({ mode: 'read' })", icon: "i-lucide-git-pull-request", key: "repository", label: "Repository host" },
   { code: "repositoryHostContext()", icon: "i-lucide-git-pull-request-arrow", key: "repository-context", label: "Repository host context" },
   { code: "mcp({ servers: { nuxt } })", icon: "i-lucide-plug-zap", key: "mcp", label: "MCP servers" },
-  { code: "webSearch({ mode: 'model' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
+  { code: "webSearch({ mode: 'tool' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
   { code: "openapi({ spec, operations })", icon: "i-lucide-braces", key: "openapi", label: "OpenAPI tools" },
   { code: "transcribe({ model: transcriptionModel })", icon: "i-lucide-audio-lines", key: "transcribe", label: "Transcription" },
@@ -406,7 +406,7 @@ const frameworkKey = ref("nuxt")
 const hostKey = ref("cloudflare")
 const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
   reviewer: {
-    defaultPropertyKeys: ["driver"],
+    defaultPropertyKeys: ["driver", "workspace"],
     visiblePropertyKeys: ["driver", "runtime", "box", "workspace", "capabilities", "channels"],
     driverKey: "codex",
     runtimeKey: "workflow",
@@ -416,7 +416,7 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
     channelKeys: ["github"],
   },
   nuxt: {
-    defaultPropertyKeys: ["driver"],
+    defaultPropertyKeys: ["driver", "workspace"],
     visiblePropertyKeys: ["driver", "runtime", "workspace", "capabilities", "channels"],
     driverKey: "model",
     runtimeKey: "workflow",
@@ -426,7 +426,7 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
     channelKeys: ["http"],
   },
   status: {
-    defaultPropertyKeys: ["driver"],
+    defaultPropertyKeys: ["driver", "workspace"],
     visiblePropertyKeys: ["driver", "runtime", "box", "workspace", "capabilities", "channels"],
     driverKey: "claude",
     runtimeKey: "workflow",
