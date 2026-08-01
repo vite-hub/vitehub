@@ -579,6 +579,39 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("rejects lazy UI-message streams after a sibling releases capacity", async () => {
+    const starts: string[] = []
+    let uiMessageStreamCalls = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return {
+            stream: (async function* () { yield "done" })(),
+            toUIMessageStream() {
+              uiMessageStreamCalls++
+              return uiMessageStream("done", Promise.resolve())
+            },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
+      stream: AsyncIterable<unknown>
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    for await (const _chunk of first.stream) {}
+    await second
+
+    expect(() => first.toUIMessageStream()).toThrow("Agent Invocation output has already finished")
+    expect(uiMessageStreamCalls).toBe(0)
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("reuses one wrapper for aliased stream surfaces", async () => {
     const source = new ReadableStream({
       start(controller) {

@@ -3063,6 +3063,7 @@ async function executeAgentInvocationWithCapacityLease<
             configurable: true,
             enumerable: false,
             value: (...args: unknown[]) => {
+              if (finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
               const renderedStream = toUIMessageStream.apply(rendered, args)
               const source = cancellableAsyncIterableSource(renderedStream)
               preservedSources.set(renderedStream, source)
