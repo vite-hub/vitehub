@@ -168,6 +168,7 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
       }
       finally {
         if (!completed) await cancel()
+        else readableReader?.releaseLock()
       }
     })(),
   }

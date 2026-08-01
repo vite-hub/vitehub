@@ -3127,6 +3127,11 @@ async function executeAgentInvocationWithCapacityLease<
                 try {
                   const textStream = resolveTextStream()
                   preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
+                  if (!isAsyncIterable(textStream) && !streamProperties.length) {
+                    finishing = true
+                    finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
+                    void finishTask.catch(() => {})
+                  }
                 }
                 catch (error) {
                   finishing = true

@@ -487,6 +487,27 @@ describe("Agent Driver capacity", () => {
     expect(textStreamCalls).toBe(1)
   })
 
+  it("releases capacity when a lazy text stream resolves to a non-stream", async () => {
+    const starts: string[] = []
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return { get textStream() { return "not a stream" } }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: unknown }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(first.textStream).toBe("not a stream")
+
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("releases capacity when wrapping a lazy text stream fails", async () => {
     const starts: string[] = []
     const lockedStream = new ReadableStream({})
@@ -877,6 +898,23 @@ describe("Agent Driver capacity", () => {
     const result = await runAgentInline(agent, runtime(), {}) as { fullStream: ReadableStream<unknown>, stream: ReadableStream<unknown> }
     expect(result.stream).toBe(result.fullStream)
     for await (const _chunk of result.stream) {}
+  })
+
+  it("releases a readable source lock after normal completion", async () => {
+    const source = new ReadableStream({
+      start(controller) {
+        controller.enqueue("done")
+        controller.close()
+      },
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1 }, run: () => ({ stream: source }) },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as { stream: ReadableStream<string> }
+    for await (const _chunk of result.stream) {}
+    expect(() => source.getReader()).not.toThrow()
   })
 
   it("releases an unconsumed direct UI-message stream when its invocation aborts", async () => {
