@@ -587,7 +587,7 @@ describe("storage capabilities", () => {
     expect(store.put).toHaveBeenCalledWith("meals/current/original", bytes, { contentType: "image/jpeg" })
   })
 
-  it("resolves encoded and URL-backed input attachments", async () => {
+  it("resolves encoded input attachments without advertising unresolved URLs", async () => {
     const { blob } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const store = {
@@ -597,7 +597,6 @@ describe("storage capabilities", () => {
       list: vi.fn(),
       put: vi.fn(async (pathname: string, _body: unknown, _options?: unknown) => ({ pathname })),
     }
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new Uint8Array([4, 5, 6])))
     const resolved = await resolveAgentCapabilities(
       { capabilities: [blob({ mode: "write" })] },
       { ...runtime({ blob: store }), run: { messageId: "message-1", runId: "run-1" } },
@@ -616,14 +615,27 @@ describe("storage capabilities", () => {
 
     await resolved.tools!.blob_edit!.execute?.({ attachmentId: "encoded", operation: "put", pathname: "encoded.png" })
     await resolved.tools!.blob_edit!.execute?.({ attachmentId: "base64", operation: "put", pathname: "base64.jpg" })
-    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "remote", operation: "put", pathname: "remote.jpg" })
+    await expect(resolved.tools!.blob_edit!.execute?.({ attachmentId: "remote", operation: "put", pathname: "remote.jpg" })).rejects.toThrow("must identify one current input attachment")
 
     expect(store.put).toHaveBeenNthCalledWith(1, "encoded.png", new Uint8Array([1, 2, 3]), { contentType: "image/png" })
     expect(store.put).toHaveBeenNthCalledWith(2, "base64.jpg", new Uint8Array([4, 5, 6]), { contentType: "image/jpeg" })
-    expect(store.put).toHaveBeenNthCalledWith(3, "remote.jpg", expect.any(ArrayBuffer), { contentType: "image/jpeg" })
-    expect(new Uint8Array(store.put.mock.calls[2]![1] as ArrayBuffer)).toEqual(new Uint8Array([4, 5, 6]))
-    expect(fetchMock).toHaveBeenCalledWith("https://example.com/photo.jpg")
-    fetchMock.mockRestore()
+    expect(resolved.tools!.blob_edit!.description).not.toContain("remote")
+  })
+
+  it("resolves Blob tools for static Agent inspection without invocation input", async () => {
+    const { blob } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [blob({ mode: "write" })],
+      driver: { model: {} as never },
+    })
+
+    await expect(agent.resolve({
+      capabilities: { blob: {} },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })).resolves.toMatchObject({ tools: { blob_edit: expect.any(Object) } })
   })
 
   it("uploads workspacePath from the active Harness workspace when available", async () => {

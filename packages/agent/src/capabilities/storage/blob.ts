@@ -254,11 +254,15 @@ async function readWorkspaceBlobBody(context: AgentCapabilityContext, path: stri
 }
 
 function currentInputAttachments(context: AgentCapabilityRuntimeContext): AttachmentPart[] {
+  if (!context.input) return []
   const messages = context.input.messages()
   const current = context.run?.messageId
     ? messages.find(message => message.id === context.run?.messageId)
     : [...messages].reverse().find(message => message.role === "user")
-  return current?.parts.filter(isAttachmentPart) ?? []
+  return current?.parts.filter((part): part is AttachmentPart =>
+    isAttachmentPart(part)
+    && (isAttachmentData(part.data) || typeof part.fetchData === "function"),
+  ) ?? []
 }
 
 async function readInputAttachment(context: AgentCapabilityRuntimeContext, id: string) {
@@ -269,19 +273,11 @@ async function readInputAttachment(context: AgentCapabilityRuntimeContext, id: s
     throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} must identify one current input attachment.${available.length ? ` Available: ${available.join(", ")}.` : ""}`)
   }
   const attachment = matches[0]!
-  const body = typeof attachment.fetchData === "function"
-    ? await attachment.fetchData()
-    : attachment.data ?? (attachment.url ? await fetchAttachmentUrl(attachment.url) : undefined)
+  const body = typeof attachment.fetchData === "function" ? await attachment.fetchData() : attachment.data
   if (!isAttachmentData(body)) {
     throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.`)
   }
   return { body: decodeAttachmentString(body, attachment.mediaType), mediaType: attachment.mediaType }
-}
-
-async function fetchAttachmentUrl(url: string): Promise<ArrayBuffer> {
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`[vitehub] blob_edit attachment request failed with ${response.status}.`)
-  return await response.arrayBuffer()
 }
 
 function decodeAttachmentString(body: AttachmentPart["data"], mediaType: string) {
