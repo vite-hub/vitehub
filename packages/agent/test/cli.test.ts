@@ -333,6 +333,98 @@ describe("agent CLI", () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
+  it("validates every deletion against the confirmed origin before mutation", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes("/botstaging-bot/")) {
+        return Response.json({ ok: true, result: { url: "https://staging.example.com/hook" } })
+      }
+      if (url.includes("/botproduction-bot/")) {
+        return Response.json({ ok: true, result: { url: "https://production.example.com/hook" } })
+      }
+      throw new Error(`Unexpected mutation: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "staging",
+      "--url", "https://staging.example.com",
+      "--apply",
+      "--allow-delete",
+      "--confirm-origin", "https://staging.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [
+        {
+          agent: "support",
+          channel: "staging",
+          mode: "disabled",
+          provider: "telegram",
+          sync: createTelegramChannelSyncProvider({ botToken: "staging-bot", mode: "disabled" }),
+        },
+        {
+          agent: "support",
+          channel: "production",
+          mode: "disabled",
+          provider: "telegram",
+          sync: createTelegramChannelSyncProvider({ botToken: "production-bot", mode: "disabled" }),
+        },
+      ],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("deletion targets https://production.example.com")
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects Channels targeting the same provider resource before planning", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://app.example.com",
+      "--apply",
+      "--confirm-origin", "https://app.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [
+        {
+          agent: "support",
+          channel: "alerts",
+          mode: "webhook",
+          provider: "telegram",
+          registration: { id: "alerts" },
+          sync: createTelegramChannelSyncProvider({ botToken: "shared-bot", mode: "webhook" }),
+        },
+        {
+          agent: "support",
+          channel: "chat",
+          mode: "webhook",
+          provider: "telegram",
+          registration: { id: "chat" },
+          sync: createTelegramChannelSyncProvider({ botToken: "shared-bot", mode: "webhook" }),
+        },
+      ],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("target the same telegram resource")
+    expect(stderr.output()).not.toContain("shared-bot")
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it("deletes and verifies a Telegram webhook only with explicit permission", async () => {
     const stdout = stream()
     let registeredUrl = "https://app.example.com/hook"

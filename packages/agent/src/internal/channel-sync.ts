@@ -24,6 +24,8 @@ export interface AgentChannelSyncProvider {
     fetch: typeof fetch
     force: boolean
   }) => Promise<AgentChannelSyncPlan>
+  /** Opaque provider resource identity used only to reject conflicting local plans. */
+  resourceKey?: unknown
 }
 
 export interface AgentChannelSyncDefinition<

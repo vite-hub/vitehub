@@ -389,6 +389,18 @@ export async function runAgentChannelSyncCli(
     if (!targets.length)
       throw new Error("No synchronizable Channels matched the selected Agent and Channel filters.")
 
+    const providerResources = new Map<unknown, LoadedChannelSyncTarget>()
+    for (const target of targets) {
+      if (target.sync.resourceKey === undefined) continue
+      const existing = providerResources.get(target.sync.resourceKey)
+      if (existing) {
+        throw new Error(
+          `Channels ${existing.agent}/${existing.channel} and ${target.agent}/${target.channel} target the same ${target.provider} resource.`,
+        )
+      }
+      providerResources.set(target.sync.resourceKey, target)
+    }
+
     const fetchImpl = options.fetch || globalThis.fetch
     const planned: PlannedChannelSyncTarget[] = []
     for (const target of targets) {
@@ -397,8 +409,8 @@ export async function runAgentChannelSyncCli(
       const plan = await target.sync.plan({ desiredUrl, fetch: fetchImpl, force: parsed.force })
       planned.push({ plan, preflight: desiredUrl ? "verified" : "not-required", target })
     }
-    const deletion = planned.find((item) => item.plan.action === "delete")
-    if (parsed.apply && deletion) {
+    const deletions = planned.filter((item) => item.plan.action === "delete")
+    if (parsed.apply) for (const deletion of deletions) {
       const currentUrl =
         typeof deletion.plan.current.url === "string" ? deletion.plan.current.url : ""
       if (currentUrl) {
@@ -410,6 +422,7 @@ export async function runAgentChannelSyncCli(
         }
       }
     }
+    const deletion = deletions[0]
     if (parsed.apply && deletion && !parsed.allowDelete) {
       throw new Error(
         `Channel ${deletion.target.agent}/${deletion.target.channel} requires deletion; rerun with --allow-delete after reviewing the plan.`,
