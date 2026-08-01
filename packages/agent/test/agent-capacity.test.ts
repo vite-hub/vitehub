@@ -699,6 +699,32 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("cancels an eager textStream when a sibling stream finishes", async () => {
+    let returned = false
+    const textStream: AsyncIterableIterator<never> = {
+      [Symbol.asyncIterator]: () => textStream,
+      next: () => new Promise<IteratorResult<never>>(() => {}),
+      async return() {
+        returned = true
+        return { done: true, value: undefined }
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => ({
+          stream: (async function* () { yield "done" })(),
+          textStream,
+        }),
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as { stream: AsyncIterable<string> }
+    for await (const _chunk of result.stream) {}
+    expect(returned).toBe(true)
+  })
+
   it("releases capacity when a lazy text stream resolves to a non-stream", async () => {
     const starts: string[] = []
     const agent = defineAgent({

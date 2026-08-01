@@ -3174,6 +3174,10 @@ async function executeAgentInvocationWithCapacityLease<
             : () => textStreamDescriptor.value
           let preservedTextStream: unknown
           let initialized = false
+          if (!("get" in textStreamDescriptor) && isAsyncIterable(textStreamDescriptor.value)) {
+            preservedTextStream = preserveStream(textStreamDescriptor.value)
+            initialized = true
+          }
           descriptors.textStream = {
             configurable: true,
             enumerable: textStreamDescriptor.enumerable ?? false,
