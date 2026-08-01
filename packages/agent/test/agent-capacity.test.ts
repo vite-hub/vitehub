@@ -480,6 +480,72 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("stops other preserved streams before releasing capacity after normal completion", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          const fullStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => fullStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return { fullStream, stream: (async function* () { yield "done" })() }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { stream: AsyncIterable<unknown> }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const consumption = (async () => { for await (const _chunk of first.stream) {} })()
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await consumption
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("releases combined stream results through their UI-message surface", async () => {
+    const starts: string[] = []
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          const stream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => stream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              return { done: true, value: undefined }
+            },
+          }
+          return { stream, toUIMessageStream: () => uiMessageStream("done", Promise.resolve()) }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { toUIMessageStream: () => ReadableStream<unknown> }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    for await (const _chunk of first.toUIMessageStream()) {}
+    await second
+    expect(returned).toBe(true)
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("reuses one wrapper for aliased stream surfaces", async () => {
     const source = new ReadableStream({
       start(controller) {

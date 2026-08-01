@@ -3010,7 +3010,7 @@ async function executeAgentInvocationWithCapacityLease<
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-            if (options.holdCapacity === true && (outcome.failed || !outcome.completed)) {
+            if (options.holdCapacity === true) {
               await Promise.all([...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
             }
             if (finishTask) return await finishTask
@@ -3051,6 +3051,32 @@ async function executeAgentInvocationWithCapacityLease<
             writable: true,
           }]
         }))
+        if (isUIMessageStreamResult(rendered)) {
+          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+          descriptors.toUIMessageStream = {
+            configurable: true,
+            enumerable: false,
+            value: (...args: unknown[]) => {
+              const renderedStream = toUIMessageStream.apply(rendered, args)
+              const source = cancellableAsyncIterableSource(renderedStream)
+              preservedSources.set(renderedStream, source)
+              return withReadableStreamCleanup(
+                normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
+                async (outcome) => {
+                  if (options.holdCapacity === true) {
+                    await Promise.all([...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
+                  }
+                  if (finishTask) return await finishTask
+                  finishTask = !outcome.failed && !outcome.completed
+                    ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
+                    : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                  return await finishTask
+                },
+                { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
+              )
+            },
+          }
+        }
         let textStreamDescriptor: PropertyDescriptor | undefined
         for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
           textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
