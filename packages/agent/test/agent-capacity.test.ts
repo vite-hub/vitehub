@@ -323,6 +323,62 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("cancels eager sibling streams before completing UI-message output", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          const fullStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => fullStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            fullStream,
+            toUIMessageStream: () => uiMessageStream(input.prompt as string, Promise.resolve()),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const second = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
+    const consumption = (async () => { for await (const _event of first) {} })()
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await consumption
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("reuses a primary stream selected for UI-message output", async () => {
+    const primary = uiMessageStream("shared", Promise.resolve())
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => ({
+          stream: primary,
+          toUIMessageStream: () => primary,
+        }),
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    await expect((async () => { for await (const _event of result) {} })()).resolves.toBeUndefined()
+  })
+
   it("closes prepared Capability scopes when Driver resolution fails", async () => {
     const close = vi.fn()
     const agent = defineAgent({
