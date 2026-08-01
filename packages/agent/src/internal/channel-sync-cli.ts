@@ -416,14 +416,15 @@ export async function runAgentChannelSyncCli(
       planned.push({ plan, preflight: desiredUrl ? "verified" : "not-required", target })
     }
     const deletions = planned.filter((item) => item.plan.action === "delete")
-    if (parsed.apply) for (const deletion of deletions) {
+    if (parsed.apply) for (const item of planned) {
+      if (item.plan.action !== "delete" && item.plan.action !== "update") continue
       const currentUrl =
-        typeof deletion.plan.current.url === "string" ? deletion.plan.current.url : ""
+        typeof item.plan.current.url === "string" ? item.plan.current.url : ""
       if (currentUrl) {
         const currentOrigin = httpsUrlOrigin(currentUrl, "current provider webhook URL").origin
         if (currentOrigin !== origin) {
           throw new Error(
-            `Channel ${deletion.target.agent}/${deletion.target.channel} deletion targets ${currentOrigin}, which does not match the confirmed deployment origin ${origin}.`,
+            `Channel ${item.target.agent}/${item.target.channel} ${item.plan.action} targets ${currentOrigin}, which does not match the confirmed deployment origin ${origin}.`,
           )
         }
       }

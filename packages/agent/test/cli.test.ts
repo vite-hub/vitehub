@@ -329,7 +329,7 @@ describe("agent CLI", () => {
     })
 
     expect(exitCode).toBe(1)
-    expect(stderr.output()).toContain("deletion targets https://production.example.com")
+    expect(stderr.output()).toContain("delete targets https://production.example.com")
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
@@ -379,7 +379,48 @@ describe("agent CLI", () => {
     })
 
     expect(exitCode).toBe(1)
-    expect(stderr.output()).toContain("deletion targets https://production.example.com")
+    expect(stderr.output()).toContain("delete targets https://production.example.com")
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it("binds webhook updates to the current provider origin", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (init?.method === "HEAD") {
+        return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+      }
+      if (url.endsWith("/getWebhookInfo")) {
+        return Response.json({ ok: true, result: { url: "https://production.example.com/hook" } })
+      }
+      throw new Error(`Unexpected mutation: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "staging",
+      "--url", "https://staging.example.com",
+      "--apply",
+      "--confirm-origin", "https://staging.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("update targets https://production.example.com")
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
