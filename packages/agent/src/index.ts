@@ -3007,21 +3007,26 @@ async function executeAgentInvocationWithCapacityLease<
             toUIMessageStream: {
               configurable: true,
               enumerable: false,
-              value: (...args: unknown[]) => withReadableStreamCleanup(
-                toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
-                  toReadableAsyncIterableStream(normalizeUiMessageStream(toUIMessageStream.apply(rendered, args))),
-                  invocation,
-                  rendered,
-                )),
-                finishPreserved,
-                {
-                  abortSignal: invocation.input.abortSignal,
-                  onChunk(chunk) {
-                    streamedText += uiMessageTextDelta(chunk) || ""
-                    streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+              value: (...args: unknown[]) => {
+                invocation.input.abortSignal?.removeEventListener("abort", onAbort)
+                const source = cancellableAsyncIterableSource(toUIMessageStream.apply(rendered, args))
+                return withReadableStreamCleanup(
+                  toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
+                    toReadableAsyncIterableStream(normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))),
+                    invocation,
+                    rendered,
+                  )),
+                  finishPreserved,
+                  {
+                    abortSignal: invocation.input.abortSignal,
+                    cancelOnAbort: source.cancel,
+                    onChunk(chunk) {
+                      streamedText += uiMessageTextDelta(chunk) || ""
+                      streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+                    },
                   },
-                },
-              ),
+                )
+              },
             },
           })
           if (invocation.input.abortSignal?.aborted) onAbort()

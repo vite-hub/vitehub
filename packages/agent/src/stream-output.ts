@@ -129,7 +129,7 @@ export function createAgentUIMessageStreamResponse(options: {
 export function withReadableStreamCleanup<T>(
   stream: ReadableStream<T>,
   cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
-  options: { abortSignal?: AbortSignal, onChunk?: (chunk: T) => void } = {},
+  options: { abortSignal?: AbortSignal, cancelOnAbort?: (reason: unknown) => Promise<void>, onChunk?: (chunk: T) => void } = {},
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
@@ -149,6 +149,7 @@ export function withReadableStreamCleanup<T>(
     void (async () => {
       let outcome: StreamCleanupOutcome = { error: reason, failed: true }
       try {
+        await options.cancelOnAbort?.(reason)
         await reader.cancel(reason)
       }
       catch (error) {
