@@ -278,7 +278,8 @@ async function readInputAttachment(context: AgentCapabilityRuntimeContext, id: s
 
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
-    const attachments = currentInputAttachments(context)
+    const runtimeContext = context as AgentCapabilityRuntimeContext
+    const attachments = currentInputAttachments(runtimeContext)
       .flatMap(part => part.id ? [`${part.id} (${part.mediaType})`] : [])
     const tools: AgentToolSet = {
       blob_read: createTool<BlobReadInput>({
@@ -312,7 +313,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             const sources = Number(body !== undefined) + Number(Boolean(sourcePath)) + Number(Boolean(sourceAttachment))
             if (sources > 1) throw new Error("[vitehub] blob_edit put accepts exactly one of attachmentId, body, or workspacePath.")
             if (sourceAttachment) {
-              const attachment = await readInputAttachment(context, sourceAttachment)
+              const attachment = await readInputAttachment(runtimeContext, sourceAttachment)
               return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(
                 path,
                 attachment.body,
