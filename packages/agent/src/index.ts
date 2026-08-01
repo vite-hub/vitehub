@@ -3367,7 +3367,8 @@ async function executeAgentInvocationWithCapacityLease<
             }
           }
         }
-        let unresolvedLazyPrimaryProperties = lazyPrimaryDescriptors.size
+        let unresolvedLazyStreamSurfaces = lazyPrimaryDescriptors.size
+          + (textStreamDescriptor && "get" in textStreamDescriptor ? 1 : 0)
         for (const [property, descriptor] of lazyPrimaryDescriptors) {
           let initialized = false
           let value: unknown
@@ -3380,8 +3381,8 @@ async function executeAgentInvocationWithCapacityLease<
                 try {
                   const resolved = descriptor.get?.call(rendered)
                   value = isAsyncIterable(resolved) ? preserveStream(resolved) : resolved
-                  unresolvedLazyPrimaryProperties--
-                  if (!isAsyncIterable(resolved) && !preservedSources.size && !unresolvedLazyPrimaryProperties) {
+                  unresolvedLazyStreamSurfaces--
+                  if (!isAsyncIterable(resolved) && !preservedSources.size && !unresolvedLazyStreamSurfaces) {
                     finishing = true
                     finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
                     void finishTask.catch(() => {})
@@ -3464,7 +3465,8 @@ async function executeAgentInvocationWithCapacityLease<
                 try {
                   const textStream = resolveTextStream()
                   preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
-                  if (!isAsyncIterable(textStream) && !streamProperties.length) {
+                  if ("get" in textStreamDescriptor) unresolvedLazyStreamSurfaces--
+                  if (!isAsyncIterable(textStream) && !preservedSources.size && !unresolvedLazyStreamSurfaces) {
                     finishing = true
                     finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
                     void finishTask.catch(() => {})

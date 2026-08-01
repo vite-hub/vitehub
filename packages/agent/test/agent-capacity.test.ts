@@ -1558,6 +1558,9 @@ describe("Agent Driver capacity", () => {
             get stream() {
               return { kind: "metadata" }
             },
+            get textStream() {
+              return "metadata"
+            },
           }
         },
       },
@@ -1567,8 +1570,10 @@ describe("Agent Driver capacity", () => {
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
       fullStream: AsyncIterable<string>
       stream: { kind: string }
+      textStream: string
     }
     expect(first.stream).toEqual({ kind: "metadata" })
+    expect(first.textStream).toBe("metadata")
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const consumption = (async () => { for await (const _chunk of first.fullStream) {} })()
     await vi.waitFor(() => expect(starts).toEqual(["first"]))
