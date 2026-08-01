@@ -2961,8 +2961,17 @@ async function executeAgentInvocationWithCapacityLease<
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => {
+                if (finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-                const source = cancellableAsyncIterableSource(toUIMessageStream.apply(rendered, args))
+                let renderedStream: ReadableStream<unknown>
+                try {
+                  renderedStream = toUIMessageStream.apply(rendered, args)
+                }
+                catch (error) {
+                  void finishPreserved({ error, failed: true }).catch(() => {})
+                  throw error
+                }
+                const source = cancellableAsyncIterableSource(renderedStream)
                 return withReadableStreamCleanup(
                   toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
                     toReadableAsyncIterableStream(normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))),
@@ -2993,6 +3002,7 @@ async function executeAgentInvocationWithCapacityLease<
         const streamProperties = (["stream", "fullStream"] as const)
           .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
         let finishTask: Promise<void> | undefined
+        let finishing = false
         let preserved: object
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
         const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
@@ -3018,6 +3028,7 @@ async function executeAgentInvocationWithCapacityLease<
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
+            finishing = true
             const finalOutcome = await cancelPreservedSources(outcome)
             if (finishTask) return await finishTask
             const finishResult = streamed.finishResult(preserved)
@@ -3063,13 +3074,14 @@ async function executeAgentInvocationWithCapacityLease<
             configurable: true,
             enumerable: false,
             value: (...args: unknown[]) => {
-              if (finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+              if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
               const renderedStream = toUIMessageStream.apply(rendered, args)
               const source = cancellableAsyncIterableSource(renderedStream)
               preservedSources.set(renderedStream, source)
               return withReadableStreamCleanup(
                 normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
                 async (outcome) => {
+                  finishing = true
                   const finalOutcome = await cancelPreservedSources(outcome)
                   if (finishTask) return await finishTask
                   finishTask = !finalOutcome.failed && !finalOutcome.completed

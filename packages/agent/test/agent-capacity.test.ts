@@ -324,25 +324,62 @@ describe("Agent Driver capacity", () => {
     const starts: string[] = []
     const controller = new AbortController()
     const secondController = new AbortController()
+    let uiMessageStreamCalls = 0
     const agent = defineAgent({
       driver: {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
           const id = input.prompt as string
           starts.push(id)
-          return { toUIMessageStream: () => uiMessageStream(id, Promise.resolve()) }
+          return {
+            toUIMessageStream: () => {
+              uiMessageStreamCalls++
+              return uiMessageStream(id, Promise.resolve())
+            },
+          }
         },
       },
       runtime: false,
     })
 
-    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const first = await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
     const second = runAgentInline(agent, runtime(), { abortSignal: secondController.signal, prompt: "second" })
     controller.abort(new DOMException("stop", "AbortError"))
 
     await second
+    expect(() => first.toUIMessageStream()).toThrow("Agent Invocation output has already finished")
+    expect(uiMessageStreamCalls).toBe(0)
     expect(starts).toEqual(["first", "second"])
     secondController.abort()
+  })
+
+  it("releases capacity when a UI-message stream factory throws", async () => {
+    const starts: string[] = []
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return {
+            toUIMessageStream() {
+              throw new Error("stream construction failed")
+            },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(() => first.toUIMessageStream()).toThrow("stream construction failed")
+
+    await second
+    expect(starts).toEqual(["first", "second"])
   })
 
   it("awaits lazy UI-message stream cancellation before releasing capacity", async () => {
@@ -610,6 +647,44 @@ describe("Agent Driver capacity", () => {
     expect(() => first.toUIMessageStream()).toThrow("Agent Invocation output has already finished")
     expect(uiMessageStreamCalls).toBe(0)
     expect(starts).toEqual(["first", "second"])
+  })
+
+  it("rejects lazy UI-message streams while sibling cancellation is finishing", async () => {
+    const cancelGate = deferred()
+    let cancelling = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run() {
+          const fullStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => fullStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              cancelling = true
+              await cancelGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            fullStream,
+            stream: (async function* () { yield "done" })(),
+            toUIMessageStream: () => uiMessageStream("done", Promise.resolve()),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as {
+      stream: AsyncIterable<unknown>
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const consumption = (async () => { for await (const _chunk of result.stream) {} })()
+    await vi.waitFor(() => expect(cancelling).toBe(true))
+    expect(() => result.toUIMessageStream()).toThrow("Agent Invocation output has already finished")
+
+    cancelGate.resolve()
+    await consumption
   })
 
   it("reuses one wrapper for aliased stream surfaces", async () => {
