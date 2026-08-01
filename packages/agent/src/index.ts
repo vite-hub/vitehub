@@ -3016,14 +3016,23 @@ async function executeAgentInvocationWithCapacityLease<
         }
         const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
         const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
-        for (const property of ["stream", "fullStream"] as const) {
-          let descriptor: PropertyDescriptor | undefined
-          for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-            descriptor = Object.getOwnPropertyDescriptor(owner, property)
-          if (!descriptor) continue
-          const value = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
-          resolvedPrimaryProperties.set(property, value)
-          if (isAsyncIterable(value)) streamPropertyValues.set(property, value)
+        try {
+          for (const property of ["stream", "fullStream"] as const) {
+            let descriptor: PropertyDescriptor | undefined
+            for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+              descriptor = Object.getOwnPropertyDescriptor(owner, property)
+            if (!descriptor) continue
+            const value = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
+            resolvedPrimaryProperties.set(property, value)
+            if (isAsyncIterable(value)) streamPropertyValues.set(property, value)
+          }
+        }
+        catch (error) {
+          await Promise.allSettled(
+            [...new Set(streamPropertyValues.values())]
+              .map(stream => cancellableAsyncIterableSource(stream).cancel(error)),
+          )
+          throw error
         }
         const streamProperties = [...streamPropertyValues.keys()]
         let finishTask: Promise<void> | undefined

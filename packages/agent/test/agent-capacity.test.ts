@@ -593,6 +593,35 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("cancels resolved streams when a later primary accessor throws", async () => {
+    let returned = false
+    const stream: AsyncIterableIterator<never> = {
+      [Symbol.asyncIterator]: () => stream,
+      next: () => new Promise<IteratorResult<never>>(() => {}),
+      async return() {
+        returned = true
+        return { done: true, value: undefined }
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => ({
+          get stream() {
+            return stream
+          },
+          get fullStream(): AsyncIterable<never> {
+            throw new Error("fullStream failed")
+          },
+        }),
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).rejects.toThrow("fullStream failed")
+    expect(returned).toBe(true)
+  })
+
   it("holds mixed text and UI-message results until the consumed text stream finishes", async () => {
     const starts: string[] = []
     const gate = deferred()
