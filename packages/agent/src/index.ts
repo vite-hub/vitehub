@@ -2360,6 +2360,53 @@ function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown,
   return outcome.failed ? { error: outcome.error, status: "error" } : { result, status: "success" }
 }
 
+function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
+  cancel: (reason?: unknown) => Promise<void>
+  stream: AsyncIterable<unknown>
+} {
+  const readableReader = typeof (stream as ReadableStream<unknown>).getReader === "function"
+    ? (stream as ReadableStream<unknown>).getReader()
+    : undefined
+  const iterator: AsyncIterator<unknown> = readableReader
+    ? {
+        next: () => readableReader.read(),
+        async return(reason) {
+          try {
+            await readableReader.cancel(reason)
+          }
+          finally {
+            readableReader.releaseLock()
+          }
+          return { done: true, value: undefined }
+        },
+      }
+    : stream[Symbol.asyncIterator]()
+  let cancelTask: Promise<void> | undefined
+  const cancel = async (reason?: unknown) => {
+    cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
+    await cancelTask
+  }
+  return {
+    cancel,
+    stream: (async function* () {
+      let completed = false
+      try {
+        for (;;) {
+          const chunk = await iterator.next()
+          if (chunk.done) {
+            completed = true
+            return
+          }
+          yield chunk.value
+        }
+      }
+      finally {
+        if (!completed) await cancel()
+      }
+    })(),
+  }
+}
+
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
   return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
 }
@@ -2727,46 +2774,12 @@ async function finalizeAgentInvocationResult<
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
-      const readableResult = typeof (result as ReadableStream<unknown>).getReader === "function"
-        ? result as ReadableStream<unknown>
-        : undefined
-      const readableReader = readableResult?.getReader()
-      const sourceIterator: AsyncIterator<unknown> = readableReader
-        ? {
-            next: () => readableReader.read(),
-            async return() {
-              try {
-                await readableReader.cancel()
-              }
-              finally {
-                readableReader.releaseLock()
-              }
-              return { done: true, value: undefined }
-            },
-          }
-        : result[Symbol.asyncIterator]()
-      let sourceReturnTask: Promise<void> | undefined
-      const cancelSource = async () => {
-        sourceReturnTask ||= Promise.resolve(sourceIterator.return?.()).then(() => {})
-        await sourceReturnTask
+      if (!shouldWrapOutput) {
+        const enrichedStream = withEagerStreamUsageExtensions(result, context, result)
+        return options.wrapStream?.(enrichedStream) || enrichedStream
       }
-      const sourceStream = (async function* () {
-        let completed = false
-        try {
-          for (;;) {
-            const chunk = await sourceIterator.next()
-            if (chunk.done) {
-              completed = true
-              return
-            }
-            yield chunk.value
-          }
-        }
-        finally {
-          if (!completed) await cancelSource()
-        }
-      })()
-      const enrichedStream = withEagerStreamUsageExtensions(sourceStream, context, result)
+      const source = cancellableAsyncIterableSource(result)
+      const enrichedStream = withEagerStreamUsageExtensions(source.stream, context, result)
       const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
@@ -2787,7 +2800,7 @@ async function finalizeAgentInvocationResult<
               : finishOutcome)
           }, {
             abortSignal: context.input.abortSignal,
-            cancelOnAbort: cancelSource,
+            cancelOnAbort: source.cancel,
           })
           return typeof (result as ReadableStream<unknown>).getReader === "function"
             ? toReadableAsyncIterableStream(value)
@@ -2795,7 +2808,7 @@ async function finalizeAgentInvocationResult<
         }
         const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
           abortSignal: context.input.abortSignal,
-          cancelOnAbort: cancelSource,
+          cancelOnAbort: source.cancel,
         })
         return typeof (result as ReadableStream<unknown>).getReader === "function"
           ? toReadableAsyncIterableStream(value)
@@ -3023,10 +3036,17 @@ async function executeAgentInvocationWithCapacityLease<
           .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
         let finishTask: Promise<void> | undefined
         let preserved: object
+        const onAbort = () => {
+          const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
+          finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
+          void finishTask.catch(() => {})
+        }
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
-          const enrichedStream = withEagerStreamUsageExtensions(renderedStream, invocation, rendered)
+          const source = cancellableAsyncIterableSource(renderedStream)
+          const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+            invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             if (finishTask) return await finishTask
             const finishResult = streamed.finishResult(preserved)
             finishTask = !outcome.failed && !outcome.completed
@@ -3046,7 +3066,7 @@ async function executeAgentInvocationWithCapacityLease<
                   if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
                 })()
             return await finishTask
-          }, { abortSignal: invocation.input.abortSignal })
+          }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
           const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
             ? toReadableAsyncIterableStream(value)
             : value
@@ -3084,6 +3104,8 @@ async function executeAgentInvocationWithCapacityLease<
           }
         }
         preserved = resultWithPreservedProperties(rendered as object, descriptors)
+        if (invocation.input.abortSignal?.aborted) onAbort()
+        else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
         return {
           deferFinish: true,
           finishResult: preserved,
@@ -3184,9 +3206,10 @@ async function executeAgentInvocationWithCapacityLease<
     const stream = isStreamResult
       ? streamAgentOutputToEvents(rendered)
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
-    const streamed = withStreamedResult(withEagerStreamUsageExtensions(stream, invocation, rendered), rendered, driverUsageRecord)
-    const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const shouldWrapOutput = shouldHoldInvocationOutput()
+    const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
+    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord)
+    const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
           const finishResult = streamed.finishResult()
@@ -3203,7 +3226,7 @@ async function executeAgentInvocationWithCapacityLease<
           else {
             await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
           }
-        }, { abortSignal: invocation.input.abortSignal }) as AsyncIterable<StreamEvent>
+        }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
       : tracedStream
     return {
       deferFinish: shouldWrapOutput,

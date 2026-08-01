@@ -1409,11 +1409,12 @@ async function closeCapabilityStreamIterator(
     catch (returnError) {
       returnTask = Promise.reject(returnError)
     }
-    try {
-      await returnTask
-    }
-    catch (returnError) {
-      if (!outcome.failed) {
+    if (outcome.failed) void returnTask?.catch(() => {})
+    else {
+      try {
+        await returnTask
+      }
+      catch (returnError) {
         try {
           await close({ error: returnError, failed: true })
         }

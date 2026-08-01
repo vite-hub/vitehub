@@ -345,6 +345,65 @@ describe("Agent Driver capacity", () => {
     secondController.abort()
   })
 
+  it("releases a textStream-only result when its invocation aborts before streaming", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const textStream = vi.fn(() => (async function* () { yield "unused" })())
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return { get textStream() { return textStream() } }
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("awaits preserved stream cancellation before releasing capacity", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          const iterator: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => iterator,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return { stream: iterator }
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("releases an unconsumed direct UI-message stream when its invocation aborts", async () => {
     const starts: string[] = []
     const controller = new AbortController()
@@ -485,6 +544,20 @@ describe("Agent Driver capacity", () => {
     const reader = result.getReader()
     await expect(reader.read()).resolves.toEqual({ done: false, value: "done" })
     await expect(reader.read()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it("leaves top-level ReadableStream output unchanged without capacity", async () => {
+    const source = new ReadableStream({
+      start(controller) {
+        controller.enqueue("done")
+        controller.close()
+      },
+    })
+    const agent = defineAgent({ driver: { run: () => source }, runtime: false })
+
+    const result = await runAgentInline(agent, runtime(), {}) as ReadableStream<string>
+    expect(result).toBeInstanceOf(ReadableStream)
+    expect(typeof result.getReader).toBe("function")
   })
 
   it("cancels an eager top-level ReadableStream before releasing capacity on abort", async () => {
