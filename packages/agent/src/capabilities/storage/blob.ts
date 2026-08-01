@@ -7,6 +7,7 @@ import {
   readHarnessWorkspaceDiff,
 } from "../../harness-runtime.ts"
 import { cloneWithPropertyDescriptors } from "../../internal/stream-result.ts"
+import { attachmentStringBytes, currentInputAttachments, isAttachmentData, resolveAttachmentData } from "../../messages.ts"
 import {
   assertString,
   createTool,
@@ -24,6 +25,7 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "../../types.ts"
+import type { AttachmentPart } from "../../messages.ts"
 import type { PrimitiveStorageCapabilityOptions } from "./shared.ts"
 
 export interface BlobCapabilityOptions extends PrimitiveStorageCapabilityOptions {
@@ -60,6 +62,7 @@ interface BlobReadInput {
 }
 
 interface BlobEditInput {
+  attachmentId?: string
   body?: unknown
   operation: "delete" | "put"
   options?: Record<string, unknown>
@@ -81,6 +84,10 @@ const blobReadInputSchema = jsonObjectSchema({
 }, ["operation"])
 
 const blobEditInputSchema = jsonObjectSchema({
+  attachmentId: {
+    description: "Upload a current input attachment instead of inline body or a Workspace file.",
+    type: "string",
+  },
   body: {},
   operation: { enum: ["delete", "put"], type: "string" },
   options: { additionalProperties: true, type: "object" },
@@ -245,8 +252,31 @@ async function readWorkspaceBlobBody(context: AgentCapabilityContext, path: stri
   return await context.fs.readFile(path as never, { encoding: "binary" })
 }
 
+function resolvableInputAttachments(context: AgentCapabilityContext): AttachmentPart[] {
+  if (!context.invocation) return []
+  return currentInputAttachments(context.invocation.input.messages(), context.run?.messageId)
+    .filter(part => isAttachmentData(part.data) || typeof part.fetchData === "function")
+}
+
+async function readInputAttachment(context: AgentCapabilityContext, id: string) {
+  const attachments = resolvableInputAttachments(context)
+  const matches = attachments.filter(part => part.id === id)
+  if (matches.length !== 1) {
+    const available = attachments.flatMap(part => part.id ? [part.id] : [])
+    throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} must identify one current input attachment.${available.length ? ` Available: ${available.join(", ")}.` : ""}`)
+  }
+  const attachment = matches[0]!
+  const body = await resolveAttachmentData(attachment)
+  if (!isAttachmentData(body)) {
+    throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.`)
+  }
+  return { body: typeof body === "string" ? attachmentStringBytes(body, attachment.mediaType) : body, mediaType: attachment.mediaType }
+}
+
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
+    const attachments = resolvableInputAttachments(context)
+      .flatMap(part => part.id ? [`${part.id} (${part.mediaType})`] : [])
     const tools: AgentToolSet = {
       blob_read: createTool<BlobReadInput>({
         description: "Read one Blob object, read object metadata, or list objects under a developer-provided prefix.",
@@ -266,17 +296,30 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
     }
     if (mode === "write") {
       tools.blob_edit = createTool<BlobEditInput>({
-        description: "Put or delete Blob objects. Use workspacePath to upload a Workspace file.",
-        execute: async ({ body, operation, options: putOptions, pathname, workspacePath }) => {
+        description: [
+          "Put or delete Blob objects. Use attachmentId for a current input attachment or workspacePath for a Workspace file.",
+          ...(attachments.length ? [`Current input attachments: ${attachments.join(", ")}.`] : []),
+        ].join(" "),
+        execute: async ({ attachmentId, body, operation, options: putOptions, pathname, workspacePath }) => {
           const store = await resolveBlobStore(context, options)
           if (operation === "put") {
             const path = assertString(pathname, "blob_edit pathname")
             const sourcePath = typeof workspacePath === "string" && workspacePath.trim() ? workspacePath : undefined
-            if (sourcePath && body !== undefined) throw new Error("[vitehub] blob_edit put accepts body or workspacePath, not both.")
+            const sourceAttachment = typeof attachmentId === "string" && attachmentId.trim() ? attachmentId : undefined
+            const sources = Number(body !== undefined) + Number(Boolean(sourcePath)) + Number(Boolean(sourceAttachment))
+            if (sources > 1) throw new Error("[vitehub] blob_edit put accepts exactly one of attachmentId, body, or workspacePath.")
+            if (sourceAttachment) {
+              const attachment = await readInputAttachment(context, sourceAttachment)
+              return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(
+                path,
+                attachment.body,
+                { ...putOptions, ...(attachment.mediaType ? { contentType: attachment.mediaType } : {}) },
+              ))
+            }
             if (sourcePath) {
               return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, await readWorkspaceBlobBody(context, sourcePath), putOptions))
             }
-            if (body === undefined) throw new Error("[vitehub] blob_edit put requires body or workspacePath.")
+            if (body === undefined) throw new Error("[vitehub] blob_edit put requires attachmentId, body, or workspacePath.")
             return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions))
           }
           if (operation === "delete") {

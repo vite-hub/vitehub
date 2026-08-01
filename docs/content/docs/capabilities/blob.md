@@ -19,7 +19,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 The Capability contributes `blob_read` for get, head, and list operations.
 When configured with write mode, it also contributes `blob_edit` for putting or deleting objects.
-`blob_edit` can upload inline content or a Workspace file through `workspacePath`.
+`blob_edit` can upload inline content, a current input attachment through `attachmentId`, or a Workspace file through `workspacePath`.
 For Harness Agents, `assetPaths` also turns final-answer Markdown references into published delivery artifacts.
 
 ## Configuration
@@ -44,7 +44,7 @@ export default defineAgent({
 ViteHub selects the configured Blob store and exposes a small Storage Capability Tool Surface.
 Read mode supports one object read, metadata read, or prefix list operation per tool call.
 Write mode adds put/delete operations and allows them by default.
-Put operations accept either `body` or `workspacePath`, not both.
+Put operations accept exactly one of `attachmentId`, `body`, or `workspacePath`.
 Delete operations return `{ pathname, deleted: true }`.
 
 ## Requirements

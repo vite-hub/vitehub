@@ -545,13 +545,119 @@ describe("storage capabilities", () => {
     const body = new Blob(["data"], { type: "image/png" })
     await tools.blob_edit!.execute?.({ body, operation: "put", options: { contentType: "image/png" }, pathname: "images/a.png" })
     await tools.blob_edit!.execute?.({ operation: "put", pathname: "images/from-workspace.png", workspacePath: "screenshots/result.png" })
-    await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ body: "inline", operation: "put", pathname: "images/a.png", workspacePath: "screenshots/result.png" }))).rejects.toThrow("body or workspacePath")
-    await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ operation: "put", pathname: "images/a.png" }))).rejects.toThrow("body or workspacePath")
+    await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ body: "inline", operation: "put", pathname: "images/a.png", workspacePath: "screenshots/result.png" }))).rejects.toThrow("exactly one")
+    await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ operation: "put", pathname: "images/a.png" }))).rejects.toThrow("attachmentId, body, or workspacePath")
     await expect(tools.blob_edit!.execute?.({ operation: "delete", pathname: "images/a.png" })).resolves.toEqual({ pathname: "images/a.png", deleted: true })
     expect(store.put).toHaveBeenCalledWith("images/a.png", body, { contentType: "image/png" })
     expect(workspace.fs.readFile).toHaveBeenCalledWith("screenshots/result.png", { encoding: "binary" })
     expect(store.put).toHaveBeenCalledWith("images/from-workspace.png", workspaceBytes, undefined)
     expect(store.del).toHaveBeenCalledWith("images/a.png")
+  })
+
+  it("uploads a current input attachment by id", async () => {
+    const { blob } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { resolveAttachmentData } = await import("../src/messages.ts")
+    const bytes = new Uint8Array([1, 2, 3])
+    const fetchData = vi.fn(async () => bytes)
+    const attachment = { id: "attachment-1", mediaType: "image/jpeg", type: "image" as const, fetchData }
+    const store = {
+      del: vi.fn(),
+      get: vi.fn(),
+      head: vi.fn(),
+      list: vi.fn(),
+      put: vi.fn(async (pathname: string, _body: unknown, _options?: unknown) => ({ pathname })),
+    }
+    const resolved = await resolveAgentCapabilities(
+      { capabilities: [blob({ mode: "write" })] },
+      {
+        ...runtime({ blob: store }),
+        run: { messageId: "message-2", runId: "run-1" },
+      },
+      {
+        messages: [
+          { id: "message-1", parts: [{ id: "attachment-1", mediaType: "image/png", type: "image", data: "old" }], role: "user" },
+          { id: "message-2", parts: [attachment], role: "user" },
+        ],
+      },
+    )
+
+    const invocationAttachment = resolved.messages[1]!.parts[0]!
+    if (invocationAttachment.type !== "image") throw new Error("Expected image attachment")
+    await resolveAttachmentData(invocationAttachment)
+    await expect(resolved.tools!.blob_edit!.execute?.({
+      attachmentId: "attachment-1",
+      operation: "put",
+      options: { contentType: "application/octet-stream" },
+      pathname: "meals/current/original",
+    })).resolves.toEqual({ pathname: "meals/current/original" })
+    expect(store.put).toHaveBeenCalledWith("meals/current/original", bytes, { contentType: "image/jpeg" })
+    expect(fetchData).toHaveBeenCalledOnce()
+
+    const retried = await resolveAgentCapabilities(
+      { capabilities: [blob({ mode: "write" })] },
+      { ...runtime({ blob: store }), run: { messageId: "message-2", runId: "run-2" } },
+      { messages: [{ id: "message-2", parts: [attachment], role: "user" }] },
+    )
+    await retried.tools!.blob_edit!.execute?.({ attachmentId: "attachment-1", operation: "put", pathname: "meals/retry/original" })
+    expect(fetchData).toHaveBeenCalledTimes(2)
+  })
+
+  it("resolves encoded input attachments without advertising unresolved URLs", async () => {
+    const { blob } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const store = {
+      del: vi.fn(),
+      get: vi.fn(),
+      head: vi.fn(),
+      list: vi.fn(),
+      put: vi.fn(async (pathname: string, _body: unknown, _options?: unknown) => ({ pathname })),
+    }
+    const resolved = await resolveAgentCapabilities(
+      { capabilities: [blob({ mode: "write" })] },
+      { ...runtime({ blob: store }), run: { messageId: "message-1", runId: "run-1" } },
+      {
+        messages: [{
+          id: "message-1",
+          parts: [
+            { data: "data:image/png;base64,AQID", id: "encoded", mediaType: "image/png", type: "image" },
+            { data: "BAUG", id: "base64", mediaType: "image/jpeg", type: "image" },
+            { data: "data:image/jpeg,%FF%D8%FF", id: "percent", mediaType: "image/jpeg", type: "image" },
+            { data: "{\"meal\":true}", id: "json", mediaType: "application/json; charset=utf-8", type: "file" },
+            { id: "remote", mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" },
+          ],
+          role: "user",
+        }],
+      },
+    )
+
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "encoded", operation: "put", pathname: "encoded.png" })
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "base64", operation: "put", pathname: "base64.jpg" })
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "percent", operation: "put", pathname: "percent.jpg" })
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "json", operation: "put", pathname: "meal.json" })
+    await expect(resolved.tools!.blob_edit!.execute?.({ attachmentId: "remote", operation: "put", pathname: "remote.jpg" })).rejects.toThrow("must identify one current input attachment")
+
+    expect(store.put).toHaveBeenNthCalledWith(1, "encoded.png", new Uint8Array([1, 2, 3]), { contentType: "image/png" })
+    expect(store.put).toHaveBeenNthCalledWith(2, "base64.jpg", new Uint8Array([4, 5, 6]), { contentType: "image/jpeg" })
+    expect(store.put).toHaveBeenNthCalledWith(3, "percent.jpg", new Uint8Array([255, 216, 255]), { contentType: "image/jpeg" })
+    expect(store.put).toHaveBeenNthCalledWith(4, "meal.json", new TextEncoder().encode("{\"meal\":true}"), { contentType: "application/json; charset=utf-8" })
+    expect(resolved.tools!.blob_edit!.description).not.toContain("remote")
+  })
+
+  it("resolves Blob tools for static Agent inspection without invocation input", async () => {
+    const { blob } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [blob({ mode: "write" })],
+      driver: { model: {} as never },
+    })
+
+    await expect(agent.resolve({
+      capabilities: { blob: {} },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })).resolves.toMatchObject({ tools: { blob_edit: expect.any(Object) } })
   })
 
   it("uploads workspacePath from the active Harness workspace when available", async () => {

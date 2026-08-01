@@ -133,6 +133,78 @@ export function isAttachmentPart(value: unknown): value is AttachmentPart {
   return type === "audio" || type === "file" || type === "image"
 }
 
+export function currentInputAttachments(messages: Message[], messageId?: string): AttachmentPart[] {
+  const current = messageId
+    ? messages.find(message => message.id === messageId)
+    : [...messages].reverse().find(message => message.role === "user")
+  return current?.parts.filter(isAttachmentPart) ?? []
+}
+
+export function resolveAttachmentData(part: AttachmentPart): Promise<AttachmentData | undefined> {
+  if (typeof part.fetchData !== "function") return Promise.resolve(isAttachmentData(part.data) ? part.data : undefined)
+  return Promise.resolve().then(() => part.fetchData!()).then(data => isAttachmentData(data) ? data : undefined)
+}
+
+export function memoizeMessageAttachmentData(messages: Message[]): Message[] {
+  let changed = false
+  const memoized = messages.map((message) => {
+    let messageChanged = false
+    const parts = message.parts.map((part) => {
+      if (!isAttachmentPart(part) || typeof part.fetchData !== "function") return part
+      changed = true
+      messageChanged = true
+      const fetchData = part.fetchData
+      let resolution: Promise<AttachmentData> | undefined
+      return {
+        ...part,
+        fetchData: () => resolution ??= Promise.resolve().then(() => fetchData.call(part)),
+      }
+    })
+    return messageChanged ? { ...message, parts } : message
+  })
+  return changed ? memoized : messages
+}
+
+export function attachmentStringBytes(value: string, mediaType: string): Uint8Array {
+  const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
+  if (dataUrl) {
+    const encoded = dataUrl[2]!
+    if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
+      return base64Bytes(encoded)
+    }
+    const bytes = new TextEncoder().encode(encoded)
+    let readIndex = 0
+    let writeIndex = 0
+    while (readIndex < bytes.length) {
+      if (bytes[readIndex] === 37) {
+        const encodedByte = String.fromCharCode(bytes[readIndex + 1]!, bytes[readIndex + 2]!)
+        if (!/^[\da-f]{2}$/i.test(encodedByte)) throw new URIError("URI malformed")
+        bytes[writeIndex++] = Number.parseInt(encodedByte, 16)
+        readIndex += 3
+      }
+      else {
+        bytes[writeIndex++] = bytes[readIndex++]!
+      }
+    }
+    return bytes.slice(0, writeIndex)
+  }
+  if (isTextAttachmentMediaType(mediaType)) {
+    return new TextEncoder().encode(value)
+  }
+  return base64Bytes(value)
+}
+
+function base64Bytes(value: string): Uint8Array {
+  const normalized = value.replaceAll(/\s/g, "").replaceAll("-", "+").replaceAll("_", "/")
+  const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=")
+  return Uint8Array.from(atob(padded), character => character.charCodeAt(0))
+}
+
+export function isTextAttachmentMediaType(mediaType: string): boolean {
+  const normalized = mediaType.split(";", 1)[0]!.trim().toLowerCase()
+  return normalized.startsWith("text/") || normalized === "application/json" || normalized === "application/xml" || normalized.endsWith("+json") || normalized.endsWith("+xml")
+}
+
 export interface Message {
   createdAt?: string
   id: string

@@ -6,7 +6,7 @@ import {
   createCapabilityCliTool,
 } from "./capability-cli.ts"
 import { normalizeWorkspaceCommandEntries, workspaceCommandTools } from "./capabilities/workspace-command.ts"
-import { createMessage } from "./messages.ts"
+import { createMessage, memoizeMessageAttachmentData } from "./messages.ts"
 import { agentInvocationCallbackContextValues, agentInvocationSourceContext, createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   createFallbackAgentInvoker,
@@ -28,6 +28,7 @@ import type {
   AgentCapabilityTypeContract,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
+  AgentCapabilityInputContext,
   AgentCapabilityMode,
   AgentCapabilityRuntimeContext,
   AgentChannelDeliveryEffectIntent,
@@ -877,7 +878,9 @@ export async function resolveAgentCapabilities<
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
-  let messages = getRunMessages(currentInput)
+  const inputMessages = getRunMessages(currentInput)
+  let messages = memoizeMessageAttachmentData(inputMessages)
+  if (messages !== inputMessages) currentInput = withMessages(currentInput, messages)
   let tools: AgentToolSet | undefined
   const driverContributions: AgentDriverContribution[] = []
   let capabilityScope: Awaited<ReturnType<typeof openAgentCapabilityScope>> | undefined
@@ -997,6 +1000,20 @@ export async function resolveAgentCapabilities<
         workspaceMaterializationPaths,
       }
       let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+      const input: AgentCapabilityInputContext = {
+        get: () => currentInput,
+        messages: () => messages,
+        set(value) {
+          currentInput = normalizeRunInput(value)
+          const inputMessages = getRunMessages(currentInput)
+          messages = memoizeMessageAttachmentData(inputMessages)
+          if (messages !== inputMessages) currentInput = withMessages(currentInput, messages)
+        },
+        setMessages(value) {
+          messages = memoizeMessageAttachmentData(value)
+          currentInput = withMessages(currentInput, messages)
+        },
+      }
       capabilityContext = {
         ...metadataContext,
         [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
@@ -1005,18 +1022,8 @@ export async function resolveAgentCapabilities<
         },
         capability,
         mode: capability.mode,
-        input: {
-          get: () => currentInput,
-          messages: () => messages,
-          set(value) {
-            currentInput = normalizeRunInput(value)
-            messages = getRunMessages(currentInput)
-          },
-          setMessages(value) {
-            messages = value
-            currentInput = withMessages(currentInput, messages)
-          },
-        },
+        input,
+        invocation: { input },
         delivery: {
           effect(intent) {
             if (!intent || typeof intent !== "object" || typeof intent.kind !== "string" || !intent.kind.trim()) {
