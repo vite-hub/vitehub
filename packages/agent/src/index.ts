@@ -1234,7 +1234,11 @@ function createSyntheticWorkspaceRun<
                   if (!initialized) {
                     try {
                       const resolved = descriptor.get?.call(output)
-                      value = isAsyncIterable(resolved) ? wrapStream(resolved) : resolved
+                      if (isAsyncIterable(resolved)) value = wrapStream(resolved)
+                      else {
+                        value = resolved
+                        void finish().catch(() => {})
+                      }
                       initialized = true
                     }
                     catch (error) {
@@ -2910,6 +2914,7 @@ async function materializeAgentStructuredOutput(
         for (let owner: object | null = streamResult; owner && !descriptor; owner = Object.getPrototypeOf(owner))
           descriptor = Object.getOwnPropertyDescriptor(owner, property)
         if (!descriptor) continue
+        if ("get" in descriptor && hasStream) continue
         const value = "get" in descriptor ? descriptor.get?.call(streamResult) : descriptor.value
         const source = isAsyncIterable(value)
           ? streamSources.get(value) ?? cancellableAsyncIterableSource(value)
@@ -2921,7 +2926,7 @@ async function materializeAgentStructuredOutput(
           value: source?.stream ?? value,
           writable: true,
         }
-        if (isAsyncIterable(value)) hasStream = true
+        if (source) hasStream = true
       }
     }
     catch (error) {
@@ -3561,12 +3566,14 @@ async function executeAgentInvocationWithCapacityLease<
     const eagerStreamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
     if (isStreamResult && options.holdCapacity === true && rendered && typeof rendered === "object") {
       const descriptors: PropertyDescriptorMap = {}
+      let selectedStream = false
       try {
         for (const property of ["stream", "fullStream", "textStream"] as const) {
           let descriptor: PropertyDescriptor | undefined
           for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
             descriptor = Object.getOwnPropertyDescriptor(owner, property)
           if (!descriptor) continue
+          if ("get" in descriptor && selectedStream) continue
           const candidate = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
           const source = isAsyncIterable(candidate)
             ? eagerStreamSources.get(candidate) ?? cancellableAsyncIterableSource(candidate)
@@ -3578,8 +3585,9 @@ async function executeAgentInvocationWithCapacityLease<
             value: source?.stream ?? candidate,
             writable: true,
           }
+          if (source) selectedStream = true
         }
-        isStreamResult = eagerStreamSources.size > 0
+        isStreamResult = selectedStream
         streamResult = cloneWithPropertyDescriptors(rendered, descriptors)
       }
       catch (error) {

@@ -434,6 +434,25 @@ describe("defineAgent workspace option", () => {
     await expect(secondConsumption).resolves.toEqual(["done"])
   })
 
+  it("releases synthetic Workspace capacity when a stream getter is not a stream", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    harnessGenerate.mockImplementation(async () => {
+      starts++
+      return { get stream() { return "not streamed" } } as never
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+
+    const first = await agent.run!(context()) as { stream: string }
+    const second = agent.run!(context())
+    expect(first.stream).toBe("not streamed")
+    await expect(second).resolves.toBeDefined()
+    expect(starts).toBe(2)
+  })
+
   it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

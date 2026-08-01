@@ -236,6 +236,59 @@ describe("Agent Driver capacity", () => {
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42 })
   })
 
+  it("does not evaluate unused lazy streams during structured materialization", async () => {
+    let lazyStreamReads = 0
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => ({ value }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        output: { schema },
+        run: () => ({
+          get fullStream(): AsyncIterable<never> {
+            lazyStreamReads++
+            throw new Error("unused fullStream getter")
+          },
+          stream: (async function* () {
+            yield { text: "{\"answer\":42}", type: "text-delta" }
+          })(),
+        }),
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42 })
+    expect(lazyStreamReads).toBe(0)
+  })
+
+  it("does not evaluate unused lazy streams for event output", async () => {
+    let lazyStreamReads = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => ({
+          get fullStream(): AsyncIterable<never> {
+            lazyStreamReads++
+            throw new Error("unused fullStream getter")
+          },
+          stream: (async function* () {
+            yield { text: "done", type: "text-delta" }
+          })(),
+        }),
+      },
+      runtime: false,
+    })
+
+    const events = await streamAgentInline(agent, runtime(), {}, { output: "events" }) as AsyncIterable<unknown>
+    for await (const _event of events) {}
+    expect(lazyStreamReads).toBe(0)
+  })
+
   it("cancels unselected streams before releasing capacity after structured materialization", async () => {
     const starts: string[] = []
     const returnGate = deferred()
@@ -280,53 +333,6 @@ describe("Agent Driver capacity", () => {
     returnGate.resolve()
     await expect(first).resolves.toEqual({ answer: 1 })
     await expect(second).resolves.toEqual({ answer: 2 })
-    expect(starts).toEqual(["first", "second"])
-  })
-
-  it("cancels resolved structured streams when a later accessor fails", async () => {
-    const starts: string[] = []
-    const returnGate = deferred()
-    let returned = false
-    const schema = {
-      "~standard": {
-        validate: (value: unknown) => ({ value }),
-        vendor: "vitehub-test",
-        version: 1 as const,
-      },
-    }
-    const agent = defineAgent({
-      driver: {
-        capacity: { concurrency: 1, queue: { maxPending: 1 } },
-        output: { schema },
-        run({ input }) {
-          starts.push(input.prompt as string)
-          if (input.prompt === "second") return { answer: 2 }
-          const stream: AsyncIterableIterator<never> = {
-            [Symbol.asyncIterator]: () => stream,
-            next: () => new Promise<IteratorResult<never>>(() => {}),
-            async return() {
-              returned = true
-              await returnGate.promise
-              return { done: true, value: undefined }
-            },
-          }
-          return {
-            get stream() { return stream },
-            get fullStream(): never { throw new Error("fullStream failed") },
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const first = runAgentInline(agent, runtime(), { prompt: "first" })
-    const second = runAgentInline(agent, runtime(), { prompt: "second" })
-    await vi.waitFor(() => expect(returned).toBe(true))
-    expect(starts).toEqual(["first"])
-
-    returnGate.resolve()
-    await expect(first).rejects.toThrow("fullStream failed")
-    await second
     expect(starts).toEqual(["first", "second"])
   })
 
