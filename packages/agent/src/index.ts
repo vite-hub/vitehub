@@ -1163,14 +1163,35 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    const release = await acquireAgentCapacity(definition, context.input.abortSignal)
+    let release = await acquireAgentCapacity(definition, context.input.abortSignal)
     try {
       const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
       const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
-      return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
+      const output = typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
         ? (result as { text: string }).text
         : result
+      if (!release) return output
+      if (output instanceof Response) {
+        if (!output.body) return output
+        const finish = release
+        const response = await withResponseCleanup(output, async () => finish(), { abortSignal: context.input.abortSignal })
+        release = undefined
+        return response
+      }
+      if (isAsyncIterable(output)) {
+        const finish = release
+        const source = cancellableAsyncIterableSource(output)
+        const streamed = withCapabilityCleanup(source.stream, async () => finish(), {
+          abortSignal: context.input.abortSignal,
+          cancelOnAbort: source.cancel,
+        })
+        release = undefined
+        return typeof (output as ReadableStream<unknown>).getReader === "function"
+          ? toReadableAsyncIterableStream(streamed)
+          : streamed
+      }
+      return output
     }
     finally {
       release?.()
