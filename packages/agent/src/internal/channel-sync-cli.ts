@@ -253,7 +253,7 @@ async function loadChannelSyncTargets(
 ): Promise<LoadedChannelSyncTarget[]> {
   const { createServer, loadEnv } = await import("vite")
   let server: Awaited<ReturnType<typeof createServer>> | undefined
-  const previousEnvironment = new Map<string, string | undefined>()
+  const previousEnvironment = new Map<string, string>()
   try {
     server = await createServer({
       appType: "custom",
@@ -262,13 +262,19 @@ async function loadChannelSyncTargets(
       root: input.rootDir,
       server: { hmr: false, middlewareMode: true },
     })
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) previousEnvironment.set(key, value)
+      delete process.env[key]
+    }
+    for (const [key, value] of Object.entries(input.env)) {
+      if (value !== undefined) process.env[key] = value
+    }
     const environment = {
       ...loadEnv(input.stage, server.config.envDir, ""),
       ...input.env,
     }
     for (const [key, value] of Object.entries(environment)) {
       if (value === undefined) continue
-      previousEnvironment.set(key, process.env[key])
       process.env[key] = value
     }
     const targets: LoadedChannelSyncTarget[] = []
@@ -299,9 +305,9 @@ async function loadChannelSyncTargets(
       await server?.close()
     }
     finally {
+      for (const key of Object.keys(process.env)) delete process.env[key]
       for (const [key, value] of previousEnvironment) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
+        process.env[key] = value
       }
     }
   }
