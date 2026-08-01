@@ -310,6 +310,7 @@ describe("Agent Driver capacity", () => {
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { toUIMessageStream: () => ReadableStream<unknown> }
     const secondResult = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
     const firstStream = first.toUIMessageStream()
+    expect(() => first.toUIMessageStream()).toThrow("UI-message stream has already been created")
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()

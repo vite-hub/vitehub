@@ -2927,6 +2927,7 @@ async function executeAgentInvocationWithCapacityLease<
           let streamedText = ""
           let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
           let preserved: object
+          let uiMessageStreamCreated = false
           const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             if (finishTask) return await finishTask
@@ -2962,6 +2963,8 @@ async function executeAgentInvocationWithCapacityLease<
               enumerable: false,
               value: (...args: unknown[]) => {
                 if (finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                if (uiMessageStreamCreated) throw new Error("[vitehub] Agent Invocation UI-message stream has already been created.")
+                uiMessageStreamCreated = true
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
                 let renderedStream: ReadableStream<unknown>
                 try {
