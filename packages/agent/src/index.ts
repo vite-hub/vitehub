@@ -1163,12 +1163,18 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
-    const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
-    const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
-    return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
-      ? (result as { text: string }).text
-      : result
+    const release = await acquireAgentCapacity(definition, context.input.abortSignal)
+    try {
+      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
+      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
+      const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
+      return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
+        ? (result as { text: string }).text
+        : result
+    }
+    finally {
+      release?.()
+    }
   }
   return Object.assign(run, { [syntheticWorkspaceRun]: true })
 }
@@ -3094,6 +3100,7 @@ async function executeAgentInvocationWithCapacityLease<
         }
         const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
         const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
+        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
         try {
           for (const property of ["stream", "fullStream"] as const) {
             let descriptor: PropertyDescriptor | undefined
@@ -3102,13 +3109,15 @@ async function executeAgentInvocationWithCapacityLease<
             if (!descriptor) continue
             const value = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
             resolvedPrimaryProperties.set(property, value)
-            if (isAsyncIterable(value)) streamPropertyValues.set(property, value)
+            if (isAsyncIterable(value)) {
+              streamPropertyValues.set(property, value)
+              preservedSources.set(value, preservedSources.get(value) ?? cancellableAsyncIterableSource(value))
+            }
           }
         }
         catch (error) {
           await Promise.allSettled(
-            [...new Set(streamPropertyValues.values())]
-              .map(stream => cancellableAsyncIterableSource(stream).cancel(error)),
+            [...preservedSources.values()].map(({ cancel }) => cancel(error)),
           )
           throw error
         }
@@ -3117,7 +3126,6 @@ async function executeAgentInvocationWithCapacityLease<
         let finishing = false
         let preserved: object
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
-        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
           if (options.holdCapacity !== true) return outcome
           const cancellations = await Promise.allSettled(
@@ -3135,7 +3143,7 @@ async function executeAgentInvocationWithCapacityLease<
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
           const existing = preservedStreams.get(renderedStream)
           if (existing) return existing
-          const source = cancellableAsyncIterableSource(renderedStream)
+          const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
           preservedSources.set(renderedStream, source)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
@@ -3184,7 +3192,17 @@ async function executeAgentInvocationWithCapacityLease<
           }
         }
         catch (error) {
-          const finalOutcome = await cancelPreservedSources({ error, failed: true })
+          const unresolvedSources = [...new Set(streamPropertyValues.values())]
+            .filter(stream => !preservedSources.has(stream))
+          const [finalOutcome] = await Promise.all([
+            cancelPreservedSources({ error, failed: true }),
+            ...unresolvedSources.map(async (stream) => {
+              try {
+                await cancellableAsyncIterableSource(stream).cancel(error)
+              }
+              catch {}
+            }),
+          ])
           throw finalOutcome.failed ? finalOutcome.error : error
         }
         for (const [property, value] of resolvedPrimaryProperties) {

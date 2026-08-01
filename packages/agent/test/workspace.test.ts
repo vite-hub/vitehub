@@ -339,6 +339,33 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
+  it("applies Driver capacity to synthetic Workspace runs", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const releases: Array<() => void> = []
+    let starts = 0
+    agentGenerate.mockImplementation(async () => {
+      starts++
+      await new Promise<void>(resolve => releases.push(resolve))
+      return { finishReason: "stop", text: "ok" }
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, model: {} as never },
+      workspace: {},
+    })
+
+    const first = agent.run!(context())
+    await vi.waitFor(() => expect(starts).toBe(1))
+    const second = agent.run!(context())
+    await Promise.resolve()
+    expect(starts).toBe(1)
+
+    releases.shift()!()
+    await expect(first).resolves.toBe("ok")
+    await vi.waitFor(() => expect(starts).toBe(2))
+    releases.shift()!()
+    await expect(second).resolves.toBe("ok")
+  })
+
   it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

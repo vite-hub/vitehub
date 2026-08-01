@@ -1048,6 +1048,42 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("cancels a derived stream that locks an earlier primary source", async () => {
+    const starts: string[] = []
+    const cancelGate = deferred()
+    let cancelled = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "done"
+          const stream = new ReadableStream({
+            async cancel() {
+              cancelled = true
+              await cancelGate.promise
+            },
+          })
+          return {
+            get stream() { return stream },
+            get fullStream() { return stream.pipeThrough(new TransformStream()) },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    await vi.waitFor(() => expect(cancelled).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    cancelGate.resolve()
+    await expect(first).rejects.toThrow()
+    await expect(second).resolves.toBe("done")
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("holds mixed text and UI-message results until the consumed text stream finishes", async () => {
     const starts: string[] = []
     const gate = deferred()
