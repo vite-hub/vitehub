@@ -2791,23 +2791,29 @@ async function materializeAgentStructuredOutput(
     if (!streamResult || typeof streamResult !== "object") return result
     const descriptors: PropertyDescriptorMap = {}
     let hasStream = false
-    for (const property of ["stream", "fullStream", "textStream"] as const) {
-      let descriptor: PropertyDescriptor | undefined
-      for (let owner: object | null = streamResult; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-        descriptor = Object.getOwnPropertyDescriptor(owner, property)
-      if (!descriptor) continue
-      const value = "get" in descriptor ? descriptor.get?.call(streamResult) : descriptor.value
-      const source = isAsyncIterable(value)
-        ? streamSources.get(value) ?? cancellableAsyncIterableSource(value)
-        : undefined
-      if (source) streamSources.set(value, source)
-      descriptors[property] = {
-        configurable: true,
-        enumerable: descriptor.enumerable ?? false,
-        value: source?.stream ?? value,
-        writable: true,
+    try {
+      for (const property of ["stream", "fullStream", "textStream"] as const) {
+        let descriptor: PropertyDescriptor | undefined
+        for (let owner: object | null = streamResult; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+          descriptor = Object.getOwnPropertyDescriptor(owner, property)
+        if (!descriptor) continue
+        const value = "get" in descriptor ? descriptor.get?.call(streamResult) : descriptor.value
+        const source = isAsyncIterable(value)
+          ? streamSources.get(value) ?? cancellableAsyncIterableSource(value)
+          : undefined
+        if (source) streamSources.set(value, source)
+        descriptors[property] = {
+          configurable: true,
+          enumerable: descriptor.enumerable ?? false,
+          value: source?.stream ?? value,
+          writable: true,
+        }
+        if (isAsyncIterable(value)) hasStream = true
       }
-      if (isAsyncIterable(value)) hasStream = true
+    }
+    catch (error) {
+      await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel(error)))
+      throw error
     }
     if (!hasStream) return result
     streamResult = cloneWithPropertyDescriptors(streamResult, descriptors)
@@ -3374,10 +3380,20 @@ async function executeAgentInvocationWithCapacityLease<
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => {
-                const stream = toUIMessageStream.apply(rendered, args)
-                uiMessageSource = uiMessageSources.get(stream) ?? cancellableAsyncIterableSource(stream)
-                uiMessageSources.set(stream, uiMessageSource)
-                return toReadableAsyncIterableStream(uiMessageSource.stream)
+                try {
+                  const stream = toUIMessageStream.apply(rendered, args)
+                  uiMessageSource = uiMessageSources.get(stream) ?? cancellableAsyncIterableSource(stream)
+                  uiMessageSources.set(stream, uiMessageSource)
+                  return toReadableAsyncIterableStream(uiMessageSource.stream)
+                }
+                catch (error) {
+                  return new ReadableStream({
+                    async start(controller) {
+                      await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(error)))
+                      controller.error(error)
+                    },
+                  })
+                }
               },
             },
           })

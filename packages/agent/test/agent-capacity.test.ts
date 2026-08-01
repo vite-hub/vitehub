@@ -283,6 +283,53 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("cancels resolved structured streams when a later accessor fails", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => ({ value }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        output: { schema },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return { answer: 2 }
+          const stream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => stream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            get stream() { return stream },
+            get fullStream(): never { throw new Error("fullStream failed") },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await expect(first).rejects.toThrow("fullStream failed")
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("cancels unselected streams before completing event output", async () => {
     const starts: string[] = []
     const returnGate = deferred()
@@ -332,6 +379,7 @@ describe("Agent Driver capacity", () => {
         capacity: { concurrency: 1, queue: { maxPending: 1 } },
         run({ input }) {
           starts.push(input.prompt as string)
+          if (input.prompt === "second") return { toUIMessageStream: () => uiMessageStream("second", Promise.resolve()) }
           const fullStream: AsyncIterableIterator<never> = {
             [Symbol.asyncIterator]: () => fullStream,
             next: () => new Promise<IteratorResult<never>>(() => {}),
@@ -358,6 +406,46 @@ describe("Agent Driver capacity", () => {
 
     returnGate.resolve()
     await consumption
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("cancels UI-message siblings when stream creation fails", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return { toUIMessageStream: () => uiMessageStream("second", Promise.resolve()) }
+          const fullStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => fullStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            fullStream,
+            toUIMessageStream() { throw new Error("UI stream failed") },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const second = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
+    const consumption = (async () => { for await (const _event of first) {} })()
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await expect(consumption).rejects.toThrow("UI stream failed")
     await second
     expect(starts).toEqual(["first", "second"])
   })
