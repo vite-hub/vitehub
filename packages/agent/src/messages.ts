@@ -140,15 +140,29 @@ export function currentInputAttachments(messages: Message[], messageId?: string)
   return current?.parts.filter(isAttachmentPart) ?? []
 }
 
-const attachmentDataResolutions = new WeakMap<AttachmentPart, Promise<AttachmentData | undefined>>()
-
 export function resolveAttachmentData(part: AttachmentPart): Promise<AttachmentData | undefined> {
   if (typeof part.fetchData !== "function") return Promise.resolve(isAttachmentData(part.data) ? part.data : undefined)
-  const existing = attachmentDataResolutions.get(part)
-  if (existing) return existing
-  const resolution = Promise.resolve().then(() => part.fetchData!()).then(data => isAttachmentData(data) ? data : undefined)
-  attachmentDataResolutions.set(part, resolution)
-  return resolution
+  return Promise.resolve().then(() => part.fetchData!()).then(data => isAttachmentData(data) ? data : undefined)
+}
+
+export function memoizeMessageAttachmentData(messages: Message[]): Message[] {
+  let changed = false
+  const memoized = messages.map((message) => {
+    let messageChanged = false
+    const parts = message.parts.map((part) => {
+      if (!isAttachmentPart(part) || typeof part.fetchData !== "function") return part
+      changed = true
+      messageChanged = true
+      const fetchData = part.fetchData
+      let resolution: Promise<AttachmentData> | undefined
+      return {
+        ...part,
+        fetchData: () => resolution ??= Promise.resolve().then(() => fetchData.call(part)),
+      }
+    })
+    return messageChanged ? { ...message, parts } : message
+  })
+  return changed ? memoized : messages
 }
 
 export function attachmentStringBytes(value: string, mediaType: string): Uint8Array {

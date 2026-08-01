@@ -6,7 +6,7 @@ import {
   createCapabilityCliTool,
 } from "./capability-cli.ts"
 import { normalizeWorkspaceCommandEntries, workspaceCommandTools } from "./capabilities/workspace-command.ts"
-import { createMessage } from "./messages.ts"
+import { createMessage, memoizeMessageAttachmentData } from "./messages.ts"
 import { agentInvocationCallbackContextValues, agentInvocationSourceContext, createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   createFallbackAgentInvoker,
@@ -878,7 +878,9 @@ export async function resolveAgentCapabilities<
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
-  let messages = getRunMessages(currentInput)
+  const inputMessages = getRunMessages(currentInput)
+  let messages = memoizeMessageAttachmentData(inputMessages)
+  if (messages !== inputMessages) currentInput = withMessages(currentInput, messages)
   let tools: AgentToolSet | undefined
   const driverContributions: AgentDriverContribution[] = []
   let capabilityScope: Awaited<ReturnType<typeof openAgentCapabilityScope>> | undefined
@@ -1003,10 +1005,12 @@ export async function resolveAgentCapabilities<
         messages: () => messages,
         set(value) {
           currentInput = normalizeRunInput(value)
-          messages = getRunMessages(currentInput)
+          const inputMessages = getRunMessages(currentInput)
+          messages = memoizeMessageAttachmentData(inputMessages)
+          if (messages !== inputMessages) currentInput = withMessages(currentInput, messages)
         },
         setMessages(value) {
-          messages = value
+          messages = memoizeMessageAttachmentData(value)
           currentInput = withMessages(currentInput, messages)
         },
       }

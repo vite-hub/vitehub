@@ -582,7 +582,9 @@ describe("storage capabilities", () => {
       },
     )
 
-    await resolveAttachmentData(attachment)
+    const invocationAttachment = resolved.messages[1]!.parts[0]!
+    if (invocationAttachment.type !== "image") throw new Error("Expected image attachment")
+    await resolveAttachmentData(invocationAttachment)
     await expect(resolved.tools!.blob_edit!.execute?.({
       attachmentId: "attachment-1",
       operation: "put",
@@ -591,6 +593,14 @@ describe("storage capabilities", () => {
     })).resolves.toEqual({ pathname: "meals/current/original" })
     expect(store.put).toHaveBeenCalledWith("meals/current/original", bytes, { contentType: "image/jpeg" })
     expect(fetchData).toHaveBeenCalledOnce()
+
+    const retried = await resolveAgentCapabilities(
+      { capabilities: [blob({ mode: "write" })] },
+      { ...runtime({ blob: store }), run: { messageId: "message-2", runId: "run-2" } },
+      { messages: [{ id: "message-2", parts: [attachment], role: "user" }] },
+    )
+    await retried.tools!.blob_edit!.execute?.({ attachmentId: "attachment-1", operation: "put", pathname: "meals/retry/original" })
+    expect(fetchData).toHaveBeenCalledTimes(2)
   })
 
   it("resolves encoded input attachments without advertising unresolved URLs", async () => {
