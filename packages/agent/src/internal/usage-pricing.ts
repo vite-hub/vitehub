@@ -23,7 +23,7 @@ interface StaticModelPrice {
   output?: string
 }
 
-interface VercelAiGatewayPricingOptions {
+export interface VercelAiGatewayPricingOptions {
   maxAge?: number
   fetch?: typeof fetch
   modelsUrl?: string
