@@ -2786,6 +2786,7 @@ async function materializeAgentStructuredOutput(
   onEvent?: AgentOutputEventObserver,
 ): Promise<unknown> {
   let streamResult = result
+  const streamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
   if (!isAsyncIterable(streamResult)) {
     if (!streamResult || typeof streamResult !== "object") return result
     const descriptors: PropertyDescriptorMap = {}
@@ -2796,10 +2797,14 @@ async function materializeAgentStructuredOutput(
         descriptor = Object.getOwnPropertyDescriptor(owner, property)
       if (!descriptor) continue
       const value = "get" in descriptor ? descriptor.get?.call(streamResult) : descriptor.value
+      const source = isAsyncIterable(value)
+        ? streamSources.get(value) ?? cancellableAsyncIterableSource(value)
+        : undefined
+      if (source) streamSources.set(value, source)
       descriptors[property] = {
         configurable: true,
         enumerable: descriptor.enumerable ?? false,
-        value,
+        value: source?.stream ?? value,
         writable: true,
       }
       if (isAsyncIterable(value)) hasStream = true
@@ -2807,11 +2812,18 @@ async function materializeAgentStructuredOutput(
     if (!hasStream) return result
     streamResult = cloneWithPropertyDescriptors(streamResult, descriptors)
   }
-  if (toAgentRunResult(streamResult).text !== undefined) return result
+  if (toAgentRunResult(streamResult).text !== undefined) {
+    await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel()))
+    return result
+  }
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(streamResult))
-  const events = withCapabilityCleanup(source.stream, async () => {}, {
+  const events = withCapabilityCleanup(source.stream, async (outcome) => {
+    const cancellations = await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
+    const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+    if (rejected) throw rejected.reason
+  }, {
     abortSignal,
     cancelOnAbort: source.cancel,
   }) as AsyncIterable<StreamEvent>
@@ -3381,7 +3393,37 @@ async function executeAgentInvocationWithCapacityLease<
         : undefined)
     }
 
-    const isStreamResult = hasTraceableStreamResult(rendered)
+    let isStreamResult = hasTraceableStreamResult(rendered)
+    let streamResult = rendered
+    const eagerStreamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+    if (isStreamResult && options.holdCapacity === true && rendered && typeof rendered === "object") {
+      const descriptors: PropertyDescriptorMap = {}
+      try {
+        for (const property of ["stream", "fullStream", "textStream"] as const) {
+          let descriptor: PropertyDescriptor | undefined
+          for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+            descriptor = Object.getOwnPropertyDescriptor(owner, property)
+          if (!descriptor) continue
+          const candidate = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
+          const source = isAsyncIterable(candidate)
+            ? eagerStreamSources.get(candidate) ?? cancellableAsyncIterableSource(candidate)
+            : undefined
+          if (source) eagerStreamSources.set(candidate, source)
+          descriptors[property] = {
+            configurable: true,
+            enumerable: descriptor.enumerable ?? false,
+            value: source?.stream ?? candidate,
+            writable: true,
+          }
+        }
+        isStreamResult = eagerStreamSources.size > 0
+        streamResult = cloneWithPropertyDescriptors(rendered, descriptors)
+      }
+      catch (error) {
+        await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(error)))
+        throw error
+      }
+    }
     if (customRun && !isAsyncIterable(rendered) && !isStreamResult) {
       const final = await applyFinalOutputRenderers(rendered, invocation, outputExtensions)
       const value = invocation.output
@@ -3393,9 +3435,8 @@ async function executeAgentInvocationWithCapacityLease<
         value,
       }
     }
-
     const stream = isStreamResult
-      ? streamAgentOutputToEvents(rendered)
+      ? streamAgentOutputToEvents(streamResult)
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
@@ -3403,6 +3444,9 @@ async function executeAgentInvocationWithCapacityLease<
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
+          const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
+          const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+          if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = streamed.finishResult()
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({

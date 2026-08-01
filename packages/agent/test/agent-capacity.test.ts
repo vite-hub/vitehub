@@ -194,6 +194,24 @@ describe("Agent Driver capacity", () => {
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42, stream: "not a stream" })
   })
 
+  it("returns custom event-mode results whose stream accessor is not a stream", async () => {
+    const output = {
+      answer: 42,
+      get stream() {
+        return "not a stream"
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => output,
+      },
+      runtime: false,
+    })
+
+    await expect(streamAgentInline(agent, runtime(), {}, { output: "events" })).resolves.toEqual(output)
+  })
+
   it("materializes structured stream output while holding capacity", async () => {
     const schema = {
       "~standard": {
@@ -216,6 +234,93 @@ describe("Agent Driver capacity", () => {
     })
 
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42 })
+  })
+
+  it("cancels unselected streams before releasing capacity after structured materialization", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => ({ value }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        output: { schema },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return { answer: 2 }
+          const fullStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => fullStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            fullStream,
+            stream: (async function* () { yield { text: "{\"answer\":1}", type: "text-delta" } })(),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await expect(first).resolves.toEqual({ answer: 1 })
+    await expect(second).resolves.toEqual({ answer: 2 })
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("cancels unselected streams before completing event output", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "second"
+          const fullStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => fullStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            fullStream,
+            stream: (async function* () { yield { text: "first", type: "text-delta" } })(),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "events" }) as AsyncIterable<unknown>
+    const second = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "events" })
+    const consumption = (async () => { for await (const _event of first) {} })()
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await consumption
+    await second
+    expect(starts).toEqual(["first", "second"])
   })
 
   it("closes prepared Capability scopes when Driver resolution fails", async () => {
