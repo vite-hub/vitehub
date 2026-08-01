@@ -2789,7 +2789,11 @@ async function materializeAgentStructuredOutput(
   if (toAgentRunResult(result).text !== undefined) return result
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-  const events = withCapabilityCleanup(streamAgentOutputToEvents(result), async () => {}, { abortSignal }) as AsyncIterable<StreamEvent>
+  const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(result))
+  const events = withCapabilityCleanup(source.stream, async () => {}, {
+    abortSignal,
+    cancelOnAbort: source.cancel,
+  }) as AsyncIterable<StreamEvent>
   for await (const event of events) {
     onEvent?.(event)
     if (event.type === "error") throw new Error(event.error)
@@ -2822,7 +2826,21 @@ async function executeAgentInvocationWithCapacityLease<
   preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
-  const adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
+  let adapter: AgentAdapter<CALL_OPTIONS> | undefined
+  try {
+    adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
+  }
+  catch (error) {
+    if (preparedInvocation) {
+      try {
+        await preparedInvocation.close()
+      }
+      catch (closeError) {
+        throw new AggregateError([error, closeError], "[vitehub] Agent Driver resolution and invocation cleanup failed.")
+      }
+    }
+    throw error
+  }
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined

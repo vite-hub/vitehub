@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, defineCapability, runAgentInline, startAgentInvocation, streamAgentInline } from "../src/index.ts"
 import { inputCommands } from "../src/capabilities.ts"
 import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
+import { cancellableAsyncIterableSource } from "../src/stream-output.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -121,6 +122,21 @@ describe("Agent Driver capacity", () => {
     gate.resolve()
     await expect(active).resolves.toBe("done")
     expect(close).toHaveBeenCalledTimes(2)
+  })
+
+  it("closes prepared Capability scopes when Driver resolution fails", async () => {
+    const close = vi.fn()
+    const agent = defineAgent({
+      capabilities: [defineCapability({ close, id: "resource" })],
+      driver: {
+        capacity: { concurrency: 1 },
+        model: () => { throw new Error("model resolution failed") },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).rejects.toThrow("model resolution failed")
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it("runs at the configured concurrency and starts queued invocations in FIFO order", async () => {
@@ -1111,6 +1127,18 @@ describe("Agent Driver capacity", () => {
     const result = await runAgentInline(agent, runtime(), {}) as { stream: ReadableStream<string> }
     for await (const _chunk of result.stream) {}
     expect(() => source.getReader()).not.toThrow()
+  })
+
+  it("does not recancel a readable source after normal completion", async () => {
+    const source = new ReadableStream({
+      start(controller) {
+        controller.close()
+      },
+    })
+    const cancellable = cancellableAsyncIterableSource(source)
+
+    for await (const _chunk of cancellable.stream) {}
+    await expect(cancellable.cancel()).resolves.toBeUndefined()
   })
 
   it("releases an unconsumed direct UI-message stream when its invocation aborts", async () => {

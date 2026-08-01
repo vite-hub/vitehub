@@ -148,14 +148,15 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
       }
     : stream[Symbol.asyncIterator]()
   let cancelTask: Promise<void> | undefined
+  let completed = false
   const cancel = async (reason?: unknown) => {
+    if (completed) return
     cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
     await cancelTask
   }
   return {
     cancel,
     stream: (async function* () {
-      let completed = false
       try {
         for (;;) {
           const chunk = await iterator.next()
