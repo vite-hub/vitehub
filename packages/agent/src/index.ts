@@ -3012,12 +3012,14 @@ async function executeAgentInvocationWithCapacityLease<
           }
         }
         const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
+        const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
         for (const property of ["stream", "fullStream"] as const) {
           let descriptor: PropertyDescriptor | undefined
           for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
             descriptor = Object.getOwnPropertyDescriptor(owner, property)
           if (!descriptor) continue
           const value = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
+          resolvedPrimaryProperties.set(property, value)
           if (isAsyncIterable(value)) streamPropertyValues.set(property, value)
         }
         const streamProperties = [...streamPropertyValues.keys()]
@@ -3089,6 +3091,16 @@ async function executeAgentInvocationWithCapacityLease<
             writable: true,
           }]
         }))
+        for (const [property, value] of resolvedPrimaryProperties) {
+          if (!(property in descriptors)) {
+            descriptors[property] = {
+              configurable: true,
+              enumerable: true,
+              value,
+              writable: true,
+            }
+          }
+        }
         if (isUIMessageStreamResult(rendered)) {
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
           descriptors.toUIMessageStream = {
@@ -3163,6 +3175,12 @@ async function executeAgentInvocationWithCapacityLease<
           }
         }
         preserved = resultWithPreservedProperties(rendered as object, descriptors)
+        if (!streamProperties.length && !textStreamDescriptor && !isUIMessageStreamResult(rendered)) {
+          return {
+            finishResult: preserved,
+            value: preserved,
+          }
+        }
         if (!streamProperties.length) {
           if (invocation.input.abortSignal?.aborted) onAbort()
           else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })

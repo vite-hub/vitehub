@@ -508,6 +508,32 @@ describe("Agent Driver capacity", () => {
     expect(streamCalls).toBe(1)
   })
 
+  it("finishes when a primary stream accessor resolves to a non-stream", async () => {
+    const starts: string[] = []
+    let streamCalls = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return {
+            get stream() {
+              streamCalls++
+              return "not a stream"
+            },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { stream: unknown }
+    await runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(first.stream).toBe("not a stream")
+    expect(streamCalls).toBe(2)
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("holds mixed text and UI-message results until the consumed text stream finishes", async () => {
     const starts: string[] = []
     const gate = deferred()
