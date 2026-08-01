@@ -3015,6 +3015,7 @@ async function executeAgentInvocationWithCapacityLease<
           return rejected ? { error: rejected.reason, failed: true } : outcome
         }
         const onAbort = () => {
+          if (preservedSources.size) return
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
           finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
           void finishTask.catch(() => {})
@@ -3075,22 +3076,33 @@ async function executeAgentInvocationWithCapacityLease<
             enumerable: false,
             value: (...args: unknown[]) => {
               if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
-              const renderedStream = toUIMessageStream.apply(rendered, args)
-              const source = cancellableAsyncIterableSource(renderedStream)
-              preservedSources.set(renderedStream, source)
-              return withReadableStreamCleanup(
-                normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
-                async (outcome) => {
-                  finishing = true
-                  const finalOutcome = await cancelPreservedSources(outcome)
-                  if (finishTask) return await finishTask
-                  finishTask = !finalOutcome.failed && !finalOutcome.completed
-                    ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
-                    : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                  return await finishTask
-                },
-                { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
-              )
+              try {
+                const renderedStream = toUIMessageStream.apply(rendered, args)
+                const source = cancellableAsyncIterableSource(renderedStream)
+                preservedSources.set(renderedStream, source)
+                return withReadableStreamCleanup(
+                  normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
+                  async (outcome) => {
+                    finishing = true
+                    const finalOutcome = await cancelPreservedSources(outcome)
+                    if (finishTask) return await finishTask
+                    finishTask = !finalOutcome.failed && !finalOutcome.completed
+                      ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
+                      : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
+                    return await finishTask
+                  },
+                  { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
+                )
+              }
+              catch (error) {
+                finishing = true
+                void (async () => {
+                  const finalOutcome = await cancelPreservedSources({ error, failed: true })
+                  finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
+                  await finishTask
+                })().catch(() => {})
+                throw error
+              }
             },
           }
         }

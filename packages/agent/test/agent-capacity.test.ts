@@ -440,6 +440,45 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("awaits accessed textStream cancellation before releasing capacity", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          const textStream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => textStream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return { textStream }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }) as {
+      textStream: AsyncIterable<unknown>
+    }
+    void first.textStream
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("awaits preserved stream cancellation before releasing capacity", async () => {
     const starts: string[] = []
     const controller = new AbortController()
@@ -611,6 +650,44 @@ describe("Agent Driver capacity", () => {
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { toUIMessageStream: () => ReadableStream<unknown> }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     for await (const _chunk of first.toUIMessageStream()) {}
+    await second
+    expect(returned).toBe(true)
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("releases combined stream capacity when the UI-message factory throws", async () => {
+    const starts: string[] = []
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          const stream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => stream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              return { done: true, value: undefined }
+            },
+          }
+          return {
+            stream,
+            toUIMessageStream() {
+              throw new Error("stream construction failed")
+            },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(() => first.toUIMessageStream()).toThrow("stream construction failed")
+
     await second
     expect(returned).toBe(true)
     expect(starts).toEqual(["first", "second"])
