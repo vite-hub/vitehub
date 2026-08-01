@@ -948,6 +948,16 @@ export interface AgentModelExecutionInstrumentation<
   model?: AgentModelInstrumentation<TRuntimeConfig>
 }
 
+export interface AgentDriverCapacityQueueOptions {
+  maxPending: number
+  timeout?: number
+}
+
+export interface AgentDriverCapacityOptions {
+  concurrency: number
+  queue?: AgentDriverCapacityQueueOptions
+}
+
 export interface AgentAttachmentExecutionOptions {
   maxBytes?: number
 }
@@ -997,6 +1007,7 @@ export type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
 
 export interface CodexDriverOptions<CALL_OPTIONS = unknown, TOutput = unknown> {
   auth?: CodexAuthOptions
+  capacity?: AgentDriverCapacityOptions
   credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
   instructions?: AgentHarnessInstructions<AgentRuntimeConfig, CALL_OPTIONS>
@@ -1033,6 +1044,7 @@ export type ClaudeCodeThinkingConfig =
 
 export interface ClaudeCodeDriverOptions<TOutput = unknown> {
   auth?: ClaudeCodeAuthOptions
+  capacity?: AgentDriverCapacityOptions
   credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
   maxTurns?: number
@@ -1097,6 +1109,7 @@ export interface AgentModelDriver<
   CALL_OPTIONS = unknown,
   TOutput = unknown,
 > {
+  capacity?: AgentDriverCapacityOptions
   credentials?: never
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   harness?: never
@@ -1118,6 +1131,7 @@ export interface AgentHarnessDriver<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
+  capacity?: AgentDriverCapacityOptions
   credentials?: AgentHarnessCredentialSource
   execution?: never
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
@@ -1140,6 +1154,7 @@ export interface AgentRunDriver<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
+  capacity?: AgentDriverCapacityOptions
   credentials?: never
   execution?: never
   harness?: never

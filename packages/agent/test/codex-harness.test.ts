@@ -7,6 +7,16 @@ vi.mock("@ai-sdk/harness-codex", () => ({
 }))
 
 describe("createCodexDriver", () => {
+  it("keeps capacity on the ViteHub driver boundary", async () => {
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
+    const capacity = { concurrency: 2, queue: { maxPending: 20, timeout: 300_000 } }
+
+    const driver = createCodexDriver({ capacity })
+
+    expect(driver.capacity).toEqual(capacity)
+    expect(createCodex).toHaveBeenLastCalledWith({ auth: { openai: {} }, model: "" })
+  })
+
   it("defaults to direct OpenAI auth and contributes its Box requirement", async () => {
     const { createCodexDriver } = await import("../src/harness/codex.ts")
 

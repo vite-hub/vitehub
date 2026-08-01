@@ -9,6 +9,7 @@ import type {
   AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
   AgentHarnessWorkDir,
+  AgentDriverCapacityOptions,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
   AgentModelResolver,
@@ -25,7 +26,7 @@ type NormalizedAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,
-> =
+> = { capacity?: AgentDriverCapacityOptions } & (
   | {
     execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
@@ -52,6 +53,7 @@ type NormalizedAgentDriver<
     output?: AgentOutputDefinition<TOutput>
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
+)
 
 function hasOwnDefined(value: Record<string, unknown>, key: string): boolean {
   return Object.hasOwn(value, key) && value[key] !== undefined
@@ -98,11 +100,42 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
   }
 }
 
-const modelDriverKeys = new Set(["execution", "instructions", "model", "output"])
-const harnessDriverKeys = new Set(["credentials", "harness", "instructions", "output", "requires", "sandbox", "sessionKey", "workDir"])
-const runDriverKeys = new Set(["output", "run"])
+function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOptions | undefined {
+  if (value === undefined) return
+  if (!isPlainObject(value)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.capacity }) must be an object.")
+  }
+  assertNoUnsupportedOptions(value, new Set(["concurrency", "queue"]), "defineAgent({ driver.capacity })")
+  if (!Number.isInteger(value.concurrency) || (value.concurrency as number) <= 0) {
+    throw new TypeError("[vitehub] defineAgent({ driver.capacity.concurrency }) must be a positive integer.")
+  }
+  if (value.queue === undefined) return { concurrency: value.concurrency as number }
+  if (!isPlainObject(value.queue)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.")
+  }
+  assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })")
+  if (!Number.isInteger(value.queue.maxPending) || (value.queue.maxPending as number) <= 0) {
+    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.")
+  }
+  if (value.queue.timeout !== undefined
+    && (typeof value.queue.timeout !== "number" || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number.")
+  }
+  return {
+    concurrency: value.concurrency as number,
+    queue: {
+      maxPending: value.queue.maxPending as number,
+      ...(value.queue.timeout === undefined ? {} : { timeout: value.queue.timeout as number }),
+    },
+  }
+}
+
+const modelDriverKeys = new Set(["capacity", "execution", "instructions", "model", "output"])
+const harnessDriverKeys = new Set(["capacity", "credentials", "harness", "instructions", "output", "requires", "sandbox", "sessionKey", "workDir"])
+const runDriverKeys = new Set(["capacity", "output", "run"])
 const codexDriverKeys = new Set([
   "auth",
+  "capacity",
   "credentials",
   "env",
   "instructions",
@@ -118,6 +151,7 @@ const codexDriverKeys = new Set([
 ])
 const claudeCodeDriverKeys = new Set([
   "auth",
+  "capacity",
   "credentials",
   "env",
   "kind",
@@ -167,17 +201,19 @@ function normalizeBuiltInAgentDriver<
 ): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   validateNoHarnessPermissionOption(value)
   normalizeHarnessCredentialSource(value.credentials)
+  const capacity = normalizeAgentDriverCapacity(value.capacity)
 
   if (name === "codex") {
     assertNoUnsupportedOptions(value, codexDriverKeys, `defineAgent({ driver: { kind: "codex" } })`)
     const options = Object.fromEntries(
-      Object.entries(value).filter(([key]) => key !== "kind"),
+      Object.entries(value).filter(([key]) => key !== "kind" && key !== "capacity"),
     ) as CodexDriverOptions<CALL_OPTIONS>
     const resolve = once(async () => {
       const { createCodexDriver } = await import("../harness/codex.ts")
       return createCodexDriver(options) as AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
     })
     return {
+      capacity,
       credentials: options.credentials ?? { label: "Codex", source: "ambient" },
       hasSandbox: options.sandbox !== false && (options.sandbox !== undefined || options.env !== undefined),
       kind: "harness",
@@ -196,13 +232,14 @@ function normalizeBuiltInAgentDriver<
 
   assertNoUnsupportedOptions(value, claudeCodeDriverKeys, `defineAgent({ driver: { kind: "claude-code" } })`)
   const options = Object.fromEntries(
-    Object.entries(value).filter(([key]) => key !== "kind"),
+    Object.entries(value).filter(([key]) => key !== "kind" && key !== "capacity"),
   ) as ClaudeCodeDriverOptions
   const resolve = once(async () => {
     const { createClaudeCodeDriver } = await import("../harness/claude-code.ts")
     return await createClaudeCodeDriver(options) as AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
   })
   return {
+    capacity,
     credentials: options.credentials ?? { label: "Claude Code", source: "ambient" },
     hasSandbox: options.sandbox !== false,
     kind: "harness",
@@ -235,6 +272,7 @@ function normalizeExplicitAgentDriver<
   }
 
   validateNoHarnessPermissionOption(driver)
+  const capacity = normalizeAgentDriverCapacity(driver.capacity)
   const keys = (["model", "harness", "run"] as const).filter(key => hasOwnDefined(driver, key))
   if (keys.length !== 1) {
     throw new Error("[vitehub] defineAgent({ driver }) requires exactly one of driver.model, driver.harness, or driver.run.")
@@ -243,6 +281,7 @@ function normalizeExplicitAgentDriver<
   if (keys[0] === "model") {
     assertNoUnsupportedOptions(driver, modelDriverKeys, "defineAgent({ driver: { model } })")
     return {
+      capacity,
       execution: driver.execution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
       instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
       kind: "model",
@@ -257,6 +296,7 @@ function normalizeExplicitAgentDriver<
     }
     validateHarnessSandboxProviderInput(driver.sandbox)
     return {
+      capacity,
       credentials: normalizeHarnessCredentialSource(driver.credentials),
       harness: driver.harness as AgentHarnessDriverInput,
       instructions: driver.instructions as AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS> | undefined,
@@ -274,6 +314,7 @@ function normalizeExplicitAgentDriver<
     throw new TypeError("[vitehub] defineAgent({ driver.run }) must be a function.")
   }
   return {
+    capacity,
     kind: "run",
     output: driver.output as AgentOutputDefinition | undefined,
     run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,

@@ -33,6 +33,38 @@ describe("built-in Agent Driver selection", () => {
     })).not.toThrow();
   });
 
+  it("normalizes bounded driver capacity for custom and built-in drivers", () => {
+    const capacity = {
+      concurrency: 2,
+      queue: { maxPending: 20, timeout: 300_000 },
+    };
+
+    for (const driver of [
+      { capacity, model: {} },
+      { capacity, harness: {} },
+      { capacity, run: () => "ok" },
+      { capacity, kind: "codex" },
+      { capacity, kind: "claude-code" },
+    ]) {
+      expect(normalizeAgentDriver({ driver } as never)).toMatchObject({ capacity });
+    }
+  });
+
+  it.each([
+    [null, "driver.capacity }) must be an object"],
+    [{ concurrency: 0 }, "driver.capacity.concurrency }) must be a positive integer"],
+    [{ concurrency: 1.5 }, "driver.capacity.concurrency }) must be a positive integer"],
+    [{ concurrency: 1, queue: null }, "driver.capacity.queue }) must be an object"],
+    [{ concurrency: 1, queue: { maxPending: 0 } }, "driver.capacity.queue.maxPending }) must be a positive integer"],
+    [{ concurrency: 1, queue: { maxPending: 1, timeout: 0 } }, "driver.capacity.queue.timeout }) must be a positive finite number"],
+    [{ concurrency: 1, queue: { maxPending: 1, timeout: Number.POSITIVE_INFINITY } }, "driver.capacity.queue.timeout }) must be a positive finite number"],
+  ])("rejects invalid driver capacity %#", (capacity, message) => {
+    expect(() => defineAgent({
+      driver: { capacity, run: () => "ok" } as never,
+      runtime: false,
+    })).toThrow(message);
+  });
+
   it("rejects unknown names, tags, and reserved custom shapes", () => {
     expect(() => defineAgent({ driver: "custom" as never, runtime: false }))
       .toThrow('Unknown Agent Driver "custom"');

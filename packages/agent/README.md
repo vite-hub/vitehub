@@ -97,6 +97,27 @@ Use `driver: "codex"` or `driver: "claude-code"` for the defaults. Use a tagged 
 
 Immutable deployments can set `VITEHUB_CODEX_BRIDGE_NODE_MODULES` inside the Codex sandbox to an absolute preinstalled `node_modules` tree containing `@openai/codex-sdk`. ViteHub reuses that tree without installing at startup; an invalid or conflicting configured path fails before network access, while an unset variable keeps the pinned pnpm installer.
 
+## Driver capacity
+
+Set `driver.capacity` when one Agent Definition must bound concurrent Driver work inside a process:
+
+```ts
+export default defineAgent({
+  driver: {
+    capacity: {
+      concurrency: 2,
+      queue: {
+        maxPending: 20,
+        timeout: 300_000,
+      },
+    },
+    run: async context => handleAgentRun(context),
+  },
+})
+```
+
+Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. The scheduler is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
+
 ## Boxes
 
 Use a Box when a harness Agent should boot in one project-declared execution environment. A trusted-host Box uses the host's installed tools while materializing a private Home and sanitized process environment:

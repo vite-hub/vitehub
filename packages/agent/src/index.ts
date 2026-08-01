@@ -1,4 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
+import { acquireAgentCapacity, configureAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -279,6 +280,8 @@ export type {
   AgentInspectionModelMetadata,
   AgentInspectionToolDefinition,
   AgentDriver,
+  AgentDriverCapacityOptions,
+  AgentDriverCapacityQueueOptions,
   AgentDriverContribution,
   AgentDriverContributionKind,
   AgentDriverKind,
@@ -1131,6 +1134,7 @@ function defineBaseAgent<
         : adapterInstance
     },
   } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS, TOutput>
+  configureAgentCapacity(definition, driver.capacity)
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })
@@ -2680,11 +2684,12 @@ async function finalizeAgentInvocationResult<
   options: {
     finalizeResponse?: (response: Response) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: Response | TResult } | undefined>
     finalizeRawStreams?: boolean
+    holdOutput?: boolean
     outputExtensions?: Map<string, unknown>
     wrapStream?: (stream: AsyncIterable<unknown>) => AsyncIterable<unknown>
   } = {},
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
-  const shouldWrapOutput = shouldWrapInvocationOutput(context)
+  const shouldWrapOutput = options.holdOutput === true || shouldWrapInvocationOutput(context)
   try {
     if (result instanceof Response) {
       const finalized = await options.finalizeResponse?.(result)
@@ -2781,9 +2786,12 @@ type AgentInvocationExecutionOptions =
     | { kind: "run", renderOutput: boolean }
     | { kind: "stream", output: "events" | "ui-message-stream" }
   )
-  & { onFinish?: (outcome: AgentInvocationFinishOutcome) => void }
+  & {
+    holdCapacity?: boolean
+    onFinish?: (outcome: AgentInvocationFinishOutcome) => void
+  }
 
-async function executeAgentInvocation<
+async function executeAgentInvocationWithCapacityLease<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
   TOutput,
@@ -2799,6 +2807,7 @@ async function executeAgentInvocation<
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
   const invocation = await createAgentInvocationContext(definition, context, input)
+  const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
       try {
@@ -2816,7 +2825,9 @@ async function executeAgentInvocation<
   const streamFailureMessage = "[vitehub] Agent stream failed and finish lifecycle also failed."
   const handledFailureMessage = options.kind === "run" ? runFailureMessage : streamFailureMessage
   if (invocation.handledResponse) {
-    return await finalizeAgentInvocationResult(invocation, lifecycle, invocation.handledResponse, async result => ({ finishResult: result, value: result }), handledFailureMessage)
+    return await finalizeAgentInvocationResult(invocation, lifecycle, invocation.handledResponse, async result => ({ finishResult: result, value: result }), handledFailureMessage, {
+      holdOutput: options.holdCapacity,
+    })
   }
 
   const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
@@ -2879,17 +2890,17 @@ async function executeAgentInvocation<
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
-      const shouldPreserveEagerStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
-        && invocation.finishExtensionProviders.some(provider => provider.eager)
-        && shouldWrapInvocationOutput(invocation)
-      if (shouldPreserveEagerStreamResult || (options.renderOutput
+      const shouldPreserveStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
+        && (options.holdCapacity === true || invocation.finishExtensionProviders.some(provider => provider.eager))
+        && shouldHoldInvocationOutput()
+      if (shouldPreserveStreamResult || (options.renderOutput
         && !invocation.output
         && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
         && rendered !== result
         && (isAsyncIterable((rendered as { stream?: unknown }).stream)
           || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
           || isUIMessageStreamResult(rendered))
-        && shouldWrapInvocationOutput(invocation))) {
+        && shouldHoldInvocationOutput())) {
         if (isUIMessageStreamResult(rendered)
           && !isAsyncIterable((rendered as { stream?: unknown }).stream)
           && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {
@@ -3053,6 +3064,7 @@ async function executeAgentInvocation<
       }
     }, runFailureMessage, {
       finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
+      holdOutput: options.holdCapacity,
       outputExtensions,
       ...(customRun
         ? {
@@ -3076,7 +3088,7 @@ async function executeAgentInvocation<
       const enrichedRendered = isAsyncIterable(rendered)
         ? withEagerStreamUsageExtensions(rendered, invocation, rendered)
         : withEagerUiMessageStreamUsageExtensions(rendered, invocation)
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
         const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
         if (!outcome.failed && !outcome.completed) {
           await lifecycle.finish({
@@ -3112,7 +3124,7 @@ async function executeAgentInvocation<
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const streamed = withStreamedResult(withEagerStreamUsageExtensions(stream, invocation, rendered), rendered, driverUsageRecord)
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
-    const shouldWrapOutput = shouldWrapInvocationOutput(invocation)
+    const shouldWrapOutput = shouldHoldInvocationOutput()
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
           const finishResult = streamed.finishResult()
@@ -3146,7 +3158,7 @@ async function executeAgentInvocation<
           const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
           }, invocation)
-          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
+          const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
               await lifecycle.finish({
                 result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
@@ -3178,11 +3190,55 @@ async function executeAgentInvocation<
         }
       : undefined,
     finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
+    holdOutput: options.holdCapacity,
     outputExtensions,
     ...(customRun
       ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
       : {}),
   })
+}
+
+async function executeAgentInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+  TOutput,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: AgentInvocationExecutionOptions,
+): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  const release = hasAgentDefinition(agent)
+    ? await acquireAgentCapacity(agent as object, input.abortSignal)
+    : undefined
+  if (!release) {
+    return await executeAgentInvocationWithCapacityLease(agent, context, input, options)
+  }
+
+  let released = false
+  const releaseOnce = () => {
+    if (released) return
+    released = true
+    release()
+  }
+  try {
+    return await executeAgentInvocationWithCapacityLease(agent, context, input, {
+      ...options,
+      holdCapacity: true,
+      onFinish(outcome) {
+        try {
+          options.onFinish?.(outcome)
+        }
+        finally {
+          releaseOnce()
+        }
+      },
+    })
+  }
+  catch (error) {
+    releaseOnce()
+    throw error
+  }
 }
 
 export function runAgentInline<

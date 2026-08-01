@@ -51,6 +51,16 @@ vi.mock("@ai-sdk/harness-claude-code", () => ({
 }))
 
 describe("createClaudeCodeDriver", () => {
+  it("keeps capacity on the ViteHub driver boundary", async () => {
+    const { createClaudeCodeDriver } = await import("../src/harness/claude-code.ts")
+    const capacity = { concurrency: 2, queue: { maxPending: 20, timeout: 300_000 } }
+
+    const driver = await createClaudeCodeDriver({ capacity, sandbox: false })
+
+    expect(driver.capacity).toEqual(capacity)
+    expect(createAiSdkClaudeCode).toHaveBeenLastCalledWith({ auth: { anthropic: {} } })
+  })
+
   it("defaults to ambient Claude Code auth and local sandbox credentials", async () => {
     const { createClaudeCodeDriver } = await import("../src/harness/claude-code.ts")
 
