@@ -148,8 +148,9 @@ describe("Database Nuxt integration", () => {
         },
       },
     })
-    await expect(readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8"))
-      .resolves.toContain("setActiveCloudflareEnv")
+    const middleware = await readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8")
+    expect(middleware).toContain("setActiveCloudflareEnv")
+    expect(middleware).toContain("vitehubEnv as unknown as Record<string, unknown>")
   })
 
   it("aliases the hosted runtime from the Nuxt source directory", async () => {
