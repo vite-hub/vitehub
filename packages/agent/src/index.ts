@@ -1222,6 +1222,7 @@ function createSyntheticWorkspaceRun<
         }
         const descriptors: PropertyDescriptorMap = {}
         let hasStreamSurface = false
+        let unresolvedLazyStreamSurfaces = 0
         try {
           for (const property of ["stream", "fullStream", "textStream"] as const) {
             let descriptor: PropertyDescriptor | undefined
@@ -1230,6 +1231,7 @@ function createSyntheticWorkspaceRun<
             if (!descriptor) continue
             if ("get" in descriptor) {
               hasStreamSurface = true
+              unresolvedLazyStreamSurfaces++
               let initialized = false
               let value: unknown
               descriptors[property] = {
@@ -1242,8 +1244,10 @@ function createSyntheticWorkspaceRun<
                       if (isAsyncIterable(resolved)) value = wrapStream(resolved)
                       else {
                         value = resolved
-                        void finish().catch(() => {})
+                        unresolvedLazyStreamSurfaces--
+                        if (!unresolvedLazyStreamSurfaces && !sources.size) void finish().catch(() => {})
                       }
+                      if (isAsyncIterable(resolved)) unresolvedLazyStreamSurfaces--
                       initialized = true
                     }
                     catch (error) {
@@ -3363,6 +3367,7 @@ async function executeAgentInvocationWithCapacityLease<
             }
           }
         }
+        let unresolvedLazyPrimaryProperties = lazyPrimaryDescriptors.size
         for (const [property, descriptor] of lazyPrimaryDescriptors) {
           let initialized = false
           let value: unknown
@@ -3375,7 +3380,8 @@ async function executeAgentInvocationWithCapacityLease<
                 try {
                   const resolved = descriptor.get?.call(rendered)
                   value = isAsyncIterable(resolved) ? preserveStream(resolved) : resolved
-                  if (!isAsyncIterable(resolved) && !preservedSources.size) {
+                  unresolvedLazyPrimaryProperties--
+                  if (!isAsyncIterable(resolved) && !preservedSources.size && !unresolvedLazyPrimaryProperties) {
                     finishing = true
                     finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
                     void finishTask.catch(() => {})

@@ -1540,6 +1540,44 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("keeps capacity for valid lazy streams after non-stream siblings resolve", async () => {
+    const gate = deferred()
+    const starts: string[] = []
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return {
+            get fullStream() {
+              return (async function* () {
+                await gate.promise
+                yield "done"
+              })()
+            },
+            get stream() {
+              return { kind: "metadata" }
+            },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
+      fullStream: AsyncIterable<string>
+      stream: { kind: string }
+    }
+    expect(first.stream).toEqual({ kind: "metadata" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const consumption = (async () => { for await (const _chunk of first.fullStream) {} })()
+    await vi.waitFor(() => expect(starts).toEqual(["first"]))
+    gate.resolve()
+    await consumption
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("rejects lazy text streams after a sibling releases capacity", async () => {
     let textStreamCalls = 0
     const agent = defineAgent({
