@@ -1265,7 +1265,15 @@ function createSyntheticWorkspaceRun<
             descriptors.toUIMessageStream = {
               configurable: true,
               enumerable: false,
-              value: (...args: unknown[]) => wrapStream(toUIMessageStream.apply(output, args)),
+              value: (...args: unknown[]) => {
+                try {
+                  return wrapStream(toUIMessageStream.apply(output, args))
+                }
+                catch (error) {
+                  void finish(error).catch(() => {})
+                  throw error
+                }
+              },
             }
           }
         }

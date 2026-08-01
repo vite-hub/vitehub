@@ -453,6 +453,32 @@ describe("defineAgent workspace option", () => {
     expect(starts).toBe(2)
   })
 
+  it("releases synthetic Workspace capacity when UI stream creation fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    harnessGenerate.mockImplementation(async () => {
+      starts++
+      if (starts === 1) {
+        return {
+          toUIMessageStream(): ReadableStream<unknown> {
+            throw new Error("stream construction failed")
+          },
+        } as never
+      }
+      return { finishReason: "stop", text: "ok" }
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+
+    const first = await agent.run!(context()) as { toUIMessageStream: () => ReadableStream<unknown> }
+    const second = agent.run!(context())
+    expect(() => first.toUIMessageStream()).toThrow("stream construction failed")
+    await expect(second).resolves.toBe("ok")
+    expect(starts).toBe(2)
+  })
+
   it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
