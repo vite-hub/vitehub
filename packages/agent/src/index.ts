@@ -3112,15 +3112,21 @@ async function executeAgentInvocationWithCapacityLease<
           preservedStreams.set(renderedStream, preservedStream)
           return preservedStream
         }
-        const descriptors: PropertyDescriptorMap = Object.fromEntries(streamProperties.map((property) => {
-          const renderedStream = streamPropertyValues.get(property)!
-          return [property, {
-            configurable: true,
-            enumerable: true,
-            value: preserveStream(renderedStream),
-            writable: true,
-          }]
-        }))
+        const descriptors: PropertyDescriptorMap = {}
+        try {
+          for (const property of streamProperties) {
+            descriptors[property] = {
+              configurable: true,
+              enumerable: true,
+              value: preserveStream(streamPropertyValues.get(property)!),
+              writable: true,
+            }
+          }
+        }
+        catch (error) {
+          const finalOutcome = await cancelPreservedSources({ error, failed: true })
+          throw finalOutcome.failed ? finalOutcome.error : error
+        }
         for (const [property, value] of resolvedPrimaryProperties) {
           if (!(property in descriptors)) {
             descriptors[property] = {
@@ -3288,12 +3294,31 @@ async function executeAgentInvocationWithCapacityLease<
       const projection = typeof definition?.uiMessageStream === "function"
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
-      const uiMessageSource = !isUIMessageStreamResult(rendered) && isAsyncIterable(rendered) && options.holdCapacity === true
-        ? cancellableAsyncIterableSource(rendered)
-        : undefined
-      const enrichedRendered = isAsyncIterable(rendered)
-        ? withEagerStreamUsageExtensions(uiMessageSource?.stream ?? rendered, invocation, rendered)
-        : withEagerUiMessageStreamUsageExtensions(rendered, invocation)
+      let uiMessageSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
+      let capacityRendered = rendered
+      if (options.holdCapacity === true) {
+        if (isUIMessageStreamResult(rendered)) {
+          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+          capacityRendered = cloneWithPropertyDescriptors(rendered, {
+            toUIMessageStream: {
+              configurable: true,
+              enumerable: false,
+              value: (...args: unknown[]) => {
+                const stream = toUIMessageStream.apply(rendered, args)
+                uiMessageSource = cancellableAsyncIterableSource(stream)
+                return toReadableAsyncIterableStream(uiMessageSource.stream)
+              },
+            },
+          })
+        }
+        else if (isAsyncIterable(rendered)) {
+          uiMessageSource = cancellableAsyncIterableSource(rendered)
+          capacityRendered = uiMessageSource.stream
+        }
+      }
+      const enrichedRendered = isAsyncIterable(capacityRendered)
+        ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
+        : withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
         const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
         if (!outcome.failed && !outcome.completed) {
@@ -3309,7 +3334,9 @@ async function executeAgentInvocationWithCapacityLease<
         else {
           await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
         }
-      }, projection, invocation.input.abortSignal, uiMessageSource?.cancel)
+      }, projection, invocation.input.abortSignal, options.holdCapacity === true
+        ? async reason => await uiMessageSource?.cancel(reason)
+        : undefined)
     }
 
     const isStreamResult = hasTraceableStreamResult(rendered)

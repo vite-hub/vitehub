@@ -667,6 +667,44 @@ describe("Agent Driver capacity", () => {
     expect(returned).toBe(true)
   })
 
+  it("cancels an earlier primary stream when later wrapping fails", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const lockedStream = new ReadableStream({})
+    lockedStream.getReader()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "done"
+          const stream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => stream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return { fullStream: lockedStream, stream }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    await vi.waitFor(() => expect(returned).toBe(true))
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await expect(first).rejects.toThrow()
+    await expect(second).resolves.toBe("done")
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("holds mixed text and UI-message results until the consumed text stream finishes", async () => {
     const starts: string[] = []
     const gate = deferred()
@@ -1225,6 +1263,41 @@ describe("Agent Driver capacity", () => {
     controller.abort(new DOMException("stop", "AbortError"))
 
     await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("awaits direct UI-message source cancellation before releasing capacity", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const cancelGate = deferred()
+    let cancelled = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "done"
+          return {
+            toUIMessageStream: () => new ReadableStream({
+              async cancel() {
+                cancelled = true
+                await cancelGate.promise
+              },
+            }),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    await streamAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }, { output: "ui-message-stream" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(cancelled).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    cancelGate.resolve()
+    await expect(second).resolves.toBe("done")
     expect(starts).toEqual(["first", "second"])
   })
 
