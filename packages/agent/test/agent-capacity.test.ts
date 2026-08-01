@@ -725,6 +725,44 @@ describe("Agent Driver capacity", () => {
     expect(returned).toBe(true)
   })
 
+  it("cancels primary streams when eager textStream wrapping fails", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const lockedTextStream = new ReadableStream({})
+    lockedTextStream.getReader()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "done"
+          const stream: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => stream,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return { stream, textStream: lockedTextStream }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    await vi.waitFor(() => expect(returned).toBe(true))
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await expect(first).rejects.toThrow()
+    await expect(second).resolves.toBe("done")
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("releases capacity when a lazy text stream resolves to a non-stream", async () => {
     const starts: string[] = []
     const agent = defineAgent({

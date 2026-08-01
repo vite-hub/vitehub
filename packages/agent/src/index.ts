@@ -3175,8 +3175,14 @@ async function executeAgentInvocationWithCapacityLease<
           let preservedTextStream: unknown
           let initialized = false
           if (!("get" in textStreamDescriptor) && isAsyncIterable(textStreamDescriptor.value)) {
-            preservedTextStream = preserveStream(textStreamDescriptor.value)
-            initialized = true
+            try {
+              preservedTextStream = preserveStream(textStreamDescriptor.value)
+              initialized = true
+            }
+            catch (error) {
+              const finalOutcome = await cancelPreservedSources({ error, failed: true })
+              throw finalOutcome.failed ? finalOutcome.error : error
+            }
           }
           descriptors.textStream = {
             configurable: true,
