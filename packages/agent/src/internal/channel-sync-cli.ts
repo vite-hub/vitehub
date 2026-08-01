@@ -26,6 +26,7 @@ interface ChannelSyncCliOptions {
 interface ChannelSyncLoadInput {
   agent?: string
   channel?: string
+  env: NodeJS.ProcessEnv
   rootDir: string
   serverDirs?: string[]
   stage: string
@@ -251,14 +252,8 @@ async function loadChannelSyncTargets(
   input: ChannelSyncLoadInput,
 ): Promise<LoadedChannelSyncTarget[]> {
   const { createServer, loadEnv } = await import("vite")
-  const stageEnv = loadEnv(input.stage, input.rootDir, "")
-  const addedEnvironmentKeys: string[] = []
-  for (const [key, value] of Object.entries(stageEnv)) {
-    if (process.env[key] !== undefined) continue
-    process.env[key] = value
-    addedEnvironmentKeys.push(key)
-  }
   let server: Awaited<ReturnType<typeof createServer>> | undefined
+  const previousEnvironment = new Map<string, string | undefined>()
   try {
     server = await createServer({
       appType: "custom",
@@ -267,6 +262,15 @@ async function loadChannelSyncTargets(
       root: input.rootDir,
       server: { hmr: false, middlewareMode: true },
     })
+    const environment = {
+      ...loadEnv(input.stage, server.config.envDir, ""),
+      ...input.env,
+    }
+    for (const [key, value] of Object.entries(environment)) {
+      if (value === undefined) continue
+      previousEnvironment.set(key, process.env[key])
+      process.env[key] = value
+    }
     const targets: LoadedChannelSyncTarget[] = []
     for (const definition of uniqueAgentDefinitions(input.rootDir, input.serverDirs)) {
       const loaded = await loadViteAgent(server, definition)
@@ -294,7 +298,10 @@ async function loadChannelSyncTargets(
       await server?.close()
     }
     finally {
-      for (const key of addedEnvironmentKeys) delete process.env[key]
+      for (const [key, value] of previousEnvironment) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
     }
   }
 }
@@ -382,6 +389,7 @@ export async function runAgentChannelSyncCli(
     const allTargets = await loadTargets({
       agent: parsed.agent,
       channel: parsed.channel,
+      env: context.env,
       rootDir: options.rootDir || context.rootDir,
       serverDirs: options.serverDirs,
       stage: parsed.stage,

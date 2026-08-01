@@ -533,9 +533,15 @@ describe("agent CLI", () => {
     delete process.env.TELEGRAM_BOT_TOKEN
     delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
     try {
+      await mkdir(join(rootDir, "config-env"), { recursive: true })
       await mkdir(join(rootDir, "server", "agents"), { recursive: true })
-      await writeFile(join(rootDir, ".env.staging"), [
-        "TELEGRAM_BOT_TOKEN=stage-bot-token",
+      await writeFile(join(rootDir, "vite.config.ts"), [
+        'import { defineConfig } from "vite"',
+        'export default defineConfig({ envDir: "config-env" })',
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(rootDir, "config-env", ".env.staging"), [
+        "TELEGRAM_BOT_TOKEN=env-dir-bot-token",
         "TELEGRAM_WEBHOOK_SECRET_TOKEN=stage-webhook-token",
         "",
       ].join("\n"), "utf8")
@@ -568,15 +574,16 @@ describe("agent CLI", () => {
         "--json",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { TELEGRAM_BOT_TOKEN: "context-bot-token" },
         rootDir,
         stderr: stream(),
         stdout,
       }, { fetch: fetcher as never })
 
       expect(exitCode).toBe(0)
-      expect(requests).toContain("https://api.telegram.org/botstage-bot-token/getWebhookInfo")
-      expect(stdout.output()).not.toContain("stage-bot-token")
+      expect(requests).toContain("https://api.telegram.org/botcontext-bot-token/getWebhookInfo")
+      expect(stdout.output()).not.toContain("context-bot-token")
+      expect(stdout.output()).not.toContain("env-dir-bot-token")
       expect(stdout.output()).not.toContain("stage-webhook-token")
       expect(JSON.parse(stdout.output()).registrations).toMatchObject([{
         agent: "support",
