@@ -20,7 +20,6 @@ interface ChannelSyncCliOptions {
   loadTargets?: (input: ChannelSyncLoadInput) => Promise<LoadedChannelSyncTarget[]>
   rootDir?: string
   serverDirs?: string[]
-  webhookRoute?: false | string
 }
 
 interface ChannelSyncLoadInput {
@@ -30,7 +29,6 @@ interface ChannelSyncLoadInput {
   rootDir: string
   serverDirs?: string[]
   stage: string
-  webhookRoute: false | string
 }
 
 export interface LoadedChannelSyncTarget {
@@ -390,8 +388,6 @@ export async function runAgentChannelSyncCli(
         throw new TypeError("--confirm-origin must exactly match --url.")
     }
 
-    const webhookRoute =
-      options.webhookRoute === undefined ? defaultWebhookRoute : options.webhookRoute
     const loadTargets = options.loadTargets || loadChannelSyncTargets
     const allTargets = await loadTargets({
       agent: parsed.agent,
@@ -400,7 +396,6 @@ export async function runAgentChannelSyncCli(
       rootDir: options.rootDir || context.rootDir,
       serverDirs: options.serverDirs,
       stage: parsed.stage,
-      webhookRoute,
     })
     const targets = allTargets.filter(
       (target) =>
@@ -425,7 +420,7 @@ export async function runAgentChannelSyncCli(
     const fetchImpl = options.fetch || globalThis.fetch
     const planned: PlannedChannelSyncTarget[] = []
     for (const target of targets) {
-      const desiredUrl = desiredWebhookUrl(target, origin, webhookRoute)
+      const desiredUrl = desiredWebhookUrl(target, origin, defaultWebhookRoute)
       if (desiredUrl) await verifyDeployedWebhook(desiredUrl, target.provider, fetchImpl)
       const plan = await target.sync.plan({ desiredUrl, fetch: fetchImpl, force: parsed.force })
       planned.push({ plan, preflight: desiredUrl ? "verified" : "not-required", target })
