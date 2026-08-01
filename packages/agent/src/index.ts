@@ -1191,6 +1191,92 @@ function createSyntheticWorkspaceRun<
           ? toReadableAsyncIterableStream(streamed)
           : streamed
       }
+      if (output && typeof output === "object") {
+        const capacityRelease = release
+        const sources = new Set<ReturnType<typeof cancellableAsyncIterableSource>>()
+        let finished = false
+        const finish = async (reason?: unknown, completedSource?: ReturnType<typeof cancellableAsyncIterableSource>) => {
+          if (finished) return
+          finished = true
+          context.input.abortSignal?.removeEventListener("abort", onAbort)
+          await Promise.allSettled([...sources].filter(source => source !== completedSource).map(source => source.cancel(reason)))
+          capacityRelease()
+        }
+        const onAbort = () => void finish(context.input.abortSignal?.reason).catch(() => {})
+        const wrapStream = (stream: AsyncIterable<unknown>) => {
+          if (finished) throw new Error("[vitehub] Agent Invocation output has already finished.")
+          const source = cancellableAsyncIterableSource(stream)
+          sources.add(source)
+          const wrapped = withCapabilityCleanup(source.stream, outcome => finish(outcome.failed ? outcome.error : undefined, source), {
+            abortSignal: context.input.abortSignal,
+            cancelOnAbort: source.cancel,
+          })
+          return typeof (stream as ReadableStream<unknown>).getReader === "function"
+            ? toReadableAsyncIterableStream(wrapped)
+            : wrapped
+        }
+        const descriptors: PropertyDescriptorMap = {}
+        let hasStreamSurface = false
+        try {
+          for (const property of ["stream", "fullStream", "textStream"] as const) {
+            let descriptor: PropertyDescriptor | undefined
+            for (let owner: object | null = output; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+              descriptor = Object.getOwnPropertyDescriptor(owner, property)
+            if (!descriptor) continue
+            if ("get" in descriptor) {
+              hasStreamSurface = true
+              let initialized = false
+              let value: unknown
+              descriptors[property] = {
+                configurable: true,
+                enumerable: descriptor.enumerable ?? false,
+                get() {
+                  if (!initialized) {
+                    try {
+                      const resolved = descriptor.get?.call(output)
+                      value = isAsyncIterable(resolved) ? wrapStream(resolved) : resolved
+                      initialized = true
+                    }
+                    catch (error) {
+                      void finish(error).catch(() => {})
+                      throw error
+                    }
+                  }
+                  return value
+                },
+              }
+            }
+            else {
+              if (!isAsyncIterable(descriptor.value)) continue
+              hasStreamSurface = true
+              descriptors[property] = {
+                ...descriptor,
+                value: wrapStream(descriptor.value),
+              }
+            }
+          }
+          if (isUIMessageStreamResult(output)) {
+            hasStreamSurface = true
+            const toUIMessageStream = output.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+            descriptors.toUIMessageStream = {
+              configurable: true,
+              enumerable: false,
+              value: (...args: unknown[]) => wrapStream(toUIMessageStream.apply(output, args)),
+            }
+          }
+        }
+        catch (error) {
+          await finish(error)
+          throw error
+        }
+        if (hasStreamSurface) {
+          if (context.input.abortSignal?.aborted) onAbort()
+          else context.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+          const preserved = resultWithPreservedProperties(output, descriptors)
+          release = undefined
+          return preserved
+        }
+      }
       return output
     }
     finally {
@@ -3405,7 +3491,8 @@ async function executeAgentInvocationWithCapacityLease<
               for (let owner: object | null = rendered; owner && !descriptor; owner = Object.getPrototypeOf(owner))
                 descriptor = Object.getOwnPropertyDescriptor(owner, property)
               if (!descriptor) continue
-              const candidate = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
+              if ("get" in descriptor) continue
+              const candidate = descriptor.value
               if (!isAsyncIterable(candidate)) continue
               uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? cancellableAsyncIterableSource(candidate))
             }

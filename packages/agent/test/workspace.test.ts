@@ -397,6 +397,43 @@ describe("defineAgent workspace option", () => {
     await expect(secondResponse.arrayBuffer()).resolves.toHaveProperty("byteLength", 0)
   })
 
+  it("holds synthetic Workspace capacity through nested stream results", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    const releases: Array<() => void> = []
+    harnessGenerate.mockImplementation(async () => ({
+      stream: (async function* () {
+        starts++
+        await new Promise<void>(resolve => releases.push(resolve))
+        yield "done"
+      })(),
+    }) as never)
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+    const consume = async (stream: AsyncIterable<string>) => {
+      const values: string[] = []
+      for await (const value of stream) values.push(value)
+      return values
+    }
+
+    const first = await agent.run!(context()) as { stream: AsyncIterable<string> }
+    const firstConsumption = consume(first.stream)
+    await vi.waitFor(() => expect(starts).toBe(1))
+    const second = agent.run!(context())
+    await Promise.resolve()
+    expect(starts).toBe(1)
+
+    releases.shift()!()
+    await expect(firstConsumption).resolves.toEqual(["done"])
+    const secondResult = await second as { stream: AsyncIterable<string> }
+    const secondConsumption = consume(secondResult.stream)
+    await vi.waitFor(() => expect(starts).toBe(2))
+    releases.shift()!()
+    await expect(secondConsumption).resolves.toEqual(["done"])
+  })
+
   it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

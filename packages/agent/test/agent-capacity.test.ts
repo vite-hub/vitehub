@@ -1439,6 +1439,29 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("does not evaluate unselected lazy streams for UI-message output", async () => {
+    let lazyStreamReads = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run() {
+          return {
+            get stream(): AsyncIterable<never> {
+              lazyStreamReads++
+              throw new Error("unused stream getter")
+            },
+            toUIMessageStream: () => uiMessageStream("done", Promise.resolve()),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const stream = await streamAgentInline(agent, runtime(), { prompt: "run" }, { output: "ui-message-stream" }) as AsyncIterable<unknown>
+    for await (const _chunk of stream) {}
+    expect(lazyStreamReads).toBe(0)
+  })
+
   it("releases combined stream capacity when the UI-message factory throws", async () => {
     const starts: string[] = []
     let returned = false
