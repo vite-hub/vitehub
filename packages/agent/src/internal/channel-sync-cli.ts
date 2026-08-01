@@ -264,7 +264,7 @@ function uniqueAgentDefinitions(
   return [...unique.values()]
 }
 
-async function loadChannelSyncTargets(
+async function loadChannelSyncTargetsExclusive(
   input: ChannelSyncLoadInput,
 ): Promise<LoadedChannelSyncTarget[]> {
   const { createServer, loadEnv } = await import("vite")
@@ -328,6 +328,25 @@ async function loadChannelSyncTargets(
         process.env[key] = value
       }
     }
+  }
+}
+
+let channelSyncTargetLoadQueue: Promise<void> = Promise.resolve()
+
+async function loadChannelSyncTargets(
+  input: ChannelSyncLoadInput,
+): Promise<LoadedChannelSyncTarget[]> {
+  const previous = channelSyncTargetLoadQueue
+  let release!: () => void
+  channelSyncTargetLoadQueue = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await previous
+  try {
+    return await loadChannelSyncTargetsExclusive(input)
+  }
+  finally {
+    release()
   }
 }
 

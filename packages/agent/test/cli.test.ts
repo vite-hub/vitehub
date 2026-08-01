@@ -755,6 +755,53 @@ describe("agent CLI", () => {
     }
   })
 
+  it("serializes concurrent stage environment loading", async () => {
+    const firstRoot = await mkdtemp(join(import.meta.dirname, "channel-sync-concurrent-first-"))
+    const secondRoot = await mkdtemp(join(import.meta.dirname, "channel-sync-concurrent-second-"))
+    const key = "VITEHUB_CHANNEL_SYNC_CONCURRENT_TEST"
+    const config = (expected: string, delay: number) => [
+      "export default async function () {",
+      `  await new Promise(resolve => setTimeout(resolve, ${delay}))`,
+      `  if (process.env.${key} !== ${JSON.stringify(expected)}) throw new Error("wrong concurrent environment")`,
+      `  throw new Error(${JSON.stringify(`expected ${expected} failure`)})`,
+      "}",
+      "",
+    ].join("\n")
+    try {
+      await writeFile(join(firstRoot, "vite.config.ts"), config("first", 30), "utf8")
+      await writeFile(join(secondRoot, "vite.config.ts"), config("second", 80), "utf8")
+      const run = (rootDir: string, selected: string) => {
+        const stderr = stream()
+        return {
+          result: runAgentChannelSyncCli([
+            "--stage", "production",
+            "--url", "https://example.com",
+          ], {
+            cwd: rootDir,
+            env: { [key]: selected },
+            rootDir,
+            stderr,
+            stdout: stream(),
+          }),
+          stderr,
+        }
+      }
+
+      const first = run(firstRoot, "first")
+      await new Promise(resolve => setTimeout(resolve, 5))
+      const second = run(secondRoot, "second")
+      expect(await Promise.all([first.result, second.result])).toEqual([1, 1])
+      expect(first.stderr.output()).toContain("expected first failure")
+      expect(second.stderr.output()).toContain("expected second failure")
+      expect(first.stderr.output()).not.toContain("wrong concurrent environment")
+      expect(second.stderr.output()).not.toContain("wrong concurrent environment")
+    }
+    finally {
+      await rm(firstRoot, { force: true, recursive: true })
+      await rm(secondRoot, { force: true, recursive: true })
+    }
+  })
+
   it("exposes the selected environment while Vite resolves its config", async () => {
     const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-config-env-app-"))
     const key = "VITEHUB_CHANNEL_SYNC_CONFIG_ENV_DIR"
