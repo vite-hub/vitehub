@@ -2966,15 +2966,15 @@ async function executeAgentInvocationWithCapacityLease<
                 if (uiMessageStreamCreated) throw new Error("[vitehub] Agent Invocation UI-message stream has already been created.")
                 uiMessageStreamCreated = true
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-                let renderedStream: ReadableStream<unknown>
+                let source: ReturnType<typeof cancellableAsyncIterableSource>
                 try {
-                  renderedStream = toUIMessageStream.apply(rendered, args)
+                  const renderedStream = toUIMessageStream.apply(rendered, args)
+                  source = cancellableAsyncIterableSource(renderedStream)
                 }
                 catch (error) {
                   void finishPreserved({ error, failed: true }).catch(() => {})
                   throw error
                 }
-                const source = cancellableAsyncIterableSource(renderedStream)
                 return withReadableStreamCleanup(
                   toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
                     toReadableAsyncIterableStream(normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))),

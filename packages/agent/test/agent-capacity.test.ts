@@ -383,6 +383,31 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("releases capacity when a UI-message stream factory returns a locked stream", async () => {
+    const starts: string[] = []
+    const lockedStream = new ReadableStream({})
+    lockedStream.getReader()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return { toUIMessageStream: () => lockedStream }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(() => first.toUIMessageStream()).toThrow()
+
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("awaits lazy UI-message stream cancellation before releasing capacity", async () => {
     const starts: string[] = []
     const controller = new AbortController()
