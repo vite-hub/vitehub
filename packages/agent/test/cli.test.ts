@@ -252,6 +252,38 @@ describe("agent CLI", () => {
     expect(JSON.parse(stdout.output()).registrations[0].current.url).toBe("https://example.com/[redacted]")
   })
 
+  it("redacts credentials embedded in configured desired webhook URLs", async () => {
+    const stdout = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--json",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
+        ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        : Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram", url: "https://example.com/webhooks/admission-secret?key=query-secret" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).not.toContain("admission-secret")
+    expect(stdout.output()).not.toContain("query-secret")
+    expect(JSON.parse(stdout.output()).registrations[0].desired.url).toBe("https://example.com/[redacted]")
+  })
+
   it("requires exact origin confirmation before loading an apply plan", async () => {
     const stderr = stream()
     const loadTargets = vi.fn(async () => [])
@@ -686,6 +718,56 @@ describe("agent CLI", () => {
 
       expect(exitCode).toBe(1)
       expect(process.env[key]).toBe("preserved")
+    }
+    finally {
+      if (previous === undefined) delete process.env[key]
+      else process.env[key] = previous
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("exposes the selected environment while Vite resolves its config", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-config-env-app-"))
+    const key = "VITEHUB_CHANNEL_SYNC_CONFIG_ENV_DIR"
+    const previous = process.env[key]
+    process.env[key] = "wrong-env"
+    try {
+      await mkdir(join(rootDir, "selected-env"), { recursive: true })
+      await mkdir(join(rootDir, "server", "agents"), { recursive: true })
+      await writeFile(join(rootDir, "vite.config.ts"), [
+        'import { defineConfig } from "vite"',
+        `export default defineConfig({ envDir: process.env.${key} })`,
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(rootDir, "selected-env", ".env.production"), "TELEGRAM_BOT_TOKEN=selected-bot-token\n", "utf8")
+      await writeFile(join(rootDir, "server", "agents", "support.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { telegram } from "@vite-hub/agent/channels"',
+        "export default defineAgent({ channels: { telegram: telegram() }, driver: { run: () => 'ok' } })",
+        "",
+      ].join("\n"), "utf8")
+      const requests: string[] = []
+      const exitCode = await runAgentChannelSyncCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+      ], {
+        cwd: rootDir,
+        env: { [key]: "selected-env" },
+        rootDir,
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+          requests.push(String(input))
+          return init?.method === "HEAD"
+            ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+            : Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })
+        }) as never,
+      })
+
+      expect(exitCode).toBe(0)
+      expect(requests).toContain("https://api.telegram.org/botselected-bot-token/getWebhookInfo")
+      expect(process.env[key]).toBe("wrong-env")
     }
     finally {
       if (previous === undefined) delete process.env[key]

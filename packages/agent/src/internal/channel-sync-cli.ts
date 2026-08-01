@@ -272,6 +272,8 @@ async function loadChannelSyncTargets(
     Object.entries(input.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
   )
   try {
+    for (const key of Object.keys(process.env)) delete process.env[key]
+    for (const [key, value] of selectedEnvironment) process.env[key] = value
     server = await createServer({
       appType: "custom",
       logLevel: "silent",
@@ -279,8 +281,6 @@ async function loadChannelSyncTargets(
       root: input.rootDir,
       server: { hmr: false, middlewareMode: true },
     })
-    for (const key of Object.keys(process.env)) delete process.env[key]
-    for (const [key, value] of selectedEnvironment) process.env[key] = value
     const environment = {
       ...loadEnv(input.stage, server.config.envDir, ""),
       ...Object.fromEntries(selectedEnvironment),
@@ -482,7 +482,9 @@ export async function runAgentChannelSyncCli(
         channel: item.target.channel,
         current: sanitizedProviderState(item.plan.current),
         destructive: item.plan.destructive === true,
-        desired: item.plan.desired,
+        desired: item.target.registration?.url
+          ? sanitizedProviderState(item.plan.desired)
+          : item.plan.desired,
         preflight: item.preflight,
         provider: item.target.provider,
         ...(result ? { result: sanitizedProviderState(result) } : {}),
