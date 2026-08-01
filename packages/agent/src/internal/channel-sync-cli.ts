@@ -24,6 +24,8 @@ interface ChannelSyncCliOptions {
 }
 
 interface ChannelSyncLoadInput {
+  agent?: string
+  channel?: string
   rootDir: string
   serverDirs?: string[]
   stage: string
@@ -269,8 +271,10 @@ async function loadChannelSyncTargets(
     for (const definition of uniqueAgentDefinitions(input.rootDir, input.serverDirs)) {
       const loaded = await loadViteAgent(server, definition)
       if (!loaded?.agent.channels) continue
+      if (input.agent && loaded.identity.name !== input.agent) continue
       const context = createViteAgentDiscoveryContext(loaded.identity)
       for (const [channelId, channel] of Object.entries(loaded.agent.channels)) {
+        if (input.channel && channelId !== input.channel) continue
         const syncDefinition = getAgentChannelSyncDefinition(channel)
         if (!syncDefinition) continue
         targets.push({
@@ -376,6 +380,8 @@ export async function runAgentChannelSyncCli(
       options.webhookRoute === undefined ? defaultWebhookRoute : options.webhookRoute
     const loadTargets = options.loadTargets || loadChannelSyncTargets
     const allTargets = await loadTargets({
+      agent: parsed.agent,
+      channel: parsed.channel,
       rootDir: options.rootDir || context.rootDir,
       serverDirs: options.serverDirs,
       stage: parsed.stage,
