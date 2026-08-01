@@ -1409,12 +1409,11 @@ async function closeCapabilityStreamIterator(
     catch (returnError) {
       returnTask = Promise.reject(returnError)
     }
-    if (outcome.failed) void returnTask?.catch(() => {})
-    else {
-      try {
-        await returnTask
-      }
-      catch (returnError) {
+    try {
+      await returnTask
+    }
+    catch (returnError) {
+      if (!outcome.failed) {
         try {
           await close({ error: returnError, failed: true })
         }
@@ -1497,10 +1496,16 @@ export function withResponseCleanup(
     closed = true
     options.abortSignal?.removeEventListener("abort", onAbort)
     wrappedController?.error(reason)
-    void Promise.allSettled([
-      reader.cancel(reason),
-      close({ error: reason, failed: true }),
-    ])
+    void (async () => {
+      let outcome: CapabilityCleanupOutcome = { error: reason, failed: true }
+      try {
+        await reader.cancel(reason)
+      }
+      catch (error) {
+        outcome = { error, failed: true }
+      }
+      await close(outcome)
+    })().catch(() => {})
   }
   const wrapped = new Response(new ReadableStream({
     start(controller) {

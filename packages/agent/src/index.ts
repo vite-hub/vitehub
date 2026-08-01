@@ -2731,30 +2731,41 @@ async function finalizeAgentInvocationResult<
         ? result as ReadableStream<unknown>
         : undefined
       const readableReader = readableResult?.getReader()
-      const sourceStream = readableReader
-        ? (async function* () {
-            try {
-              for (;;) {
-                const chunk = await readableReader.read()
-                if (chunk.done) return
-                yield chunk.value
+      const sourceIterator: AsyncIterator<unknown> = readableReader
+        ? {
+            next: () => readableReader.read(),
+            async return() {
+              try {
+                await readableReader.cancel()
               }
-            }
-            finally {
-              readableReader.releaseLock()
-            }
-          })()
-        : result
-      const cancelReadableResult = readableReader
-        ? async (reason: unknown) => {
-            try {
-              await readableReader.cancel(reason)
-            }
-            finally {
-              readableReader.releaseLock()
-            }
+              finally {
+                readableReader.releaseLock()
+              }
+              return { done: true, value: undefined }
+            },
           }
-        : undefined
+        : result[Symbol.asyncIterator]()
+      let sourceReturnTask: Promise<void> | undefined
+      const cancelSource = async () => {
+        sourceReturnTask ||= Promise.resolve(sourceIterator.return?.()).then(() => {})
+        await sourceReturnTask
+      }
+      const sourceStream = (async function* () {
+        let completed = false
+        try {
+          for (;;) {
+            const chunk = await sourceIterator.next()
+            if (chunk.done) {
+              completed = true
+              return
+            }
+            yield chunk.value
+          }
+        }
+        finally {
+          if (!completed) await cancelSource()
+        }
+      })()
       const enrichedStream = withEagerStreamUsageExtensions(sourceStream, context, result)
       const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
@@ -2776,7 +2787,7 @@ async function finalizeAgentInvocationResult<
               : finishOutcome)
           }, {
             abortSignal: context.input.abortSignal,
-            ...(cancelReadableResult ? { cancelOnAbort: cancelReadableResult } : {}),
+            cancelOnAbort: cancelSource,
           })
           return typeof (result as ReadableStream<unknown>).getReader === "function"
             ? toReadableAsyncIterableStream(value)
@@ -2784,7 +2795,7 @@ async function finalizeAgentInvocationResult<
         }
         const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
           abortSignal: context.input.abortSignal,
-          ...(cancelReadableResult ? { cancelOnAbort: cancelReadableResult } : {}),
+          cancelOnAbort: cancelSource,
         })
         return typeof (result as ReadableStream<unknown>).getReader === "function"
           ? toReadableAsyncIterableStream(value)
@@ -3154,7 +3165,7 @@ async function executeAgentInvocationWithCapacityLease<
         else {
           await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
         }
-      }, projection)
+      }, projection, invocation.input.abortSignal)
     }
 
     const isStreamResult = hasTraceableStreamResult(rendered)
@@ -3224,7 +3235,7 @@ async function executeAgentInvocationWithCapacityLease<
               const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
               await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
             }
-          }, projection)
+          }, projection, invocation.input.abortSignal)
           const headers = new Headers(response.headers)
           headers.delete("content-encoding")
           headers.delete("content-length")

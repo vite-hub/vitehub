@@ -342,6 +342,29 @@ describe("Agent Driver capacity", () => {
     secondController.abort()
   })
 
+  it("releases an unconsumed direct UI-message stream when its invocation aborts", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "done"
+          return { toUIMessageStream: () => new ReadableStream({}) }
+        },
+      },
+      runtime: false,
+    })
+
+    await streamAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }, { output: "ui-message-stream" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("releases capacity when streamed output is cancelled", async () => {
     const starts: string[] = []
     const agent = defineAgent({
@@ -397,6 +420,43 @@ describe("Agent Driver capacity", () => {
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     controller.abort(new DOMException("stop", "AbortError"))
 
+    const second = await secondResult as AsyncIterable<unknown>
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
+    await second[Symbol.asyncIterator]().return?.()
+  })
+
+  it("awaits generic iterator cancellation before releasing capacity on abort", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    const controller = new AbortController()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          const iterator: AsyncIterableIterator<unknown> = {
+            [Symbol.asyncIterator]: () => iterator,
+            next: () => new Promise(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return iterator
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
     const second = await secondResult as AsyncIterable<unknown>
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     await second[Symbol.asyncIterator]().return?.()
@@ -528,6 +588,39 @@ describe("Agent Driver capacity", () => {
     const read = response.body!.getReader().read()
     controller.abort(new DOMException("stop", "AbortError"))
     await expect(read).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("awaits response source cancellation before releasing capacity on abort", async () => {
+    const starts: string[] = []
+    const cancelGate = deferred()
+    const controller = new AbortController()
+    let cancelled = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return new Response(new ReadableStream({
+            async cancel() {
+              cancelled = true
+              await cancelGate.promise
+            },
+          }))
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(cancelled).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    cancelGate.resolve()
+    const second = await secondResult as Response
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
+    await second.body?.cancel()
   })
 
   it("releases capacity after an active Driver failure", async () => {

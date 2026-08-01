@@ -371,6 +371,7 @@ export async function finalizeUiMessageStreamOutput(
   shouldWrapOutput: boolean,
   finish: (outcome: StreamCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => MaybePromise<void>,
   projection?: AgentUIMessageStreamProjection,
+  abortSignal?: AbortSignal,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
@@ -404,6 +405,7 @@ export async function finalizeUiMessageStreamOutput(
     finishResult: rendered,
     value: shouldWrapOutput
       ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
+          abortSignal,
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
             streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
