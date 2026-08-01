@@ -553,7 +553,7 @@ describe("agent CLI", () => {
     const requests: string[] = []
     const previousBotToken = process.env.TELEGRAM_BOT_TOKEN
     const previousWebhookToken = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
-    delete process.env.TELEGRAM_BOT_TOKEN
+    process.env.TELEGRAM_BOT_TOKEN = "context-bot-token"
     delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
     try {
       await mkdir(join(rootDir, "config-env"), { recursive: true })
@@ -597,7 +597,7 @@ describe("agent CLI", () => {
         "--json",
       ], {
         cwd: rootDir,
-        env: { TELEGRAM_BOT_TOKEN: "context-bot-token" },
+        env: process.env,
         rootDir,
         stderr: stream(),
         stdout,
@@ -613,7 +613,7 @@ describe("agent CLI", () => {
         channel: "telegram",
         desired: { secretToken: "configured" },
       }])
-      expect(process.env.TELEGRAM_BOT_TOKEN).toBeUndefined()
+      expect(process.env.TELEGRAM_BOT_TOKEN).toBe("context-bot-token")
       expect(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN).toBeUndefined()
     }
     finally {

@@ -254,6 +254,9 @@ async function loadChannelSyncTargets(
   const previousEnvironment = new Map(
     Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
   )
+  const selectedEnvironment = new Map(
+    Object.entries(input.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  )
   try {
     server = await createServer({
       appType: "custom",
@@ -263,12 +266,10 @@ async function loadChannelSyncTargets(
       server: { hmr: false, middlewareMode: true },
     })
     for (const key of Object.keys(process.env)) delete process.env[key]
-    for (const [key, value] of Object.entries(input.env)) {
-      if (value !== undefined) process.env[key] = value
-    }
+    for (const [key, value] of selectedEnvironment) process.env[key] = value
     const environment = {
       ...loadEnv(input.stage, server.config.envDir, ""),
-      ...input.env,
+      ...Object.fromEntries(selectedEnvironment),
     }
     for (const [key, value] of Object.entries(environment)) {
       if (value === undefined) continue
