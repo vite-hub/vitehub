@@ -563,7 +563,7 @@ describe("storage capabilities", () => {
       get: vi.fn(),
       head: vi.fn(),
       list: vi.fn(),
-      put: vi.fn(async pathname => ({ pathname })),
+      put: vi.fn(async (pathname: string, _body: unknown, _options?: unknown) => ({ pathname })),
     }
     const resolved = await resolveAgentCapabilities(
       { capabilities: [blob({ mode: "write" })] },
@@ -585,6 +585,45 @@ describe("storage capabilities", () => {
       pathname: "meals/current/original",
     })).resolves.toEqual({ pathname: "meals/current/original" })
     expect(store.put).toHaveBeenCalledWith("meals/current/original", bytes, { contentType: "image/jpeg" })
+  })
+
+  it("resolves encoded and URL-backed input attachments", async () => {
+    const { blob } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const store = {
+      del: vi.fn(),
+      get: vi.fn(),
+      head: vi.fn(),
+      list: vi.fn(),
+      put: vi.fn(async (pathname: string, _body: unknown, _options?: unknown) => ({ pathname })),
+    }
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new Uint8Array([4, 5, 6])))
+    const resolved = await resolveAgentCapabilities(
+      { capabilities: [blob({ mode: "write" })] },
+      { ...runtime({ blob: store }), run: { messageId: "message-1", runId: "run-1" } },
+      {
+        messages: [{
+          id: "message-1",
+          parts: [
+            { data: "data:image/png;base64,AQID", id: "encoded", mediaType: "image/png", type: "image" },
+            { data: "BAUG", id: "base64", mediaType: "image/jpeg", type: "image" },
+            { id: "remote", mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" },
+          ],
+          role: "user",
+        }],
+      },
+    )
+
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "encoded", operation: "put", pathname: "encoded.png" })
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "base64", operation: "put", pathname: "base64.jpg" })
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "remote", operation: "put", pathname: "remote.jpg" })
+
+    expect(store.put).toHaveBeenNthCalledWith(1, "encoded.png", new Uint8Array([1, 2, 3]), { contentType: "image/png" })
+    expect(store.put).toHaveBeenNthCalledWith(2, "base64.jpg", new Uint8Array([4, 5, 6]), { contentType: "image/jpeg" })
+    expect(store.put).toHaveBeenNthCalledWith(3, "remote.jpg", expect.any(ArrayBuffer), { contentType: "image/jpeg" })
+    expect(new Uint8Array(store.put.mock.calls[2]![1] as ArrayBuffer)).toEqual(new Uint8Array([4, 5, 6]))
+    expect(fetchMock).toHaveBeenCalledWith("https://example.com/photo.jpg")
+    fetchMock.mockRestore()
   })
 
   it("uploads workspacePath from the active Harness workspace when available", async () => {

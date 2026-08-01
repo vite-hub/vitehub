@@ -269,11 +269,34 @@ async function readInputAttachment(context: AgentCapabilityRuntimeContext, id: s
     throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} must identify one current input attachment.${available.length ? ` Available: ${available.join(", ")}.` : ""}`)
   }
   const attachment = matches[0]!
-  const body = typeof attachment.fetchData === "function" ? await attachment.fetchData() : attachment.data
+  const body = typeof attachment.fetchData === "function"
+    ? await attachment.fetchData()
+    : attachment.data ?? (attachment.url ? await fetchAttachmentUrl(attachment.url) : undefined)
   if (!isAttachmentData(body)) {
     throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.`)
   }
-  return { body, mediaType: attachment.mediaType }
+  return { body: decodeAttachmentString(body, attachment.mediaType), mediaType: attachment.mediaType }
+}
+
+async function fetchAttachmentUrl(url: string): Promise<ArrayBuffer> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`[vitehub] blob_edit attachment request failed with ${response.status}.`)
+  return await response.arrayBuffer()
+}
+
+function decodeAttachmentString(body: AttachmentPart["data"], mediaType: string) {
+  if (typeof body !== "string") return body
+  const dataUrl = /^data:[^,]*?(;base64)?,(.*)$/is.exec(body)
+  if (dataUrl) {
+    return dataUrl[1]
+      ? Uint8Array.from(atob(dataUrl[2]!), character => character.charCodeAt(0))
+      : new TextEncoder().encode(decodeURIComponent(dataUrl[2]!))
+  }
+  const normalizedMediaType = mediaType.toLowerCase()
+  if (normalizedMediaType.startsWith("text/") || normalizedMediaType === "application/json" || normalizedMediaType.endsWith("+json") || normalizedMediaType.endsWith("+xml")) {
+    return body
+  }
+  return Uint8Array.from(atob(body), character => character.charCodeAt(0))
 }
 
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
