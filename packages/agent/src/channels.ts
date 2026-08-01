@@ -2080,6 +2080,7 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   return withAgentChannelSyncDefinition<TRuntimeConfig>(channel, {
     provider: "telegram",
     async resolve(context, resolvedChannel) {
+      if (resolvedChannel.adapter !== channel.adapter) return
       const resolvedWebhooks = resolvedChannel.webhooks
       const registration = Array.isArray(resolvedWebhooks)
         ? resolvedWebhooks.length === 1 ? resolvedWebhooks[0] : undefined

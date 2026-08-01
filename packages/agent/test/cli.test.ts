@@ -104,13 +104,22 @@ describe("agent CLI", () => {
       return Response.json({ ok: true, result: { pending_update_count: 0, url: "https://example.com/webhook" } })
     })
 
-    await sync.apply({
+    await sync!.apply({
       action: "create",
       current: { url: "" },
       desired: { url: "https://example.com/webhook" },
     }, fetcher as never)
 
     expect(bodies[0]).toMatchObject({ secret_token: "new-secret" })
+  })
+
+  it("drops inherited Telegram synchronization when decoration replaces the adapter", async () => {
+    const base = telegram({ botToken: "bot-token" })
+    const channel = { ...base, adapter: () => ({}) as never }
+
+    await expect(
+      getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel),
+    ).resolves.toBeUndefined()
   })
 
   it("prints a sanitized Telegram webhook plan without applying it", async () => {
@@ -209,6 +218,38 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("[redacted]")
     expect(stderr.output()).not.toContain("bot-secret")
     expect(stderr.output()).not.toContain("webhook-secret")
+  })
+
+  it("redacts credentials embedded in provider webhook URLs", async () => {
+    const stdout = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--json",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
+        ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        : Response.json({ ok: true, result: { pending_update_count: 0, url: "https://example.com/legacy/secret-token?key=query-secret" } })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).not.toContain("secret-token")
+    expect(stdout.output()).not.toContain("query-secret")
+    expect(JSON.parse(stdout.output()).registrations[0].current.url).toBe("https://example.com/[redacted]")
   })
 
   it("requires exact origin confirmation before loading an apply plan", async () => {

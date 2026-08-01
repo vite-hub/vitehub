@@ -36,7 +36,7 @@ export interface AgentChannelSyncDefinition<
   resolve: (
     context: AgentCallbackContext<TRuntimeConfig>,
     channel: AgentChannelDefinition<TRuntimeConfig>,
-  ) => MaybePromise<AgentChannelSyncProvider>
+  ) => MaybePromise<AgentChannelSyncProvider | undefined>
 }
 
 const agentChannelSyncDefinition = Symbol.for("vitehub.agent.channelSyncDefinition")

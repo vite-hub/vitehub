@@ -78,6 +78,20 @@ interface PlannedChannelSyncTarget {
   target: LoadedChannelSyncTarget
 }
 
+function sanitizedProviderState(state: Record<string, unknown>): Record<string, unknown> {
+  if (typeof state.url !== "string" || !state.url) return state
+  try {
+    const url = new URL(state.url)
+    if (!url.username && !url.password && !url.search && !url.hash && url.pathname === "/") {
+      return state
+    }
+    return { ...state, url: `${url.origin}/[redacted]` }
+  }
+  catch {
+    return { ...state, url: "[redacted]" }
+  }
+}
+
 const defaultWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
 
 function writeChannelSyncUsage(context: ChannelSyncCliContext): void {
@@ -287,6 +301,7 @@ async function loadChannelSyncTargets(
         const syncDefinition = getAgentChannelSyncDefinition(channel)
         if (!syncDefinition) continue
         const sync = await syncDefinition.resolve(context, channel)
+        if (!sync) continue
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
@@ -465,12 +480,12 @@ export async function runAgentChannelSyncCli(
         agent: item.target.agent,
         applied: parsed.apply && item.plan.action !== "none",
         channel: item.target.channel,
-        current: item.plan.current,
+        current: sanitizedProviderState(item.plan.current),
         destructive: item.plan.destructive === true,
         desired: item.plan.desired,
         preflight: item.preflight,
         provider: item.target.provider,
-        ...(result ? { result } : {}),
+        ...(result ? { result: sanitizedProviderState(result) } : {}),
         unverifiable: item.plan.unverifiable || [],
       })
     }
