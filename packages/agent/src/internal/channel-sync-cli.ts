@@ -494,7 +494,7 @@ export async function runAgentChannelSyncCli(
         const resultUrl = typeof result.url === "string" ? result.url : undefined
         if (expectedUrl !== undefined && resultUrl !== expectedUrl) {
           throw new Error(
-            `Provider verification failed for ${item.target.agent}/${item.target.channel}; expected webhook URL ${expectedUrl || "<empty>"}.`,
+            `Provider verification failed for ${item.target.agent}/${item.target.channel}; expected webhook URL ${expectedUrl ? sanitizedUrl(expectedUrl) : "<empty>"}.`,
           )
         }
       }

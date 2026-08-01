@@ -313,6 +313,48 @@ describe("agent CLI", () => {
     expect(stderr.output()).not.toContain("query-secret")
   })
 
+  it("redacts credentials embedded in failed provider verification URLs", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--apply",
+      "--confirm-origin", "https://example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: (async () => new Response(null, {
+        headers: { "x-vitehub-channel-provider": "telegram" },
+        status: 204,
+      })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram", path: "/webhooks/admission-secret?key=query-secret" },
+        sync: {
+          apply: async () => ({ url: "https://example.com/normalized" }),
+          mode: "webhook",
+          plan: async ({ desiredUrl }) => ({
+            action: "create",
+            current: { url: "" },
+            desired: { url: desiredUrl },
+          }),
+        },
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("https://example.com/[redacted]")
+    expect(stderr.output()).not.toContain("admission-secret")
+    expect(stderr.output()).not.toContain("query-secret")
+  })
+
   it("requires exact origin confirmation before loading an apply plan", async () => {
     const stderr = stream()
     const loadTargets = vi.fn(async () => [])
