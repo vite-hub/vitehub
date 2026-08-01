@@ -3139,16 +3139,21 @@ async function executeAgentInvocationWithCapacityLease<
 
   const outputExtensions = new Map<string, unknown>()
   let renderedResult = false
+  let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
   try {
     const shouldRenderStream = options.kind === "run"
       ? customRun && options.renderOutput && isAsyncIterable(result)
       : isAsyncIterable(result) && options.output !== "ui-message-stream" && !invocation.finalOutputRenderers.length
     if (shouldRenderStream) {
-      result = await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+      rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length
+        ? cancellableAsyncIterableSource(result as AsyncIterable<unknown>)
+        : undefined
+      result = await applyOutputRenderers(rendererSource?.stream ?? result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
       renderedResult = true
     }
   }
   catch (error) {
+    await Promise.allSettled(rendererSource ? [rendererSource.cancel(error)] : [])
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 

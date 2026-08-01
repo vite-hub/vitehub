@@ -39,6 +39,39 @@ function uiMessageStream(id: string, gate: Promise<void>): ReadableStream<unknow
 }
 
 describe("Agent Driver capacity", () => {
+  it("cancels Driver streams when output renderer setup fails", async () => {
+    const cancel = vi.fn(async () => ({ done: true as const, value: undefined }))
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this
+      },
+      next: vi.fn(async () => new Promise<IteratorResult<unknown>>(() => {})),
+      return: cancel,
+    }
+    const renderError = new Error("render failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "broken-renderer",
+        output(context) {
+          context.output.render(() => {
+            throw renderError
+          })
+        },
+      })],
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => source,
+      },
+      runtime: false,
+    })
+
+    await expect(streamAgentInline(agent, runtime(), {}, { output: "events" })).rejects.toThrow(renderError)
+    expect(cancel).toHaveBeenCalledWith(renderError)
+    expect(createAgentInspectionMetadata(agent)).toMatchObject({
+      config: { driver: { capacity: { active: 0 } } },
+    })
+  })
+
   it("bypasses Driver capacity for Capability-handled responses", async () => {
     const starts: string[] = []
     const gate = deferred()
