@@ -339,6 +339,185 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
+  it("applies Driver capacity to synthetic Workspace runs", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const releases: Array<() => void> = []
+    let starts = 0
+    agentGenerate.mockImplementation(async () => {
+      starts++
+      await new Promise<void>(resolve => releases.push(resolve))
+      return { finishReason: "stop", text: "ok" }
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, model: {} as never },
+      workspace: {},
+    })
+
+    const first = agent.run!(context())
+    await vi.waitFor(() => expect(starts).toBe(1))
+    const second = agent.run!(context())
+    await Promise.resolve()
+    expect(starts).toBe(1)
+
+    releases.shift()!()
+    await expect(first).resolves.toBe("ok")
+    await vi.waitFor(() => expect(starts).toBe(2))
+    releases.shift()!()
+    await expect(second).resolves.toBe("ok")
+  })
+
+  it("holds synthetic Workspace capacity until streamed output finishes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    const streams: ReadableStreamDefaultController<Uint8Array>[] = []
+    harnessGenerate.mockImplementation(async () => {
+      starts++
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          streams.push(controller)
+        },
+      })) as never
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+
+    const first = await agent.run!(context()) as Response
+    expect(starts).toBe(1)
+    const second = agent.run!(context())
+    await Promise.resolve()
+    expect(starts).toBe(1)
+
+    streams.shift()!.close()
+    await expect(first.arrayBuffer()).resolves.toHaveProperty("byteLength", 0)
+    const secondResponse = await second as Response
+    expect(starts).toBe(2)
+    streams.shift()!.close()
+    await expect(secondResponse.arrayBuffer()).resolves.toHaveProperty("byteLength", 0)
+  })
+
+  it("holds synthetic Workspace capacity through nested stream results", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    const releases: Array<() => void> = []
+    harnessGenerate.mockImplementation(async () => ({
+      stream: (async function* () {
+        starts++
+        await new Promise<void>(resolve => releases.push(resolve))
+        yield "done"
+      })(),
+    }) as never)
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+    const consume = async (stream: AsyncIterable<string>) => {
+      const values: string[] = []
+      for await (const value of stream) values.push(value)
+      return values
+    }
+
+    const first = await agent.run!(context()) as { stream: AsyncIterable<string> }
+    const firstConsumption = consume(first.stream)
+    await vi.waitFor(() => expect(starts).toBe(1))
+    const second = agent.run!(context())
+    await Promise.resolve()
+    expect(starts).toBe(1)
+
+    releases.shift()!()
+    await expect(firstConsumption).resolves.toEqual(["done"])
+    const secondResult = await second as { stream: AsyncIterable<string> }
+    const secondConsumption = consume(secondResult.stream)
+    await vi.waitFor(() => expect(starts).toBe(2))
+    releases.shift()!()
+    await expect(secondConsumption).resolves.toEqual(["done"])
+  })
+
+  it("reuses synthetic Workspace streams exposed through multiple surfaces", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    const controllers: ReadableStreamDefaultController<string>[] = []
+    harnessGenerate.mockImplementation(async () => {
+      starts++
+      const shared = new ReadableStream<string>({
+        start(controller) {
+          controllers.push(controller)
+        },
+      })
+      return {
+        fullStream: shared,
+        stream: shared,
+        toUIMessageStream: () => shared,
+      } as never
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+
+    const first = await agent.run!(context()) as {
+      fullStream: ReadableStream<string>
+      stream: ReadableStream<string>
+      toUIMessageStream: () => ReadableStream<string>
+    }
+    expect(first.fullStream).toBe(first.stream)
+    expect(first.toUIMessageStream()).toBe(first.stream)
+    const second = agent.run!(context())
+    await Promise.resolve()
+    expect(starts).toBe(1)
+
+    controllers.shift()!.close()
+    await expect(first.stream.getReader().read()).resolves.toEqual({ done: true, value: undefined })
+    await expect(second).resolves.toBeDefined()
+    expect(starts).toBe(2)
+  })
+
+  it("releases synthetic Workspace capacity when a stream getter is not a stream", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    harnessGenerate.mockImplementation(async () => {
+      starts++
+      return { get stream() { return "not streamed" } } as never
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+
+    const first = await agent.run!(context()) as { stream: string }
+    const second = agent.run!(context())
+    expect(first.stream).toBe("not streamed")
+    await expect(second).resolves.toBeDefined()
+    expect(starts).toBe(2)
+  })
+
+  it("releases synthetic Workspace capacity when UI stream creation fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    harnessGenerate.mockImplementation(async () => {
+      starts++
+      if (starts === 1) {
+        return {
+          toUIMessageStream(): ReadableStream<unknown> {
+            throw new Error("stream construction failed")
+          },
+        } as never
+      }
+      return { finishReason: "stop", text: "ok" }
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+
+    const first = await agent.run!(context()) as { toUIMessageStream: () => ReadableStream<unknown> }
+    const second = agent.run!(context())
+    expect(() => first.toUIMessageStream()).toThrow("stream construction failed")
+    await expect(second).resolves.toBe("ok")
+    expect(starts).toBe(2)
+  })
+
   it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

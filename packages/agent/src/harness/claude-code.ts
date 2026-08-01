@@ -16,6 +16,7 @@ const claudeCodePackage = "@ai-sdk/harness-claude-code"
 
 export async function createClaudeCodeDriver<TOutput = unknown>(options: ClaudeCodeDriverOptions<TOutput> = {}): Promise<AgentHarnessDriver<AgentRuntimeConfig, unknown, AgentInvocationContextValues, TOutput>> {
   const {
+    capacity,
     credentials,
     env,
     output,
@@ -24,6 +25,7 @@ export async function createClaudeCodeDriver<TOutput = unknown>(options: ClaudeC
   } = options
 
   return {
+    ...(capacity !== undefined ? { capacity } : {}),
     credentials: credentials ?? { label: "Claude Code", source: "ambient" },
     harness: await createClaudeCode(settings as ClaudeCodeHarnessSettings),
     ...(output !== undefined ? { output } : {}),

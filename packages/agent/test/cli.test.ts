@@ -947,6 +947,7 @@ describe("agent CLI", () => {
       inspection: {
         config: {
           driver: {
+            capacity: { active: 1, concurrency: 2, pending: 3, queue: { maxPending: 20, timeout: 300_000 } },
             executionAuthority: {
               credentials: "ambient",
               environment: "ambient",
@@ -989,6 +990,7 @@ describe("agent CLI", () => {
       "Agent: support",
       "Metadata: ready",
       "Driver: Model-backed Agent Driver (openai/gpt-5)",
+      "Capacity: 1/2 active, 3/20 pending, 300000ms timeout",
       "Execution authority:",
       "  Filesystem: host, read-write",
       "  Network: unrestricted",

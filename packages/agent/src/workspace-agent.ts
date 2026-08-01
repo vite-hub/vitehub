@@ -25,6 +25,7 @@ import {
   composeInstructionDocument,
   resolveInstructionImports,
 } from "./instruction-composition.ts"
+import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "./internal/agent-driver.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 
@@ -221,11 +222,13 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
-  return {
+  const decoratedAgent = {
     ...workspaceAgent,
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
-  } as Agent
+  }
+  inheritAgentCapacity(workspaceAgent, decoratedAgent)
+  return decoratedAgent as Agent
 }
 
 function assertWorkspaceReference(reference: { name: string }): void {
@@ -720,10 +723,11 @@ function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentR
 ): AgentInspectionConfigMetadata | undefined {
   const settings = agentSettings(definition)
   const driver = staticDriverMetadata(settings)
+  const capacity = inspectAgentCapacity(definition as object)
   const uiMessageStream = typeof settings?.uiMessageStream === "function"
     ? undefined
     : settings?.uiMessageStream
-  return driver ? { driver, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
+  return driver ? { driver: { ...driver, ...(capacity ? { capacity } : {}) }, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
 }
 
 async function resolvedUiMessageStreamProjection<
@@ -747,8 +751,9 @@ async function resolvedConfigMetadata<
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentInspectionConfigMetadata | undefined> {
   const driver = await resolvedDriverMetadata(agentSettings(definition), context)
+  const capacity = inspectAgentCapacity(definition as object)
   const uiMessageStream = await resolvedUiMessageStreamProjection(definition, context)
-  return driver ? { driver, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
+  return driver ? { driver: { ...driver, ...(capacity ? { capacity } : {}) }, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
 }
 
 function agentInspectionMetadata<

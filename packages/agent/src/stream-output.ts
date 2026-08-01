@@ -126,19 +126,91 @@ export function createAgentUIMessageStreamResponse(options: {
   })
 }
 
+export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
+  cancel: (reason?: unknown) => Promise<void>
+  stream: AsyncIterable<unknown>
+} {
+  const readableReader = typeof (stream as ReadableStream<unknown>).getReader === "function"
+    ? (stream as ReadableStream<unknown>).getReader()
+    : undefined
+  const iterator: AsyncIterator<unknown> = readableReader
+    ? {
+        next: () => readableReader.read(),
+        async return(reason) {
+          try {
+            await readableReader.cancel(reason)
+          }
+          finally {
+            readableReader.releaseLock()
+          }
+          return { done: true, value: undefined }
+        },
+      }
+    : stream[Symbol.asyncIterator]()
+  let cancelTask: Promise<void> | undefined
+  let completed = false
+  const cancel = async (reason?: unknown) => {
+    if (completed) return
+    cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
+    await cancelTask
+  }
+  return {
+    cancel,
+    stream: (async function* () {
+      try {
+        for (;;) {
+          const chunk = await iterator.next()
+          if (chunk.done) {
+            completed = true
+            return
+          }
+          yield chunk.value
+        }
+      }
+      finally {
+        if (!completed) await cancel()
+        else readableReader?.releaseLock()
+      }
+    })(),
+  }
+}
+
 export function withReadableStreamCleanup<T>(
   stream: ReadableStream<T>,
   cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
-  options: { onChunk?: (chunk: T) => void } = {},
+  options: { abortSignal?: AbortSignal, cancelOnAbort?: (reason: unknown) => Promise<void>, onChunk?: (chunk: T) => void } = {},
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
+  let wrappedController: ReadableStreamDefaultController<T> | undefined
   const runCleanup = async (outcome: StreamCleanupOutcome = { completed: true, failed: false }) => {
     if (cleaned) return
     cleaned = true
+    options.abortSignal?.removeEventListener("abort", onAbort)
     await cleanup(outcome)
   }
-  return new ReadableStream<T>({
+  const onAbort = () => {
+    const reason = options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
+    if (cleaned) return
+    cleaned = true
+    options.abortSignal?.removeEventListener("abort", onAbort)
+    wrappedController?.error(reason)
+    void (async () => {
+      let outcome: StreamCleanupOutcome = { error: reason, failed: true }
+      try {
+        await options.cancelOnAbort?.(reason)
+        await reader.cancel(reason)
+      }
+      catch (error) {
+        outcome = { error, failed: true }
+      }
+      await cleanup(outcome)
+    })().catch(() => {})
+  }
+  const wrapped = new ReadableStream<T>({
+    start(controller) {
+      wrappedController = controller
+    },
     async pull(controller) {
       try {
         const result = await reader.read()
@@ -158,6 +230,7 @@ export function withReadableStreamCleanup<T>(
     async cancel(reason) {
       let outcome: StreamCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
       try {
+        await options.cancelOnAbort?.(reason)
         await reader.cancel(reason)
       }
       catch (error) {
@@ -169,6 +242,9 @@ export function withReadableStreamCleanup<T>(
       }
     },
   })
+  if (options.abortSignal?.aborted) onAbort()
+  else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
+  return wrapped
 }
 
 function textFromRenderedOutput(rendered: unknown): string | undefined {
@@ -355,6 +431,8 @@ export async function finalizeUiMessageStreamOutput(
   shouldWrapOutput: boolean,
   finish: (outcome: StreamCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => MaybePromise<void>,
   projection?: AgentUIMessageStreamProjection,
+  abortSignal?: AbortSignal,
+  cancelOnAbort?: (reason: unknown) => Promise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
@@ -388,6 +466,8 @@ export async function finalizeUiMessageStreamOutput(
     finishResult: rendered,
     value: shouldWrapOutput
       ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
+          abortSignal,
+          cancelOnAbort,
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
             streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord

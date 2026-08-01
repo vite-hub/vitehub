@@ -23,6 +23,7 @@ const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDire
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
   const {
+    capacity,
     credentials,
     env,
     instructions,
@@ -42,6 +43,7 @@ export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(opt
   })
 
   return {
+    ...(capacity !== undefined ? { capacity } : {}),
     credentials: credentials ?? { label: "Codex", source: "ambient" },
     harness: createViteHubCodex({ ...settings, auth, model }, defaultOpenAIAuth),
     ...(instructions !== undefined ? { instructions } : {}),

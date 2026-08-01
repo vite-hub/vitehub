@@ -895,6 +895,26 @@ describe("agent message protocol", () => {
     expect(outcomes).toEqual([{ completed: false, failed: false }])
   })
 
+  it("awaits source cancellation before abort cleanup", async () => {
+    const { withReadableStreamCleanup } = await import("../src/stream-output.ts")
+    let resolveCancellation!: () => void
+    const cancellation = new Promise<void>((resolve) => { resolveCancellation = resolve })
+    const events: string[] = []
+    const controller = new AbortController()
+    withReadableStreamCleanup(new ReadableStream({
+      async cancel() {
+        events.push("cancel")
+        await cancellation
+        events.push("cancelled")
+      },
+    }), async () => { events.push("cleanup") }, { abortSignal: controller.signal })
+
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(events).toEqual(["cancel"]))
+    resolveCancellation()
+    await vi.waitFor(() => expect(events).toEqual(["cancel", "cancelled", "cleanup"]))
+  })
+
   it("propagates post-chunk UI message response read failures", async () => {
     const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
     const error = new Error("upstream failed")

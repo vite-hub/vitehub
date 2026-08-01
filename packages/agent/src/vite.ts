@@ -698,7 +698,11 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
     "  const resolvedSourceRootDir = workspace.sourceRootDir ?? resolvedAgent.sourceRootDir ?? sourceRootDir",
     `  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }${typescript ? " as WorkspaceAgentOptions" : ""}`,
-    `  return { ...resolvedAgent, ...${workspaceDefinitionFromOptions}(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }${typescript ? " as unknown as Agent" : ""}`,
+    `  const decoratedAgent = { ...resolvedAgent, ...${workspaceDefinitionFromOptions}(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }`,
+    "  for (const key of Reflect.ownKeys(resolvedAgent)) {",
+    `    if (!Object.prototype.propertyIsEnumerable.call(resolvedAgent, key)) Object.defineProperty(decoratedAgent, key, Object.getOwnPropertyDescriptor(resolvedAgent, key)${typescript ? "!" : ""})`,
+    "  }",
+    `  return decoratedAgent${typescript ? " as unknown as Agent" : ""}`,
     "}",
   ]
 }
