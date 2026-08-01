@@ -1462,7 +1462,7 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
 export function withResponseCleanup(
   response: Response,
   close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
-  options: { onChunk?: (chunk: Uint8Array) => void } = {},
+  options: { abortSignal?: AbortSignal, onChunk?: (chunk: Uint8Array) => void } = {},
 ): Response | Promise<Response> {
   if (!response.body) {
     return close({ completed: true, failed: false }).then(() => response)
@@ -1472,8 +1472,18 @@ export function withResponseCleanup(
   async function closeOnce(outcome: CapabilityCleanupOutcome = { completed: true, failed: false }) {
     if (closed) return
     closed = true
+    options.abortSignal?.removeEventListener("abort", onAbort)
     await close(outcome)
   }
+  const onAbort = () => {
+    const reason = options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation response aborted.", "AbortError")
+    void reader.cancel(reason)
+      .then(() => closeOnce({ error: reason, failed: true }))
+      .catch(error => closeOnce({ error, failed: true }))
+      .catch(() => {})
+  }
+  if (options.abortSignal?.aborted) onAbort()
+  else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
   const wrapped = new Response(new ReadableStream({
     async cancel(reason) {
       let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }

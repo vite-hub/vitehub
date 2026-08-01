@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { agentWithColocatedInstructions, defineAgent, runAgentInline, streamAgentInline } from "../src/index.ts"
+import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, runAgentInline, startAgentInvocation, streamAgentInline } from "../src/index.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -109,6 +109,36 @@ describe("Agent Driver capacity", () => {
     expect(decorated).not.toBe(agent)
     expect(Object.getOwnPropertyDescriptor(decorated, capacitySymbol)?.value)
       .toBe(Object.getOwnPropertyDescriptor(agent, capacitySymbol)?.value)
+  })
+
+  it("exposes configured capacity and live scheduler status through Agent inspection", async () => {
+    const gate = deferred()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 2, timeout: 1_000 } },
+        async run() {
+          await gate.promise
+          return "done"
+        },
+      },
+      runtime: false,
+    })
+
+    expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toEqual({
+      active: 0,
+      concurrency: 1,
+      pending: 0,
+      queue: { maxPending: 2, timeout: 1_000 },
+    })
+
+    const active = runAgentInline(agent, runtime(), {})
+    const pending = runAgentInline(agent, runtime(), {})
+    await vi.waitFor(() => expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toMatchObject({
+      active: 1,
+      pending: 1,
+    }))
+    gate.resolve()
+    await Promise.all([active, pending])
   })
 
   it("rejects invocations beyond the bounded queue", async () => {
@@ -353,6 +383,29 @@ describe("Agent Driver capacity", () => {
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     gates.second.resolve()
     await expect(second.text()).resolves.toBe("second")
+  })
+
+  it("releases unread response capacity when a controlled invocation is cancelled", async () => {
+    const starts: string[] = []
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return new Response(new ReadableStream({ start() {} }))
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await startAgentInvocation(agent, runtime(), { prompt: "first" })
+    await vi.waitFor(() => expect(starts).toEqual(["first"]))
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+
+    await expect(first.cancel("stop")).resolves.toMatchObject({ outcome: "accepted" })
+    const secondResponse = await second as Response
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
+    await secondResponse.body?.cancel()
   })
 
   it("releases capacity after an active Driver failure", async () => {

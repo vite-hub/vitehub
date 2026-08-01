@@ -1690,6 +1690,10 @@ export interface AgentInspectionHarnessMetadata {
 }
 
 export interface AgentInspectionDriverMetadata {
+  capacity?: AgentDriverCapacityOptions & {
+    active: number
+    pending: number
+  }
   readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata
   harness?: AgentInspectionHarnessMetadata

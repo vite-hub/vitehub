@@ -2721,6 +2721,7 @@ async function finalizeAgentInvocationResult<
           await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
         }
       }, {
+        abortSignal: context.input.abortSignal,
         onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
       }) : result
       return response

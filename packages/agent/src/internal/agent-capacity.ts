@@ -35,6 +35,10 @@ class AgentCapacityScheduler {
 
   constructor(private readonly options: AgentDriverCapacityOptions) {}
 
+  status(): { active: number, pending: number } {
+    return { active: this.active, pending: this.queue.length }
+  }
+
   async acquire(signal?: AbortSignal): Promise<AgentCapacityRelease> {
     if (signal?.aborted) throw capacityAbortError(signal)
     if (this.active < this.options.concurrency && this.queue.length === 0) {
@@ -118,4 +122,13 @@ export async function acquireAgentCapacity(agent: object, signal?: AbortSignal):
   if (!scope) return
   scope.scheduler ||= new AgentCapacityScheduler(scope.options)
   return await scope.scheduler.acquire(signal)
+}
+
+export function inspectAgentCapacity(agent: object): (AgentDriverCapacityOptions & { active: number, pending: number }) | undefined {
+  const scope = (agent as { [agentCapacityScope]?: AgentCapacityScope })[agentCapacityScope]
+  if (!scope) return
+  return {
+    ...scope.options,
+    ...(scope.scheduler?.status() || { active: 0, pending: 0 }),
+  }
 }

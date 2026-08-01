@@ -116,7 +116,7 @@ export default defineAgent({
 })
 ```
 
-Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. The scheduler is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
+Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent info` expose the configured limits plus the process's current active and pending counts. The scheduler is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
 
 ## Boxes
 

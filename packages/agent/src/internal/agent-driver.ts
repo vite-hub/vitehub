@@ -118,8 +118,8 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
     throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.")
   }
   if (value.queue.timeout !== undefined
-    && (typeof value.queue.timeout !== "number" || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number.")
+    && (typeof value.queue.timeout !== "number" || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0 || value.queue.timeout > 2_147_483_647)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number no greater than 2147483647.")
   }
   return {
     concurrency: value.concurrency as number,

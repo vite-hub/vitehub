@@ -115,6 +115,15 @@ function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   return "Unknown Agent Driver"
 }
 
+function agentInfoCapacity(config: AgentInspectionMetadata["config"]): string {
+  const capacity = config?.driver?.capacity
+  if (!capacity) return "unlimited"
+  const queue = capacity.queue
+    ? `${capacity.pending}/${capacity.queue.maxPending} pending${capacity.queue.timeout ? `, ${capacity.queue.timeout}ms timeout` : ""}`
+    : "queue disabled"
+  return `${capacity.active}/${capacity.concurrency} active, ${queue}`
+}
+
 function agentInfoExecutionAuthority(authority: ExecutionAuthority): string[] {
   const filesystem = authority.filesystem.scope === authority.filesystem.access
     ? authority.filesystem.scope
@@ -143,6 +152,7 @@ function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionM
     `Agent: ${metadata.name || "unknown"}`,
     "Metadata: ready",
     `Driver: ${agentInfoDriver(metadata.config)}`,
+    `Capacity: ${agentInfoCapacity(metadata.config)}`,
     ...(isExecutionAuthority(authority) ? agentInfoExecutionAuthority(authority) : ["Execution authority: unavailable"]),
     `Tools: ${plural(metadata.tools?.length || 0, "tool")} (${agentInfoNames(metadata.tools || [], "none")})`,
     `Workspace files: ${plural(files.files, "file")}, ${plural(files.directories, "directory", "directories")}, ${plural(files.sources, "source")}`,
