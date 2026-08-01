@@ -752,6 +752,34 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("rejects lazy text streams after a sibling releases capacity", async () => {
+    let textStreamCalls = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run() {
+          return {
+            stream: (async function* () { yield "done" })(),
+            get textStream() {
+              textStreamCalls++
+              return (async function* () { yield "late" })()
+            },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as {
+      stream: AsyncIterable<unknown>
+      textStream: AsyncIterable<string>
+    }
+    for await (const _chunk of result.stream) {}
+
+    expect(() => result.textStream).toThrow("Agent Invocation output has already finished")
+    expect(textStreamCalls).toBe(0)
+  })
+
   it("rejects lazy UI-message streams while sibling cancellation is finishing", async () => {
     const cancelGate = deferred()
     let cancelling = false

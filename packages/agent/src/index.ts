@@ -3123,6 +3123,7 @@ async function executeAgentInvocationWithCapacityLease<
             enumerable: textStreamDescriptor.enumerable ?? false,
             get() {
               if (!initialized) {
+                if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
                 const textStream = resolveTextStream()
                 preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
                 initialized = true
