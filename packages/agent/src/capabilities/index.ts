@@ -84,11 +84,13 @@ export {
 } from "./transcription-elevenlabs.ts"
 export {
   usageCost,
+  vercelAiGatewayPricing,
 } from "./usage-cost.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
   UsageCostOptions,
+  VercelAiGatewayPricingOptions,
 } from "./usage-cost.ts"
 export {
   workspaceShell,

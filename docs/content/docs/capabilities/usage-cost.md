@@ -27,6 +27,14 @@ The default pricing callback fetches Vercel AI Gateway's public model catalog. I
 
 Pricing is best-effort. A missing model match, unavailable catalog, timeout, invalid price, or pricing callback error leaves the usage record and successful Agent Invocation unchanged. A cost already reported by the provider remains authoritative.
 
+Import `vercelAiGatewayPricing()` when application-owned work adds usage after the Capability runs and must reprice the canonical record with the same catalog behavior.
+
+```ts
+import { usageCost, vercelAiGatewayPricing } from '@vite-hub/agent/capabilities'
+
+const pricing = vercelAiGatewayPricing()
+```
+
 ## Read the enriched record
 
 Finish Hooks read the canonical record from `event.invocation.usage`. The Capability also returns that same object from its typed finish extension.

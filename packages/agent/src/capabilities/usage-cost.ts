@@ -4,9 +4,13 @@ import { vercelAiGatewayPricing } from "../internal/usage-pricing.ts"
 import type { AgentCapabilityDefinition, AgentRuntimeConfig, AgentUsageRecord } from "../types.ts"
 import type { AgentUsagePricing } from "../internal/usage-pricing.ts"
 
+export {
+  vercelAiGatewayPricing,
+} from "../internal/usage-pricing.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
+  VercelAiGatewayPricingOptions,
 } from "../internal/usage-pricing.ts"
 
 export interface UsageCostOptions {
