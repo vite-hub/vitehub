@@ -480,6 +480,39 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("releases capacity when preserved stream cancellation rejects", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const stream = (reject: boolean): AsyncIterableIterator<never> => {
+      const iterator: AsyncIterableIterator<never> = {
+        [Symbol.asyncIterator]: () => iterator,
+        next: () => new Promise<IteratorResult<never>>(() => {}),
+        async return() {
+          if (reject) throw new Error("cancel failed")
+          return { done: true, value: undefined }
+        },
+      }
+      return iterator
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return { fullStream: stream(true), stream: stream(false) }
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("stops other preserved streams before releasing capacity after normal completion", async () => {
     const starts: string[] = []
     const returnGate = deferred()

@@ -2996,6 +2996,14 @@ async function executeAgentInvocationWithCapacityLease<
         let preserved: object
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
         const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+        const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
+          if (options.holdCapacity !== true) return outcome
+          const cancellations = await Promise.allSettled(
+            [...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)),
+          )
+          const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
+          return rejected ? { error: rejected.reason, failed: true } : outcome
+        }
         const onAbort = () => {
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
           finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
@@ -3010,13 +3018,11 @@ async function executeAgentInvocationWithCapacityLease<
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-            if (options.holdCapacity === true) {
-              await Promise.all([...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
-            }
+            const finalOutcome = await cancelPreservedSources(outcome)
             if (finishTask) return await finishTask
             const finishResult = streamed.finishResult(preserved)
             finishTask = (async () => {
-              if (!outcome.failed && !outcome.completed) {
+              if (!finalOutcome.failed && !finalOutcome.completed) {
                 await lifecycle.finish({
                   result: finishResult,
                   status: "success",
@@ -3027,7 +3033,7 @@ async function executeAgentInvocationWithCapacityLease<
                 })
               }
               else {
-                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
                 const usageRecord = finishResult && typeof finishResult === "object"
                   ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                   : undefined
@@ -3063,13 +3069,11 @@ async function executeAgentInvocationWithCapacityLease<
               return withReadableStreamCleanup(
                 normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream)),
                 async (outcome) => {
-                  if (options.holdCapacity === true) {
-                    await Promise.all([...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
-                  }
+                  const finalOutcome = await cancelPreservedSources(outcome)
                   if (finishTask) return await finishTask
-                  finishTask = !outcome.failed && !outcome.completed
+                  finishTask = !finalOutcome.failed && !finalOutcome.completed
                     ? lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
-                    : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                    : finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
                   return await finishTask
                 },
                 { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel },
