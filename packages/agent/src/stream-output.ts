@@ -126,6 +126,53 @@ export function createAgentUIMessageStreamResponse(options: {
   })
 }
 
+export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
+  cancel: (reason?: unknown) => Promise<void>
+  stream: AsyncIterable<unknown>
+} {
+  const readableReader = typeof (stream as ReadableStream<unknown>).getReader === "function"
+    ? (stream as ReadableStream<unknown>).getReader()
+    : undefined
+  const iterator: AsyncIterator<unknown> = readableReader
+    ? {
+        next: () => readableReader.read(),
+        async return(reason) {
+          try {
+            await readableReader.cancel(reason)
+          }
+          finally {
+            readableReader.releaseLock()
+          }
+          return { done: true, value: undefined }
+        },
+      }
+    : stream[Symbol.asyncIterator]()
+  let cancelTask: Promise<void> | undefined
+  const cancel = async (reason?: unknown) => {
+    cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
+    await cancelTask
+  }
+  return {
+    cancel,
+    stream: (async function* () {
+      let completed = false
+      try {
+        for (;;) {
+          const chunk = await iterator.next()
+          if (chunk.done) {
+            completed = true
+            return
+          }
+          yield chunk.value
+        }
+      }
+      finally {
+        if (!completed) await cancel()
+      }
+    })(),
+  }
+}
+
 export function withReadableStreamCleanup<T>(
   stream: ReadableStream<T>,
   cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
@@ -382,9 +429,13 @@ export async function finalizeUiMessageStreamOutput(
   finish: (outcome: StreamCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => MaybePromise<void>,
   projection?: AgentUIMessageStreamProjection,
   abortSignal?: AbortSignal,
+  cancelOnAbort?: (reason: unknown) => Promise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
+  const asyncSource = !hasUiMessageStream && hasAsyncIterable && shouldWrapOutput && !cancelOnAbort
+    ? cancellableAsyncIterableSource(rendered)
+    : undefined
   const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
   if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
@@ -394,7 +445,7 @@ export async function finalizeUiMessageStreamOutput(
     ? rendered.toUIMessageStream()
     : hasAsyncIterable
       ? createAgentUIMessageStream({
-          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered, {
+          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, asyncSource?.stream ?? rendered, {
             onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
             projection,
           }),
@@ -416,6 +467,7 @@ export async function finalizeUiMessageStreamOutput(
     value: shouldWrapOutput
       ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
           abortSignal,
+          cancelOnAbort: cancelOnAbort ?? asyncSource?.cancel,
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
             streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord

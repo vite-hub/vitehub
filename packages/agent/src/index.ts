@@ -69,7 +69,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
+import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -2360,53 +2360,6 @@ function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown,
   return outcome.failed ? { error: outcome.error, status: "error" } : { result, status: "success" }
 }
 
-function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
-  cancel: (reason?: unknown) => Promise<void>
-  stream: AsyncIterable<unknown>
-} {
-  const readableReader = typeof (stream as ReadableStream<unknown>).getReader === "function"
-    ? (stream as ReadableStream<unknown>).getReader()
-    : undefined
-  const iterator: AsyncIterator<unknown> = readableReader
-    ? {
-        next: () => readableReader.read(),
-        async return(reason) {
-          try {
-            await readableReader.cancel(reason)
-          }
-          finally {
-            readableReader.releaseLock()
-          }
-          return { done: true, value: undefined }
-        },
-      }
-    : stream[Symbol.asyncIterator]()
-  let cancelTask: Promise<void> | undefined
-  const cancel = async (reason?: unknown) => {
-    cancelTask ||= Promise.resolve(iterator.return?.(reason)).then(() => {})
-    await cancelTask
-  }
-  return {
-    cancel,
-    stream: (async function* () {
-      let completed = false
-      try {
-        for (;;) {
-          const chunk = await iterator.next()
-          if (chunk.done) {
-            completed = true
-            return
-          }
-          yield chunk.value
-        }
-      }
-      finally {
-        if (!completed) await cancel()
-      }
-    })(),
-  }
-}
-
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
   return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
 }
@@ -3180,8 +3133,11 @@ async function executeAgentInvocationWithCapacityLease<
       const projection = typeof definition?.uiMessageStream === "function"
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
+      const uiMessageSource = !isUIMessageStreamResult(rendered) && isAsyncIterable(rendered) && shouldHoldInvocationOutput()
+        ? cancellableAsyncIterableSource(rendered)
+        : undefined
       const enrichedRendered = isAsyncIterable(rendered)
-        ? withEagerStreamUsageExtensions(rendered, invocation, rendered)
+        ? withEagerStreamUsageExtensions(uiMessageSource?.stream ?? rendered, invocation, rendered)
         : withEagerUiMessageStreamUsageExtensions(rendered, invocation)
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
         const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
@@ -3198,7 +3154,7 @@ async function executeAgentInvocationWithCapacityLease<
         else {
           await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
         }
-      }, projection, invocation.input.abortSignal)
+      }, projection, invocation.input.abortSignal, uiMessageSource?.cancel)
     }
 
     const isStreamResult = hasTraceableStreamResult(rendered)

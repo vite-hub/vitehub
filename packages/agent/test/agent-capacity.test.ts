@@ -479,6 +479,43 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("awaits converted async iterable cancellation before releasing capacity", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "done"
+          const iterator: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => iterator,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return iterator
+        },
+      },
+      runtime: false,
+    })
+
+    await streamAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" }, { output: "ui-message-stream" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("releases capacity when streamed output is cancelled", async () => {
     const starts: string[] = []
     const agent = defineAgent({
