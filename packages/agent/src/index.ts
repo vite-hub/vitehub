@@ -3398,9 +3398,23 @@ async function executeAgentInvocation<
   if (preparedInvocation?.handledResponse) {
     return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
   }
-  const release = definition
-    ? await acquireAgentCapacity(definition, input.abortSignal)
-    : undefined
+  let release: (() => void) | undefined
+  try {
+    release = definition
+      ? await acquireAgentCapacity(definition, input.abortSignal)
+      : undefined
+  }
+  catch (error) {
+    if (preparedInvocation) {
+      try {
+        await preparedInvocation.close()
+      }
+      catch (closeError) {
+        throw new AggregateError([error, closeError], "[vitehub] Agent capacity admission and invocation cleanup failed.")
+      }
+    }
+    throw error
+  }
   if (!release) {
     return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
   }

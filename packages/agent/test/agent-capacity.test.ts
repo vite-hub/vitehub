@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, runAgentInline, startAgentInvocation, streamAgentInline } from "../src/index.ts"
+import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, defineCapability, runAgentInline, startAgentInvocation, streamAgentInline } from "../src/index.ts"
 import { inputCommands } from "../src/capabilities.ts"
 import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
@@ -92,6 +92,35 @@ describe("Agent Driver capacity", () => {
         },
       },
     })
+  })
+
+  it("closes prepared Capability scopes when capacity admission fails", async () => {
+    const close = vi.fn()
+    const gate = deferred()
+    const started = deferred()
+    const agent = defineAgent({
+      capabilities: [defineCapability({ close, id: "resource" })],
+      driver: {
+        capacity: { concurrency: 1 },
+        async run() {
+          started.resolve()
+          await gate.promise
+          return "done"
+        },
+      },
+      runtime: false,
+    })
+
+    const active = runAgentInline(agent, runtime(), {})
+    await started.promise
+    await expect(runAgentInline(agent, runtime(), {})).rejects.toMatchObject({
+      code: "AGENT_CAPACITY_QUEUE_FULL",
+    })
+    expect(close).toHaveBeenCalledTimes(1)
+
+    gate.resolve()
+    await expect(active).resolves.toBe("done")
+    expect(close).toHaveBeenCalledTimes(2)
   })
 
   it("runs at the configured concurrency and starts queued invocations in FIFO order", async () => {
