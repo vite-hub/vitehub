@@ -2919,9 +2919,18 @@ async function executeAgentInvocationWithCapacityLease<
           || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
           || isUIMessageStreamResult(rendered))
         && shouldHoldInvocationOutput())) {
+        let textStreamDescriptor: PropertyDescriptor | undefined
+        for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
+          textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
+        const hasPrimaryStreamProperty = (["stream", "fullStream"] as const).some((property) => {
+          let descriptor: PropertyDescriptor | undefined
+          for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+            descriptor = Object.getOwnPropertyDescriptor(owner, property)
+          return descriptor !== undefined && ("get" in descriptor || isAsyncIterable(descriptor.value))
+        })
         if (isUIMessageStreamResult(rendered)
-          && !isAsyncIterable((rendered as { stream?: unknown }).stream)
-          && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {
+          && !hasPrimaryStreamProperty
+          && !textStreamDescriptor) {
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
           let finishTask: Promise<void> | undefined
           let streamedText = ""
@@ -3002,8 +3011,16 @@ async function executeAgentInvocationWithCapacityLease<
             value: preserved,
           }
         }
-        const streamProperties = (["stream", "fullStream"] as const)
-          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
+        const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
+        for (const property of ["stream", "fullStream"] as const) {
+          let descriptor: PropertyDescriptor | undefined
+          for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+            descriptor = Object.getOwnPropertyDescriptor(owner, property)
+          if (!descriptor) continue
+          const value = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
+          if (isAsyncIterable(value)) streamPropertyValues.set(property, value)
+        }
+        const streamProperties = [...streamPropertyValues.keys()]
         let finishTask: Promise<void> | undefined
         let finishing = false
         let preserved: object
@@ -3064,7 +3081,7 @@ async function executeAgentInvocationWithCapacityLease<
           return preservedStream
         }
         const descriptors: PropertyDescriptorMap = Object.fromEntries(streamProperties.map((property) => {
-          const renderedStream = (rendered as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> })[property]!
+          const renderedStream = streamPropertyValues.get(property)!
           return [property, {
             configurable: true,
             enumerable: true,
@@ -3109,9 +3126,6 @@ async function executeAgentInvocationWithCapacityLease<
             },
           }
         }
-        let textStreamDescriptor: PropertyDescriptor | undefined
-        for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
-          textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
         if (textStreamDescriptor) {
           const resolveTextStream = "get" in textStreamDescriptor
             ? () => textStreamDescriptor.get?.call(rendered)

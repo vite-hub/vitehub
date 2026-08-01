@@ -487,6 +487,59 @@ describe("Agent Driver capacity", () => {
     expect(textStreamCalls).toBe(1)
   })
 
+  it("resolves a lazy primary stream exactly once", async () => {
+    let streamCalls = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => ({
+          get stream() {
+            streamCalls++
+            return (async function* () { yield "done" })()
+          },
+        }),
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as { stream: AsyncIterable<string> }
+    expect(streamCalls).toBe(1)
+    for await (const _chunk of result.stream) {}
+    expect(streamCalls).toBe(1)
+  })
+
+  it("holds mixed text and UI-message results until the consumed text stream finishes", async () => {
+    const starts: string[] = []
+    const gate = deferred()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return {
+            get textStream() {
+              return (async function* () {
+                await gate.promise
+                yield "done"
+              })()
+            },
+            toUIMessageStream: () => uiMessageStream("done", Promise.resolve()),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: AsyncIterable<string> }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const consumption = (async () => { for await (const _chunk of first.textStream) {} })()
+    expect(starts).toEqual(["first"])
+    gate.resolve()
+    await consumption
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("releases capacity when a lazy text stream resolves to a non-stream", async () => {
     const starts: string[] = []
     const agent = defineAgent({

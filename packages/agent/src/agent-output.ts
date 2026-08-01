@@ -19,12 +19,13 @@ export function agentResultKind(result: unknown): string {
 
 export function hasTraceableStreamResult(value: unknown): boolean {
   if (!isRecord(value)) return false
-  if (isAsyncIterable(value.fullStream) || isAsyncIterable(value.stream)) return true
-  let descriptor: PropertyDescriptor | undefined
-  for (let owner: object | null = value; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-    descriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
-  return descriptor !== undefined
-    && ("get" in descriptor || isAsyncIterable(descriptor.value))
+  return ["fullStream", "stream", "textStream"].some((property) => {
+    let descriptor: PropertyDescriptor | undefined
+    for (let owner: object | null = value; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+      descriptor = Object.getOwnPropertyDescriptor(owner, property)
+    return descriptor !== undefined
+      && ("get" in descriptor || isAsyncIterable(descriptor.value))
+  })
 }
 
 function textFromContent(content: unknown): string | undefined {
