@@ -439,6 +439,47 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("awaits every distinct preserved stream cancellation before releasing capacity", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const gates = [deferred(), deferred()]
+    const returned = [false, false]
+    const stream = (index: number): AsyncIterableIterator<never> => {
+      const iterator: AsyncIterableIterator<never> = {
+        [Symbol.asyncIterator]: () => iterator,
+        next: () => new Promise<IteratorResult<never>>(() => {}),
+        async return() {
+          returned[index] = true
+          await gates[index].promise
+          return { done: true, value: undefined }
+        },
+      }
+      return iterator
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return { fullStream: stream(1), stream: stream(0) }
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(returned).toEqual([true, true]))
+    gates[0].resolve()
+    await Promise.resolve()
+    expect(starts).toEqual(["first"])
+
+    gates[1].resolve()
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("reuses one wrapper for aliased stream surfaces", async () => {
     const source = new ReadableStream({
       start(controller) {
@@ -512,6 +553,43 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first"])
 
     returnGate.resolve()
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
+  it("awaits converted async iterable consumer cancellation before releasing capacity", async () => {
+    const starts: string[] = []
+    const returnGate = deferred()
+    let returned = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          if (input.prompt === "second") return "done"
+          const iterator: AsyncIterableIterator<never> = {
+            [Symbol.asyncIterator]: () => iterator,
+            next: () => new Promise<IteratorResult<never>>(() => {}),
+            async return() {
+              returned = true
+              await returnGate.promise
+              return { done: true, value: undefined }
+            },
+          }
+          return iterator
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await streamAgentInline(agent, runtime(), { prompt: "first" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    const cancelled = first.cancel()
+    await vi.waitFor(() => expect(returned).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    returnGate.resolve()
+    await cancelled
     await second
     expect(starts).toEqual(["first", "second"])
   })

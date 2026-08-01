@@ -2995,6 +2995,7 @@ async function executeAgentInvocationWithCapacityLease<
         let finishTask: Promise<void> | undefined
         let preserved: object
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
+        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
         const onAbort = () => {
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
           finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
@@ -3004,14 +3005,19 @@ async function executeAgentInvocationWithCapacityLease<
           const existing = preservedStreams.get(renderedStream)
           if (existing) return existing
           const source = cancellableAsyncIterableSource(renderedStream)
+          preservedSources.set(renderedStream, source)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
+            if (options.holdCapacity === true && (outcome.failed || !outcome.completed)) {
+              await Promise.all([...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
+            }
             if (finishTask) return await finishTask
             const finishResult = streamed.finishResult(preserved)
-            finishTask = !outcome.failed && !outcome.completed
-              ? lifecycle.finish({
+            finishTask = (async () => {
+              if (!outcome.failed && !outcome.completed) {
+                await lifecycle.finish({
                   result: finishResult,
                   status: "success",
                   ...(streamed.finishUsage()
@@ -3019,13 +3025,15 @@ async function executeAgentInvocationWithCapacityLease<
                     : {}),
                   usageResolved: true,
                 })
-              : (async () => {
-                  await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
-                  const usageRecord = finishResult && typeof finishResult === "object"
-                    ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
-                    : undefined
-                  if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
-                })()
+              }
+              else {
+                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+                const usageRecord = finishResult && typeof finishResult === "object"
+                  ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                  : undefined
+                if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+              }
+            })()
             return await finishTask
           }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
           const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
@@ -3133,7 +3141,7 @@ async function executeAgentInvocationWithCapacityLease<
       const projection = typeof definition?.uiMessageStream === "function"
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
-      const uiMessageSource = !isUIMessageStreamResult(rendered) && isAsyncIterable(rendered) && shouldHoldInvocationOutput()
+      const uiMessageSource = !isUIMessageStreamResult(rendered) && isAsyncIterable(rendered) && options.holdCapacity === true
         ? cancellableAsyncIterableSource(rendered)
         : undefined
       const enrichedRendered = isAsyncIterable(rendered)

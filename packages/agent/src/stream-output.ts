@@ -228,6 +228,7 @@ export function withReadableStreamCleanup<T>(
     async cancel(reason) {
       let outcome: StreamCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
       try {
+        await options.cancelOnAbort?.(reason)
         await reader.cancel(reason)
       }
       catch (error) {
@@ -433,9 +434,6 @@ export async function finalizeUiMessageStreamOutput(
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
-  const asyncSource = !hasUiMessageStream && hasAsyncIterable && shouldWrapOutput && !cancelOnAbort
-    ? cancellableAsyncIterableSource(rendered)
-    : undefined
   const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
   if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
@@ -445,7 +443,7 @@ export async function finalizeUiMessageStreamOutput(
     ? rendered.toUIMessageStream()
     : hasAsyncIterable
       ? createAgentUIMessageStream({
-          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, asyncSource?.stream ?? rendered, {
+          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered, {
             onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
             projection,
           }),
@@ -467,7 +465,7 @@ export async function finalizeUiMessageStreamOutput(
     value: shouldWrapOutput
       ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
           abortSignal,
-          cancelOnAbort: cancelOnAbort ?? asyncSource?.cancel,
+          cancelOnAbort,
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
             streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
