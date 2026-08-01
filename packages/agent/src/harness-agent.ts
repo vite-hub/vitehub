@@ -25,7 +25,7 @@ import {
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { attachmentStringBytes, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, isAttachmentData, isAttachmentPart, isTextAttachmentMediaType, resolveAttachmentData } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
@@ -434,6 +434,12 @@ function harnessAttachmentStringBytes(value: string, mediaType: string, remainin
     const bytes = attachmentStringBytes(value, mediaType)
     assertHarnessAttachmentSize(bytes.byteLength, remainingBytes, type)
     return bytes
+  }
+  if (!isTextAttachmentMediaType(mediaType)) {
+    assertHarnessAttachmentSize(harnessBase64ByteLength(value), remainingBytes, type)
+  }
+  else {
+    assertHarnessAttachmentSize(Buffer.byteLength(value), remainingBytes, type)
   }
   const bytes = attachmentStringBytes(value, mediaType)
   assertHarnessAttachmentSize(bytes.byteLength, remainingBytes, type)

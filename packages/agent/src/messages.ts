@@ -170,7 +170,7 @@ export function attachmentStringBytes(value: string, mediaType: string): Uint8Ar
   if (dataUrl) {
     const encoded = dataUrl[2]!
     if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
-      return Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+      return base64Bytes(encoded)
     }
     const bytes = new TextEncoder().encode(encoded)
     let readIndex = 0
@@ -188,11 +188,21 @@ export function attachmentStringBytes(value: string, mediaType: string): Uint8Ar
     }
     return bytes.slice(0, writeIndex)
   }
-  const normalizedMediaType = mediaType.split(";", 1)[0]!.trim().toLowerCase()
-  if (normalizedMediaType.startsWith("text/") || normalizedMediaType === "application/json" || normalizedMediaType === "application/xml" || normalizedMediaType.endsWith("+json") || normalizedMediaType.endsWith("+xml")) {
+  if (isTextAttachmentMediaType(mediaType)) {
     return new TextEncoder().encode(value)
   }
-  return Uint8Array.from(atob(value), character => character.charCodeAt(0))
+  return base64Bytes(value)
+}
+
+function base64Bytes(value: string): Uint8Array {
+  const normalized = value.replaceAll(/\s/g, "").replaceAll("-", "+").replaceAll("_", "/")
+  const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=")
+  return Uint8Array.from(atob(padded), character => character.charCodeAt(0))
+}
+
+export function isTextAttachmentMediaType(mediaType: string): boolean {
+  const normalized = mediaType.split(";", 1)[0]!.trim().toLowerCase()
+  return normalized.startsWith("text/") || normalized === "application/json" || normalized === "application/xml" || normalized.endsWith("+json") || normalized.endsWith("+xml")
 }
 
 export interface Message {

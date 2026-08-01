@@ -298,12 +298,15 @@ describe("Harness chat history", () => {
     await runAgent(agent, runtime, {
       context: { chat: {} },
       messages: [createMessage({
-        parts: [{ data: "data:application/octet-stream,%FF%00A", mediaType: "image/png", type: "image" }],
+        parts: [
+          { data: "data:application/octet-stream,%FF%00A", mediaType: "image/png", type: "image" },
+          { data: "-_8=", mediaType: "image/png", type: "image" },
+        ],
         role: "user",
       })],
     })
 
-    expect(turns[0]?.imageBytes).toEqual([[255, 0, 65]])
+    expect(turns[0]?.imageBytes).toEqual([[255, 0, 65], [251, 255]])
     expect(await attachmentPaths(root)).toEqual([])
   })
 
