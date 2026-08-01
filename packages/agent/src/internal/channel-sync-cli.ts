@@ -273,6 +273,7 @@ async function loadChannelSyncTargets(
     }
     const targets: LoadedChannelSyncTarget[] = []
     for (const definition of uniqueAgentDefinitions(input.rootDir, input.serverDirs)) {
+      if (input.agent && definition.name !== input.agent) continue
       const loaded = await loadViteAgent(server, definition)
       if (!loaded?.agent.channels) continue
       if (input.agent && loaded.identity.name !== input.agent) continue
