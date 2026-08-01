@@ -2806,6 +2806,7 @@ type AgentInvocationExecutionOptions =
   )
   & {
     holdCapacity?: boolean
+    onCapacityBypass?: () => void
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
   }
 
@@ -2843,8 +2844,9 @@ async function executeAgentInvocationWithCapacityLease<
   const streamFailureMessage = "[vitehub] Agent stream failed and finish lifecycle also failed."
   const handledFailureMessage = options.kind === "run" ? runFailureMessage : streamFailureMessage
   if (invocation.handledResponse) {
+    options.onCapacityBypass?.()
     return await finalizeAgentInvocationResult(invocation, lifecycle, invocation.handledResponse, async result => ({ finishResult: result, value: result }), handledFailureMessage, {
-      holdOutput: options.holdCapacity,
+      holdOutput: false,
     })
   }
 
@@ -3392,6 +3394,7 @@ async function executeAgentInvocation<
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,
       holdCapacity: true,
+      onCapacityBypass: releaseOnce,
       onFinish(outcome) {
         try {
           options.onFinish?.(outcome)

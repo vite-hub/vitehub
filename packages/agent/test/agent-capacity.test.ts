@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, runAgentInline, startAgentInvocation, streamAgentInline } from "../src/index.ts"
+import { inputCommands } from "../src/capabilities.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -35,6 +36,33 @@ function uiMessageStream(id: string, gate: Promise<void>): ReadableStream<unknow
 }
 
 describe("Agent Driver capacity", () => {
+  it("releases Driver capacity for Capability-handled responses", async () => {
+    const starts: string[] = []
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          handled: {
+            description: "Handle without the Driver.",
+            run: () => new Response(new ReadableStream({})),
+          },
+        },
+      })],
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return "done"
+        },
+      },
+      runtime: false,
+    })
+
+    const handled = await runAgentInline(agent, runtime(), { prompt: "/handled" })
+    expect(handled).toBeInstanceOf(Response)
+    await runAgentInline(agent, runtime(), { prompt: "next" })
+    expect(starts).toEqual(["next"])
+  })
+
   it("runs at the configured concurrency and starts queued invocations in FIFO order", async () => {
     const starts: string[] = []
     const gates = Object.fromEntries(["1", "2", "3", "4"].map(id => [id, deferred()]))
