@@ -1194,6 +1194,7 @@ function createSyntheticWorkspaceRun<
       if (output && typeof output === "object") {
         const capacityRelease = release
         const sources = new Set<ReturnType<typeof cancellableAsyncIterableSource>>()
+        const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
         let finished = false
         const finish = async (reason?: unknown, completedSource?: ReturnType<typeof cancellableAsyncIterableSource>) => {
           if (finished) return
@@ -1204,6 +1205,8 @@ function createSyntheticWorkspaceRun<
         }
         const onAbort = () => void finish(context.input.abortSignal?.reason).catch(() => {})
         const wrapStream = (stream: AsyncIterable<unknown>) => {
+          const existing = preservedStreams.get(stream)
+          if (existing) return existing
           if (finished) throw new Error("[vitehub] Agent Invocation output has already finished.")
           const source = cancellableAsyncIterableSource(stream)
           sources.add(source)
@@ -1211,9 +1214,11 @@ function createSyntheticWorkspaceRun<
             abortSignal: context.input.abortSignal,
             cancelOnAbort: source.cancel,
           })
-          return typeof (stream as ReadableStream<unknown>).getReader === "function"
+          const preserved = typeof (stream as ReadableStream<unknown>).getReader === "function"
             ? toReadableAsyncIterableStream(wrapped)
             : wrapped
+          preservedStreams.set(stream, preserved)
+          return preserved
         }
         const descriptors: PropertyDescriptorMap = {}
         let hasStreamSurface = false

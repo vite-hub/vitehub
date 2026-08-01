@@ -434,6 +434,45 @@ describe("defineAgent workspace option", () => {
     await expect(secondConsumption).resolves.toEqual(["done"])
   })
 
+  it("reuses synthetic Workspace streams exposed through multiple surfaces", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    let starts = 0
+    const controllers: ReadableStreamDefaultController<string>[] = []
+    harnessGenerate.mockImplementation(async () => {
+      starts++
+      const shared = new ReadableStream<string>({
+        start(controller) {
+          controllers.push(controller)
+        },
+      })
+      return {
+        fullStream: shared,
+        stream: shared,
+        toUIMessageStream: () => shared,
+      } as never
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1, queue: { maxPending: 1 } }, harness: { provider: "custom" } },
+      workspace: {},
+    })
+
+    const first = await agent.run!(context()) as {
+      fullStream: ReadableStream<string>
+      stream: ReadableStream<string>
+      toUIMessageStream: () => ReadableStream<string>
+    }
+    expect(first.fullStream).toBe(first.stream)
+    expect(first.toUIMessageStream()).toBe(first.stream)
+    const second = agent.run!(context())
+    await Promise.resolve()
+    expect(starts).toBe(1)
+
+    controllers.shift()!.close()
+    await expect(first.stream.getReader().read()).resolves.toEqual({ done: true, value: undefined })
+    await expect(second).resolves.toBeDefined()
+    expect(starts).toBe(2)
+  })
+
   it("releases synthetic Workspace capacity when a stream getter is not a stream", async () => {
     const { defineAgent } = await import("../src/index.ts")
     let starts = 0
