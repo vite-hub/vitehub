@@ -187,9 +187,9 @@ export default defineAgent({
 })
 ```
 
-## Finish lifecycle
+## Outcome hooks
 
-Use an Agent Finish Hook to observe the completed invocation. Finish hooks are appropriate for usage export, trace collection, cleanup, or product-side notifications. Read normalized usage directly from `event.invocation.usage`.
+Use an Agent Finish Hook to observe a successful invocation. Finish hooks are appropriate for usage export, trace collection, or product-side notifications; use an Agent Error Hook for failed invocations and Capability cleanup for work that must run after either outcome. Read normalized usage directly from `event.invocation.usage`.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
@@ -229,7 +229,7 @@ Finish hooks should not quietly grant new abilities. Capabilities and Agent Driv
 
 ### Handle failures
 
-When an Agent Invocation fails, the finish event keeps the original thrown value on `event.error` and exposes a normalized message on `event.errorMessage`.
+When Agent execution fails, its Agent Error Hook receives the original thrown value on `event.error` and a normalized message on `event.errorMessage`. Agent Finish Hooks run only after successful execution, so application hooks do not need to branch on `event.error`.
 
 Use `event.errorMessage` for status updates, logs, and delivery effects. Use `event.error` only when you need to inspect the original thrown value.
 
@@ -241,14 +241,14 @@ export default defineAgent({
     },
   },
   hooks: {
-    'agent:finish'(event) {
-      if (event.errorMessage) {
-        event.runtime.waitUntil(reportFailure(event.errorMessage))
-      }
+    'agent:error'(event) {
+      event.runtime.waitUntil(reportFailure(event.errorMessage))
     },
   },
 })
 ```
+
+These are top-level Agent Definition hooks. Command-scoped `inputCommands(...).hooks['agent:finish']` remains outcome-agnostic, and cleanup or outcome-hook failures are propagated without dispatching the opposite hook.
 
 ## Next steps
 

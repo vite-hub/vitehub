@@ -245,6 +245,37 @@ describe("agent test runner", () => {
     }))
   })
 
+  it("preserves error hook delivery effects while capturing failed test runs", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+    const failure = new Error("failed")
+    const agentError = vi.fn(event => event.reply(event.errorMessage))
+    const reply = vi.fn()
+    const runner = createAgentTestRunner(defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply },
+          messages: false,
+        }),
+      },
+      driver: { run: () => { throw failure }, },
+      hooks: {
+        "agent:error": agentError,
+      },
+    }), {
+      run: { channelId: "portal", runId: "test-run" },
+      runtimeConfig: {},
+    })
+
+    await expect(runner.run({ prompt: "hello" })).rejects.toBe(failure)
+    expect(agentError).toHaveBeenCalledOnce()
+    expect(agentError.mock.calls[0]![0].error).toBe(failure)
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      effect: expect.objectContaining({ kind: "reply", payload: "failed" }),
+    }))
+  })
+
   it("applies workspace defaults and collects workspace tool steps", async () => {
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const execute = vi.fn(async () => "workspace result")

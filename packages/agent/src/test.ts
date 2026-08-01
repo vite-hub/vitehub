@@ -8,6 +8,8 @@ import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import type {
+  AgentErrorHook,
+  AgentErrorHookEvent,
   AgentInput,
   AgentFinishEvent,
   AgentFinishHook,
@@ -125,7 +127,7 @@ function createDefaultRun(name: string | undefined): AgentRunMetadata {
   }
 }
 
-function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
+function withTestOutcomeCapture<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   capture: (event: AgentFinishEvent<TRuntimeConfig>) => void,
 ): AgentInput<AgentRuntimeContext<TRuntimeConfig>> {
@@ -134,9 +136,14 @@ function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<AgentRuntimeContext<TRuntimeConfig>> & { hooks?: Record<string, unknown> }
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   const hooks = clone.hooks || {}
+  const errorHook = hooks["agent:error"] as AgentErrorHook<TRuntimeConfig> | undefined
   const finishHook = hooks["agent:finish"] as AgentFinishHook<TRuntimeConfig> | undefined
   clone.hooks = {
     ...hooks,
+    async "agent:error"(event: AgentErrorHookEvent<TRuntimeConfig>) {
+      capture(event)
+      return await errorHook?.(event)
+    },
     async "agent:finish"(event: AgentFinishHookEvent<TRuntimeConfig>) {
       capture(event)
       return await finishHook?.(event)
@@ -398,7 +405,7 @@ export function createAgentTestRunner<
       })
 
       const raw = await runAgentInline<TRuntimeConfig, CALL_OPTIONS>(
-        withTestFinishCapture(instrumentedAgent, value => {
+        withTestOutcomeCapture(instrumentedAgent, value => {
           finishEvent = value as AgentFinishEvent
         }),
         context,

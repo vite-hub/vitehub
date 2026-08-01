@@ -171,9 +171,13 @@ async function createLifecycleProbe(
     events.push("close")
     return scenario.close?.()
   })
-  let finishError: unknown
-  const finish = vi.fn((event) => {
-    finishError = event.error
+  let hookError: unknown
+  const error = vi.fn((event) => {
+    hookError = event.error
+    events.push("error")
+    return scenario.finish?.()
+  })
+  const finish = vi.fn(() => {
     events.push("finish")
     return scenario.finish?.()
   })
@@ -185,28 +189,33 @@ async function createLifecycleProbe(
       ...(scenario.input ? { input: () => scenario.input!(events) } : {}),
     })],
     driver: driver.driver as never,
-    hooks: { "agent:finish": finish },
+    hooks: {
+      "agent:error": error,
+      "agent:finish": finish,
+    },
   })
 
   return {
     agent,
     execute: driver.execute,
-    get finishError() {
-      return finishError
+    get hookError() {
+      return hookError
     },
     expectCloseFailed(expectedEvents: string[]) {
       expect(events).toEqual(expectedEvents)
       expect(close).toHaveBeenCalledOnce()
+      expect(error).not.toHaveBeenCalled()
       expect(finish).not.toHaveBeenCalled()
     },
     expectFinished(expectedEvents: string[]) {
       expect(events).toEqual(expectedEvents)
       expect(close).toHaveBeenCalledOnce()
-      expect(finish).toHaveBeenCalledOnce()
+      expect(error.mock.calls.length + finish.mock.calls.length).toBe(1)
     },
     expectPending(expectedEvents: string[]) {
       expect(events).toEqual(expectedEvents)
       expect(close).not.toHaveBeenCalled()
+      expect(error).not.toHaveBeenCalled()
       expect(finish).not.toHaveBeenCalled()
     },
   }
@@ -234,7 +243,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     probe.expectFinished(["driver", "close", "finish"])
   })
 
-  it.each(driverKinds)("closes %s capabilities before failed finish exactly once", async (kind) => {
+  it.each(driverKinds)("closes %s capabilities before Agent Error Hooks exactly once", async (kind) => {
     const { runAgent } = await import("../src/index.ts")
     const failure = new Error(`${kind} failed`)
     const probe = await createLifecycleProbe(kind, "run", {
@@ -245,8 +254,8 @@ describe("Agent Invocation Interface lifecycle", () => {
     })
 
     await expect(runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(failure)
-    probe.expectFinished(["driver", "close", "finish"])
-    expect(probe.finishError).toBe(failure)
+    probe.expectFinished(["driver", "close", "error"])
+    expect(probe.hookError).toBe(failure)
   })
 
   it.each(driverKinds)("preserves the %s finish failure identity after successful execution", async (kind) => {
@@ -284,8 +293,8 @@ describe("Agent Invocation Interface lifecycle", () => {
     expect(error).toBeInstanceOf(AggregateError)
     expect(error.message).toBe("[vitehub] Agent run failed and finish lifecycle also failed.")
     expect(error.errors).toEqual([executionFailure, finishFailure])
-    probe.expectFinished(["driver", "close", "finish"])
-    expect(probe.finishError).toBe(executionFailure)
+    probe.expectFinished(["driver", "close", "error"])
+    expect(probe.hookError).toBe(executionFailure)
   })
 
   it("preserves a close failure instead of aggregating it with itself", async () => {

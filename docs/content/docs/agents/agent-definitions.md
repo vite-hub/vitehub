@@ -37,7 +37,7 @@ Use a structural driver object when the application supplies a custom model, har
 | `channels` | `Record<string, AgentChannelInput>` | None | Declares named Channel factories or definitions for reachability and delivery. |
 | `cli.capabilities` | `boolean` | `true` | Enables or disables Capability-contributed Agent CLI commands for this Definition. |
 | `description` | `string` | None | Adds human-readable metadata for discovery and inspection. |
-| `hooks` | Agent, Capability, and observer hook map | None | Registers `agent:input`, `agent:finish`, Capability lifecycle, or `hook:observe` callbacks. |
+| `hooks` | Agent, Capability, and observer hook map | None | Registers `agent:input`, `agent:finish`, `agent:error`, Capability lifecycle, or `hook:observe` callbacks. |
 | `invoker` | `AgentInvokerOptions` | None | Configures Agent Actor profiles and resolution through the current `invoker`-named API. |
 | `messages` | `AgentMessageChannelSettings` | Channel defaults | Applies shared commentary, delivery, concurrency, session, state, and transcript settings across adapter-backed Channels. |
 | `name` | `string` | Discovered identity | Supplies an explicit Definition name for direct metadata and Workspace naming. Discovered host identity still comes from the file or folder path. |
