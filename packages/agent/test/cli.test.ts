@@ -82,12 +82,35 @@ describe("agent CLI", () => {
     expect(getAgentChannelSyncDefinition(channel)).toBeUndefined()
   })
 
-  it("preserves Telegram synchronization when a Channel is decorated", () => {
-    const channel = { ...telegram(), capabilities: [] }
-    expect(getAgentChannelSyncDefinition(channel)).toMatchObject({
+  it("preserves Telegram synchronization when a Channel is decorated", async () => {
+    const channel = { ...telegram({ botToken: "bot-token" }), capabilities: [] }
+    const definition = getAgentChannelSyncDefinition(channel)
+    expect(definition).toMatchObject({ provider: "telegram" })
+    await expect(definition!.resolve({} as never, channel)).resolves.toMatchObject({
       mode: "webhook",
-      provider: "telegram",
     })
+  })
+
+  it("resolves Telegram synchronization from decorated lifecycle fields", async () => {
+    const base = telegram({ botToken: "bot-token", webhookSecret: "old-secret" })
+    const channel = {
+      ...base,
+      webhooks: { ...base.webhooks as object, secretToken: "new-secret" },
+    }
+    const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
+    const bodies: Record<string, unknown>[] = []
+    const fetcher = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.body) bodies.push(JSON.parse(String(init.body)))
+      return Response.json({ ok: true, result: { pending_update_count: 0, url: "https://example.com/webhook" } })
+    })
+
+    await sync.apply({
+      action: "create",
+      current: { url: "" },
+      desired: { url: "https://example.com/webhook" },
+    }, fetcher as never)
+
+    expect(bodies[0]).toMatchObject({ secret_token: "new-secret" })
   })
 
   it("prints a sanitized Telegram webhook plan without applying it", async () => {
@@ -598,6 +621,34 @@ describe("agent CLI", () => {
       else process.env.TELEGRAM_BOT_TOKEN = previousBotToken
       if (previousWebhookToken === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
       else process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = previousWebhookToken
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves the ambient environment when Vite server creation fails", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-invalid-app-"))
+    const key = "VITEHUB_CHANNEL_SYNC_AMBIENT_TEST"
+    const previous = process.env[key]
+    process.env[key] = "preserved"
+    try {
+      await writeFile(join(rootDir, "vite.config.ts"), 'throw new Error("invalid stage config")\n', "utf8")
+      const exitCode = await runAgentChannelSyncCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+      ], {
+        cwd: rootDir,
+        env: process.env,
+        rootDir,
+        stderr: stream(),
+        stdout: stream(),
+      })
+
+      expect(exitCode).toBe(1)
+      expect(process.env[key]).toBe("preserved")
+    }
+    finally {
+      if (previous === undefined) delete process.env[key]
+      else process.env[key] = previous
       await rm(rootDir, { force: true, recursive: true })
     }
   })

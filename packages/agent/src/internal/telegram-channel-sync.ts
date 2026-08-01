@@ -104,6 +104,7 @@ export function createTelegramChannelSyncProvider(
     )
   }
   return {
+    mode: options.mode,
     resourceKey: options.botToken,
     async apply(plan, fetchImpl) {
       if (plan.action === "none") return plan.current

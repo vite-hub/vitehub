@@ -2077,17 +2077,14 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       : telegramWebhookDefaults(webhookOptions),
   }), "Write the final response for Telegram. Match the language of the user's latest message. Prefer short paragraphs or bullets and keep the answer concise. Do not use Markdown tables; express rows as bullets because Telegram fallback delivery exposes table syntax. Avoid decorative emoji, redundant restatement, and generic follow-up questions. Follow the Agent's own instructions when they require a different format.")
   if (options.adapter) return channel
-  const syncMode = mode === "polling" || webhooks === false ? "disabled" : "webhook"
   return withAgentChannelSyncDefinition<TRuntimeConfig>(channel, {
-    mode: syncMode,
     provider: "telegram",
-    async resolve(context) {
-      const registration = Array.isArray(webhookOptions)
-        ? webhookOptions.length === 1 ? webhookOptions[0] : undefined
-        : webhookOptions && typeof webhookOptions === "object" ? webhookOptions : undefined
-      const secret = webhookSecret ?? (
-        registration?.secretToken
-      )
+    async resolve(context, resolvedChannel) {
+      const resolvedWebhooks = resolvedChannel.webhooks
+      const registration = Array.isArray(resolvedWebhooks)
+        ? resolvedWebhooks.length === 1 ? resolvedWebhooks[0] : undefined
+        : resolvedWebhooks && typeof resolvedWebhooks === "object" ? resolvedWebhooks : undefined
+      const secret = registration?.secretToken
       const [apiBaseUrl, apiUrl, botToken, secretToken] = await Promise.all([
         options.apiBaseUrl === undefined ? undefined : resolveRuntimeValue(options.apiBaseUrl, context),
         options.apiUrl === undefined ? undefined : resolveRuntimeValue(options.apiUrl, context),
@@ -2104,7 +2101,9 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       return createTelegramChannelSyncProvider({
         apiBaseUrl: cleanSecret(apiUrl) || cleanSecret(apiBaseUrl) || cleanSecret(process.env.TELEGRAM_API_BASE_URL),
         botToken: resolvedBotToken,
-        mode: syncMode,
+        mode: resolvedChannel.listener?.kind === "telegram-polling" || resolvedWebhooks === false
+          ? "disabled"
+          : "webhook",
         ...(resolvedSecretToken ? { secretToken: resolvedSecretToken } : {}),
       })
     },

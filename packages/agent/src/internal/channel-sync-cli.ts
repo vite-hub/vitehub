@@ -251,7 +251,9 @@ async function loadChannelSyncTargets(
 ): Promise<LoadedChannelSyncTarget[]> {
   const { createServer, loadEnv } = await import("vite")
   let server: Awaited<ReturnType<typeof createServer>> | undefined
-  const previousEnvironment = new Map<string, string>()
+  const previousEnvironment = new Map(
+    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  )
   try {
     server = await createServer({
       appType: "custom",
@@ -260,10 +262,7 @@ async function loadChannelSyncTargets(
       root: input.rootDir,
       server: { hmr: false, middlewareMode: true },
     })
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined) previousEnvironment.set(key, value)
-      delete process.env[key]
-    }
+    for (const key of Object.keys(process.env)) delete process.env[key]
     for (const [key, value] of Object.entries(input.env)) {
       if (value !== undefined) process.env[key] = value
     }
@@ -286,13 +285,14 @@ async function loadChannelSyncTargets(
         if (input.channel && channelId !== input.channel) continue
         const syncDefinition = getAgentChannelSyncDefinition(channel)
         if (!syncDefinition) continue
+        const sync = await syncDefinition.resolve(context, channel)
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
-          mode: syncDefinition.mode,
+          mode: sync.mode,
           provider: syncDefinition.provider,
           registration: channelRegistration(channelId, channel),
-          sync: await syncDefinition.resolve(context),
+          sync,
         })
       }
     }

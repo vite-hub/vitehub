@@ -19,6 +19,7 @@ export interface AgentChannelSyncPlan {
 
 export interface AgentChannelSyncProvider {
   apply: (plan: AgentChannelSyncPlan, fetchImpl: typeof fetch) => Promise<Record<string, unknown>>
+  mode: "disabled" | "webhook"
   plan: (input: {
     desiredUrl?: string
     fetch: typeof fetch
@@ -31,9 +32,11 @@ export interface AgentChannelSyncProvider {
 export interface AgentChannelSyncDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > {
-  mode: "disabled" | "webhook"
   provider: string
-  resolve: (context: AgentCallbackContext<TRuntimeConfig>) => MaybePromise<AgentChannelSyncProvider>
+  resolve: (
+    context: AgentCallbackContext<TRuntimeConfig>,
+    channel: AgentChannelDefinition<TRuntimeConfig>,
+  ) => MaybePromise<AgentChannelSyncProvider>
 }
 
 const agentChannelSyncDefinition = Symbol.for("vitehub.agent.channelSyncDefinition")
