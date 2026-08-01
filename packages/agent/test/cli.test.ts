@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
@@ -765,6 +766,52 @@ describe("agent CLI", () => {
       else process.env.TELEGRAM_BOT_TOKEN = previousBotToken
       if (previousWebhookToken === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
       else process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = previousWebhookToken
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("discovers Channels from the selected stage server directories", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-stage-dirs-"))
+    const productionServerDir = join(rootDir, "production-server")
+    try {
+      await mkdir(join(productionServerDir, "agents"), { recursive: true })
+      await writeFile(join(rootDir, "vite.config.ts"), [
+        'import { defineConfig } from "vite"',
+        'import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"',
+        "export default defineConfig(({ mode }) => ({",
+        `  [VITEHUB_SERVER_DIRS]: mode === "production" ? [${JSON.stringify(productionServerDir)}] : [],`,
+        "}))",
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(productionServerDir, "agents", "support.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { telegram } from "@vite-hub/agent/channels"',
+        'export default defineAgent({ channels: { telegram: telegram({ botToken: "bot-token" }) }, driver: { run: () => "ok" } })',
+        "",
+      ].join("\n"), "utf8")
+      const requests: string[] = []
+      const exitCode = await runAgentChannelSyncCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+          requests.push(String(input))
+          return init?.method === "HEAD"
+            ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+            : Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })
+        }) as never,
+      })
+
+      expect(exitCode).toBe(0)
+      expect(requests).toContain("https://api.telegram.org/botbot-token/getWebhookInfo")
+    }
+    finally {
       await rm(rootDir, { force: true, recursive: true })
     }
   })

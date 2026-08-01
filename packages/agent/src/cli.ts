@@ -1329,7 +1329,6 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
           name: "sync",
           run: async (args, context) => await runAgentChannelSyncCli(args, context, {
             rootDir: options?.rootDir,
-            serverDirs: options?.serverDirs,
           }),
           usage: "vitehub channels sync --stage <name> --url <https-origin> [--apply --confirm-origin <https-origin>]",
         }],

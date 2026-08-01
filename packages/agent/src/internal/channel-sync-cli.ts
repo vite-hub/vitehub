@@ -1,5 +1,7 @@
 import { join } from "node:path"
 
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
@@ -19,7 +21,6 @@ interface ChannelSyncCliOptions {
   fetch?: typeof fetch
   loadTargets?: (input: ChannelSyncLoadInput) => Promise<LoadedChannelSyncTarget[]>
   rootDir?: string
-  serverDirs?: string[]
 }
 
 interface ChannelSyncLoadInput {
@@ -27,7 +28,6 @@ interface ChannelSyncLoadInput {
   channel?: string
   env: NodeJS.ProcessEnv
   rootDir: string
-  serverDirs?: string[]
   stage: string
 }
 
@@ -294,7 +294,11 @@ async function loadChannelSyncTargetsExclusive(
       process.env[key] = value
     }
     const targets: LoadedChannelSyncTarget[] = []
-    for (const definition of uniqueAgentDefinitions(input.rootDir, input.serverDirs)) {
+    const stageRoot = server.config.root
+    const stageServerDirs = (server.config as typeof server.config & {
+      [VITEHUB_SERVER_DIRS]?: string[]
+    })[VITEHUB_SERVER_DIRS]
+    for (const definition of uniqueAgentDefinitions(stageRoot, stageServerDirs)) {
       if (input.agent && definition.name !== input.agent) continue
       const loaded = await loadViteAgent(server, definition)
       if (!loaded?.agent.channels) continue
@@ -433,7 +437,6 @@ export async function runAgentChannelSyncCli(
       channel: parsed.channel,
       env: context.env,
       rootDir: options.rootDir || context.rootDir,
-      serverDirs: options.serverDirs,
       stage: parsed.stage,
     })
     const targets = allTargets.filter(
