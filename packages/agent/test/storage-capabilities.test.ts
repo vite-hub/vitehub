@@ -606,6 +606,7 @@ describe("storage capabilities", () => {
           parts: [
             { data: "data:image/png;base64,AQID", id: "encoded", mediaType: "image/png", type: "image" },
             { data: "BAUG", id: "base64", mediaType: "image/jpeg", type: "image" },
+            { data: "{\"meal\":true}", id: "json", mediaType: "application/json; charset=utf-8", type: "file" },
             { id: "remote", mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" },
           ],
           role: "user",
@@ -615,10 +616,12 @@ describe("storage capabilities", () => {
 
     await resolved.tools!.blob_edit!.execute?.({ attachmentId: "encoded", operation: "put", pathname: "encoded.png" })
     await resolved.tools!.blob_edit!.execute?.({ attachmentId: "base64", operation: "put", pathname: "base64.jpg" })
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "json", operation: "put", pathname: "meal.json" })
     await expect(resolved.tools!.blob_edit!.execute?.({ attachmentId: "remote", operation: "put", pathname: "remote.jpg" })).rejects.toThrow("must identify one current input attachment")
 
     expect(store.put).toHaveBeenNthCalledWith(1, "encoded.png", new Uint8Array([1, 2, 3]), { contentType: "image/png" })
     expect(store.put).toHaveBeenNthCalledWith(2, "base64.jpg", new Uint8Array([4, 5, 6]), { contentType: "image/jpeg" })
+    expect(store.put).toHaveBeenNthCalledWith(3, "meal.json", "{\"meal\":true}", { contentType: "application/json; charset=utf-8" })
     expect(resolved.tools!.blob_edit!.description).not.toContain("remote")
   })
 

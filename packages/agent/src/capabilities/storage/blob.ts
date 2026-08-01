@@ -288,8 +288,8 @@ function decodeAttachmentString(body: AttachmentPart["data"], mediaType: string)
       ? Uint8Array.from(atob(dataUrl[2]!), character => character.charCodeAt(0))
       : new TextEncoder().encode(decodeURIComponent(dataUrl[2]!))
   }
-  const normalizedMediaType = mediaType.toLowerCase()
-  if (normalizedMediaType.startsWith("text/") || normalizedMediaType === "application/json" || normalizedMediaType.endsWith("+json") || normalizedMediaType.endsWith("+xml")) {
+  const normalizedMediaType = mediaType.split(";", 1)[0]!.trim().toLowerCase()
+  if (normalizedMediaType.startsWith("text/") || normalizedMediaType === "application/json" || normalizedMediaType === "application/xml" || normalizedMediaType.endsWith("+json") || normalizedMediaType.endsWith("+xml")) {
     return body
   }
   return Uint8Array.from(atob(body), character => character.charCodeAt(0))
