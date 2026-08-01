@@ -117,6 +117,15 @@ export function configureAgentCapacity(agent: object, options: AgentDriverCapaci
   })
 }
 
+export function inheritAgentCapacity(source: object, target: object): void {
+  const scope = (source as { [agentCapacityScope]?: AgentCapacityScope })[agentCapacityScope]
+  if (!scope) return
+  Object.defineProperty(target, agentCapacityScope, {
+    configurable: true,
+    value: scope,
+  })
+}
+
 export async function acquireAgentCapacity(agent: object, signal?: AbortSignal): Promise<AgentCapacityRelease | undefined> {
   const scope = (agent as { [agentCapacityScope]?: AgentCapacityScope })[agentCapacityScope]
   if (!scope) return

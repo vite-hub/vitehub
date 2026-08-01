@@ -25,7 +25,7 @@ import {
   composeInstructionDocument,
   resolveInstructionImports,
 } from "./instruction-composition.ts"
-import { inspectAgentCapacity } from "./internal/agent-capacity.ts"
+import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "./internal/agent-driver.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 
@@ -222,11 +222,13 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
-  return {
+  const decoratedAgent = {
     ...workspaceAgent,
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
-  } as Agent
+  }
+  inheritAgentCapacity(workspaceAgent, decoratedAgent)
+  return decoratedAgent as Agent
 }
 
 function assertWorkspaceReference(reference: { name: string }): void {

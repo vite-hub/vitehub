@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, runAgentInline, startAgentInvocation, streamAgentInline } from "../src/index.ts"
 import { inputCommands } from "../src/capabilities.ts"
+import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -36,8 +37,9 @@ function uiMessageStream(id: string, gate: Promise<void>): ReadableStream<unknow
 }
 
 describe("Agent Driver capacity", () => {
-  it("releases Driver capacity for Capability-handled responses", async () => {
+  it("bypasses Driver capacity for Capability-handled responses", async () => {
     const starts: string[] = []
+    const gate = deferred()
     const agent = defineAgent({
       capabilities: [inputCommands({
         commands: {
@@ -48,19 +50,48 @@ describe("Agent Driver capacity", () => {
         },
       })],
       driver: {
-        capacity: { concurrency: 1, queue: { maxPending: 1 } },
-        run({ input }) {
+        capacity: { concurrency: 1 },
+        async run({ input }) {
           starts.push(input.prompt as string)
+          await gate.promise
           return "done"
         },
       },
       runtime: false,
     })
 
+    const active = runAgentInline(agent, runtime(), { prompt: "active" })
+    await vi.waitFor(() => expect(starts).toEqual(["active"]))
     const handled = await runAgentInline(agent, runtime(), { prompt: "/handled" })
     expect(handled).toBeInstanceOf(Response)
-    await runAgentInline(agent, runtime(), { prompt: "next" })
-    expect(starts).toEqual(["next"])
+    expect(starts).toEqual(["active"])
+    gate.resolve()
+    await expect(active).resolves.toBe("done")
+  })
+
+  it("preserves shared Driver capacity when decorating Workspace agents", async () => {
+    const agent = defineAgent({
+      workspace: {},
+      driver: {
+        capacity: { concurrency: 2, queue: { maxPending: 3 } },
+        run: () => "done",
+      },
+      runtime: false,
+    })
+
+    const decorated = workspaceAgentWithSourceRoot(agent, "/workspace")
+    expect(createAgentInspectionMetadata(decorated)).toMatchObject({
+      config: {
+        driver: {
+          capacity: {
+            active: 0,
+            concurrency: 2,
+            pending: 0,
+            queue: { maxPending: 3 },
+          },
+        },
+      },
+    })
   })
 
   it("runs at the configured concurrency and starts queued invocations in FIFO order", async () => {

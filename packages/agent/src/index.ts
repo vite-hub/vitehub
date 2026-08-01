@@ -1,5 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
-import { acquireAgentCapacity, configureAgentCapacity } from "./internal/agent-capacity.ts"
+import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -2819,13 +2819,14 @@ async function executeAgentInvocationWithCapacityLease<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
+  preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
   const adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
-  const invocation = await createAgentInvocationContext(definition, context, input)
+  const invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input)
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
@@ -3377,11 +3378,22 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const release = hasAgentDefinition(agent)
-    ? await acquireAgentCapacity(agent as object, input.abortSignal)
+  const definition = hasAgentDefinition(agent) ? agent as object : undefined
+  const preparedInvocation = definition && inspectAgentCapacity(definition)
+    ? await createAgentInvocationContext(
+        agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
+        context,
+        input,
+      )
+    : undefined
+  if (preparedInvocation?.handledResponse) {
+    return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
+  }
+  const release = definition
+    ? await acquireAgentCapacity(definition, input.abortSignal)
     : undefined
   if (!release) {
-    return await executeAgentInvocationWithCapacityLease(agent, context, input, options)
+    return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
   }
 
   let released = false
@@ -3403,7 +3415,7 @@ async function executeAgentInvocation<
           releaseOnce()
         }
       },
-    })
+    }, preparedInvocation)
   }
   catch (error) {
     releaseOnce()
