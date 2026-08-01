@@ -1391,7 +1391,7 @@ export async function createAgentInvocationExtensions(
   return extensions
 }
 
-type CapabilityCleanupOutcome =
+export type CapabilityCleanupOutcome =
   | { completed?: boolean, failed: false }
   | { error: unknown, failed: true }
 
@@ -1431,17 +1431,21 @@ async function closeCapabilityStreamIterator(
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   stream: T,
   close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
-  options: { abortSignal?: AbortSignal } = {},
+  options: { abortSignal?: AbortSignal, cancelOnAbort?: (reason: unknown) => Promise<void> } = {},
 ): AsyncIterable<unknown> {
   const iterator = stream[Symbol.asyncIterator]()
   let cleanupTask: Promise<void> | undefined
-  const cleanup = (completed: boolean, outcome: CapabilityCleanupOutcome) => {
-    cleanupTask ||= closeCapabilityStreamIterator(iterator, completed, outcome, close)
+  const cleanup = (completed: boolean, outcome: CapabilityCleanupOutcome, cancelReason?: unknown) => {
+    cleanupTask ||= (async () => {
+      if (!completed) await options.cancelOnAbort?.(cancelReason).catch(() => {})
+      await closeCapabilityStreamIterator(iterator, completed, outcome, close)
+    })()
     options.abortSignal?.removeEventListener("abort", onAbort)
     return cleanupTask
   }
   const onAbort = () => {
-    void cleanup(false, { error: options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError"), failed: true }).catch(() => {})
+    const reason = options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
+    void cleanup(false, { error: reason, failed: true }, reason).catch(() => {})
   }
   if (options.abortSignal?.aborted) onAbort()
   else options.abortSignal?.addEventListener("abort", onAbort, { once: true })

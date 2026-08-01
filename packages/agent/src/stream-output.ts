@@ -129,16 +129,29 @@ export function createAgentUIMessageStreamResponse(options: {
 export function withReadableStreamCleanup<T>(
   stream: ReadableStream<T>,
   cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
-  options: { onChunk?: (chunk: T) => void } = {},
+  options: { abortSignal?: AbortSignal, onChunk?: (chunk: T) => void } = {},
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
+  let wrappedController: ReadableStreamDefaultController<T> | undefined
   const runCleanup = async (outcome: StreamCleanupOutcome = { completed: true, failed: false }) => {
     if (cleaned) return
     cleaned = true
+    options.abortSignal?.removeEventListener("abort", onAbort)
     await cleanup(outcome)
   }
-  return new ReadableStream<T>({
+  const onAbort = () => {
+    const reason = options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
+    if (cleaned) return
+    cleaned = true
+    options.abortSignal?.removeEventListener("abort", onAbort)
+    wrappedController?.error(reason)
+    void Promise.allSettled([reader.cancel(reason), cleanup({ error: reason, failed: true })])
+  }
+  const wrapped = new ReadableStream<T>({
+    start(controller) {
+      wrappedController = controller
+    },
     async pull(controller) {
       try {
         const result = await reader.read()
@@ -169,6 +182,9 @@ export function withReadableStreamCleanup<T>(
       }
     },
   })
+  if (options.abortSignal?.aborted) onAbort()
+  else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
+  return wrapped
 }
 
 function textFromRenderedOutput(rendered: unknown): string | undefined {

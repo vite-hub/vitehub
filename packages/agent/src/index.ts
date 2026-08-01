@@ -67,7 +67,7 @@ import {
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
-import type { AgentCapabilityRegistries, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
+import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 import { createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
@@ -2727,7 +2727,35 @@ async function finalizeAgentInvocationResult<
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
-      const enrichedStream = withEagerStreamUsageExtensions(result, context, result)
+      const readableResult = typeof (result as ReadableStream<unknown>).getReader === "function"
+        ? result as ReadableStream<unknown>
+        : undefined
+      const readableReader = readableResult?.getReader()
+      const sourceStream = readableReader
+        ? (async function* () {
+            try {
+              for (;;) {
+                const chunk = await readableReader.read()
+                if (chunk.done) return
+                yield chunk.value
+              }
+            }
+            finally {
+              readableReader.releaseLock()
+            }
+          })()
+        : result
+      const cancelReadableResult = readableReader
+        ? async (reason: unknown) => {
+            try {
+              await readableReader.cancel(reason)
+            }
+            finally {
+              readableReader.releaseLock()
+            }
+          }
+        : undefined
+      const enrichedStream = withEagerStreamUsageExtensions(sourceStream, context, result)
       const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
@@ -2746,12 +2774,18 @@ async function finalizeAgentInvocationResult<
             return lifecycle.finish(finishOutcome.status === "success"
               ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
               : finishOutcome)
-          }, { abortSignal: context.input.abortSignal })
+          }, {
+            abortSignal: context.input.abortSignal,
+            ...(cancelReadableResult ? { cancelOnAbort: cancelReadableResult } : {}),
+          })
           return typeof (result as ReadableStream<unknown>).getReader === "function"
             ? toReadableAsyncIterableStream(value)
             : value
         }
-        const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
+        const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
+          abortSignal: context.input.abortSignal,
+          ...(cancelReadableResult ? { cancelOnAbort: cancelReadableResult } : {}),
+        })
         return typeof (result as ReadableStream<unknown>).getReader === "function"
           ? toReadableAsyncIterableStream(value)
           : value
@@ -2915,7 +2949,37 @@ async function executeAgentInvocationWithCapacityLease<
           let finishTask: Promise<void> | undefined
           let streamedText = ""
           let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-          const preserved = resultWithPreservedProperties(rendered, {
+          let preserved: object
+          const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
+            invocation.input.abortSignal?.removeEventListener("abort", onAbort)
+            if (finishTask) return await finishTask
+            const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
+            finishTask = (async () => {
+              if (!outcome.failed && !outcome.completed) {
+                await lifecycle.finish({
+                  result: finishResult,
+                  status: "success",
+                  ...(streamedUsageRecord
+                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
+                    : {}),
+                  usageResolved: true,
+                })
+              }
+              else {
+                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+              }
+              const usageRecord = finishResult && typeof finishResult === "object"
+                ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                : undefined
+              if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+            })()
+            return await finishTask
+          }
+          const onAbort = () => {
+            const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
+            void finishPreserved({ error: reason, failed: true }).catch(() => {})
+          }
+          preserved = resultWithPreservedProperties(rendered, {
             toUIMessageStream: {
               configurable: true,
               enumerable: false,
@@ -2925,31 +2989,9 @@ async function executeAgentInvocationWithCapacityLease<
                   invocation,
                   rendered,
                 )),
-                async (outcome) => {
-                  if (finishTask) return await finishTask
-                  const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
-                  finishTask = (async () => {
-                    if (!outcome.failed && !outcome.completed) {
-                      await lifecycle.finish({
-                        result: finishResult,
-                        status: "success",
-                        ...(streamedUsageRecord
-                          ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-                          : {}),
-                        usageResolved: true,
-                      })
-                    }
-                    else {
-                      await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
-                    }
-                    const usageRecord = finishResult && typeof finishResult === "object"
-                      ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
-                      : undefined
-                    if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
-                  })()
-                  return await finishTask
-                },
+                finishPreserved,
                 {
+                  abortSignal: invocation.input.abortSignal,
                   onChunk(chunk) {
                     streamedText += uiMessageTextDelta(chunk) || ""
                     streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
@@ -2958,6 +3000,8 @@ async function executeAgentInvocationWithCapacityLease<
               ),
             },
           })
+          if (invocation.input.abortSignal?.aborted) onAbort()
+          else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
           return {
             deferFinish: true,
             finishResult: preserved,

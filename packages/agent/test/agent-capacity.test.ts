@@ -317,6 +317,31 @@ describe("Agent Driver capacity", () => {
     for await (const _chunk of second) {}
   })
 
+  it("releases a lazy UI-message result when its invocation aborts before streaming", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const secondController = new AbortController()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          const id = input.prompt as string
+          starts.push(id)
+          return { toUIMessageStream: () => uiMessageStream(id, Promise.resolve()) }
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const second = runAgentInline(agent, runtime(), { abortSignal: secondController.signal, prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+
+    await second
+    expect(starts).toEqual(["first", "second"])
+    secondController.abort()
+  })
+
   it("releases capacity when streamed output is cancelled", async () => {
     const starts: string[] = []
     const agent = defineAgent({
@@ -397,6 +422,40 @@ describe("Agent Driver capacity", () => {
     const reader = result.getReader()
     await expect(reader.read()).resolves.toEqual({ done: false, value: "done" })
     await expect(reader.read()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it("cancels an eager top-level ReadableStream before releasing capacity on abort", async () => {
+    const starts: string[] = []
+    const cancelGate = deferred()
+    const controller = new AbortController()
+    const secondController = new AbortController()
+    let cancelled = false
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return new ReadableStream({
+            async cancel() {
+              cancelled = true
+              await cancelGate.promise
+            },
+          })
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const secondResult = runAgentInline(agent, runtime(), { abortSignal: secondController.signal, prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+    await vi.waitFor(() => expect(cancelled).toBe(true))
+    expect(starts).toEqual(["first"])
+
+    cancelGate.resolve()
+    await secondResult
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
+    secondController.abort()
   })
 
   it("holds capacity until a response body is consumed", async () => {
