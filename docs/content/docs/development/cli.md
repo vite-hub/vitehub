@@ -23,12 +23,13 @@ Libraries and advanced integrations that do not use the framework distribution
 can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
-The Agent Package contributes `agent` when `hubAgent()` is active, Database contributes `db` when `hubDb()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the CLI includes the built-in `provision` namespace.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Database contributes `db` when `hubDb()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the CLI includes the built-in `provision` namespace.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
 Available namespaces:
   agent       Agent development workflows.
+  channels    External Channel registration workflows.
   db          Database development workflows.
   workspace   Workspace development workflows.
   provision   Idempotently create missing provider resources.
@@ -41,10 +42,42 @@ Available namespaces:
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
+| `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
+
+## Synchronize Channel webhooks
+
+Deploy the application stage before registering its Channel webhooks. `channels sync` loads the discovered Agent Definitions with the selected Vite stage, checks that every desired webhook route is live at the exact public HTTPS origin, and then compares the provider state. Telegram is the first supported provider.
+
+The command is read-only by default. Start with sanitized JSON when an agent or another command needs to review the complete plan.
+
+```bash [Terminal]
+pnpm vitehub channels sync \
+  --stage staging \
+  --url https://staging.example.com \
+  --json
+```
+
+`--stage staging` loads Vite's stage-specific environment files, such as `.env.staging`; existing process environment values take precedence. Keep the Telegram bot token and webhook secret in Server Env. The command does not accept credentials as flags and does not include them in human or JSON output.
+
+Apply the reviewed plan by repeating the exact origin in `--confirm-origin`. The confirmation is non-interactive, so the same contract works for developers, CI, and coding agents without silently selecting a deployment.
+
+```bash [Terminal]
+pnpm vitehub channels sync \
+  --stage staging \
+  --url https://staging.example.com \
+  --apply \
+  --confirm-origin https://staging.example.com
+```
+
+Use `--agent <name>` or `--channel <id>` to narrow a multi-Agent application. Switching a Telegram Channel to polling, or setting `webhooks: false`, plans removal of an existing Telegram webhook; applying that plan also requires `--allow-delete`, and the current provider URL must belong to the confirmed origin. ViteHub preserves pending updates during registration and removal.
+
+Telegram exposes the registered URL and delivery errors through `getWebhookInfo`, but it does not return the configured secret token or allowed update list. The plan marks those fields as unverifiable. Use `--force` to reapply them when the URL already matches and credential or subscription configuration changed. Telegram accepts public webhook ports 443, 80, 88, and 8443; the CLI rejects other explicit ports before applying.
+
+`channels sync` owns only the provider's mechanical registration. The first Telegram synchronizer subscribes to message updates because that is the built-in Channel's supported inbound event. Admission rules, allowed users, secrets, and additional update types remain in the application. An app that needs a custom adapter, certificate, fixed IP, or connection policy must keep the provider lifecycle application-owned; an app-owned `adapter` is not a synchronization target.
 
 ## Manage Database migrations
 

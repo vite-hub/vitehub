@@ -13,6 +13,7 @@ import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
+import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
@@ -2611,8 +2612,8 @@ export function createChannelWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions) => Promise<Response> {
   return async (request, webhook, handlerOptions = {}) => {
-    if (request.method !== "POST") {
-      return createJsonErrorResponse(405, "Agent webhook route only accepts POST requests.")
+    if (request.method !== "HEAD" && request.method !== "POST") {
+      return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
 
     const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
@@ -2637,6 +2638,15 @@ export function createChannelWebhookRouteHandler(
       }
 
       const { registration, trigger } = match
+      if (request.method === "HEAD") {
+        return new Response(null, {
+          headers: {
+            "cache-control": "no-store",
+            [agentChannelSyncProviderHeader]: registration.provider,
+          },
+          status: 204,
+        })
+      }
       if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
         try {
           await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })

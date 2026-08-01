@@ -4047,6 +4047,32 @@ describe("server helpers", () => {
     }))
   })
 
+  it("preflights a deployed Channel webhook without invoking or verifying it", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => createTestChatAdapter() as never,
+          webhookSecret: "secret-token",
+        }),
+      },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request(
+      "https://example.com/api/_vitehub/agents/support/webhooks/telegram",
+      { method: "HEAD" },
+    ), "telegram")
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("x-vitehub-channel-provider")).toBe("telegram")
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("preserves generic attachment URLs as typed references", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

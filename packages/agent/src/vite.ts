@@ -1803,10 +1803,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
+        const normalized = normalizeAgentOptions(agent)
         return createAgentCliContributor({
           eval: agent?.eval,
           rootDir: resolved?.root ?? process.cwd(),
           serverDirs,
+          webhookRoute: normalized ? normalized.routes.webhooks : false,
         })
       },
     },
