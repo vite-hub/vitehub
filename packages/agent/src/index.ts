@@ -1168,9 +1168,20 @@ function createSyntheticWorkspaceRun<
       const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
       const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
-      const output = typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
+      const textOutput = typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
         ? (result as { text: string }).text
-        : result
+        : undefined
+      if (textOutput !== undefined && result && typeof result === "object") {
+        const eagerStreams: AsyncIterable<unknown>[] = []
+        for (const property of ["stream", "fullStream", "textStream"] as const) {
+          let descriptor: PropertyDescriptor | undefined
+          for (let owner: object | null = result; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+            descriptor = Object.getOwnPropertyDescriptor(owner, property)
+          if (descriptor && "value" in descriptor && isAsyncIterable(descriptor.value)) eagerStreams.push(descriptor.value)
+        }
+        await Promise.allSettled([...new Set(eagerStreams)].map(stream => cancellableAsyncIterableSource(stream).cancel()))
+      }
+      const output = textOutput ?? result
       if (!release) return output
       if (output instanceof Response) {
         if (!output.body) return output
