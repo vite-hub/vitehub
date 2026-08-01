@@ -3149,6 +3149,9 @@ async function executeAgentInvocationWithCapacityLease<
         ? cancellableAsyncIterableSource(result as AsyncIterable<unknown>)
         : undefined
       result = await applyOutputRenderers(rendererSource?.stream ?? result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+      if (rendererSource && !isAsyncIterable(result) && !hasTraceableStreamResult(result) && !isUIMessageStreamResult(result)) {
+        await rendererSource.cancel()
+      }
       renderedResult = true
     }
   }

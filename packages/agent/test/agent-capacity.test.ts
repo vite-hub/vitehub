@@ -72,6 +72,37 @@ describe("Agent Driver capacity", () => {
     })
   })
 
+  it("cancels Driver streams discarded by output renderers", async () => {
+    const cancel = vi.fn(async () => ({ done: true as const, value: undefined }))
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this
+      },
+      next: vi.fn(async () => new Promise<IteratorResult<unknown>>(() => {})),
+      return: cancel,
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "replacement-renderer",
+        output(context) {
+          context.output.render(() => "done")
+        },
+      })],
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => source,
+      },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime(), {}, { output: "events" }) as AsyncIterable<unknown>
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(createAgentInspectionMetadata(agent)).toMatchObject({
+      config: { driver: { capacity: { active: 0 } } },
+    })
+    for await (const _event of result) {}
+  })
+
   it("bypasses Driver capacity for Capability-handled responses", async () => {
     const starts: string[] = []
     const gate = deferred()
