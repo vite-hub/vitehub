@@ -956,7 +956,7 @@ describe("Agent Driver capacity", () => {
     })
 
     const result = await runAgentInline(agent, runtime(), {}) as { stream: AsyncIterable<string> }
-    expect(streamCalls).toBe(1)
+    expect(streamCalls).toBe(0)
     for await (const _chunk of result.stream) {}
     expect(streamCalls).toBe(1)
   })
@@ -981,39 +981,36 @@ describe("Agent Driver capacity", () => {
     })
 
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { stream: unknown }
-    await runAgentInline(agent, runtime(), { prompt: "second" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    await Promise.resolve()
+    expect(starts).toEqual(["first"])
     expect(first.stream).toBe("not a stream")
-    expect(streamCalls).toBe(2)
+    await second
+    expect(streamCalls).toBe(1)
     expect(starts).toEqual(["first", "second"])
   })
 
-  it("cancels resolved streams when a later primary accessor throws", async () => {
-    let returned = false
-    const stream: AsyncIterableIterator<never> = {
-      [Symbol.asyncIterator]: () => stream,
-      next: () => new Promise<IteratorResult<never>>(() => {}),
-      async return() {
-        returned = true
-        return { done: true, value: undefined }
-      },
-    }
+  it("does not evaluate an unselected lazy primary stream", async () => {
+    let streamCalls = 0
     const agent = defineAgent({
       driver: {
         capacity: { concurrency: 1 },
         run: () => ({
-          get stream() {
-            return stream
-          },
-          get fullStream(): AsyncIterable<never> {
-            throw new Error("fullStream failed")
+          fullStream: (async function* () { yield "done" })(),
+          get stream(): AsyncIterable<never> {
+            streamCalls++
+            throw new Error("unused stream getter")
           },
         }),
       },
       runtime: false,
     })
 
-    await expect(runAgentInline(agent, runtime(), {})).rejects.toThrow("fullStream failed")
-    expect(returned).toBe(true)
+    const result = await runAgentInline(agent, runtime(), {}) as { fullStream: AsyncIterable<string> }
+    const chunks = []
+    for await (const chunk of result.fullStream) chunks.push(chunk)
+    expect(chunks).toEqual(["done"])
+    expect(streamCalls).toBe(0)
   })
 
   it("cancels an earlier primary stream when later wrapping fails", async () => {
@@ -1079,13 +1076,17 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
-    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
+      fullStream: ReadableStream<unknown>
+      stream: ReadableStream<unknown>
+    }
+    expect(first.stream).toBeDefined()
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(() => first.fullStream).toThrow()
     await vi.waitFor(() => expect(cancelled).toBe(true))
     expect(starts).toEqual(["first"])
 
     cancelGate.resolve()
-    await expect(first).rejects.toThrow()
     await expect(second).resolves.toBe("done")
     expect(starts).toEqual(["first", "second"])
   })

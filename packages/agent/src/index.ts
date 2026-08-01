@@ -3224,6 +3224,7 @@ async function executeAgentInvocationWithCapacityLease<
           }
         }
         const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
+        const lazyPrimaryDescriptors = new Map<"fullStream" | "stream", PropertyDescriptor>()
         const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
         const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
         try {
@@ -3232,7 +3233,11 @@ async function executeAgentInvocationWithCapacityLease<
             for (let owner: object | null = rendered as object; owner && !descriptor; owner = Object.getPrototypeOf(owner))
               descriptor = Object.getOwnPropertyDescriptor(owner, property)
             if (!descriptor) continue
-            const value = "get" in descriptor ? descriptor.get?.call(rendered) : descriptor.value
+            if ("get" in descriptor) {
+              lazyPrimaryDescriptors.set(property, descriptor)
+              continue
+            }
+            const value = descriptor.value
             resolvedPrimaryProperties.set(property, value)
             if (isAsyncIterable(value)) {
               streamPropertyValues.set(property, value)
@@ -3338,6 +3343,39 @@ async function executeAgentInvocationWithCapacityLease<
               value,
               writable: true,
             }
+          }
+        }
+        for (const [property, descriptor] of lazyPrimaryDescriptors) {
+          let initialized = false
+          let value: unknown
+          descriptors[property] = {
+            configurable: true,
+            enumerable: descriptor.enumerable ?? false,
+            get() {
+              if (!initialized) {
+                if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                try {
+                  const resolved = descriptor.get?.call(rendered)
+                  value = isAsyncIterable(resolved) ? preserveStream(resolved) : resolved
+                  if (!isAsyncIterable(resolved) && !preservedSources.size) {
+                    finishing = true
+                    finishTask ||= lifecycle.finish({ result: preserved, status: "success", usageResolved: true })
+                    void finishTask.catch(() => {})
+                  }
+                }
+                catch (error) {
+                  finishing = true
+                  void (async () => {
+                    const finalOutcome = await cancelPreservedSources({ error, failed: true })
+                    finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
+                    await finishTask
+                  })().catch(() => {})
+                  throw error
+                }
+                initialized = true
+              }
+              return value
+            },
           }
         }
         if (isUIMessageStreamResult(rendered)) {
