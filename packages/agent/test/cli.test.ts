@@ -273,7 +273,7 @@ describe("agent CLI", () => {
         channel: "telegram",
         mode: "webhook",
         provider: "telegram",
-        registration: { id: "telegram", url: "https://example.com/webhooks/admission-secret?key=query-secret" },
+        registration: { id: "telegram", path: "/webhooks/admission-secret?key=query-secret" },
         sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
       }],
     })
@@ -282,6 +282,35 @@ describe("agent CLI", () => {
     expect(stdout.output()).not.toContain("admission-secret")
     expect(stdout.output()).not.toContain("query-secret")
     expect(JSON.parse(stdout.output()).registrations[0].desired.url).toBe("https://example.com/[redacted]")
+  })
+
+  it("redacts credentials embedded in failed preflight URLs", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: (async () => new Response(null, { status: 404 })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram", path: "/webhooks/admission-secret?key=query-secret" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("https://example.com/[redacted]")
+    expect(stderr.output()).not.toContain("admission-secret")
+    expect(stderr.output()).not.toContain("query-secret")
   })
 
   it("requires exact origin confirmation before loading an apply plan", async () => {

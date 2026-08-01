@@ -92,6 +92,10 @@ function sanitizedProviderState(state: Record<string, unknown>): Record<string, 
   }
 }
 
+function sanitizedUrl(url: string): string {
+  return String(sanitizedProviderState({ url }).url)
+}
+
 const defaultWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
 
 function writeChannelSyncUsage(context: ChannelSyncCliContext): void {
@@ -341,11 +345,11 @@ async function verifyDeployedWebhook(
     })
   }
   catch {
-    throw new Error(`Deployed webhook preflight request failed for ${url}.`)
+    throw new Error(`Deployed webhook preflight request failed for ${sanitizedUrl(url)}.`)
   }
   if (!response.ok || response.headers.get(agentChannelSyncProviderHeader) !== provider) {
     throw new Error(
-      `Deployed webhook preflight failed for ${url}; expected ${agentChannelSyncProviderHeader}: ${provider}.`,
+      `Deployed webhook preflight failed for ${sanitizedUrl(url)}; expected ${agentChannelSyncProviderHeader}: ${provider}.`,
     )
   }
 }
@@ -482,7 +486,7 @@ export async function runAgentChannelSyncCli(
         channel: item.target.channel,
         current: sanitizedProviderState(item.plan.current),
         destructive: item.plan.destructive === true,
-        desired: item.target.registration?.url
+        desired: item.target.registration?.url || item.target.registration?.path
           ? sanitizedProviderState(item.plan.desired)
           : item.plan.desired,
         preflight: item.preflight,
