@@ -194,6 +194,30 @@ describe("Agent Driver capacity", () => {
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42, stream: "not a stream" })
   })
 
+  it("materializes structured stream output while holding capacity", async () => {
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => ({ value }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        output: { schema },
+        run: () => ({
+          stream: (async function* () {
+            yield { text: "{\"answer\":42}", type: "text-delta" }
+          })(),
+        }),
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42 })
+  })
+
   it("closes prepared Capability scopes when Driver resolution fails", async () => {
     const close = vi.fn()
     const agent = defineAgent({

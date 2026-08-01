@@ -2971,6 +2971,7 @@ async function executeAgentInvocationWithCapacityLease<
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
       const shouldPreserveStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
+        && !(options.renderOutput && invocation.output)
         && (options.holdCapacity === true || invocation.finishExtensionProviders.some(provider => provider.eager))
         && shouldHoldInvocationOutput()
       if (shouldPreserveStreamResult || (options.renderOutput
