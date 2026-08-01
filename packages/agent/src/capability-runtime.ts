@@ -1433,8 +1433,19 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
   options: { abortSignal?: AbortSignal } = {},
 ): AsyncIterable<unknown> {
+  const iterator = stream[Symbol.asyncIterator]()
+  let cleanupTask: Promise<void> | undefined
+  const cleanup = (completed: boolean, outcome: CapabilityCleanupOutcome) => {
+    cleanupTask ||= closeCapabilityStreamIterator(iterator, completed, outcome, close)
+    options.abortSignal?.removeEventListener("abort", onAbort)
+    return cleanupTask
+  }
+  const onAbort = () => {
+    void cleanup(false, { error: options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError"), failed: true }).catch(() => {})
+  }
+  if (options.abortSignal?.aborted) onAbort()
+  else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
   return (async function* () {
-    const iterator = stream[Symbol.asyncIterator]()
     let completed = false
     let error: unknown
     let failed = false
@@ -1454,7 +1465,7 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
       throw caught
     }
     finally {
-      await closeCapabilityStreamIterator(iterator, completed, failed ? { error, failed: true } : { failed: false }, close)
+      await cleanup(completed, failed ? { error, failed: true } : { failed: false })
     }
   })()
 }
@@ -1469,6 +1480,7 @@ export function withResponseCleanup(
   }
   const reader = response.body.getReader()
   let closed = false
+  let wrappedController: ReadableStreamDefaultController<Uint8Array> | undefined
   async function closeOnce(outcome: CapabilityCleanupOutcome = { completed: true, failed: false }) {
     if (closed) return
     closed = true
@@ -1477,14 +1489,19 @@ export function withResponseCleanup(
   }
   const onAbort = () => {
     const reason = options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation response aborted.", "AbortError")
-    void reader.cancel(reason)
-      .then(() => closeOnce({ error: reason, failed: true }))
-      .catch(error => closeOnce({ error, failed: true }))
-      .catch(() => {})
+    if (closed) return
+    closed = true
+    options.abortSignal?.removeEventListener("abort", onAbort)
+    wrappedController?.error(reason)
+    void Promise.allSettled([
+      reader.cancel(reason),
+      close({ error: reason, failed: true }),
+    ])
   }
-  if (options.abortSignal?.aborted) onAbort()
-  else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
   const wrapped = new Response(new ReadableStream({
+    start(controller) {
+      wrappedController = controller
+    },
     async cancel(reason) {
       let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
       try {
@@ -1515,6 +1532,8 @@ export function withResponseCleanup(
       }
     },
   }), response)
+  if (options.abortSignal?.aborted) onAbort()
+  else options.abortSignal?.addEventListener("abort", onAbort, { once: true })
   Object.defineProperties(wrapped, {
     redirected: { configurable: true, enumerable: true, value: response.redirected },
     type: { configurable: true, enumerable: true, value: response.type },

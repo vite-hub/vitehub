@@ -352,6 +352,53 @@ describe("Agent Driver capacity", () => {
     await second[Symbol.asyncIterator]().return?.()
   })
 
+  it("releases unconsumed stream capacity when its invocation is aborted", async () => {
+    const starts: string[] = []
+    const controller = new AbortController()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return (async function* () {
+            yield await new Promise<never>(() => {})
+          })()
+        },
+      },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), { abortSignal: controller.signal, prompt: "first" })
+    const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
+    controller.abort(new DOMException("stop", "AbortError"))
+
+    const second = await secondResult as AsyncIterable<unknown>
+    await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
+    await second[Symbol.asyncIterator]().return?.()
+  })
+
+  it("preserves top-level ReadableStream output while holding capacity", async () => {
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => new ReadableStream({
+          start(controller) {
+            controller.enqueue("done")
+            controller.close()
+          },
+        }),
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as ReadableStream<string>
+    expect(result).toBeInstanceOf(ReadableStream)
+    expect(typeof result.getReader).toBe("function")
+    const reader = result.getReader()
+    await expect(reader.read()).resolves.toEqual({ done: false, value: "done" })
+    await expect(reader.read()).resolves.toEqual({ done: true, value: undefined })
+  })
+
   it("holds capacity until a response body is consumed", async () => {
     const starts: string[] = []
     const gates = { first: deferred(), second: deferred() }
@@ -406,6 +453,22 @@ describe("Agent Driver capacity", () => {
     const secondResponse = await second as Response
     await vi.waitFor(() => expect(starts).toEqual(["first", "second"]))
     await secondResponse.body?.cancel()
+  })
+
+  it("errors a pulling response body when its invocation aborts", async () => {
+    const controller = new AbortController()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => new Response(new ReadableStream({ async pull() { await new Promise(() => {}) } })),
+      },
+      runtime: false,
+    })
+
+    const response = await runAgentInline(agent, runtime(), { abortSignal: controller.signal }) as Response
+    const read = response.body!.getReader().read()
+    controller.abort(new DOMException("stop", "AbortError"))
+    await expect(read).rejects.toMatchObject({ name: "AbortError" })
   })
 
   it("releases capacity after an active Driver failure", async () => {

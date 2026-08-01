@@ -2732,7 +2732,7 @@ async function finalizeAgentInvocationResult<
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
-          return withCapabilityCleanup(streamed.stream, async (outcome) => {
+          const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
             const usage = streamed.finishUsage()
             if (!outcome.failed && !outcome.completed) {
@@ -2747,8 +2747,14 @@ async function finalizeAgentInvocationResult<
               ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
               : finishOutcome)
           }, { abortSignal: context.input.abortSignal })
+          return typeof (result as ReadableStream<unknown>).getReader === "function"
+            ? toReadableAsyncIterableStream(value)
+            : value
         }
-        return withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
+        const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
+        return typeof (result as ReadableStream<unknown>).getReader === "function"
+          ? toReadableAsyncIterableStream(value)
+          : value
       }
       return stream
     }
