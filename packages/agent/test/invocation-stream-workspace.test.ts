@@ -691,10 +691,10 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineChannel } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
-    const finishEvents: unknown[] = []
-    const finishHook = vi.fn((event: unknown) => {
-      finishEvents.push(event)
-      order.push("agent-finish")
+    const errorEvents: unknown[] = []
+    const errorHook = vi.fn((event: unknown) => {
+      errorEvents.push(event)
+      order.push("agent-error")
     })
     const agent = defineAgent({
       channels: {
@@ -714,7 +714,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       driver: {
         harness: { provider: "codex" },
       },
-      hooks: { "agent:finish": finishHook },
+      hooks: { "agent:error": errorHook },
       workspace: { mode: "write" },
     })
 
@@ -772,10 +772,10 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await waitFor(() => {
       expect(workspaceClose).toHaveBeenCalledOnce()
       expect(harnessSessionDestroy).toHaveBeenCalledOnce()
-      expect(finishHook).toHaveBeenCalledOnce()
+      expect(errorHook).toHaveBeenCalledOnce()
     })
     expect(workspaceCloseErrors[0]).toBeInstanceOf(Error)
-    expect(finishEvents[0]).toEqual(expect.objectContaining({
+    expect(errorEvents[0]).toEqual(expect.objectContaining({
       error: expect.any(Error),
       invocation: expect.objectContaining({
         run: { channelId: "github", origin: "github-pull-request-comment", runId: "github-run" },
@@ -785,7 +785,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       "prepare-harness-workspace",
       "workspace-session-close",
       "harness-session-destroy",
-      "agent-finish",
+      "agent-error",
     ]))
   })
 

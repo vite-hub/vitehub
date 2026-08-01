@@ -106,6 +106,7 @@ declare global {
 export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
   actor: AgentActor
+  "agent.errorHook": boolean
   "agent.finishHook": boolean
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
@@ -491,14 +492,30 @@ export interface AgentFinishEvent<
   text?: string
 }
 
-export interface AgentFinishHookEvent<
+export type AgentFinishHookEvent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> extends AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> {
+> = Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "error" | "errorMessage"> & {
   reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
   reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
   status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
 }
+
+export type AgentErrorHookEvent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "error" | "errorMessage" | "result" | "text"> & {
+  error: unknown
+  errorMessage: string
+  reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
+  reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
+  status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
+}
+
+export type AgentErrorHook<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
 
 export type AgentFinishHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -516,6 +533,7 @@ export interface AgentInvocationHooks<
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
 > {
+  "agent:error"?: AgentErrorHook<TRuntimeConfig, CALL_OPTIONS>
   "agent:finish"?: AgentFinishHook<TRuntimeConfig, CALL_OPTIONS>
   "agent:input"?: AgentInputHook<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }

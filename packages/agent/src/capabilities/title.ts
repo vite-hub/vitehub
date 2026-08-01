@@ -211,6 +211,10 @@ function shouldProvideTitleFinishExtension(context: AgentCapabilityRuntimeContex
   return supportsTitleDelivery(context) || context.context.get<boolean>("agent.finishHook") === true
 }
 
+function shouldResolveTitleFinishExtension(context: AgentCapabilityRuntimeContext, event: AgentFinishEvent): boolean {
+  return supportsTitleDelivery(context) || context.context.get<boolean>(Object.hasOwn(event, "error") ? "agent.errorHook" : "agent.finishHook") === true
+}
+
 async function resolveTemplateVariables(options: TitleOptions, input: TitleTemplateInput): Promise<Record<string, unknown>> {
   const variables: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(options.variables || {})) {
@@ -823,7 +827,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         ))
       })
       context.finish.provide(async (finish: AgentFinishEvent) => {
-        if (!shouldProvideTitleFinishExtension(context)) return
+        if (!shouldResolveTitleFinishExtension(context, finish)) return
         const resolvedTitle = await getTitle(finish.text)
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })

@@ -122,6 +122,7 @@ import type {
   AgentDriverContribution,
   AgentDriverKind,
   CustomAgentDriver,
+  AgentErrorHookEvent,
   AgentFinishEvent,
   AgentFinishHookEvent,
   AgentFinishExtensions,
@@ -282,6 +283,8 @@ export type {
   AgentDriverContributionKind,
   AgentDriverKind,
   AgentExecution,
+  AgentErrorHook,
+  AgentErrorHookEvent,
   AgentFinishEvent,
   AgentFinishExtensions,
   AgentFinishExtensionValues,
@@ -1488,6 +1491,7 @@ type AgentInvocationContext<
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
+  errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hasCapabilityCleanup: boolean
   harnessSandboxProvider?: object
@@ -1825,6 +1829,7 @@ async function createAgentInvocationContext<
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
+      errorHook: definition?.hooks?.["agent:error"] as never,
       finishHook: definition?.hooks?.["agent:finish"] as never,
       globalSkills: capabilities.globalSkills,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
@@ -1854,6 +1859,7 @@ async function createAgentInvocationContext<
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }
+    invocationContext.set("agent.errorHook", Boolean(invocation.errorHook), { overwrite: true })
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
     await traceAgentInvocationStart(toTraceContext(invocation))
     await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
@@ -1897,6 +1903,7 @@ type InvocationRunContext<
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
+  errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
@@ -2320,7 +2327,7 @@ function hasFinishWork<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return hasFinishConsumer(context) || context.finishExtensionProviders.some(provider => provider.eager)
+  return Boolean(context.errorHook) || hasFinishConsumer(context) || context.finishExtensionProviders.some(provider => provider.eager)
 }
 
 async function resolveFinishUsageRecord<
@@ -2485,8 +2492,28 @@ function createAgentFinishHookEvent<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS> {
   const delivery = createFinishDeliveryEffectContext(event, context)
+  const { error: _error, errorMessage: _errorMessage, ...finishEvent } = event
   return {
-    ...event,
+    ...finishEvent,
+    reaction: delivery.reaction,
+    reply: delivery.reply,
+    status: delivery.status,
+  }
+}
+
+function createAgentErrorHookEvent<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS> {
+  const delivery = createFinishDeliveryEffectContext(event, context)
+  const { result: _result, text: _text, ...errorEvent } = event
+  return {
+    ...errorEvent,
+    error: errorEvent.error,
+    errorMessage: errorEvent.errorMessage ?? agentErrorDetails(errorEvent.error).message,
     reaction: delivery.reaction,
     reply: delivery.reply,
     status: delivery.status,
@@ -2592,28 +2619,32 @@ async function finishAgentInvocation<
         ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
-      const hasFinishConsumer = Boolean(context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders))
-      const finishExtensionProviders = hasFinishConsumer
+      const outcomeHook = failed ? context.errorHook : context.finishHook
+      const hookName = failed ? "agent:error" : "agent:finish"
+      const hasOutcomeConsumer = Boolean(outcomeHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders))
+      const finishExtensionProviders = hasOutcomeConsumer
         ? context.finishExtensionProviders
         : context.finishExtensionProviders.filter(provider => provider.eager)
-      if (hasFinishConsumer || finishExtensionProviders.length) {
+      if (hasOutcomeConsumer || finishExtensionProviders.length) {
         const extensions = await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
         await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
-        let finishHookResult: void | AgentChannelDeliveryFinishEffectResult
+        let outcomeHookResult: void | AgentChannelDeliveryFinishEffectResult
         await runObservedAgentHook(context.hooks, {
           ids: { runId: context.run?.runId },
-          name: "agent:finish",
+          name: hookName,
           owner: "agent",
-          phase: "finish",
+          phase: failed ? "error" : "finish",
         }, async () => {
-          finishHookResult = await context.finishHook?.(createAgentFinishHookEvent(finishEvent, context))
+          outcomeHookResult = failed
+            ? await context.errorHook?.(createAgentErrorHookEvent(finishEvent, context))
+            : await context.finishHook?.(createAgentFinishHookEvent(finishEvent, context))
         })
-        if (finishHookResult) {
-          const finishHookIntents: AgentChannelDeliveryEffectIntent[] = []
-          appendDeliveryEffectIntent(finishHookIntents, finishHookResult)
-          await applyChannelDeliveryEffectIntents(context, finishHookIntents, finishEvent)
+        if (outcomeHookResult) {
+          const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
+          appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
+          await applyChannelDeliveryEffectIntents(context, outcomeHookIntents, finishEvent)
         }
       }
     }

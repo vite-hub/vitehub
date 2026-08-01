@@ -471,8 +471,11 @@ describe("agent message protocol", () => {
         "agent:input"(context) {
           events.push(`agent-input:${context.input.prompt}`)
         },
+        "agent:error"(context) {
+          events.push(`agent-error:${context.errorMessage}`)
+        },
         "agent:finish"(context) {
-          events.push(context.error ? `agent-finish:error:${(context.error as Error).message}` : `agent-finish:${context.result}`)
+          events.push(`agent-finish:${context.result}`)
         },
       },
     })
@@ -491,7 +494,7 @@ describe("agent message protocol", () => {
       "agent-input:review:fail",
       "run:review:fail",
       "command-finish:error:boom",
-      "agent-finish:error:boom",
+      "agent-error:boom",
     ])
   })
 
@@ -778,7 +781,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("exposes normalized error messages on failed finish events", async () => {
+  it("routes failed invocations through Agent Error Hooks", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const throwingGetterError = Object.defineProperty({}, "message", {
       get() {
@@ -803,11 +806,15 @@ describe("agent message protocol", () => {
 
     for (const { error, message } of cases) {
       const finish = vi.fn()
+      const agentError = vi.fn()
       const agent = defineAgent({
         driver: { run: () => {
             throw error
           }, },
-        hooks: { "agent:finish": finish },
+        hooks: {
+          "agent:error": agentError,
+          "agent:finish": finish,
+        },
       })
 
       await runAgent(agent, {
@@ -816,10 +823,62 @@ describe("agent message protocol", () => {
         waitUntil: vi.fn(),
       }, {}).catch(() => {})
 
-      const finishEvent = finish.mock.calls[0]?.[0]
-      expect(finishEvent?.error).toBe(error)
-      expect(finishEvent).toMatchObject({ errorMessage: message })
+      expect(finish).not.toHaveBeenCalled()
+      const errorEvent = agentError.mock.calls[0]?.[0]
+      expect(errorEvent?.error).toBe(error)
+      expect(errorEvent).toMatchObject({ errorMessage: message })
+      expect(errorEvent).not.toHaveProperty("result")
+      expect(errorEvent).not.toHaveProperty("text")
     }
+  })
+
+  it("observes disjoint outcome hooks and delivers Agent Error Hook effects", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const failure = new Error("boom")
+    const finish = vi.fn()
+    const agentError = vi.fn(event => event.reply(`failed:${event.errorMessage}`))
+    const observe = vi.fn()
+    const reply = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply },
+          messages: false,
+        }),
+      },
+      driver: { run: (context) => {
+          if (context.prompt === "fail") throw failure
+          return "ok"
+        }, },
+      hooks: {
+        "agent:error": agentError,
+        "agent:finish": finish,
+        "hook:observe": observe,
+      },
+    })
+    const runtime = {
+      memo: vi.fn(),
+      run: { channelId: "portal", runId: "outcome-hooks" },
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }
+
+    await expect(runAgent(agent, runtime, { prompt: "pass" })).resolves.toBe("ok")
+    expect(finish).toHaveBeenCalledOnce()
+    expect(agentError).not.toHaveBeenCalled()
+
+    await expect(runAgent(agent, runtime, { prompt: "fail" })).rejects.toBe(failure)
+    expect(finish).toHaveBeenCalledOnce()
+    expect(agentError).toHaveBeenCalledOnce()
+    expect(agentError.mock.calls[0]![0].error).toBe(failure)
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      effect: { kind: "reply", payload: "failed:boom" },
+    }))
+    expect(observe.mock.calls.map(([event]) => event).filter(event => event.owner === "agent")).toEqual([
+      expect.objectContaining({ name: "agent:finish", outcome: "success", phase: "finish" }),
+      expect.objectContaining({ name: "agent:error", outcome: "success", phase: "error" }),
+    ])
   })
 
   it("treats stream cancellation without reason as successful cleanup", async () => {
@@ -859,10 +918,10 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: { run: () => {
           throw new Error("run failed")
-        }, },
+      }, },
       hooks: {
-        "agent:finish": () => {
-          throw new Error("finish failed")
+        "agent:error": () => {
+          throw new Error("error hook failed")
         },
       },
     })
@@ -4445,6 +4504,50 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Prepared title" })
   })
 
+  it("resolves title extensions only when an error-only hook runs", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const execute = vi.fn(() => "Prepared title")
+    const failure = new Error("failed")
+    const run = vi.fn()
+      .mockReturnValueOnce("ok")
+      .mockImplementationOnce(() => { throw failure })
+    const agentError = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      channels: {
+        portal: defineChannel("portal", {
+          adapter: {
+            channelIdFromThreadId: (threadId: string) => threadId,
+            postMessage: vi.fn(),
+          } as never,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run },
+      hooks: {
+        "agent:error": agentError,
+      },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+    expect(execute).not.toHaveBeenCalled()
+    expect(agentError).not.toHaveBeenCalled()
+
+    await expect(runAgentTrigger(agent, runtime, "portal.message", {})).rejects.toBe(failure)
+    expect(execute).toHaveBeenCalledOnce()
+    expect(agentError).toHaveBeenCalledOnce()
+    expect(agentError.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Prepared title" })
+  })
+
   it("delivers titles through custom message Channel title effects", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
@@ -6389,6 +6492,28 @@ describe("agent message protocol", () => {
     }, {})).resolves.toMatchObject({ text: "ok" })
   })
 
+  it("does not make error-only hooks consume successful usage", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agentError = vi.fn()
+    const usage = {
+      // eslint-disable-next-line unicorn/no-thenable -- verifies successful invocations do not await unused usage
+      then() {
+        throw new Error("usage should be unused")
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => ({ text: "ok", usage }), },
+      hooks: { "agent:error": agentError },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toMatchObject({ text: "ok" })
+    expect(agentError).not.toHaveBeenCalled()
+  })
+
   it("runs final output renderers before finish delivery effects", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
@@ -6705,10 +6830,10 @@ describe("agent message protocol", () => {
     expect(delivered).toHaveBeenCalledWith("raw review:15")
   })
 
-  it("routes stream final output renderer failures through finish lifecycle", async () => {
+  it("routes stream final output renderer failures through Agent Error Hooks", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const finalError = new Error("final failed")
-    const finish = vi.fn()
+    const agentError = vi.fn()
     const agent = defineAgent({
       capabilities: [
         defineCapability({
@@ -6721,7 +6846,7 @@ describe("agent message protocol", () => {
         }),
       ],
       hooks: {
-        "agent:finish": finish,
+        "agent:error": agentError,
       },
       driver: { run: () => ({
           fullStream: (async function* () {
@@ -6736,7 +6861,7 @@ describe("agent message protocol", () => {
     await expect((async () => {
       for await (const _event of stream as AsyncIterable<unknown>) {}
     })()).rejects.toThrow("final failed")
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
       error: finalError,
     }))
   })
@@ -7009,9 +7134,9 @@ describe("agent message protocol", () => {
     ])
   })
 
-  it("runs finish lifecycle when async stream output renderer setup fails", async () => {
+  it("runs Agent Error Hooks when async stream output renderer setup fails", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const finish = vi.fn()
+    const agentError = vi.fn()
     const renderError = new Error("render failed")
     const agent = defineAgent({
       capabilities: [{
@@ -7023,7 +7148,7 @@ describe("agent message protocol", () => {
         },
       }],
       hooks: {
-        "agent:finish": finish,
+        "agent:error": agentError,
       },
       driver: { run: () => (async function* () {
           yield "hello"
@@ -7031,7 +7156,7 @@ describe("agent message protocol", () => {
     })
 
     await expect(streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("render failed")
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
       error: renderError,
     }))
   })
@@ -9639,13 +9764,13 @@ describe("agent message protocol", () => {
     expect(finish).toHaveBeenCalledTimes(1)
   })
 
-  it("runs agent finish hooks with Response body read errors", async () => {
+  it("runs Agent Error Hooks with Response body read errors", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const finish = vi.fn()
+    const agentError = vi.fn()
     const error = new Error("upstream failed")
     const agent = defineAgent({
       hooks: {
-        "agent:finish": finish,
+        "agent:error": agentError,
       },
       driver: { run: () => new Response(new ReadableStream({
           pull() {
@@ -9656,11 +9781,11 @@ describe("agent message protocol", () => {
 
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
     await expect(response.text()).rejects.toThrow("upstream failed")
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
       error,
     }))
-    expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
-    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "failed" }])
+    expect(agentError.mock.calls[0]![0]).not.toHaveProperty("result")
+    expect(deriveTraceRuns(agentError.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("runs agent finish hooks when Response bodies are canceled", async () => {
@@ -9683,23 +9808,23 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "completed" }])
   })
 
-  it("runs agent finish hooks when Response wrapping fails", async () => {
+  it("runs Agent Error Hooks when Response wrapping fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const finish = vi.fn()
+    const agentError = vi.fn()
     const body = new ReadableStream()
     body.getReader()
     const agent = defineAgent({
       hooks: {
-        "agent:finish": finish,
+        "agent:error": agentError,
       },
       driver: { run: () => new Response(body) },
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow()
-    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+    expect(agentError).toHaveBeenCalledWith(expect.objectContaining({
       error: expect.any(TypeError),
     }))
-    expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
+    expect(agentError.mock.calls[0]![0]).not.toHaveProperty("result")
   })
 
   it("preserves generated Response payload and metadata while tracing completion", async () => {
