@@ -1281,13 +1281,21 @@ function createSyntheticWorkspaceRun<
           }
           if (isUIMessageStreamResult(output)) {
             hasStreamSurface = true
+            unresolvedLazyStreamSurfaces++
             const toUIMessageStream = output.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+            let uiMessageStreamResolved = false
             descriptors.toUIMessageStream = {
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => {
+                if (finished) throw new Error("[vitehub] Agent Invocation output has already finished.")
                 try {
-                  return wrapStream(toUIMessageStream.apply(output, args))
+                  const stream = toUIMessageStream.apply(output, args)
+                  if (!uiMessageStreamResolved) {
+                    uiMessageStreamResolved = true
+                    unresolvedLazyStreamSurfaces--
+                  }
+                  return wrapStream(stream)
                 }
                 catch (error) {
                   void finish(error).catch(() => {})
@@ -3380,6 +3388,7 @@ async function executeAgentInvocationWithCapacityLease<
         }
         let unresolvedLazyStreamSurfaces = lazyPrimaryDescriptors.size
           + (textStreamDescriptor && "get" in textStreamDescriptor ? 1 : 0)
+          + (isUIMessageStreamResult(rendered) ? 1 : 0)
         for (const [property, descriptor] of lazyPrimaryDescriptors) {
           let initialized = false
           let value: unknown
@@ -3416,6 +3425,7 @@ async function executeAgentInvocationWithCapacityLease<
         }
         if (isUIMessageStreamResult(rendered)) {
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+          let uiMessageStreamResolved = false
           descriptors.toUIMessageStream = {
             configurable: true,
             enumerable: false,
@@ -3423,6 +3433,10 @@ async function executeAgentInvocationWithCapacityLease<
               if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
               try {
                 const renderedStream = toUIMessageStream.apply(rendered, args)
+                if (!uiMessageStreamResolved) {
+                  uiMessageStreamResolved = true
+                  unresolvedLazyStreamSurfaces--
+                }
                 const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
                 preservedSources.set(renderedStream, source)
                 return withReadableStreamCleanup(

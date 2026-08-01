@@ -1583,6 +1583,35 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("keeps capacity for lazy UI-message streams after non-stream siblings resolve", async () => {
+    const starts: string[] = []
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return {
+            get stream() {
+              return { kind: "metadata" }
+            },
+            toUIMessageStream: () => uiMessageStream("done", Promise.resolve()),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as {
+      stream: { kind: string }
+      toUIMessageStream: () => ReadableStream<unknown>
+    }
+    expect(first.stream).toEqual({ kind: "metadata" })
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    for await (const _chunk of first.toUIMessageStream()) {}
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("rejects lazy text streams after a sibling releases capacity", async () => {
     let textStreamCalls = 0
     const agent = defineAgent({
