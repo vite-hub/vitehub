@@ -129,6 +129,7 @@ export function inspectAgentCapacity(agent: object): (AgentDriverCapacityOptions
   if (!scope) return
   return {
     ...scope.options,
+    ...(scope.options.queue ? { queue: { ...scope.options.queue } } : {}),
     ...(scope.scheduler?.status() || { active: 0, pending: 0 }),
   }
 }

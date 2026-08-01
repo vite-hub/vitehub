@@ -146,7 +146,16 @@ export function withReadableStreamCleanup<T>(
     cleaned = true
     options.abortSignal?.removeEventListener("abort", onAbort)
     wrappedController?.error(reason)
-    void Promise.allSettled([reader.cancel(reason), cleanup({ error: reason, failed: true })])
+    void (async () => {
+      let outcome: StreamCleanupOutcome = { error: reason, failed: true }
+      try {
+        await reader.cancel(reason)
+      }
+      catch (error) {
+        outcome = { error, failed: true }
+      }
+      await cleanup(outcome)
+    })().catch(() => {})
   }
   const wrapped = new ReadableStream<T>({
     start(controller) {

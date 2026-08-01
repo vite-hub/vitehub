@@ -124,12 +124,15 @@ describe("Agent Driver capacity", () => {
       runtime: false,
     })
 
-    expect(createAgentInspectionMetadata(agent).config?.driver.capacity).toEqual({
+    const capacity = createAgentInspectionMetadata(agent).config?.driver.capacity
+    expect(capacity).toEqual({
       active: 0,
       concurrency: 1,
       pending: 0,
       queue: { maxPending: 2, timeout: 1_000 },
     })
+    capacity!.queue!.maxPending = 0
+    expect(createAgentInspectionMetadata(agent).config?.driver.capacity?.queue?.maxPending).toBe(2)
 
     const active = runAgentInline(agent, runtime(), {})
     const pending = runAgentInline(agent, runtime(), {})
