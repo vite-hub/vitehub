@@ -14,6 +14,10 @@ Use official Channel helpers when the installed contract provides them. Create a
 
 Treat webhook secrets and installation tokens as server-only Env. Keep generated routes inspectable and document the exact local or deployed URL used for proof.
 
+For initial setup of a built-in Telegram Channel, discover the installed contract with `pnpm vitehub channels sync --help` after the application stage is deployed. Run `pnpm vitehub channels sync --stage <stage> --url <https-origin> --json` first; it is read-only, loads the stage-specific Vite environment, and verifies the deployed webhook route before inspecting Telegram.
+
+Apply a reviewed registration only when the task explicitly authorizes provider mutation, using `--apply --confirm-origin <the-same-https-origin>`. Never infer the stage or origin, pass provider credentials as arguments, or expose Env values in output. A planned deletion also needs explicit intent and `--allow-delete`; switching Telegram to polling or `webhooks: false` can produce that plan. Keep custom adapter registration and product policy application-owned.
+
 ## Proof
 
 Exercise the generated or custom webhook with a verified event, observe the Agent Invocation, and confirm the expected external delivery or persisted message. A route existing in Provider Output is not proof that admission and delivery work.

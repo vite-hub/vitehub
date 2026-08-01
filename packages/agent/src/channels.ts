@@ -43,6 +43,8 @@ import type {
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import { defineMessageChannelInstructions } from "./internal/channels.ts"
+import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
+import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import type { PullRequestContextValue } from "./capabilities/repository-host-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
@@ -2066,7 +2068,7 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   const webhookOptions = webhookSecret !== undefined
     ? { secretToken: telegramWebhookSecretToken(webhookSecret) }
     : webhooks
-  return defineMessageChannelInstructions(defineChannel("telegram", {
+  const channel = defineMessageChannelInstructions(defineChannel("telegram", {
     ...channelOptions,
     adapter: telegramAdapterResolver(options),
     ...(mode === "polling" ? { listener: { kind: "telegram-polling" } } : {}),
@@ -2074,6 +2076,39 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       ? false
       : telegramWebhookDefaults(webhookOptions),
   }), "Write the final response for Telegram. Match the language of the user's latest message. Prefer short paragraphs or bullets and keep the answer concise. Do not use Markdown tables; express rows as bullets because Telegram fallback delivery exposes table syntax. Avoid decorative emoji, redundant restatement, and generic follow-up questions. Follow the Agent's own instructions when they require a different format.")
+  if (options.adapter) return channel
+  return withAgentChannelSyncDefinition<TRuntimeConfig>(channel, {
+    provider: "telegram",
+    async resolve(context, resolvedChannel) {
+      if (resolvedChannel.adapter !== channel.adapter) return
+      const resolvedWebhooks = resolvedChannel.webhooks
+      const registration = Array.isArray(resolvedWebhooks)
+        ? resolvedWebhooks.length === 1 ? resolvedWebhooks[0] : undefined
+        : resolvedWebhooks && typeof resolvedWebhooks === "object" ? resolvedWebhooks : undefined
+      const secret = registration?.secretToken
+      const [apiBaseUrl, apiUrl, botToken, secretToken] = await Promise.all([
+        options.apiBaseUrl === undefined ? undefined : resolveRuntimeValue(options.apiBaseUrl, context),
+        options.apiUrl === undefined ? undefined : resolveRuntimeValue(options.apiUrl, context),
+        options.botToken === undefined ? undefined : resolveRuntimeValue(options.botToken, context),
+        secret === undefined ? undefined : resolveRuntimeValue(secret, context),
+      ])
+      const resolvedBotToken = cleanSecret(botToken) || cleanSecret(process.env.TELEGRAM_BOT_TOKEN)
+      if (!resolvedBotToken) {
+        throw new TypeError("[vitehub] Telegram Channel synchronization requires telegram({ botToken }) or TELEGRAM_BOT_TOKEN.")
+      }
+      const resolvedSecretToken = secretToken === false
+        ? undefined
+        : cleanSecret(secretToken) || cleanSecret(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN)
+      return createTelegramChannelSyncProvider({
+        apiBaseUrl: cleanSecret(apiUrl) || cleanSecret(apiBaseUrl) || cleanSecret(process.env.TELEGRAM_API_BASE_URL),
+        botToken: resolvedBotToken,
+        mode: resolvedChannel.listener?.kind === "telegram-polling" || resolvedWebhooks === false
+          ? "disabled"
+          : "webhook",
+        ...(resolvedSecretToken ? { secretToken: resolvedSecretToken } : {}),
+      })
+    },
+  })
 }
 
 export function webChat<

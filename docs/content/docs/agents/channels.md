@@ -122,7 +122,7 @@ Set `routes.discordGateway: true` on `hubAgent()` when the deployment needs a ge
 
 ## Telegram
 
-Use `telegram()` with Telegram credentials and admission settings. ViteHub creates the Chat SDK adapter, registers the webhook with Telegram's secret header, and keeps generic webhook plumbing out of the Agent Definition. Pass `adapter` as an escape hatch for an app-owned adapter.
+Use `telegram()` with Telegram credentials and admission settings. ViteHub creates the Chat SDK adapter and exposes a verified webhook route; the ViteHub CLI synchronizes that deployed route with Telegram. Pass `adapter` as an escape hatch when the application owns both the adapter and its provider lifecycle.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -139,6 +139,21 @@ export default defineAgent({
   driver: { run: () => 'ok' },
 })
 ```
+
+Deploy the target stage, then inspect its provider registration plan. The public URL must be an HTTPS origin, and ViteHub verifies the deployed route before it contacts Telegram for the current webhook state.
+
+```bash [Terminal]
+pnpm vitehub channels sync \
+  --stage staging \
+  --url https://staging.example.com \
+  --agent support \
+  --channel telegram \
+  --json
+```
+
+The dry run is the default. Apply the reviewed plan only with `--apply` and an exact `--confirm-origin https://staging.example.com`; this prevents a local default or stale preview URL from becoming the bot's production webhook. Keep `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` in Server Env because the command never accepts or prints credentials.
+
+Telegram does not return the webhook secret or allowed update list from `getWebhookInfo`, so the plan reports those fields as unverifiable. Pass `--force` when you need to reapply them even though the registered URL matches. See [CLI](/docs/development/cli#synchronize-channel-webhooks) for apply and deletion safeguards.
 
 For a long-running host, set `mode: 'polling'` and mount `createTelegramPollingRouteHandler(agent)` on a protected `GET` route that the host calls once at startup. The handler initializes every polling Telegram Channel, starts the official adapter's long-poll loop, and is idempotent within the process. Polling disables the Telegram webhook route and is not suitable for request-isolated serverless workers.
 

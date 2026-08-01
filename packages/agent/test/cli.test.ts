@@ -2,12 +2,17 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli } from "../src/cli.ts"
+import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
+import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
+import { createTelegramChannelSyncProvider } from "../src/internal/telegram-channel-sync.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue } from "../src/invocation-stream.ts"
+import { telegram } from "../src/channels.ts"
 
 function stream() {
   let value = ""
@@ -46,6 +51,10 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "dev" }),
         ],
         name: "agent",
+      }, {
+        description: "External Channel registration workflows.",
+        features: [expect.objectContaining({ name: "sync" })],
+        name: "channels",
       }],
     })
   })
@@ -60,9 +69,876 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "dev" }),
         ],
         name: "agent",
+      }, {
+        description: "External Channel registration workflows.",
+        features: [expect.objectContaining({ name: "sync" })],
+        name: "channels",
       }],
     })
     await rm(rootDir, { force: true, recursive: true })
+  })
+
+  it("leaves custom Telegram adapter registration application-owned", () => {
+    const channel = telegram({ adapter: () => ({}) as never })
+    expect(getAgentChannelSyncDefinition(channel)).toBeUndefined()
+  })
+
+  it("preserves Telegram synchronization when a Channel is decorated", async () => {
+    const channel = { ...telegram({ botToken: "bot-token" }), capabilities: [] }
+    const definition = getAgentChannelSyncDefinition(channel)
+    expect(definition).toMatchObject({ provider: "telegram" })
+    await expect(definition!.resolve({} as never, channel)).resolves.toMatchObject({
+      mode: "webhook",
+    })
+  })
+
+  it("resolves Telegram synchronization from decorated lifecycle fields", async () => {
+    const base = telegram({ botToken: "bot-token", webhookSecret: "old-secret" })
+    const channel = {
+      ...base,
+      webhooks: { ...base.webhooks as object, secretToken: "new-secret" },
+    }
+    const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
+    const bodies: Record<string, unknown>[] = []
+    const fetcher = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.body) bodies.push(JSON.parse(String(init.body)))
+      return Response.json({ ok: true, result: { pending_update_count: 0, url: "https://example.com/webhook" } })
+    })
+
+    await sync!.apply({
+      action: "create",
+      current: { url: "" },
+      desired: { url: "https://example.com/webhook" },
+    }, fetcher as never)
+
+    expect(bodies[0]).toMatchObject({ secret_token: "new-secret" })
+  })
+
+  it("drops inherited Telegram synchronization when decoration replaces the adapter", async () => {
+    const base = telegram({ botToken: "bot-token" })
+    const channel = { ...base, adapter: () => ({}) as never }
+
+    await expect(
+      getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel),
+    ).resolves.toBeUndefined()
+  })
+
+  it("prints a sanitized Telegram webhook plan without applying it", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (init?.method === "HEAD") {
+        return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+      }
+      expect(url).toContain("/botsecret-bot-token/getWebhookInfo")
+      return Response.json({ ok: true, result: { pending_update_count: 2, url: "" } })
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "staging",
+      "--url", "https://staging.example.com",
+      "--json",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout,
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [{
+        agent: "calories",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram" },
+        sync: createTelegramChannelSyncProvider({
+          botToken: "secret-bot-token",
+          mode: "webhook",
+          secretToken: "secret-webhook-token",
+        }),
+      }],
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toBe("")
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(stdout.output()).not.toContain("secret-bot-token")
+    expect(stdout.output()).not.toContain("secret-webhook-token")
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      mode: "dry-run",
+      origin: "https://staging.example.com",
+      registrations: [{
+        action: "create",
+        agent: "calories",
+        applied: false,
+        channel: "telegram",
+        desired: {
+          secretToken: "configured",
+          url: "https://staging.example.com/api/_vitehub/agents/calories/webhooks/telegram",
+        },
+        preflight: "verified",
+        provider: "telegram",
+      }],
+      schemaVersion: 1,
+      stage: "staging",
+    })
+  })
+
+  it("redacts Telegram credentials from provider errors", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "staging",
+      "--url", "https://staging.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
+        ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        : Response.json({ description: "bot-secret and webhook-secret are invalid", ok: false }, { status: 401 })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram" },
+        sync: createTelegramChannelSyncProvider({
+          botToken: "bot-secret",
+          mode: "webhook",
+          secretToken: "webhook-secret",
+        }),
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("[redacted]")
+    expect(stderr.output()).not.toContain("bot-secret")
+    expect(stderr.output()).not.toContain("webhook-secret")
+  })
+
+  it("redacts credentials embedded in provider webhook URLs", async () => {
+    const stdout = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--json",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
+        ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        : Response.json({ ok: true, result: { pending_update_count: 0, url: "https://example.com/legacy/secret-token?key=query-secret" } })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).not.toContain("secret-token")
+    expect(stdout.output()).not.toContain("query-secret")
+    expect(JSON.parse(stdout.output()).registrations[0].current.url).toBe("https://example.com/[redacted]")
+  })
+
+  it("redacts credentials embedded in configured desired webhook URLs", async () => {
+    const stdout = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--json",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => init?.method === "HEAD"
+        ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        : Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram", path: "/webhooks/admission-secret?key=query-secret" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).not.toContain("admission-secret")
+    expect(stdout.output()).not.toContain("query-secret")
+    expect(JSON.parse(stdout.output()).registrations[0].desired.url).toBe("https://example.com/[redacted]")
+  })
+
+  it("redacts credentials embedded in failed preflight URLs", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: (async () => new Response(null, { status: 404 })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram", path: "/webhooks/admission-secret?key=query-secret" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("https://example.com/[redacted]")
+    expect(stderr.output()).not.toContain("admission-secret")
+    expect(stderr.output()).not.toContain("query-secret")
+  })
+
+  it("redacts credentials embedded in failed provider verification URLs", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--apply",
+      "--confirm-origin", "https://example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: (async () => new Response(null, {
+        headers: { "x-vitehub-channel-provider": "telegram" },
+        status: 204,
+      })) as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram", path: "/webhooks/admission-secret?key=query-secret" },
+        sync: {
+          apply: async () => ({ url: "https://example.com/normalized" }),
+          mode: "webhook",
+          plan: async ({ desiredUrl }) => ({
+            action: "create",
+            current: { url: "" },
+            desired: { url: desiredUrl },
+          }),
+        },
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("https://example.com/[redacted]")
+    expect(stderr.output()).not.toContain("admission-secret")
+    expect(stderr.output()).not.toContain("query-secret")
+  })
+
+  it("requires exact origin confirmation before loading an apply plan", async () => {
+    const stderr = stream()
+    const loadTargets = vi.fn(async () => [])
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://app.example.com",
+      "--apply",
+      "--confirm-origin", "https://preview.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, { loadTargets })
+
+    expect(exitCode).toBe(1)
+    expect(loadTargets).not.toHaveBeenCalled()
+    expect(stderr.output()).toContain("--confirm-origin must exactly match --url")
+  })
+
+  it("applies a validated Telegram webhook plan without exposing secrets", async () => {
+    const stdout = stream()
+    let registeredUrl = ""
+    const requests: Array<{ body?: string, method?: string, url: string }> = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      requests.push({ body: typeof init?.body === "string" ? init.body : undefined, method: init?.method, url })
+      if (init?.method === "HEAD") {
+        return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+      }
+      if (url.endsWith("/getWebhookInfo")) {
+        return Response.json({ ok: true, result: { pending_update_count: 0, url: registeredUrl } })
+      }
+      if (url.endsWith("/setWebhook")) {
+        registeredUrl = JSON.parse(String(init?.body)).url
+        return Response.json({ ok: true, result: true })
+      }
+      throw new Error(`Unexpected Telegram request: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://app.example.com",
+      "--apply",
+      "--confirm-origin", "https://app.example.com",
+      "--json",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook", secretToken: "webhook-token" }),
+      }],
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).not.toContain("bot-token")
+    expect(stdout.output()).not.toContain("webhook-token")
+    expect(JSON.parse(stdout.output()).registrations[0]).toMatchObject({ action: "create", applied: true })
+    const setWebhook = requests.find(request => request.url.endsWith("/setWebhook"))
+    expect(JSON.parse(setWebhook?.body || "{}")).toEqual({
+      allowed_updates: ["message"],
+      drop_pending_updates: false,
+      secret_token: "webhook-token",
+      url: "https://app.example.com/api/_vitehub/agents/support/webhooks/telegram",
+    })
+  })
+
+  it("requires deletion permission before disabling a provider webhook", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith("/getWebhookInfo")) {
+        return Response.json({ ok: true, result: { pending_update_count: 0, url: "https://app.example.com/hook" } })
+      }
+      throw new Error(`Unexpected mutation: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://app.example.com",
+      "--apply",
+      "--confirm-origin", "https://app.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "disabled",
+        provider: "telegram",
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "disabled" }),
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("requires deletion; rerun with --allow-delete")
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it("binds deletion confirmation to the current provider origin", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith("/getWebhookInfo")) {
+        return Response.json({ ok: true, result: { pending_update_count: 0, url: "https://production.example.com/hook" } })
+      }
+      throw new Error(`Unexpected mutation: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "staging",
+      "--url", "https://staging.example.com",
+      "--apply",
+      "--allow-delete",
+      "--confirm-origin", "https://staging.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "disabled",
+        provider: "telegram",
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "disabled" }),
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("delete targets https://production.example.com")
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it("validates every deletion against the confirmed origin before mutation", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes("/botstaging-bot/")) {
+        return Response.json({ ok: true, result: { url: "https://staging.example.com/hook" } })
+      }
+      if (url.includes("/botproduction-bot/")) {
+        return Response.json({ ok: true, result: { url: "https://production.example.com/hook" } })
+      }
+      throw new Error(`Unexpected mutation: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "staging",
+      "--url", "https://staging.example.com",
+      "--apply",
+      "--allow-delete",
+      "--confirm-origin", "https://staging.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [
+        {
+          agent: "support",
+          channel: "staging",
+          mode: "disabled",
+          provider: "telegram",
+          sync: createTelegramChannelSyncProvider({ botToken: "staging-bot", mode: "disabled" }),
+        },
+        {
+          agent: "support",
+          channel: "production",
+          mode: "disabled",
+          provider: "telegram",
+          sync: createTelegramChannelSyncProvider({ botToken: "production-bot", mode: "disabled" }),
+        },
+      ],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("delete targets https://production.example.com")
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it("binds webhook updates to the current provider origin", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (init?.method === "HEAD") {
+        return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+      }
+      if (url.endsWith("/getWebhookInfo")) {
+        return Response.json({ ok: true, result: { url: "https://production.example.com/hook" } })
+      }
+      throw new Error(`Unexpected mutation: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "staging",
+      "--url", "https://staging.example.com",
+      "--apply",
+      "--confirm-origin", "https://staging.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "webhook",
+        provider: "telegram",
+        registration: { id: "telegram" },
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "webhook" }),
+      }],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("update targets https://production.example.com")
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects Channels targeting the same provider resource before planning", async () => {
+    const stderr = stream()
+    const fetcher = vi.fn()
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://app.example.com",
+      "--apply",
+      "--confirm-origin", "https://app.example.com",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [
+        {
+          agent: "support",
+          channel: "alerts",
+          mode: "webhook",
+          provider: "telegram",
+          registration: { id: "alerts" },
+          sync: createTelegramChannelSyncProvider({ botToken: "shared-bot", mode: "webhook" }),
+        },
+        {
+          agent: "support",
+          channel: "chat",
+          mode: "webhook",
+          provider: "telegram",
+          registration: { id: "chat" },
+          sync: createTelegramChannelSyncProvider({ botToken: "shared-bot", mode: "webhook" }),
+        },
+      ],
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("target the same telegram resource")
+    expect(stderr.output()).not.toContain("shared-bot")
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it("deletes and verifies a Telegram webhook only with explicit permission", async () => {
+    const stdout = stream()
+    let registeredUrl = "https://app.example.com/hook"
+    const deleteBodies: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/getWebhookInfo")) {
+        return Response.json({ ok: true, result: { pending_update_count: 3, url: registeredUrl } })
+      }
+      if (url.endsWith("/deleteWebhook")) {
+        deleteBodies.push(String(init?.body))
+        registeredUrl = ""
+        return Response.json({ ok: true, result: true })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const exitCode = await runAgentChannelSyncCli([
+      "--stage", "production",
+      "--url", "https://app.example.com",
+      "--apply",
+      "--allow-delete",
+      "--confirm-origin", "https://app.example.com",
+      "--json",
+    ], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [{
+        agent: "support",
+        channel: "telegram",
+        mode: "disabled",
+        provider: "telegram",
+        sync: createTelegramChannelSyncProvider({ botToken: "bot-token", mode: "disabled" }),
+      }],
+    })
+
+    expect(exitCode).toBe(0)
+    expect(deleteBodies.map(body => JSON.parse(body))).toEqual([{ drop_pending_updates: false }])
+    expect(JSON.parse(stdout.output()).registrations[0]).toMatchObject({
+      action: "delete",
+      applied: true,
+      result: { url: "" },
+    })
+  })
+
+  it("discovers Telegram Channels with the selected stage environment", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-app-"))
+    const stdout = stream()
+    const requests: string[] = []
+    const previousBotToken = process.env.TELEGRAM_BOT_TOKEN
+    const previousWebhookToken = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
+    process.env.TELEGRAM_BOT_TOKEN = "context-bot-token"
+    delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
+    try {
+      await mkdir(join(rootDir, "config-env"), { recursive: true })
+      await mkdir(join(rootDir, "server", "agents"), { recursive: true })
+      await writeFile(join(rootDir, "vite.config.ts"), [
+        'import { defineConfig } from "vite"',
+        'export default defineConfig({ envDir: "config-env" })',
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(rootDir, "config-env", ".env.staging"), [
+        "TELEGRAM_BOT_TOKEN=env-dir-bot-token",
+        "TELEGRAM_WEBHOOK_SECRET_TOKEN=stage-webhook-token",
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(rootDir, "server", "agents", "support.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { telegram } from "@vite-hub/agent/channels"',
+        "export default defineAgent({",
+        "  channels: {",
+        "    telegram: telegram({",
+        "      botToken: process.env.TELEGRAM_BOT_TOKEN,",
+        "      webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,",
+        "    }),",
+        "  },",
+        "  driver: { run: () => 'ok' },",
+        "})",
+        "",
+      ].join("\n"), "utf8")
+      const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
+        requests.push(url)
+        if (init?.method === "HEAD") {
+          return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        }
+        return Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })
+      })
+
+      const exitCode = await runAgentChannelSyncCli([
+        "--stage", "staging",
+        "--url", "https://staging.example.com",
+        "--json",
+      ], {
+        cwd: rootDir,
+        env: process.env,
+        rootDir,
+        stderr: stream(),
+        stdout,
+      }, { fetch: fetcher as never })
+
+      expect(exitCode).toBe(0)
+      expect(requests).toContain("https://api.telegram.org/botcontext-bot-token/getWebhookInfo")
+      expect(stdout.output()).not.toContain("context-bot-token")
+      expect(stdout.output()).not.toContain("env-dir-bot-token")
+      expect(stdout.output()).not.toContain("stage-webhook-token")
+      expect(JSON.parse(stdout.output()).registrations).toMatchObject([{
+        agent: "support",
+        channel: "telegram",
+        desired: { secretToken: "configured" },
+      }])
+      expect(process.env.TELEGRAM_BOT_TOKEN).toBe("context-bot-token")
+      expect(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN).toBeUndefined()
+    }
+    finally {
+      if (previousBotToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN
+      else process.env.TELEGRAM_BOT_TOKEN = previousBotToken
+      if (previousWebhookToken === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
+      else process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = previousWebhookToken
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("discovers Channels from the selected stage server directories", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-stage-dirs-"))
+    const productionServerDir = join(rootDir, "production-server")
+    try {
+      await mkdir(join(productionServerDir, "agents"), { recursive: true })
+      await writeFile(join(rootDir, "vite.config.ts"), [
+        'import { defineConfig } from "vite"',
+        'import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"',
+        "export default defineConfig(({ mode }) => ({",
+        `  [VITEHUB_SERVER_DIRS]: mode === "production" ? [${JSON.stringify(productionServerDir)}] : [],`,
+        "}))",
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(productionServerDir, "agents", "support.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { telegram } from "@vite-hub/agent/channels"',
+        'export default defineAgent({ channels: { telegram: telegram({ botToken: "bot-token" }) }, driver: { run: () => "ok" } })',
+        "",
+      ].join("\n"), "utf8")
+      const requests: string[] = []
+      const exitCode = await runAgentChannelSyncCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+          requests.push(String(input))
+          return init?.method === "HEAD"
+            ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+            : Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })
+        }) as never,
+      })
+
+      expect(exitCode).toBe(0)
+      expect(requests).toContain("https://api.telegram.org/botbot-token/getWebhookInfo")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves the ambient environment when Vite server creation fails", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-invalid-app-"))
+    const key = "VITEHUB_CHANNEL_SYNC_AMBIENT_TEST"
+    const previous = process.env[key]
+    process.env[key] = "preserved"
+    try {
+      await writeFile(join(rootDir, "vite.config.ts"), 'throw new Error("invalid stage config")\n', "utf8")
+      const exitCode = await runAgentChannelSyncCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+      ], {
+        cwd: rootDir,
+        env: process.env,
+        rootDir,
+        stderr: stream(),
+        stdout: stream(),
+      })
+
+      expect(exitCode).toBe(1)
+      expect(process.env[key]).toBe("preserved")
+    }
+    finally {
+      if (previous === undefined) delete process.env[key]
+      else process.env[key] = previous
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes concurrent stage environment loading", async () => {
+    const firstRoot = await mkdtemp(join(import.meta.dirname, "channel-sync-concurrent-first-"))
+    const secondRoot = await mkdtemp(join(import.meta.dirname, "channel-sync-concurrent-second-"))
+    const key = "VITEHUB_CHANNEL_SYNC_CONCURRENT_TEST"
+    const config = (expected: string, delay: number) => [
+      "export default async function () {",
+      `  await new Promise(resolve => setTimeout(resolve, ${delay}))`,
+      `  if (process.env.${key} !== ${JSON.stringify(expected)}) throw new Error("wrong concurrent environment")`,
+      `  throw new Error(${JSON.stringify(`expected ${expected} failure`)})`,
+      "}",
+      "",
+    ].join("\n")
+    try {
+      await writeFile(join(firstRoot, "vite.config.ts"), config("first", 30), "utf8")
+      await writeFile(join(secondRoot, "vite.config.ts"), config("second", 80), "utf8")
+      const run = (rootDir: string, selected: string) => {
+        const stderr = stream()
+        return {
+          result: runAgentChannelSyncCli([
+            "--stage", "production",
+            "--url", "https://example.com",
+          ], {
+            cwd: rootDir,
+            env: { [key]: selected },
+            rootDir,
+            stderr,
+            stdout: stream(),
+          }),
+          stderr,
+        }
+      }
+
+      const first = run(firstRoot, "first")
+      await new Promise(resolve => setTimeout(resolve, 5))
+      const second = run(secondRoot, "second")
+      expect(await Promise.all([first.result, second.result])).toEqual([1, 1])
+      expect(first.stderr.output()).toContain("expected first failure")
+      expect(second.stderr.output()).toContain("expected second failure")
+      expect(first.stderr.output()).not.toContain("wrong concurrent environment")
+      expect(second.stderr.output()).not.toContain("wrong concurrent environment")
+    }
+    finally {
+      await rm(firstRoot, { force: true, recursive: true })
+      await rm(secondRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("exposes the selected environment while Vite resolves its config", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, "channel-sync-config-env-app-"))
+    const key = "VITEHUB_CHANNEL_SYNC_CONFIG_ENV_DIR"
+    const previous = process.env[key]
+    process.env[key] = "wrong-env"
+    try {
+      await mkdir(join(rootDir, "selected-env"), { recursive: true })
+      await mkdir(join(rootDir, "server", "agents"), { recursive: true })
+      await writeFile(join(rootDir, "vite.config.ts"), [
+        'import { defineConfig } from "vite"',
+        `export default defineConfig({ envDir: process.env.${key} })`,
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(join(rootDir, "selected-env", ".env.production"), "TELEGRAM_BOT_TOKEN=selected-bot-token\n", "utf8")
+      await writeFile(join(rootDir, "server", "agents", "support.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { telegram } from "@vite-hub/agent/channels"',
+        "export default defineAgent({ channels: { telegram: telegram() }, driver: { run: () => 'ok' } })",
+        "",
+      ].join("\n"), "utf8")
+      const requests: string[] = []
+      const exitCode = await runAgentChannelSyncCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+      ], {
+        cwd: rootDir,
+        env: { [key]: "selected-env" },
+        rootDir,
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+          requests.push(String(input))
+          return init?.method === "HEAD"
+            ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+            : Response.json({ ok: true, result: { pending_update_count: 0, url: "" } })
+        }) as never,
+      })
+
+      expect(exitCode).toBe(0)
+      expect(requests).toContain("https://api.telegram.org/botselected-bot-token/getWebhookInfo")
+      expect(process.env[key]).toBe("wrong-env")
+    }
+    finally {
+      if (previous === undefined) delete process.env[key]
+      else process.env[key] = previous
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("prints concise resolved Agent information from the running Vite server", async () => {

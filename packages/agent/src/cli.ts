@@ -6,6 +6,7 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
+import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
@@ -1315,11 +1316,25 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
     })
   }
   return {
-    namespaces: [{
-      description: "Agent development workflows.",
-      features,
-      name: "agent",
-    }],
+    namespaces: [
+      {
+        description: "Agent development workflows.",
+        features,
+        name: "agent",
+      },
+      {
+        description: "External Channel registration workflows.",
+        features: [{
+          description: "Inspect and synchronize provider-owned Channel webhooks for a deployed stage.",
+          name: "sync",
+          run: async (args, context) => await runAgentChannelSyncCli(args, context, {
+            rootDir: options?.rootDir,
+          }),
+          usage: "vitehub channels sync --stage <name> --url <https-origin> [--apply --confirm-origin <https-origin>]",
+        }],
+        name: "channels",
+      },
+    ],
   }
 }
 
