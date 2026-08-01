@@ -44,6 +44,7 @@ export function withAgentChannelSyncDefinition<
 >(channel: TChannel, definition: AgentChannelSyncDefinition<TRuntimeConfig>): TChannel {
   Object.defineProperty(channel, agentChannelSyncDefinition, {
     configurable: true,
+    enumerable: true,
     value: definition,
   })
   return channel

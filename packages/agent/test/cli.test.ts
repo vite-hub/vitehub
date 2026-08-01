@@ -82,6 +82,14 @@ describe("agent CLI", () => {
     expect(getAgentChannelSyncDefinition(channel)).toBeUndefined()
   })
 
+  it("preserves Telegram synchronization when a Channel is decorated", () => {
+    const channel = { ...telegram(), capabilities: [] }
+    expect(getAgentChannelSyncDefinition(channel)).toMatchObject({
+      mode: "webhook",
+      provider: "telegram",
+    })
+  })
+
   it("prints a sanitized Telegram webhook plan without applying it", async () => {
     const stdout = stream()
     const stderr = stream()
