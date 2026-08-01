@@ -3124,8 +3124,19 @@ async function executeAgentInvocationWithCapacityLease<
             get() {
               if (!initialized) {
                 if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
-                const textStream = resolveTextStream()
-                preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
+                try {
+                  const textStream = resolveTextStream()
+                  preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
+                }
+                catch (error) {
+                  finishing = true
+                  void (async () => {
+                    const finalOutcome = await cancelPreservedSources({ error, failed: true })
+                    finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
+                    await finishTask
+                  })().catch(() => {})
+                  throw error
+                }
                 initialized = true
               }
               return preservedTextStream

@@ -466,6 +466,50 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("does not evaluate a lazy text stream while detecting stream results", async () => {
+    let textStreamCalls = 0
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        run: () => ({
+          get textStream() {
+            textStreamCalls++
+            return (async function* () { yield "text" })()
+          },
+        }),
+      },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as { textStream: AsyncIterable<string> }
+    expect(textStreamCalls).toBe(0)
+    for await (const _chunk of result.textStream) {}
+    expect(textStreamCalls).toBe(1)
+  })
+
+  it("releases capacity when wrapping a lazy text stream fails", async () => {
+    const starts: string[] = []
+    const lockedStream = new ReadableStream({})
+    lockedStream.getReader()
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        run({ input }) {
+          starts.push(input.prompt as string)
+          return { get textStream() { return lockedStream } }
+        },
+      },
+      runtime: false,
+    })
+
+    const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: ReadableStream<unknown> }
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    expect(() => first.textStream).toThrow()
+
+    await second
+    expect(starts).toEqual(["first", "second"])
+  })
+
   it("awaits accessed textStream cancellation before releasing capacity", async () => {
     const starts: string[] = []
     const controller = new AbortController()
