@@ -4,6 +4,7 @@ import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAg
 import { inputCommands } from "../src/capabilities.ts"
 import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 import { cancellableAsyncIterableSource } from "../src/stream-output.ts"
+import { capabilityInvocationStartSymbol } from "../src/capability-runtime.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -122,6 +123,75 @@ describe("Agent Driver capacity", () => {
     gate.resolve()
     await expect(active).resolves.toBe("done")
     expect(close).toHaveBeenCalledTimes(2)
+  })
+
+  it("awaits prepared Capability start work before closing rejected scopes", async () => {
+    const startGate = deferred()
+    let startFinished = false
+    let closedBeforeStartFinished = false
+    const capability = defineCapability({
+      close() {
+        closedBeforeStartFinished ||= !startFinished
+      },
+      id: "resource",
+    })
+    Object.defineProperty(capability, capabilityInvocationStartSymbol, {
+      async value() {
+        await startGate.promise
+        startFinished = true
+      },
+    })
+    const runGate = deferred()
+    const agent = defineAgent({
+      capabilities: [capability],
+      driver: {
+        capacity: { concurrency: 1 },
+        async run() {
+          await runGate.promise
+          return "done"
+        },
+      },
+      runtime: false,
+    })
+
+    const active = runAgentInline(agent, runtime(), {})
+    const rejected = runAgentInline(agent, runtime(), {})
+    await expect(Promise.race([
+      rejected.then(() => "settled", () => "settled"),
+      Promise.resolve("pending"),
+    ])).resolves.toBe("pending")
+
+    startGate.resolve()
+    await expect(rejected).rejects.toMatchObject({ code: "AGENT_CAPACITY_QUEUE_FULL" })
+    expect(closedBeforeStartFinished).toBe(false)
+    runGate.resolve()
+    await active
+  })
+
+  it("keeps non-stream accessors out of structured materialization", async () => {
+    const schema = {
+      "~standard": {
+        validate: (value: unknown) => ({ value }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const output = {
+      answer: 42,
+      get stream() {
+        return "not a stream"
+      },
+    }
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1 },
+        output: { schema },
+        run: () => output,
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ answer: 42, stream: "not a stream" })
   })
 
   it("closes prepared Capability scopes when Driver resolution fails", async () => {

@@ -2785,11 +2785,32 @@ async function materializeAgentStructuredOutput(
   abortSignal?: AbortSignal,
   onEvent?: AgentOutputEventObserver,
 ): Promise<unknown> {
-  if (!isAsyncIterable(result) && !hasTraceableStreamResult(result)) return result
-  if (toAgentRunResult(result).text !== undefined) return result
+  let streamResult = result
+  if (!isAsyncIterable(streamResult)) {
+    if (!streamResult || typeof streamResult !== "object") return result
+    const descriptors: PropertyDescriptorMap = {}
+    let hasStream = false
+    for (const property of ["stream", "fullStream", "textStream"] as const) {
+      let descriptor: PropertyDescriptor | undefined
+      for (let owner: object | null = streamResult; owner && !descriptor; owner = Object.getPrototypeOf(owner))
+        descriptor = Object.getOwnPropertyDescriptor(owner, property)
+      if (!descriptor) continue
+      const value = "get" in descriptor ? descriptor.get?.call(streamResult) : descriptor.value
+      descriptors[property] = {
+        configurable: true,
+        enumerable: descriptor.enumerable ?? false,
+        value,
+        writable: true,
+      }
+      if (isAsyncIterable(value)) hasStream = true
+    }
+    if (!hasStream) return result
+    streamResult = cloneWithPropertyDescriptors(streamResult, descriptors)
+  }
+  if (toAgentRunResult(streamResult).text !== undefined) return result
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-  const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(result))
+  const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(streamResult))
   const events = withCapabilityCleanup(source.stream, async () => {}, {
     abortSignal,
     cancelOnAbort: source.cancel,
@@ -2814,6 +2835,31 @@ type AgentInvocationExecutionOptions =
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
   }
 
+async function closePreparedInvocationAfterFailure<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  error: unknown,
+  message: string,
+): Promise<never> {
+  const errors = [error]
+  try {
+    await preparedInvocation.startTask
+  }
+  catch (startError) {
+    errors.push(startError)
+  }
+  try {
+    await preparedInvocation.close()
+  }
+  catch (closeError) {
+    errors.push(closeError)
+  }
+  if (errors.length > 1) throw new AggregateError(errors, message)
+  throw error
+}
+
 async function executeAgentInvocationWithCapacityLease<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -2832,12 +2878,7 @@ async function executeAgentInvocationWithCapacityLease<
   }
   catch (error) {
     if (preparedInvocation) {
-      try {
-        await preparedInvocation.close()
-      }
-      catch (closeError) {
-        throw new AggregateError([error, closeError], "[vitehub] Agent Driver resolution and invocation cleanup failed.")
-      }
+      return await closePreparedInvocationAfterFailure(preparedInvocation, error, "[vitehub] Agent Driver resolution and invocation cleanup failed.")
     }
     throw error
   }
@@ -3461,12 +3502,7 @@ async function executeAgentInvocation<
   }
   catch (error) {
     if (preparedInvocation) {
-      try {
-        await preparedInvocation.close()
-      }
-      catch (closeError) {
-        throw new AggregateError([error, closeError], "[vitehub] Agent capacity admission and invocation cleanup failed.")
-      }
+      return await closePreparedInvocationAfterFailure(preparedInvocation, error, "[vitehub] Agent capacity admission and invocation cleanup failed.")
     }
     throw error
   }
