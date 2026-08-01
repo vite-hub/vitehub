@@ -25,7 +25,7 @@ import {
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { isAttachmentData, isAttachmentPart } from "./messages.ts"
+import { attachmentStringBytes, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
@@ -426,40 +426,18 @@ function harnessAttachmentStringBytes(value: string, mediaType: string, remainin
     const encoded = dataUrl[2]!
     if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
       assertHarnessAttachmentSize(harnessBase64ByteLength(encoded), remainingBytes, type)
-      return new Uint8Array(Buffer.from(encoded, "base64"))
+      return attachmentStringBytes(value, mediaType)
     }
     if (encoded.length > remainingBytes * 3) {
       assertHarnessAttachmentSize(Math.ceil(encoded.length / 3), remainingBytes, type)
     }
-    const bytes = new TextEncoder().encode(encoded)
-    let readIndex = 0
-    let writeIndex = 0
-    while (readIndex < bytes.length) {
-      if (bytes[readIndex] === 37) {
-        const encodedByte = String.fromCharCode(bytes[readIndex + 1]!, bytes[readIndex + 2]!)
-        if (!/^[\da-f]{2}$/i.test(encodedByte)) throw new URIError("URI malformed")
-        bytes[writeIndex++] = Number.parseInt(encodedByte, 16)
-        readIndex += 3
-      }
-      else {
-        bytes[writeIndex++] = bytes[readIndex++]!
-      }
-    }
-    assertHarnessAttachmentSize(writeIndex, remainingBytes, type)
-    return bytes.slice(0, writeIndex)
+    const bytes = attachmentStringBytes(value, mediaType)
+    assertHarnessAttachmentSize(bytes.byteLength, remainingBytes, type)
+    return bytes
   }
-  const normalizedMediaType = mediaType.toLowerCase()
-  if (
-    normalizedMediaType.startsWith("text/")
-    || normalizedMediaType === "application/json"
-    || normalizedMediaType.endsWith("+json")
-    || normalizedMediaType.endsWith("+xml")
-  ) {
-    assertHarnessAttachmentSize(Buffer.byteLength(value), remainingBytes, type)
-    return new TextEncoder().encode(value)
-  }
-  assertHarnessAttachmentSize(harnessBase64ByteLength(value), remainingBytes, type)
-  return new Uint8Array(Buffer.from(value, "base64"))
+  const bytes = attachmentStringBytes(value, mediaType)
+  assertHarnessAttachmentSize(bytes.byteLength, remainingBytes, type)
+  return bytes
 }
 
 async function harnessAttachmentBytes(data: AttachmentData, mediaType: string, remainingBytes: number, type: string): Promise<Uint8Array> {
@@ -482,13 +460,12 @@ async function resolveHarnessAttachmentData(
   part: Extract<Message["parts"][number], { type: "audio" | "file" | "image" }>,
   abortSignal?: AbortSignal,
 ): Promise<AttachmentData | undefined> {
-  if (typeof part.fetchData !== "function") return isAttachmentData(part.data) ? part.data : undefined
   if (abortSignal?.aborted) {
     throw abortSignalError(abortSignal, "[vitehub] Harness attachment resolution aborted.")
   }
-  const fetchedPromise = Promise.resolve(part.fetchData())
+  const fetchedPromise = resolveAttachmentData(part)
   const fetched = abortSignal
-    ? await new Promise<AttachmentData>((resolve, reject) => {
+    ? await new Promise<AttachmentData | undefined>((resolve, reject) => {
         const onAbort = () => {
           abortSignal.removeEventListener("abort", onAbort)
           reject(abortSignalError(abortSignal, "[vitehub] Harness attachment resolution aborted."))

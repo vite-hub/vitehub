@@ -1,4 +1,4 @@
-import { getMessageText, isAttachmentData, isAttachmentPart } from "./messages.ts"
+import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -360,7 +360,7 @@ function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | 
 
 async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part: AttachmentPart }> {
   assertAttachmentWithinLimit(part, part.size, maxBytes)
-  const resolved = typeof part.fetchData === "function" ? await part.fetchData() : part.data
+  const resolved = await resolveAttachmentData(part)
   if (typeof part.fetchData === "function" && !isAttachmentData(resolved)) {
     throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
   }

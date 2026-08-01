@@ -44,7 +44,7 @@ export default defineAgent({
 ViteHub selects the configured Blob store and exposes a small Storage Capability Tool Surface.
 Read mode supports one object read, metadata read, or prefix list operation per tool call.
 Write mode adds put/delete operations and allows them by default.
-Put operations accept either `body` or `workspacePath`, not both.
+Put operations accept exactly one of `attachmentId`, `body`, or `workspacePath`.
 Delete operations return `{ pathname, deleted: true }`.
 
 ## Requirements

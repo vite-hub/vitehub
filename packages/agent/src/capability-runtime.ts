@@ -28,6 +28,7 @@ import type {
   AgentCapabilityTypeContract,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
+  AgentCapabilityInputContext,
   AgentCapabilityMode,
   AgentCapabilityRuntimeContext,
   AgentChannelDeliveryEffectIntent,
@@ -997,6 +998,18 @@ export async function resolveAgentCapabilities<
         workspaceMaterializationPaths,
       }
       let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+      const input: AgentCapabilityInputContext = {
+        get: () => currentInput,
+        messages: () => messages,
+        set(value) {
+          currentInput = normalizeRunInput(value)
+          messages = getRunMessages(currentInput)
+        },
+        setMessages(value) {
+          messages = value
+          currentInput = withMessages(currentInput, messages)
+        },
+      }
       capabilityContext = {
         ...metadataContext,
         [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
@@ -1005,18 +1018,8 @@ export async function resolveAgentCapabilities<
         },
         capability,
         mode: capability.mode,
-        input: {
-          get: () => currentInput,
-          messages: () => messages,
-          set(value) {
-            currentInput = normalizeRunInput(value)
-            messages = getRunMessages(currentInput)
-          },
-          setMessages(value) {
-            messages = value
-            currentInput = withMessages(currentInput, messages)
-          },
-        },
+        input,
+        invocation: { input },
         delivery: {
           effect(intent) {
             if (!intent || typeof intent !== "object" || typeof intent.kind !== "string" || !intent.kind.trim()) {

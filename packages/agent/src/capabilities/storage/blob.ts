@@ -7,7 +7,7 @@ import {
   readHarnessWorkspaceDiff,
 } from "../../harness-runtime.ts"
 import { cloneWithPropertyDescriptors } from "../../internal/stream-result.ts"
-import { isAttachmentData, isAttachmentPart } from "../../messages.ts"
+import { attachmentStringBytes, currentInputAttachments, isAttachmentData, resolveAttachmentData } from "../../messages.ts"
 import {
   assertString,
   createTool,
@@ -22,7 +22,6 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityContext,
   AgentCapabilityMode,
-  AgentCapabilityRuntimeContext,
   AgentToolSet,
   MaybePromise,
 } from "../../types.ts"
@@ -253,52 +252,30 @@ async function readWorkspaceBlobBody(context: AgentCapabilityContext, path: stri
   return await context.fs.readFile(path as never, { encoding: "binary" })
 }
 
-function currentInputAttachments(context: AgentCapabilityRuntimeContext): AttachmentPart[] {
-  if (!context.input) return []
-  const messages = context.input.messages()
-  const current = context.run?.messageId
-    ? messages.find(message => message.id === context.run?.messageId)
-    : [...messages].reverse().find(message => message.role === "user")
-  return current?.parts.filter((part): part is AttachmentPart =>
-    isAttachmentPart(part)
-    && (isAttachmentData(part.data) || typeof part.fetchData === "function"),
-  ) ?? []
+function resolvableInputAttachments(context: AgentCapabilityContext): AttachmentPart[] {
+  if (!context.invocation) return []
+  return currentInputAttachments(context.invocation.input.messages(), context.run?.messageId)
+    .filter(part => isAttachmentData(part.data) || typeof part.fetchData === "function")
 }
 
-async function readInputAttachment(context: AgentCapabilityRuntimeContext, id: string) {
-  const attachments = currentInputAttachments(context)
+async function readInputAttachment(context: AgentCapabilityContext, id: string) {
+  const attachments = resolvableInputAttachments(context)
   const matches = attachments.filter(part => part.id === id)
   if (matches.length !== 1) {
     const available = attachments.flatMap(part => part.id ? [part.id] : [])
     throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} must identify one current input attachment.${available.length ? ` Available: ${available.join(", ")}.` : ""}`)
   }
   const attachment = matches[0]!
-  const body = typeof attachment.fetchData === "function" ? await attachment.fetchData() : attachment.data
+  const body = await resolveAttachmentData(attachment)
   if (!isAttachmentData(body)) {
     throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.`)
   }
-  return { body: decodeAttachmentString(body, attachment.mediaType), mediaType: attachment.mediaType }
-}
-
-function decodeAttachmentString(body: AttachmentPart["data"], mediaType: string) {
-  if (typeof body !== "string") return body
-  const dataUrl = /^data:[^,]*?(;base64)?,(.*)$/is.exec(body)
-  if (dataUrl) {
-    return dataUrl[1]
-      ? Uint8Array.from(atob(dataUrl[2]!), character => character.charCodeAt(0))
-      : new TextEncoder().encode(decodeURIComponent(dataUrl[2]!))
-  }
-  const normalizedMediaType = mediaType.split(";", 1)[0]!.trim().toLowerCase()
-  if (normalizedMediaType.startsWith("text/") || normalizedMediaType === "application/json" || normalizedMediaType === "application/xml" || normalizedMediaType.endsWith("+json") || normalizedMediaType.endsWith("+xml")) {
-    return body
-  }
-  return Uint8Array.from(atob(body), character => character.charCodeAt(0))
+  return { body: typeof body === "string" ? attachmentStringBytes(body, attachment.mediaType) : body, mediaType: attachment.mediaType }
 }
 
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
-    const runtimeContext = context as AgentCapabilityRuntimeContext
-    const attachments = currentInputAttachments(runtimeContext)
+    const attachments = resolvableInputAttachments(context)
       .flatMap(part => part.id ? [`${part.id} (${part.mediaType})`] : [])
     const tools: AgentToolSet = {
       blob_read: createTool<BlobReadInput>({
@@ -332,11 +309,11 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             const sources = Number(body !== undefined) + Number(Boolean(sourcePath)) + Number(Boolean(sourceAttachment))
             if (sources > 1) throw new Error("[vitehub] blob_edit put accepts exactly one of attachmentId, body, or workspacePath.")
             if (sourceAttachment) {
-              const attachment = await readInputAttachment(runtimeContext, sourceAttachment)
+              const attachment = await readInputAttachment(context, sourceAttachment)
               return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(
                 path,
                 attachment.body,
-                { ...(attachment.mediaType ? { contentType: attachment.mediaType } : {}), ...putOptions },
+                { ...putOptions, ...(attachment.mediaType ? { contentType: attachment.mediaType } : {}) },
               ))
             }
             if (sourcePath) {

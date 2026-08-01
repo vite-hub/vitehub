@@ -700,9 +700,17 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   abortSignal?: AbortSignal
+  invocation?: { input: AgentCapabilityInputContext }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
+}
+
+export interface AgentCapabilityInputContext {
+  get: () => AgentRunInput
+  messages: () => Message[]
+  set: (input: AgentRunInput) => void
+  setMessages: (messages: Message[]) => void
 }
 
 export type AgentCapabilityToolResolver<
@@ -776,12 +784,8 @@ export interface AgentCapabilityRuntimeContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
-  input: {
-    get: () => AgentRunInput
-    messages: () => Message[]
-    set: (input: AgentRunInput) => void
-    setMessages: (messages: Message[]) => void
-  }
+  input: AgentCapabilityInputContext
+  invocation: { input: AgentCapabilityInputContext }
   delivery: {
     effect: (intent: AgentChannelDeliveryEffectIntent) => void
     finishEffect: (effect: AgentChannelDeliveryFinishEffect) => void

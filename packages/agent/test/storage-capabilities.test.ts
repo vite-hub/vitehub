@@ -557,7 +557,10 @@ describe("storage capabilities", () => {
   it("uploads a current input attachment by id", async () => {
     const { blob } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { resolveAttachmentData } = await import("../src/messages.ts")
     const bytes = new Uint8Array([1, 2, 3])
+    const fetchData = vi.fn(async () => bytes)
+    const attachment = { id: "attachment-1", mediaType: "image/jpeg", type: "image" as const, fetchData }
     const store = {
       del: vi.fn(),
       get: vi.fn(),
@@ -574,17 +577,20 @@ describe("storage capabilities", () => {
       {
         messages: [
           { id: "message-1", parts: [{ id: "attachment-1", mediaType: "image/png", type: "image", data: "old" }], role: "user" },
-          { id: "message-2", parts: [{ id: "attachment-1", mediaType: "image/jpeg", type: "image", fetchData: vi.fn(async () => bytes) }], role: "user" },
+          { id: "message-2", parts: [attachment], role: "user" },
         ],
       },
     )
 
+    await resolveAttachmentData(attachment)
     await expect(resolved.tools!.blob_edit!.execute?.({
       attachmentId: "attachment-1",
       operation: "put",
+      options: { contentType: "application/octet-stream" },
       pathname: "meals/current/original",
     })).resolves.toEqual({ pathname: "meals/current/original" })
     expect(store.put).toHaveBeenCalledWith("meals/current/original", bytes, { contentType: "image/jpeg" })
+    expect(fetchData).toHaveBeenCalledOnce()
   })
 
   it("resolves encoded input attachments without advertising unresolved URLs", async () => {
@@ -606,6 +612,7 @@ describe("storage capabilities", () => {
           parts: [
             { data: "data:image/png;base64,AQID", id: "encoded", mediaType: "image/png", type: "image" },
             { data: "BAUG", id: "base64", mediaType: "image/jpeg", type: "image" },
+            { data: "data:image/jpeg,%FF%D8%FF", id: "percent", mediaType: "image/jpeg", type: "image" },
             { data: "{\"meal\":true}", id: "json", mediaType: "application/json; charset=utf-8", type: "file" },
             { id: "remote", mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" },
           ],
@@ -616,12 +623,14 @@ describe("storage capabilities", () => {
 
     await resolved.tools!.blob_edit!.execute?.({ attachmentId: "encoded", operation: "put", pathname: "encoded.png" })
     await resolved.tools!.blob_edit!.execute?.({ attachmentId: "base64", operation: "put", pathname: "base64.jpg" })
+    await resolved.tools!.blob_edit!.execute?.({ attachmentId: "percent", operation: "put", pathname: "percent.jpg" })
     await resolved.tools!.blob_edit!.execute?.({ attachmentId: "json", operation: "put", pathname: "meal.json" })
     await expect(resolved.tools!.blob_edit!.execute?.({ attachmentId: "remote", operation: "put", pathname: "remote.jpg" })).rejects.toThrow("must identify one current input attachment")
 
     expect(store.put).toHaveBeenNthCalledWith(1, "encoded.png", new Uint8Array([1, 2, 3]), { contentType: "image/png" })
     expect(store.put).toHaveBeenNthCalledWith(2, "base64.jpg", new Uint8Array([4, 5, 6]), { contentType: "image/jpeg" })
-    expect(store.put).toHaveBeenNthCalledWith(3, "meal.json", "{\"meal\":true}", { contentType: "application/json; charset=utf-8" })
+    expect(store.put).toHaveBeenNthCalledWith(3, "percent.jpg", new Uint8Array([255, 216, 255]), { contentType: "image/jpeg" })
+    expect(store.put).toHaveBeenNthCalledWith(4, "meal.json", new TextEncoder().encode("{\"meal\":true}"), { contentType: "application/json; charset=utf-8" })
     expect(resolved.tools!.blob_edit!.description).not.toContain("remote")
   })
 

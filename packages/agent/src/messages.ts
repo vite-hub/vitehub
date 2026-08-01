@@ -133,6 +133,54 @@ export function isAttachmentPart(value: unknown): value is AttachmentPart {
   return type === "audio" || type === "file" || type === "image"
 }
 
+export function currentInputAttachments(messages: Message[], messageId?: string): AttachmentPart[] {
+  const current = messageId
+    ? messages.find(message => message.id === messageId)
+    : [...messages].reverse().find(message => message.role === "user")
+  return current?.parts.filter(isAttachmentPart) ?? []
+}
+
+const attachmentDataResolutions = new WeakMap<AttachmentPart, Promise<AttachmentData | undefined>>()
+
+export function resolveAttachmentData(part: AttachmentPart): Promise<AttachmentData | undefined> {
+  if (typeof part.fetchData !== "function") return Promise.resolve(isAttachmentData(part.data) ? part.data : undefined)
+  const existing = attachmentDataResolutions.get(part)
+  if (existing) return existing
+  const resolution = Promise.resolve().then(() => part.fetchData!()).then(data => isAttachmentData(data) ? data : undefined)
+  attachmentDataResolutions.set(part, resolution)
+  return resolution
+}
+
+export function attachmentStringBytes(value: string, mediaType: string): Uint8Array {
+  const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
+  if (dataUrl) {
+    const encoded = dataUrl[2]!
+    if (dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")) {
+      return Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+    }
+    const bytes = new TextEncoder().encode(encoded)
+    let readIndex = 0
+    let writeIndex = 0
+    while (readIndex < bytes.length) {
+      if (bytes[readIndex] === 37) {
+        const encodedByte = String.fromCharCode(bytes[readIndex + 1]!, bytes[readIndex + 2]!)
+        if (!/^[\da-f]{2}$/i.test(encodedByte)) throw new URIError("URI malformed")
+        bytes[writeIndex++] = Number.parseInt(encodedByte, 16)
+        readIndex += 3
+      }
+      else {
+        bytes[writeIndex++] = bytes[readIndex++]!
+      }
+    }
+    return bytes.slice(0, writeIndex)
+  }
+  const normalizedMediaType = mediaType.split(";", 1)[0]!.trim().toLowerCase()
+  if (normalizedMediaType.startsWith("text/") || normalizedMediaType === "application/json" || normalizedMediaType === "application/xml" || normalizedMediaType.endsWith("+json") || normalizedMediaType.endsWith("+xml")) {
+    return new TextEncoder().encode(value)
+  }
+  return Uint8Array.from(atob(value), character => character.charCodeAt(0))
+}
+
 export interface Message {
   createdAt?: string
   id: string
