@@ -125,12 +125,14 @@ describe("Agent Driver capacity", () => {
     expect(close).toHaveBeenCalledTimes(2)
   })
 
-  it("awaits prepared Capability start work before closing rejected scopes", async () => {
+  it("rejects capacity admission before closing prepared Capability scopes", async () => {
     const startGate = deferred()
     let startFinished = false
+    let closed = false
     let closedBeforeStartFinished = false
     const capability = defineCapability({
       close() {
+        closed = true
         closedBeforeStartFinished ||= !startFinished
       },
       id: "resource",
@@ -156,13 +158,11 @@ describe("Agent Driver capacity", () => {
 
     const active = runAgentInline(agent, runtime(), {})
     const rejected = runAgentInline(agent, runtime(), {})
-    await expect(Promise.race([
-      rejected.then(() => "settled", () => "settled"),
-      Promise.resolve("pending"),
-    ])).resolves.toBe("pending")
+    await expect(rejected).rejects.toMatchObject({ code: "AGENT_CAPACITY_QUEUE_FULL" })
+    expect(closedBeforeStartFinished).toBe(false)
 
     startGate.resolve()
-    await expect(rejected).rejects.toMatchObject({ code: "AGENT_CAPACITY_QUEUE_FULL" })
+    await vi.waitFor(() => expect(closed).toBe(true))
     expect(closedBeforeStartFinished).toBe(false)
     runGate.resolve()
     await active

@@ -3009,6 +3009,24 @@ async function closePreparedInvocationAfterFailure<
   throw error
 }
 
+function deferPreparedInvocationCloseAfterFailure<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+): void {
+  const cleanupTask = (async () => {
+    try {
+      await preparedInvocation.startTask
+    }
+    finally {
+      await preparedInvocation.close()
+    }
+  })()
+  preparedInvocation.runtimeContext.waitUntil?.(cleanupTask)
+  void cleanupTask.catch(() => {})
+}
+
 async function executeAgentInvocationWithCapacityLease<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -3769,7 +3787,7 @@ async function executeAgentInvocation<
   }
   catch (error) {
     if (preparedInvocation) {
-      return await closePreparedInvocationAfterFailure(preparedInvocation, error, "[vitehub] Agent capacity admission and invocation cleanup failed.")
+      deferPreparedInvocationCloseAfterFailure(preparedInvocation)
     }
     throw error
   }
