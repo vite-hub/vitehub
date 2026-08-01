@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { basename, dirname, join, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
@@ -277,11 +277,28 @@ function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
-function deploymentNitroModule(plan: DeploymentPlan, services: object, identity: DeploymentIdentity) {
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+function deploymentNitroModule(
+  plan: DeploymentPlan,
+  services: object,
+  identity: DeploymentIdentity,
+  sandboxRequested: boolean,
+  isDeployCommandOwned: () => boolean,
+) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
-    options: { output: { dir: string }, rootDir: string }
+    options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, rootDir: string }
   }) => {
+    if (plan.preset === "cloudflare" && sandboxRequested && !isDeployCommandOwned()) {
+      const outputRelative = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
+      const serverDir = /^[\w./-]+$/.test(outputRelative)
+        ? `./${outputRelative}`
+        : shellQuote(`./${outputRelative}`)
+      nitro.options.commands.deploy = `npx wrangler --cwd ${serverDir} deploy --containers-rollout=gradual`
+    }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
@@ -300,6 +317,7 @@ function deploymentPlugins(
   services: object,
   options: ViteHubOptions,
 ): Plugin[] {
+  let deployCommandOwned = false
   return [
     {
       name: "vite-hub/deployment-preset",
@@ -380,8 +398,8 @@ function deploymentPlugins(
             }
           }
           nitro.modules = [
+            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned),
             ...(Array.isArray(nitro.modules) ? nitro.modules : []),
-            deploymentNitroModule(plan, services, identity),
           ]
           if (plan.output.packaging === "deno-node-modules") {
             nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
@@ -404,6 +422,7 @@ function deploymentPlugins(
       enforce: "post",
       configResolved(config) {
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
+        deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
         if (config.command === "build" && nitro.preset !== plan.nitroPreset) {
           throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(plan.nitroPreset) + ".")
         }

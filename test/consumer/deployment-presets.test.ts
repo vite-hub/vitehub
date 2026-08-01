@@ -204,6 +204,11 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
         source: "WRANGLER_CI_OVERRIDE_NAME",
       },
     })
+    await expect(readFile(join(root, ".output/nitro.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      commands: {
+        deploy: "npx wrangler --cwd ./server deploy --containers-rollout=gradual",
+      },
+    })
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8"))
     expect(wrangler).toMatchObject({
       containers: expect.arrayContaining([
