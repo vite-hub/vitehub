@@ -404,6 +404,23 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
+  it("reuses one wrapper for aliased stream surfaces", async () => {
+    const source = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ text: "done", type: "text-delta" })
+        controller.close()
+      },
+    })
+    const agent = defineAgent({
+      driver: { capacity: { concurrency: 1 }, run: () => ({ fullStream: source, stream: source }) },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}) as { fullStream: ReadableStream<unknown>, stream: ReadableStream<unknown> }
+    expect(result.stream).toBe(result.fullStream)
+    for await (const _chunk of result.stream) {}
+  })
+
   it("releases an unconsumed direct UI-message stream when its invocation aborts", async () => {
     const starts: string[] = []
     const controller = new AbortController()

@@ -3036,12 +3036,15 @@ async function executeAgentInvocationWithCapacityLease<
           .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
         let finishTask: Promise<void> | undefined
         let preserved: object
+        const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
         const onAbort = () => {
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
           finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
           void finishTask.catch(() => {})
         }
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
+          const existing = preservedStreams.get(renderedStream)
+          if (existing) return existing
           const source = cancellableAsyncIterableSource(renderedStream)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
           const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
@@ -3070,6 +3073,7 @@ async function executeAgentInvocationWithCapacityLease<
           const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
             ? toReadableAsyncIterableStream(value)
             : value
+          preservedStreams.set(renderedStream, preservedStream)
           return preservedStream
         }
         const descriptors: PropertyDescriptorMap = Object.fromEntries(streamProperties.map((property) => {
@@ -3104,8 +3108,10 @@ async function executeAgentInvocationWithCapacityLease<
           }
         }
         preserved = resultWithPreservedProperties(rendered as object, descriptors)
-        if (invocation.input.abortSignal?.aborted) onAbort()
-        else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+        if (!streamProperties.length) {
+          if (invocation.input.abortSignal?.aborted) onAbort()
+          else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+        }
         return {
           deferFinish: true,
           finishResult: preserved,
