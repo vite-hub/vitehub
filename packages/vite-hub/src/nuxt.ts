@@ -15,6 +15,7 @@ type NuxtLike = {
     serverDir?: string
     srcDir?: string
     vite?: UserConfig
+    vitehub?: Parameters<typeof vitehub>[0]
   }
 }
 
@@ -71,7 +72,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     resolve: {
       alias: nuxt.options.alias,
     },
-    root: nuxt.options.srcDir || nuxt.options.rootDir || process.cwd(),
+    root: nuxt.options.rootDir || process.cwd(),
   }, nuxt.options.vite ?? {}) as UserConfig & {
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_SERVER_DIRS]?: string[]
@@ -102,7 +103,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
       config.nitro = await createQueueNitroConfig({
         nitro: config.nitro || {},
         projectRoot,
-        root: nuxt.options.srcDir || projectRoot,
+        root: projectRoot,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
       })
     }
@@ -111,8 +112,21 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   if (config.nitro) Object.assign(nitroConfig, config.nitro)
 }
 
-export default async function viteHubNuxtModule(options: Parameters<typeof vitehub>[0], nuxt?: NuxtLike): Promise<void> {
+type ViteHubNuxtModule = {
+  (inlineOptions: Parameters<typeof vitehub>[0] | undefined, nuxt?: NuxtLike): Promise<void>
+  getMeta: () => {
+    configKey: "vitehub"
+    name: "vite-hub/nuxt"
+  }
+}
+
+const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxt): Promise<void> {
   if (!nuxt) return
+
+  const options = {
+    ...nuxt.options.vitehub,
+    ...inlineOptions,
+  } as Parameters<typeof vitehub>[0]
 
   const plugins = flattenPlugins(vitehub(options))
     .filter(plugin => plugin.name !== "vite-hub/deployment-output")
@@ -153,3 +167,10 @@ export default async function viteHubNuxtModule(options: Parameters<typeof viteh
     await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
   }
 }
+
+viteHubNuxtModule.getMeta = () => ({
+  configKey: "vitehub",
+  name: "vite-hub/nuxt",
+})
+
+export default viteHubNuxtModule

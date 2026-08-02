@@ -1,0 +1,71 @@
+import { existsSync } from "node:fs"
+import { createRequire } from "node:module"
+import { join } from "node:path"
+import { pathToFileURL } from "node:url"
+
+import type { InlineConfig, ResolvedConfig } from "vite"
+
+const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
+
+function hasConfig(rootDir: string, name: string): boolean {
+  return configExtensions.some(extension => existsSync(join(rootDir, `${name}.config.${extension}`)))
+}
+
+type ResolveViteConfig = (
+  inlineConfig: InlineConfig,
+  command: "serve",
+  mode: string,
+) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
+
+type LoadNuxt = (options: {
+  cwd: string
+  dev: false
+  ready: true
+}) => Promise<{
+  close?: () => Promise<void> | void
+  options: {
+    rootDir?: string
+    vite?: InlineConfig
+  }
+}>
+
+async function resolveNuxtLoader(rootDir: string): Promise<LoadNuxt> {
+  const require = createRequire(join(rootDir, "package.json"))
+  const module = await import(pathToFileURL(require.resolve("nuxt/kit")).href) as { loadNuxt: LoadNuxt }
+  return module.loadNuxt
+}
+
+async function defaultResolveViteConfig(
+  inlineConfig: InlineConfig,
+  command: "serve",
+  mode: string,
+): Promise<Pick<ResolvedConfig, "plugins" | "root">> {
+  const { resolveConfig } = await import("vite")
+  return await resolveConfig(inlineConfig, command, mode)
+}
+
+export async function loadViteHubCliConfig(
+  rootDir: string,
+  dependencies: {
+    loadNuxt?: LoadNuxt
+    resolveViteConfig?: ResolveViteConfig
+  } = {},
+): Promise<Pick<ResolvedConfig, "plugins" | "root">> {
+  const resolveViteConfig = dependencies.resolveViteConfig ?? defaultResolveViteConfig
+  if (hasConfig(rootDir, "vite") || !hasConfig(rootDir, "nuxt")) {
+    return await resolveViteConfig({ root: rootDir }, "serve", "development")
+  }
+
+  const loadNuxt = dependencies.loadNuxt ?? await resolveNuxtLoader(rootDir)
+  const nuxt = await loadNuxt({ cwd: rootDir, dev: false, ready: true })
+  try {
+    return await resolveViteConfig({
+      ...nuxt.options.vite,
+      configFile: false,
+      root: nuxt.options.rootDir || rootDir,
+    }, "serve", "development")
+  }
+  finally {
+    await nuxt.close?.()
+  }
+}

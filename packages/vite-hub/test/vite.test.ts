@@ -464,6 +464,7 @@ describe("vitehub", () => {
       options: {
         commands: nitroConfig.commands,
         output: { dir: "/app/.output", serverDir: "/app/.output/cloudflare worker" },
+        preset: "cloudflare_module",
         rootDir: "/app",
       },
     }
@@ -500,6 +501,7 @@ describe("vitehub", () => {
       options: {
         commands: nitroConfig.commands,
         output: { dir: "/app/.output", serverDir: "/app/.output/server" },
+        preset: "cloudflare_module",
         rootDir: "/app",
       },
     }
@@ -507,6 +509,51 @@ describe("vitehub", () => {
     module(nitro)
 
     expect(nitro.options).toMatchObject({ commands: { deploy: "npx wrangler --cwd ./ deploy" } })
+  })
+
+  it("aliases Cloudflare runtime imports during Nitro prerendering", async () => {
+    const existingPrerender = vi.fn()
+    const config = await applyDeploymentConfig(
+      { preset: "cloudflare" },
+      { nitro: { hooks: { "prerender:config": existingPrerender } } },
+    )
+    const hooks = (config.nitro as { hooks: Record<string, unknown> }).hooks
+    const prerender = hooks["prerender:config"] as (config: Record<string, unknown>) => Promise<void>
+    const prerenderConfig = {
+      alias: { existing: "/existing" },
+      rollupConfig: { external: ["cloudflare:workers", "node:fs"] },
+    }
+
+    await prerender(prerenderConfig)
+
+    expect(existingPrerender).toHaveBeenCalledWith(prerenderConfig)
+    expect(prerenderConfig).toMatchObject({
+      alias: {
+        "cloudflare:workers": expect.stringMatching(/cloudflare-prerender\.mjs$/),
+        existing: "/existing",
+      },
+      rollupConfig: { external: ["node:fs"] },
+    })
+  })
+
+  it("leaves deployment output to the Nitro module matching the active preset", async () => {
+    const config = await applyDeploymentConfig({ preset: "cloudflare", sandbox: true })
+    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
+    const nitro = {
+      hooks: { hook: vi.fn() },
+      options: {
+        commands: { ...nitroConfig.commands },
+        output: { dir: "/app/.output", serverDir: "/app/.output/server" },
+        preset: "node_server",
+        rootDir: "/app",
+      },
+    }
+    const module = nitroConfig.modules[0] as (target: typeof nitro) => void
+
+    module(nitro)
+
+    expect(nitro.hooks.hook).not.toHaveBeenCalled()
+    expect(nitro.options.commands).toEqual({})
   })
 
   it("keeps deployment-owned Nitro configuration out of development", async () => {

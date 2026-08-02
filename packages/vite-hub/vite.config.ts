@@ -33,6 +33,7 @@ const distributionEntries = distributionEntriesFromManifest([
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
+    copy: [{ from: "src/cloudflare-prerender.mjs", to: "dist" }],
     deps: {
       neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$))/],
       alwaysBundle: [/^@vite-hub\/internal/],
