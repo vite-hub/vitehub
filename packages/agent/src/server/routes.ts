@@ -1166,16 +1166,25 @@ function sentMessageText(sent: unknown): string {
   return sent && typeof sent === "object" && "text" in sent && typeof sent.text === "string" ? sent.text : ""
 }
 
+async function removeAbortedChatDelivery(sent: unknown, abortSignal?: AbortSignal): Promise<void> {
+  if (!abortSignal?.aborted) return
+  await deleteManualDeliveryPlaceholder(sent)
+  abortSignal.throwIfAborted()
+}
+
 async function postChatStream(
   thread: Thread,
   response: ChatTextStream,
   fallback: string | null | undefined,
   waitUntil: AgentWaitUntil,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   let sent: unknown
   if (fallback === undefined) {
     sent = await thread.post(chatStreamPostable(thread, response) as never)
+    await removeAbortedChatDelivery(sent, abortSignal)
     await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+    await removeAbortedChatDelivery(sent, abortSignal)
     return
   }
 
@@ -1247,7 +1256,9 @@ async function postChatStream(
     chatThread._fallbackStreamingPlaceholderText = fallback
     try {
       sent = await thread.post(chatStreamPostable(thread, nativeResponse) as never)
+      await removeAbortedChatDelivery(sent, abortSignal)
       await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+      await removeAbortedChatDelivery(sent, abortSignal)
     }
     finally {
       chatThread._adapter = previousAdapter
@@ -1263,7 +1274,9 @@ async function postChatStream(
   chatThread._fallbackStreamingPlaceholderText = fallback
   try {
     sent = await thread.post(chatStreamPostable(thread, response) as never)
+    await removeAbortedChatDelivery(sent, abortSignal)
     await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+    await removeAbortedChatDelivery(sent, abortSignal)
   }
   finally {
     chatThread._fallbackStreamingPlaceholderText = previous
@@ -2326,6 +2339,7 @@ async function handleChatSdkMessage(
               streamAgentOutputToChatText(result),
               typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
               context.waitUntil,
+              invocationDeadlineAbort?.signal,
             )
           }
           else {
@@ -2334,7 +2348,7 @@ async function handleChatSdkMessage(
             const replies = streamAgentOutputToChatReplies(result, {
               commentary: options.commentary,
               onCommentary(response, discard) {
-                const delivery = postChatStream(thread, response, undefined, context.waitUntil)
+                const delivery = postChatStream(thread, response, undefined, context.waitUntil, invocationDeadlineAbort?.signal)
                   .catch(() => discard())
                 context.waitUntil(delivery)
               },
@@ -2344,6 +2358,7 @@ async function handleChatSdkMessage(
                   response,
                   typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
                   context.waitUntil,
+                  invocationDeadlineAbort?.signal,
                 ).catch((error) => {
                   finalDeliveryError = error
                 })
