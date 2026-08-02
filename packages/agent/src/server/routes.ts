@@ -1329,7 +1329,7 @@ async function postChatStream(
   const adapter = thread.adapter
   const placeholder = fallback === null
     ? Promise.resolve(undefined)
-    : adapter.postMessage(thread.id, fallback).catch(() => undefined)
+    : adapter.postMessage(thread.id, fallback)
   const clearPlaceholder = () => {
     waitUntil(settleChatCleanup(placeholder.then(async (message) => {
       if (message?.id) await adapter.deleteMessage(message.threadId || thread.id, message.id)
@@ -1344,8 +1344,7 @@ async function postChatStream(
       if (property === "postMessage" && fallback !== null) {
         return async (...args: Parameters<Adapter["postMessage"]>) => {
           if (args[0] === thread.id && args[1] === fallback) {
-            const message = await placeholder
-            if (message) return message
+            return await placeholder
           }
           return adapter.postMessage(...args)
         }
