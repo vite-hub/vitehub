@@ -2469,7 +2469,15 @@ async function handleChatSdkMessage(
           invocationDeadlineAbort?.signal.throwIfAborted()
           const completedPlaceholder = manualDeliveryState.placeholder
           manualDeliveryState.placeholder = undefined
-          if (completedPlaceholder) await deleteManualDeliveryPlaceholder(completedPlaceholder)
+          if (completedPlaceholder) {
+            try {
+              await deleteManualDeliveryPlaceholder(completedPlaceholder)
+            }
+            catch (error) {
+              if (!invocationDeadlineAbort?.signal.aborted) manualDeliveryState.placeholder = completedPlaceholder
+              throw error
+            }
+          }
         })(),
         maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout,
         invocationDeadlineAbort,

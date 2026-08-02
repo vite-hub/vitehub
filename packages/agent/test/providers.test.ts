@@ -7516,6 +7516,38 @@ describe("server helpers", () => {
     }
   })
 
+  it("restores manual placeholder ownership when completion cleanup fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockRejectedValue(new Error("delete failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => ({ text: "" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_028), "telegram")).rejects.toThrow("Manual chat delivery could not remove its placeholder.")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("bounds provider error details in chat logs", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
