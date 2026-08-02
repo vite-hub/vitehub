@@ -1191,6 +1191,7 @@ async function postChatStream(
   waitUntil: AgentWaitUntil,
   abortSignal?: AbortSignal,
 ): Promise<void> {
+  abortSignal?.throwIfAborted()
   let sent: unknown
   if (fallback === undefined) {
     sent = await thread.post(chatStreamPostable(thread, response) as never)
