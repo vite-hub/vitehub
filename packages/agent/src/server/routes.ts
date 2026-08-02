@@ -2156,7 +2156,24 @@ function chatInvocationTimeout(
   timeout: number | undefined,
   maximum: number | undefined,
 ): number | undefined {
-  return timeout === undefined || maximum === undefined ? timeout : Math.min(timeout, maximum)
+  if (maximum === undefined) return timeout
+  return timeout === undefined ? maximum : Math.min(timeout, maximum)
+}
+
+async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number | undefined): Promise<T> {
+  if (timeout === undefined) return await task
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`Chat invocation timed out after ${timeout}ms.`)), timeout)
+      }),
+    ])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
 }
 
 async function handleChatSdkMessage(
@@ -2249,7 +2266,10 @@ async function handleChatSdkMessage(
       const result = manualDelivery
         ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
         : await runAgentInline(agent as never, runContext as never, invocationInput as never)
-      const text = await collectAgentOutput(result, progress?.update)
+      const text = await enforceChatInvocationTimeout(
+        collectAgentOutput(result, progress?.update),
+        maximumInvocationTimeout === undefined ? undefined : invocationInput.timeout,
+      )
       if (!manualDelivery && text) {
         if (!await postDiscordSplitContent(thread, { markdown: text })) {
           await thread.post({ markdown: text })

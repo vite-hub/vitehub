@@ -7588,6 +7588,59 @@ describe("server helpers", () => {
     }
   })
 
+  it("delivers the manual fallback when a stream ignores its Cloudflare timeout", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ input }) => {
+      expect(input.timeout).toBe(25_000)
+      return {
+        stream: (async function* () {
+          await new Promise(() => undefined)
+        })(),
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_021), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(run).toHaveBeenCalledOnce()
+      const responseError = response.catch(error => error)
+
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("removes a manual placeholder when the error fallback is disabled", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
