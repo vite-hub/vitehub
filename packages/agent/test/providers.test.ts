@@ -7653,7 +7653,10 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         telegram: telegram({
-          adapter: () => adapter as never,
+          adapter: async () => {
+            await new Promise(resolve => setTimeout(resolve, 10_000))
+            return adapter as never
+          },
           messages: {
             errorFallbackText: "Please try again.",
             timeout: 50_000,
@@ -7662,9 +7665,8 @@ describe("server helpers", () => {
       },
       driver: {
         run: async ({ input }) => {
-          expect(input.timeout).toBe(25_000)
+          expect(input.timeout).toBe(15_000)
           invocationAbortSignal = input.abortSignal
-          await new Promise(resolve => setTimeout(resolve, 10_000))
           return {
             stream: (async function* () {
               await new Promise(() => undefined)
@@ -7686,11 +7688,11 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(25_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 15000ms.",
       })
       expect(invocationAbortSignal).toMatchObject({
         aborted: true,
-        reason: expect.objectContaining({ message: "Chat invocation timed out after 25000ms." }),
+        reason: expect.objectContaining({ message: "Chat invocation timed out after 15000ms." }),
       })
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
     }

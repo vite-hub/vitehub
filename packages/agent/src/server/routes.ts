@@ -2194,9 +2194,8 @@ async function handleChatSdkMessage(
   options: AgentChatOptions | undefined,
   state: { keyPrefix: string, state: StateAdapter },
   messageContext?: MessageContext,
-  maximumInvocationTimeout?: number,
+  maximumInvocationDeadline?: number,
 ): Promise<void> {
-  const invocationStartedAt = Date.now()
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
@@ -2251,10 +2250,10 @@ async function handleChatSdkMessage(
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
       : undefined
     const resolvedInvocationInput = invocation.input as AgentRunInput
-    const remainingMaximumInvocationTimeout = maximumInvocationTimeout === undefined
+    const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined
       ? undefined
-      : Math.max(0, maximumInvocationTimeout - (Date.now() - invocationStartedAt))
-    const invocationDeadlineAbort = maximumInvocationTimeout === undefined ? undefined : new AbortController()
+      : Math.max(0, maximumInvocationDeadline - Date.now())
+    const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
       ...resolvedInvocationInput,
       ...(invocationDeadlineAbort
@@ -2290,7 +2289,7 @@ async function handleChatSdkMessage(
             : await runAgentInline(agent as never, runContext as never, invocationInput as never)
           return await collectAgentOutput(result, progress?.update)
         })(),
-        maximumInvocationTimeout === undefined ? undefined : invocationInput.timeout,
+        maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout,
         invocationDeadlineAbort,
       )
       if (!manualDelivery && text) {
@@ -2351,7 +2350,7 @@ async function handleChatSdkMessage(
           typing?.stop()
         }
         await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
-      })(), maximumInvocationTimeout === undefined ? undefined : invocationInput.timeout, invocationDeadlineAbort)
+      })(), maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout, invocationDeadlineAbort)
     }
   }
   catch (error) {
@@ -2373,6 +2372,7 @@ async function createChannelChat(
   adapter: Adapter,
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
+  maximumInvocationDeadline?: number,
 ): Promise<Chat> {
   const resolvedState = await resolveChatState(options, context, registration, handlerOptions)
   const chat = new Chat(createChatSdkConfig(
@@ -2382,19 +2382,14 @@ async function createChannelChat(
     options,
   ))
   const state = { keyPrefix: resolvedState.titleKeyPrefix, state: resolvedState.state }
-  // Cloudflare cancels waitUntil after 30 seconds, so fallback delivery needs its own time budget.
-  const maximumInvocationTimeout = context.runtime === "cloudflare-agents" && handlerOptions.waitUntil
-    ? cloudflareChatBackgroundTimeoutMs
-    : undefined
-
   chat.onDirectMessage((thread, message, _channel, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, "direct", options, state, messageContext, maximumInvocationTimeout))
+    handleChatSdkMessage(agent, context, registration, thread, message, "direct", options, state, messageContext, maximumInvocationDeadline))
   chat.onNewMention(async (thread, message, messageContext) => {
     await thread.subscribe().catch(() => undefined)
-    await handleChatSdkMessage(agent, context, registration, thread, message, "mention", options, state, messageContext, maximumInvocationTimeout)
+    await handleChatSdkMessage(agent, context, registration, thread, message, "mention", options, state, messageContext, maximumInvocationDeadline)
   })
   chat.onSubscribedMessage((thread, message, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, message.isMention ? "mention" : "subscribed", options, state, messageContext, maximumInvocationTimeout))
+    handleChatSdkMessage(agent, context, registration, thread, message, message.isMention ? "mention" : "subscribed", options, state, messageContext, maximumInvocationDeadline))
 
   return chat
 }
@@ -2407,8 +2402,9 @@ async function createChatWebhookHandler(
   adapter: Adapter,
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
+  maximumInvocationDeadline?: number,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
-  const chat = await createChannelChat(agent, context, registration, adapterName, adapter, options, handlerOptions)
+  const chat = await createChannelChat(agent, context, registration, adapterName, adapter, options, handlerOptions, maximumInvocationDeadline)
   const handler = chat.webhooks[adapterName]
   if (!handler) {
     throw new Error(`[vitehub] Chat adapter "${adapterName}" did not expose a webhook handler.`)
@@ -2657,6 +2653,7 @@ export function createChannelWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions) => Promise<Response> {
   return async (request, webhook, handlerOptions = {}) => {
+    const webhookStartedAt = Date.now()
     if (request.method !== "HEAD" && request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
@@ -2676,6 +2673,10 @@ export function createChannelWebhookRouteHandler(
       handlerOptions.capabilities,
       routeAgentIdentity(handlerOptions),
     )
+    // Cloudflare cancels waitUntil after 30 seconds, so fallback delivery needs its own time budget.
+    const maximumInvocationDeadline = context.runtime === "cloudflare-agents" && handlerOptions.waitUntil
+      ? webhookStartedAt + cloudflareChatBackgroundTimeoutMs
+      : undefined
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
       if (!match) {
@@ -2837,7 +2838,7 @@ export function createChannelWebhookRouteHandler(
 
       try {
         const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
-        const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions)
+        const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline)
         const response = await handler(request, { waitUntil: context.waitUntil })
         if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
           await context.flushWaitUntil?.()
