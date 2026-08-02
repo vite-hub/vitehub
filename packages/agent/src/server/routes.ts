@@ -2931,9 +2931,11 @@ export function createChannelWebhookRouteHandler(
         }
       }
 
+      const webhookDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
       const chatWebhookTask = (async () => {
         const baseChatOptions = getAgentChatOptions(agent)
         const adapters = await resolveChatAdapters(baseChatOptions, context)
+        webhookDeadlineAbort?.signal.throwIfAborted()
         const adapterName = resolveChatAdapterName(adapters, registration)
         const adapter = adapterName ? adapters[adapterName] : undefined
         if (!adapter) {
@@ -2943,6 +2945,7 @@ export function createChannelWebhookRouteHandler(
         try {
           const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
           const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline)
+          webhookDeadlineAbort?.signal.throwIfAborted()
           const response = await handler(request, { waitUntil: context.waitUntil })
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
             await context.flushWaitUntil?.()
@@ -2958,6 +2961,7 @@ export function createChannelWebhookRouteHandler(
       return await enforceChatInvocationTimeout(
         chatWebhookTask,
         maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
+        webhookDeadlineAbort,
       )
     })
   }
