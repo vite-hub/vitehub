@@ -1136,29 +1136,41 @@ async function postDiscordSplitContent(
   if (discordLongContentMode(thread.adapter) !== "split") return false
   const rendered = renderDiscordPostable(thread.adapter, postable)
   if (!rendered || rendered.length <= discordMaxContentLength) return false
+  const sentMessages: unknown[] = []
   for (const part of discordContentParts(rendered)) {
     const sent = await thread.post({ raw: part })
+    sentMessages.push(sent)
     if (abortSignal?.aborted) {
-      await deleteManualDeliveryPlaceholder(sent)
+      await Promise.allSettled(sentMessages.map(deleteManualDeliveryPlaceholder))
       abortSignal.throwIfAborted()
     }
   }
   return true
 }
 
-async function finishDiscordSplitStream(thread: Thread, sent: unknown, markdown: string): Promise<void> {
+async function finishDiscordSplitStream(
+  thread: Thread,
+  sent: unknown,
+  markdown: string,
+  abortSignal?: AbortSignal,
+): Promise<void> {
   if (!markdown || discordLongContentMode(thread.adapter) !== "split") return
   const rendered = renderDiscordPostable(thread.adapter, { markdown })
   if (!rendered || rendered.length <= discordMaxContentLength) return
   const [first, ...rest] = discordContentParts(rendered)
+  const sentMessages = sent ? [sent] : []
   if (first && sent && typeof sent === "object" && "edit" in sent && typeof sent.edit === "function") {
     await sent.edit({ attachments: [], raw: first })
   }
   else if (first) {
-    await thread.post({ raw: first })
+    sentMessages.push(await thread.post({ raw: first }))
   }
   for (const part of rest) {
-    await thread.post({ raw: part })
+    sentMessages.push(await thread.post({ raw: part }))
+    if (abortSignal?.aborted) {
+      await Promise.allSettled(sentMessages.map(deleteManualDeliveryPlaceholder))
+      abortSignal.throwIfAborted()
+    }
   }
 }
 
@@ -1183,7 +1195,7 @@ async function postChatStream(
   if (fallback === undefined) {
     sent = await thread.post(chatStreamPostable(thread, response) as never)
     await removeAbortedChatDelivery(sent, abortSignal)
-    await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+    await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent), abortSignal)
     await removeAbortedChatDelivery(sent, abortSignal)
     return
   }
@@ -1257,7 +1269,7 @@ async function postChatStream(
     try {
       sent = await thread.post(chatStreamPostable(thread, nativeResponse) as never)
       await removeAbortedChatDelivery(sent, abortSignal)
-      await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+      await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent), abortSignal)
       await removeAbortedChatDelivery(sent, abortSignal)
     }
     finally {
@@ -1275,7 +1287,7 @@ async function postChatStream(
   try {
     sent = await thread.post(chatStreamPostable(thread, response) as never)
     await removeAbortedChatDelivery(sent, abortSignal)
-    await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+    await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent), abortSignal)
     await removeAbortedChatDelivery(sent, abortSignal)
   }
   finally {
@@ -1962,7 +1974,7 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
   return Array.isArray(artifacts) ? artifacts as readonly PublishedAgentDeliveryArtifact[] : []
 }
 
-async function postChatMessage(thread: Thread, message: AgentChatMessage): Promise<void> {
+async function postChatMessage(thread: Thread, message: AgentChatMessage, abortSignal?: AbortSignal): Promise<void> {
   if (isAsyncIterable(message)) {
     let markdown = ""
     const stream = (async function* () {
@@ -1972,25 +1984,27 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage): Promi
       }
     })()
     const sent = await thread.post(thread.adapter.stream ? new StreamingPlan(stream) : stream)
-    await finishDiscordSplitStream(thread, sent, markdown || sentMessageText(sent))
+    await removeAbortedChatDelivery(sent, abortSignal)
+    await finishDiscordSplitStream(thread, sent, markdown || sentMessageText(sent), abortSignal)
+    await removeAbortedChatDelivery(sent, abortSignal)
     return
   }
   if (typeof message !== "object" || message === null) {
-    if (await postDiscordSplitContent(thread, message)) return
-    await thread.post(message)
+    if (await postDiscordSplitContent(thread, message, abortSignal)) return
+    await removeAbortedChatDelivery(await thread.post(message), abortSignal)
     return
   }
 
   const attachments = deliveryArtifactAttachments(chatMessageDeliveryArtifacts(message))
   if (!attachments.length) {
     const postable = isTextChatMessage(message) ? message.text : message as AdapterPostableMessage
-    if (await postDiscordSplitContent(thread, postable)) return
-    await thread.post(postable)
+    if (await postDiscordSplitContent(thread, postable, abortSignal)) return
+    await removeAbortedChatDelivery(await thread.post(postable), abortSignal)
     return
   }
 
   if (isTextChatMessage(message)) {
-    await thread.post({ attachments, raw: message.text })
+    await removeAbortedChatDelivery(await thread.post({ attachments, raw: message.text }), abortSignal)
     return
   }
 
@@ -1998,13 +2012,13 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage): Promi
     artifacts?: readonly PublishedAgentDeliveryArtifact[]
     attachments?: unknown
   }
-  await thread.post({
+  await removeAbortedChatDelivery(await thread.post({
     ...postable,
     attachments: [
       ...(Array.isArray(postable.attachments) ? postable.attachments as Attachment[] : []),
       ...attachments,
     ],
-  } as AdapterPostableMessage)
+  } as AdapterPostableMessage), abortSignal)
 }
 
 async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: AgentChatMessage): Promise<boolean> {
@@ -2105,6 +2119,7 @@ async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
   manualDelivery: { placeholder?: unknown },
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
   for (let message of messages) {
@@ -2115,12 +2130,13 @@ async function flushChatFinishExtensionMessages(
         message = { markdown }
       }
       if (await deliverToManualDeliveryPlaceholder(manualDelivery.placeholder, message)) {
+        abortSignal?.throwIfAborted()
         manualDelivery.placeholder = undefined
         continue
       }
       manualDelivery.placeholder = undefined
     }
-    await postChatMessage(thread, message)
+    await postChatMessage(thread, message, abortSignal)
   }
 }
 
@@ -2319,7 +2335,8 @@ async function handleChatSdkMessage(
             }
           }
           await progress?.finish()
-          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
+          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
+          invocationDeadlineAbort?.signal.throwIfAborted()
           if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
           manualDeliveryState.placeholder = undefined
         })(),
@@ -2376,7 +2393,7 @@ async function handleChatSdkMessage(
         finally {
           typing?.stop()
         }
-        await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
+        await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
       })(), maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout, invocationDeadlineAbort)
     }
   }
