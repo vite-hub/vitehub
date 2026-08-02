@@ -3541,6 +3541,37 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
   })
 
+  it("does not block non-Cloudflare webhooks on stalled commentary delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementationOnce(() => new Promise(() => undefined))
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "message" },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
+            yield { phase: "final", text: "Final answer.", type: "text-delta" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(2018, 999), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:999", expect.any(String), { markdown: "Final answer." })
+  })
+
   it("delivers unphased final output when commentary is configured", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
@@ -5625,7 +5656,10 @@ describe("server helpers", () => {
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
       body: "{}",
       method: "POST",
-    }), "support")
+    }), "support", {
+      cloudflare: { env: {} },
+      waitUntil: () => undefined,
+    })
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
@@ -6723,6 +6757,75 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
   })
 
+  it("does not retry an ambiguously failed streaming placeholder post", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("provider response lost"))
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          errorFallbackText: null,
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => "done" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(21050), "telegram")).rejects.toThrow("provider response lost")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it...")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it("does not retry an ambiguously failed native streaming placeholder post", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("provider response lost"))
+    adapter.stream = vi.fn(async () => null)
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          errorFallbackText: null,
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => "done" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(21051), "telegram")).rejects.toThrow("provider response lost")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it...")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("does not block native output on slow fallback delivery or cleanup", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -7352,7 +7455,10 @@ describe("server helpers", () => {
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    const response = await handler(chatWebhookRequest(91_014), "telegram")
+    const response = await handler(chatWebhookRequest(91_014), "telegram", {
+      cloudflare: { env: {} },
+      waitUntil: () => undefined,
+    })
 
     expect(response.status).toBe(200)
     expect(adapter.editMessage).toHaveBeenCalledOnce()
@@ -7404,6 +7510,68 @@ describe("server helpers", () => {
     }
     finally {
       consoleError.mockRestore()
+    }
+  })
+
+  it("removes a stalled progress placeholder before the Cloudflare timeout fallback", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let resolveProgressEdit: (() => void) | undefined
+    adapter.editMessage.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveProgressEdit = resolve
+    }))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please send the photo again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            progress: true,
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Reviewing the request.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            await new Promise(() => undefined)
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_031), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_100)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
+      expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
+      resolveProgressEdit?.()
+      await vi.runAllTimersAsync()
+      expect(adapter.editMessage).toHaveBeenCalledOnce()
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
     }
   })
 
@@ -7516,6 +7684,84 @@ describe("server helpers", () => {
     }
   })
 
+  it("restores manual placeholder ownership when completion cleanup fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockRejectedValue(new Error("delete failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => ({ text: "" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_028), "telegram")).rejects.toThrow("Manual chat delivery could not remove its placeholder.")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it("preserves manual placeholder ownership when cleanup fails after the deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 26_000))
+      throw new Error("delete failed")
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: { run: () => ({ text: "" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_030), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(26_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("bounds provider error details in chat logs", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -7568,7 +7814,8 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ input }) => {
-      expect(input.timeout).toBe(25_000)
+      expect(input.timeout).toBeGreaterThan(24_000)
+      expect(input.timeout).toBeLessThanOrEqual(25_000)
       throw new Error("model timeout")
     })
     const agent = defineAgent({
@@ -7581,6 +7828,7 @@ describe("server helpers", () => {
             fallbackStreamingPlaceholderText: "Analyzing photo…",
             timeout: 50_000,
           },
+          webhooks: { secretToken: false },
         }),
       },
       driver: { run },
@@ -7600,40 +7848,31 @@ describe("server helpers", () => {
     }
   })
 
-  it("enforces the Cloudflare background timeout when a manual invocation never settles", async () => {
+  it("delivers the manual fallback when a stream ignores its Cloudflare timeout", async () => {
+    vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
-    const nativeSetTimeout = globalThis.setTimeout
-    const nativeClearTimeout = globalThis.clearTimeout
-    const timeoutToken = {} as ReturnType<typeof setTimeout>
-    let timeoutCallback: (() => void) | undefined
-    const setTimeoutImplementation = (
-      callback: (...args: unknown[]) => void,
-      delay?: number,
-      ...args: unknown[]
-    ): ReturnType<typeof setTimeout> => {
-      if (delay === 25_000) {
-        timeoutCallback = () => callback(...args)
-        return timeoutToken
-      }
-      return nativeSetTimeout(callback, delay, ...args)
-    }
-    const clearTimeoutImplementation: typeof clearTimeout = (timeout) => {
-      if (timeout !== timeoutToken) nativeClearTimeout(timeout)
-    }
-    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(setTimeoutImplementation as typeof setTimeout)
-    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout").mockImplementation(clearTimeoutImplementation)
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    const run = vi.fn(() => new Promise(() => undefined))
+    const run = vi.fn(async ({ input }) => {
+      expect(input.timeout).toBe(25_000)
+      await new Promise(resolve => setTimeout(resolve, 10_000))
+      return {
+        stream: (async function* () {
+          await new Promise(() => undefined)
+        })(),
+      }
+    })
     const agent = defineAgent({
       channels: {
-        telegram: testTelegram(telegram, {
+        telegram: telegram({
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
-            errorFallbackText: null,
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            timeout: 50_000,
           },
           webhooks: { secretToken: false },
         }),
@@ -7641,28 +7880,456 @@ describe("server helpers", () => {
       driver: { run },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const waitUntilTasks: Promise<unknown>[] = []
 
     try {
-      const response = handler(chatWebhookRequest(99_018, 99_018), "telegram", {
+      const response = handler(chatWebhookRequest(91_021), "telegram", {
         cloudflare: { env: {} },
-        waitUntil: task => waitUntilTasks.push(task),
-      }).catch(() => undefined)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
-      expect(timeoutCallback).toBeTypeOf("function")
-      timeoutCallback?.()
-      await response
-      await Promise.all(waitUntilTasks)
-      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
-        error: expect.objectContaining({
-          message: "Chat invocation timed out after 25000ms.",
-        }),
-      }))
+        waitUntil: () => undefined,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(run).toHaveBeenCalledOnce()
+      const responseError = response.catch(error => error)
+
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
     }
     finally {
-      clearTimeoutSpy.mockRestore()
-      setTimeoutSpy.mockRestore()
       consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("delivers the streaming fallback when a stream ignores its Cloudflare timeout", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let invocationAbortSignal: AbortSignal | undefined
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: async () => {
+            await new Promise(resolve => setTimeout(resolve, 10_000))
+            return adapter as never
+          },
+          messages: {
+            errorFallbackText: "Please try again.",
+            timeout: 50_000,
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: {
+        run: async ({ input }) => {
+          expect(input.timeout).toBe(15_000)
+          invocationAbortSignal = input.abortSignal
+          return {
+            stream: (async function* () {
+              await new Promise(() => undefined)
+            })(),
+          }
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_022), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      const responseError = response.catch(error => error)
+
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(invocationAbortSignal).toMatchObject({
+        aborted: true,
+        reason: expect.objectContaining({ message: "Chat invocation timed out after 15000ms." }),
+      })
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds stalled Cloudflare fallback delivery by the hard deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementation(() => new Promise(() => undefined))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: "Please try again.",
+            timeout: 50_000,
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: {
+        run: async () => ({
+          stream: (async function* () {
+            await new Promise(() => undefined)
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_023), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(0)
+
+      await vi.advanceTimersByTimeAsync(29_999)
+      await expect(Promise.race([
+        responseError.then(() => "settled"),
+        Promise.resolve("pending"),
+      ])).resolves.toBe("pending")
+
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects queued finish messages before late Cloudflare delivery", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: "Please try again.",
+            stream: false,
+            timeout: 50_000,
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: {
+        run: async () => {
+          await new Promise(resolve => setTimeout(resolve, 30_000))
+          return { text: "" }
+        },
+      },
+      hooks: {
+        "agent:finish": async (event) => {
+          const chat = event.extensions.get("chat") as { sendMessage?: (message: string) => Promise<void> } | undefined
+          await chat?.sendMessage?.("late finish message")
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_024), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "late finish message")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("closes stalled finish iterators before timeout fallback delivery", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const iteratorReturn = vi.fn(async () => ({ done: true as const, value: undefined }))
+    const reply = {
+      [Symbol.asyncIterator]: () => {
+        let first = true
+        return {
+          next: async () => {
+            if (first) {
+              first = false
+              return { done: false as const, value: "partial" }
+            }
+            return await new Promise<IteratorResult<string>>(() => undefined)
+          },
+          return: iteratorReturn,
+        }
+      },
+    }
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: "Please try again.",
+            stream: false,
+            timeout: 50_000,
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: () => ({ text: "" }) },
+      hooks: {
+        "agent:finish": async (event) => {
+          const chat = event.extensions.get("chat") as { sendMessage?: (message: AsyncIterable<string>) => Promise<void> } | undefined
+          await chat?.sendMessage?.(reply)
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_025), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(iteratorReturn).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not duplicate a fallback callback that delivered before timing out", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: async ({ thread }) => {
+              await thread.post("Tailored fallback.")
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: () => { throw new Error("model timeout") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_026), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await expect(responseError).resolves.toMatchObject({ message: "model timeout" })
+      expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Tailored fallback.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("uses the available Cloudflare deadline to resolve an immediate error fallback", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let resolveFallback: ((fallback: string) => void) | undefined
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: () => new Promise<string>((resolve) => {
+              resolveFallback = resolve
+            }),
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: () => { throw new Error("model error") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_032), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      })
+      for (let index = 0; index < 100 && !resolveFallback; index++) {
+        await vi.advanceTimersByTimeAsync(1)
+      }
+      expect(resolveFallback).toBeTypeOf("function")
+      await vi.advanceTimersByTimeAsync(1_100)
+      resolveFallback?.("Tailored fallback.")
+      for (let index = 0; index < 20 && !adapter.postMessage.mock.calls.length; index++) await Promise.resolve()
+      await expect(response).rejects.toThrow("model error")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Tailored fallback.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("removes fallback callback delivery that completes after timing out", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => {
+      if (message === "Tailored fallback.") {
+        await new Promise(resolve => setTimeout(resolve, 2_000))
+        return { id: "late-tailored", raw: { message }, threadId }
+      }
+      return { id: "default-fallback", raw: { message }, threadId }
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: async ({ thread }) => {
+              await thread.post("Tailored fallback.")
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: () => new Promise(() => undefined) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_029), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_000)
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await responseError
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Sorry, I couldn't process that message.")
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "late-tailored")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not post Discord split fragments after the Cloudflare deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
+      formatConverter: { renderPostable: (message: unknown) => string }
+      name: string
+    }
+    adapter.formatConverter = {
+      renderPostable(message: unknown) {
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        return ""
+      },
+    }
+    adapter.name = "discord"
+    Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
+    adapter.editMessage.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 26_000))
+    })
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: "Please try again.",
+            stream: true,
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: { run: () => ({ text: `${"word ".repeat(430)}done` }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_027), "discord", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", {
+        raw: expect.stringMatching(/ \(2\/2\)$/),
+      })
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
     }
   })
 
