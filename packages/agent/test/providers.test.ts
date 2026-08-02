@@ -8086,7 +8086,6 @@ describe("server helpers", () => {
           messages: {
             errorFallbackText: async ({ thread }) => {
               await thread.post("Tailored fallback.")
-              await new Promise(() => undefined)
             },
           },
           webhooks: { secretToken: false },
@@ -8105,6 +8104,52 @@ describe("server helpers", () => {
 
       await expect(responseError).resolves.toMatchObject({ message: "model timeout" })
       expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Tailored fallback.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("uses the available Cloudflare deadline to resolve an immediate error fallback", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let resolveFallback: ((fallback: string) => void) | undefined
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: () => new Promise<string>((resolve) => {
+              resolveFallback = resolve
+            }),
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: () => { throw new Error("model error") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_032), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      })
+      for (let index = 0; index < 100 && !resolveFallback; index++) {
+        await vi.advanceTimersByTimeAsync(1)
+      }
+      expect(resolveFallback).toBeTypeOf("function")
+      await vi.advanceTimersByTimeAsync(1_100)
+      resolveFallback?.("Tailored fallback.")
+      for (let index = 0; index < 20 && !adapter.postMessage.mock.calls.length; index++) await Promise.resolve()
+      await expect(response).rejects.toThrow("model error")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Tailored fallback.")
     }
     finally {
@@ -8139,7 +8184,7 @@ describe("server helpers", () => {
           webhooks: { secretToken: false },
         }),
       },
-      driver: { run: () => { throw new Error("model timeout") } },
+      driver: { run: () => new Promise(() => undefined) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -8148,6 +8193,7 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_000)
       await vi.advanceTimersByTimeAsync(1_000)
 
       await responseError

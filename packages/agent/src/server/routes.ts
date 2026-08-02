@@ -2171,6 +2171,8 @@ interface ManualChatDeliveryState {
   placeholderCleanup?: Promise<void>
 }
 
+const chatFallbackDeliveryReserveMs = 4_000
+
 async function postChatErrorFallback(
   error: unknown,
   thread: Thread,
@@ -2190,18 +2192,27 @@ async function postChatErrorFallback(
   })
   const fallbackResolutionTimeout = maximumInvocationDeadline === undefined
     ? undefined
-    : Math.min(1_000, Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()))
+    : Math.max(0, maximumInvocationDeadline + 5_000 - chatFallbackDeliveryReserveMs - Date.now())
   let callbackDelivered = false
+  let resolveCallbackDelivery: (() => void) | undefined
+  const callbackDelivery = new Promise<void>((resolve) => {
+    resolveCallbackDelivery = resolve
+  })
   const fallbackResolutionAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
-  const fallback = await resolveChatErrorFallbackText(
+  const fallbackResolution = resolveChatErrorFallbackText(
     options,
     chatErrorHookArgs(thread, message, input, run, error, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
+      resolveCallbackDelivery?.()
     }),
     fallbackResolutionTimeout,
     fallbackResolutionAbort,
     () => callbackDelivered,
   )
+  const fallback = typeof options?.errorFallbackText === "function"
+    ? await Promise.race([fallbackResolution, callbackDelivery.then(() => undefined)])
+    : await fallbackResolution
+  if (callbackDelivered) fallbackResolutionAbort?.abort()
   if (fallback && manualDelivery) manualDelivery.errorFallback = fallback
   if (manualDelivery?.placeholderCleanup) {
     const cleanup = manualDelivery.placeholderCleanup.catch(() => undefined)
