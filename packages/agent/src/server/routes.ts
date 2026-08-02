@@ -2319,8 +2319,15 @@ async function handleChatSdkMessage(
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
+      const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
+        if (invocationDeadlineAbort?.signal.aborted) {
+          await deleteManualDeliveryPlaceholder(placeholder)
+          invocationDeadlineAbort.signal.throwIfAborted()
+        }
+        return placeholder
+      })
       manualDeliveryState.placeholder = await enforceChatInvocationTimeout(
-        thread.post(thinkingFallback),
+        placeholderDelivery,
         maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
         invocationDeadlineAbort,
       )
