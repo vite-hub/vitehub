@@ -2191,11 +2191,13 @@ async function flushChatFinishExtensionMessages(
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
   for (let message of messages) {
+    abortSignal?.throwIfAborted()
     if (manualDelivery.placeholder) {
       if (isAsyncIterable(message)) {
         let markdown = ""
         for await (const chunk of message) markdown += chunk
         message = { markdown }
+        abortSignal?.throwIfAborted()
       }
       const placeholder = manualDelivery.placeholder
       if (await deliverToManualDeliveryPlaceholder(placeholder, message, abortSignal
