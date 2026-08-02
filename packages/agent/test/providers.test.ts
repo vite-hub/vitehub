@@ -7410,6 +7410,61 @@ describe("server helpers", () => {
     }
   })
 
+  it("retains a stalled progress placeholder for the Cloudflare timeout fallback", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.editMessage.mockImplementationOnce(async () => await new Promise(() => undefined))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please send the photo again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            progress: true,
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Reviewing the request.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            await new Promise(() => undefined)
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_031), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_100)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", "Please send the photo again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("posts a buffered manual stream when placeholder editing fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

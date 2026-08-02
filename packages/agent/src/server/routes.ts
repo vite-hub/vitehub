@@ -765,6 +765,7 @@ function progressSummaryFromEvent(event: unknown): string | undefined {
 function createManualDeliveryProgressUpdater(
   manualDelivery: { placeholder?: unknown },
   waitUntil: AgentWaitUntil,
+  abortSignal?: AbortSignal,
 ): {
   finish: () => Promise<void>
   update: (summary: string) => void
@@ -802,6 +803,7 @@ function createManualDeliveryProgressUpdater(
       ])
       if (timeout) clearTimeout(timeout)
       if (drained || !manualDelivery.placeholder) return
+      if (abortSignal) return
 
       const stalePlaceholder = manualDelivery.placeholder
       manualDelivery.placeholder = undefined
@@ -2487,7 +2489,7 @@ async function handleChatSdkMessage(
     }
     const chatFinish = createChatFinishExtension(input, registration)
     progress = manualDelivery
-      ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
+      ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal)
       : undefined
     const resolvedInvocationInput = invocation.input as AgentRunInput
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined
