@@ -15,7 +15,7 @@ Use a structural `{ model }`, `{ harness }`, or `{ run }` object when the applic
 | --- | --- | --- |
 | `"codex"` or `{ kind: "codex" }` | The Agent should use ViteHub's built-in Codex integration. | `auth`, `credentials`, `env`, `instructions`, `model`, `reasoningEffort`, `sandbox`, `webSearch`, `workDir` |
 | `"claude-code"` or `{ kind: "claude-code" }` | The Agent should use ViteHub's built-in Claude Code integration. | `auth`, `credentials`, `env`, `maxTurns`, `model`, `sandbox`, `thinking` |
-| `{ model }` | The Agent should call an application-supplied AI SDK model through ViteHub model execution. | `instructions`, `execution` |
+| `{ model }` | The Agent should call an application-supplied AI SDK model through ViteHub model execution. | `instructions`, `maxRetries`, `execution` |
 | `{ harness }` | The Agent should run through an application-supplied AI SDK harness adapter. | `credentials`, `instructions`, `requires`, `sandbox`, `sessionKey`, `workDir` |
 | `{ run }` | The Agent should execute application code directly. | none |
 
@@ -30,7 +30,10 @@ import { defineAgent, gateway } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: gateway('openai/gpt-5.1-mini', {
+      fallbacks: ['anthropic/claude-sonnet-4.5'],
+    }),
+    maxRetries: 0,
     instructions: [
       'Answer support requests from inspected evidence.',
       'Use configured Capabilities only for the roles named in these instructions.',
@@ -43,7 +46,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub's `gateway()` resolves credentials and creates the AI SDK Gateway provider behind the Agent Driver interface. Pass a settings callback when credentials come from invocation-aware server configuration. A concrete AI SDK model remains accepted as the provider escape hatch.
+ViteHub's `gateway()` resolves `AI_GATEWAY_API_KEY` from process or Cloudflare Server Env and creates the AI SDK Gateway provider behind the Agent Driver interface. Pass `fallbacks` to configure AI Gateway model fallbacks, or use a settings callback when credentials come from invocation-aware server configuration. A concrete AI SDK model remains accepted as the provider escape hatch.
 
 Capability Driver Contributions such as model-facing tools are filtered for the selected Agent Driver before the model call. Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown.
 
@@ -53,6 +56,7 @@ Capability Driver Contributions such as model-facing tools are filtered for the 
 | --- | --- | --- | --- |
 | `model` | model value or callback | Required | Resolves the AI SDK model for the invocation. |
 | `instructions` | `string`, `string[]`, or callback parts | Colocated instructions when available | Supplies Model Driver Instructions. Callback parts receive trusted runtime and Workspace metadata. |
+| `maxRetries` | non-negative integer | AI SDK default | Sets the common model retry count. Do not combine it with `execution.callSettings.maxRetries`. |
 | `execution.callSettings` | `Record<string, unknown>` | `{}` | Passes provider and AI SDK call settings to model execution. |
 | `execution.stepLimit` | `number` | `20` | Stops the model tool loop after this many steps unless `callSettings.stopWhen` overrides it. |
 | `execution.instrumentation.model` | callback | None | Replaces or wraps the resolved model for one invocation. |

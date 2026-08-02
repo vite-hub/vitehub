@@ -247,6 +247,16 @@ describe("agent public types", () => {
     defineAgent({ channels: { portal: webChat }, driver: { run: () => "ok" } })
     defineAgent({ channels: { portal: webChat() }, driver: { run: () => "ok" } })
     defineAgent({ channels: { portal: webChat({ messages: { sessions: false } }) }, driver: { run: () => "ok" } })
+    defineAgent({
+      channels: {
+        portal: webChat(),
+        telegram: {
+          allowedUserIds: context => [context.runtime === "vite" ? 1 : 2],
+          messages: { delivery: "manual", triggerHistory: "none" },
+        },
+      },
+      driver: { maxRetries: 0, model: () => ({}) as never },
+    })
 
     const requiresOptions = (_options: { route: boolean }) => webChat()
     defineAgent({

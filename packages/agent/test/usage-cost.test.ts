@@ -203,6 +203,37 @@ describe("usageCost", () => {
     })
   })
 
+  it("formats USD cost on the canonical invocation usage record", async () => {
+    const { usageCost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCost({
+        format: "usd",
+        pricing: () => ({
+          amount: "0.00125",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        }),
+      })],
+      driver: {
+        run: () => ({
+          modelId: "custom/model",
+          text: "ok",
+          usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+
+    expect(finish.mock.calls[0]![0].invocation.usage?.cost).toMatchObject({
+      formatted: "~$0.001250",
+    })
+  })
+
   it("matches provider-scoped catalog entries for unscoped model IDs", async () => {
     const fetch = vi.fn(async () => Response.json({
       data: [{

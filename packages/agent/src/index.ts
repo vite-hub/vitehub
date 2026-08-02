@@ -29,9 +29,16 @@ import {
 } from "./internal/channels.ts"
 import type { MessageChannelTitleDeliveryAttempt } from "./internal/channels.ts"
 import {
+  discord as builtInDiscord,
+  github as builtInGitHub,
+  http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
   messageChannelTitleSupportContextKey,
+  slack as builtInSlack,
+  teams as builtInTeams,
+  telegram as builtInTelegram,
+  webChat as builtInWebChat,
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
@@ -1001,10 +1008,29 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!inputs) return inputs
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
-    if (typeof input !== "function") continue
-    const channel = input()
+    const value = input as unknown
+    if (typeof value === "object" && value && "kind" in value && typeof value.kind === "string") continue
+    const channel = typeof input === "function"
+      ? input()
+      : id === "discord"
+        ? builtInDiscord<TRuntimeConfig>(input as never)
+        : id === "github"
+          ? builtInGitHub<TRuntimeConfig>(input as never)
+          : id === "http"
+            ? builtInHttp<TRuntimeConfig>(input as never)
+            : id === "slack"
+              ? builtInSlack<TRuntimeConfig>(input as never)
+              : id === "teams"
+                ? builtInTeams<TRuntimeConfig>(input as never)
+                : id === "telegram"
+                  ? builtInTelegram<TRuntimeConfig>(input as never)
+                  : id === "webChat"
+                    ? builtInWebChat<TRuntimeConfig>(input as never)
+                    : undefined
     if (!channel || typeof channel !== "object" || typeof channel.kind !== "string") {
-      throw new TypeError(`[vitehub] Channel factory "${id}" must return an Agent Channel definition.`)
+      throw new TypeError(typeof input === "function"
+        ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
+        : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.`)
     }
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
     channels[id] = channel

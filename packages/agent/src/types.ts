@@ -24,6 +24,13 @@ import type {
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { LocalHarnessSandboxOptions } from "./harness/local-sandbox.ts"
+import type {
+  AgentChannelOptions,
+  AgentWebChatChannelOptions,
+  DiscordChannelOptions,
+  GitHubChannelOptions,
+  TelegramChannelOptions,
+} from "./channels.ts"
 
 export type {
   MaybePromise,
@@ -350,7 +357,7 @@ export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
   | Response
 
 export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<string | false, AgentCallbackContext<TRuntimeConfig>>
+  MaybeResolvable<string | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: string
@@ -1115,6 +1122,7 @@ export interface AgentModelDriver<
   harness?: never
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
+  maxRetries?: number
   model: AgentModelResolver<TRuntimeConfig>
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
@@ -1567,8 +1575,24 @@ export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = Agen
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig>
 
+type AgentBuiltInChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  | AgentChannelInput<TRuntimeConfig>
+  | AgentChannelOptions<TRuntimeConfig>
+  | AgentWebChatChannelOptions<TRuntimeConfig>
+  | DiscordChannelOptions<TRuntimeConfig>
+  | GitHubChannelOptions<TRuntimeConfig>
+  | TelegramChannelOptions<TRuntimeConfig>
+
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  Record<string, AgentChannelInput<TRuntimeConfig>>
+  Record<string, AgentBuiltInChannelInput<TRuntimeConfig>> & {
+    discord?: AgentChannelInput<TRuntimeConfig> | DiscordChannelOptions<TRuntimeConfig>
+    github?: AgentChannelInput<TRuntimeConfig> | GitHubChannelOptions<TRuntimeConfig>
+    http?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
+    slack?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
+    teams?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
+    telegram?: AgentChannelInput<TRuntimeConfig> | TelegramChannelOptions<TRuntimeConfig>
+    webChat?: AgentChannelInput<TRuntimeConfig> | AgentWebChatChannelOptions<TRuntimeConfig>
+  }
 
 export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelDefinition<TRuntimeConfig>>
@@ -1748,6 +1772,7 @@ export interface AgentUsageCost {
   amount: string
   currency: "USD" | (string & {})
   estimated: boolean
+  formatted?: string
   source: "custom" | "estimated" | "provider" | "vercel-ai-gateway" | (string & {})
 }
 
