@@ -13,6 +13,7 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
+import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -1006,6 +1007,37 @@ async function instrumentCallSettings(
   return patch
 }
 
+function mergeCallSettings(
+  defaults: Record<string, unknown> | undefined,
+  overrides: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const settings = { ...defaults, ...overrides }
+  const defaultProviders = defaults?.providerOptions
+  const overrideProviders = overrides?.providerOptions
+  if ((!defaultProviders || typeof defaultProviders !== "object")
+    && (!overrideProviders || typeof overrideProviders !== "object")) return settings
+  const providers = {
+    ...(defaultProviders as Record<string, unknown> | undefined),
+    ...(overrideProviders as Record<string, unknown> | undefined),
+  }
+  for (const provider of new Set([
+    ...Object.keys((defaultProviders as Record<string, unknown> | undefined) || {}),
+    ...Object.keys((overrideProviders as Record<string, unknown> | undefined) || {}),
+  ])) {
+    const defaultSettings = (defaultProviders as Record<string, unknown> | undefined)?.[provider]
+    const overrideSettings = (overrideProviders as Record<string, unknown> | undefined)?.[provider]
+    if ((defaultSettings && typeof defaultSettings === "object")
+      || (overrideSettings && typeof overrideSettings === "object")) {
+      providers[provider] = {
+        ...(defaultSettings as Record<string, unknown> | undefined),
+        ...(overrideSettings as Record<string, unknown> | undefined),
+      }
+    }
+  }
+  settings.providerOptions = providers
+  return settings
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -1057,7 +1089,7 @@ async function createAgent(
     tools: _tools,
   } = options
   const stepLimit = execution?.stepLimit
-  const baseCallSettings = { ...(execution?.callSettings || {}) }
+  const baseCallSettings = mergeCallSettings(getModelCallSettings(model), execution?.callSettings)
   const instrumentedCallSettings = await instrumentCallSettings(baseCallSettings, instrumentations, {
     ...runtime,
     actor: context.actor,

@@ -4,6 +4,27 @@ import { defineAgent } from "../src/index.ts";
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
 
 describe("built-in Agent Driver selection", () => {
+  it("normalizes the common retry setting into AI SDK call settings", () => {
+    expect(normalizeAgentDriver({
+      driver: { maxRetries: 0, model: {} },
+    } as never)).toMatchObject({
+      execution: { callSettings: { maxRetries: 0 } },
+      kind: "model",
+    });
+
+    expect(() => normalizeAgentDriver({
+      driver: { maxRetries: -1, model: {} },
+    } as never)).toThrow("non-negative integer");
+
+    expect(() => normalizeAgentDriver({
+      driver: {
+        execution: { callSettings: { maxRetries: 1 } },
+        maxRetries: 0,
+        model: {},
+      },
+    } as never)).toThrow("either directly or in execution.callSettings");
+  });
+
   it.each([
     ["codex", "codex"],
     ["claude-code", "claude-code"],

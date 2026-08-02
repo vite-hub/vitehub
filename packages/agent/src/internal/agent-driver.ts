@@ -130,7 +130,7 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
   }
 }
 
-const modelDriverKeys = new Set(["capacity", "execution", "instructions", "model", "output"])
+const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
 const harnessDriverKeys = new Set(["capacity", "credentials", "harness", "instructions", "output", "requires", "sandbox", "sessionKey", "workDir"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const codexDriverKeys = new Set([
@@ -280,9 +280,25 @@ function normalizeExplicitAgentDriver<
 
   if (keys[0] === "model") {
     assertNoUnsupportedOptions(driver, modelDriverKeys, "defineAgent({ driver: { model } })")
+    if (driver.maxRetries !== undefined
+      && (!Number.isInteger(driver.maxRetries) || (driver.maxRetries as number) < 0)) {
+      throw new TypeError("[vitehub] defineAgent({ driver.maxRetries }) must be a non-negative integer.")
+    }
+    const execution = driver.execution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
+    if (driver.maxRetries !== undefined && execution?.callSettings?.maxRetries !== undefined) {
+      throw new TypeError("[vitehub] defineAgent({ driver }) accepts maxRetries either directly or in execution.callSettings, not both.")
+    }
     return {
       capacity,
-      execution: driver.execution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
+      execution: driver.maxRetries === undefined
+        ? execution
+        : {
+            ...execution,
+            callSettings: {
+              ...execution?.callSettings,
+              maxRetries: driver.maxRetries,
+            },
+          },
       instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
       kind: "model",
       model: driver.model as AgentModelResolver<TRuntimeConfig>,

@@ -204,7 +204,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.existingQueueNitroConfig).toHaveBeenCalledWith({
       nitro: expect.objectContaining({ preset: "cloudflare_module" }),
       projectRoot: "/tmp/vitehub-nuxt",
-      root: "/tmp/vitehub-nuxt/app",
+      root: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
     expect(mocks.queueNitroConfig).not.toHaveBeenCalled()
@@ -229,7 +229,7 @@ describe("ViteHub Nuxt integration", () => {
             "~": "/tmp/vitehub-nuxt/app",
           },
         },
-        root: "/tmp/vitehub-nuxt/app",
+        root: "/tmp/vitehub-nuxt",
       }),
       {
         command: "serve",
@@ -331,5 +331,29 @@ describe("ViteHub Nuxt integration", () => {
   it("does nothing when Nuxt has not initialized", async () => {
     await expect(viteHubNuxtModule({ preset: "node" })).resolves.toBeUndefined()
     expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it("merges top-level Nuxt options with inline module options", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, {
+      vitehub: {
+        agent: true,
+        preset: "node",
+      },
+    })
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(mocks.vitehub).toHaveBeenCalledWith({
+      agent: true,
+      preset: "cloudflare",
+    })
+  })
+
+  it("exposes Nuxt module metadata for vitehub configuration", () => {
+    expect(viteHubNuxtModule.getMeta()).toEqual({
+      configKey: "vitehub",
+      name: "vite-hub/nuxt",
+    })
   })
 })

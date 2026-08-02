@@ -24,7 +24,7 @@ export default defineAgent({
 })
 ```
 
-Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. A synchronous Channel factory that needs no options can be registered directly, so `channels: { portal: webChat }` is equivalent to `channels: { portal: webChat() }` and resolves once when `defineAgent()` runs. Call the helper when passing options, such as `webChat({ messages: { sessions: false } })`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
+Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Under a canonical built-in key, pass options directly, such as `channels: { telegram: { messages: { delivery: 'manual' } } }`. A custom Channel id still uses a definition or synchronous factory, so `channels: { portal: webChat }` is equivalent to `channels: { portal: webChat() }`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
 
 Adapter-backed Channels deliver only the completed response by default. Set top-level `defineAgent({ messages: { stream: true } })` to opt every adapter Channel into draft and edit updates, or set `messages.stream` on an individual Channel to control progressive delivery for that destination. Web Chat routes return streaming HTTP responses independently of adapter delivery settings.
 
@@ -126,15 +126,12 @@ Use `telegram()` with Telegram credentials and admission settings. ViteHub creat
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
-import { telegram } from '@vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {
-    telegram: telegram({
+    telegram: {
       allowedUserIds: ['123'],
-      botToken: process.env.TELEGRAM_BOT_TOKEN,
-      webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
-    }),
+    },
   },
   driver: { run: () => 'ok' },
 })
@@ -151,7 +148,7 @@ pnpm vitehub channels sync \
   --json
 ```
 
-The dry run is the default. Apply the reviewed plan only with `--apply` and an exact `--confirm-origin https://staging.example.com`; this prevents a local default or stale preview URL from becoming the bot's production webhook. Keep `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` in Server Env because the command never accepts or prints credentials.
+The dry run is the default. Apply the reviewed plan only with `--apply` and an exact `--confirm-origin https://staging.example.com`; this prevents a local default or stale preview URL from becoming the bot's production webhook. Keep `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` in Server Env because ViteHub infers both for the adapter, webhook verification, and synchronization without accepting or printing credentials.
 
 Telegram does not return the webhook secret or allowed update list from `getWebhookInfo`, so the plan reports those fields as unverifiable. Pass `--force` when you need to reapply them even though the registered URL matches. See [CLI](/docs/development/cli#synchronize-channel-webhooks) for apply and deletion safeguards.
 

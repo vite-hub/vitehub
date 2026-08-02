@@ -273,6 +273,22 @@ function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function configureCloudflarePrerender(config: Record<string, unknown>): void {
+  const rollupConfig = cloneRecord(config.rollupConfig)
+  const external = rollupConfig.external
+  if (Array.isArray(external)) rollupConfig.external = external.filter(value => value !== "cloudflare:workers")
+  else if (external === "cloudflare:workers") delete rollupConfig.external
+  else if (typeof external === "function") {
+    rollupConfig.external = (source: string, ...args: unknown[]) =>
+      source === "cloudflare:workers" ? false : external(source, ...args)
+  }
+  config.alias = {
+    ...cloneRecord(config.alias),
+    "cloudflare:workers": fileURLToPath(new URL("./cloudflare-prerender.mjs", import.meta.url)),
+  }
+  config.rollupConfig = rollupConfig
+}
+
 function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
@@ -290,8 +306,9 @@ function deploymentNitroModule(
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
-    options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, rootDir: string }
+    options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
+    if (deploymentPresetFromNitro(nitro.options.preset) !== plan.preset) return
     if (plan.preset === "cloudflare" && sandboxRequested && !isDeployCommandOwned()) {
       const outputRelative = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
       const serverDir = /^[\w./-]+$/.test(outputRelative)
@@ -381,6 +398,13 @@ function deploymentPlugins(
           if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
           cloudflare.wrangler = wrangler
           nitro.cloudflare = cloudflare
+          const hooks = cloneRecord(nitro.hooks)
+          const prerenderConfig = hooks["prerender:config"]
+          hooks["prerender:config"] = async (config: Record<string, unknown>) => {
+            if (typeof prerenderConfig === "function") await prerenderConfig(config)
+            configureCloudflarePrerender(config)
+          }
+          nitro.hooks = hooks
         }
         const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
         const configuredHosting = process.env.VITEHUB_HOSTING

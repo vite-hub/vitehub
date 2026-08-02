@@ -5900,6 +5900,78 @@ describe("agent message protocol", () => {
     expect(Object.values(first.channels || {}).every(channel => typeof channel === "object")).toBe(true)
   })
 
+  it("normalizes built-in Channel settings under their canonical names", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      channels: {
+        telegram: {
+          allowedUserIds: [123],
+          messages: { delivery: "manual", triggerHistory: "none" },
+        },
+      },
+      driver: { run: () => "ok" },
+    })
+
+    expect(agent.channels?.telegram).toMatchObject({
+      kind: "telegram",
+      messages: { delivery: "manual", triggerHistory: "none" },
+    })
+  })
+
+  it("applies model call defaults alongside flat driver retries", async () => {
+    const agentSettings: Record<string, unknown>[] = []
+    loadAiSdk.mockResolvedValue({
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        constructor(settings: Record<string, unknown>) {
+          agentSettings.push(settings)
+        }
+
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+      },
+      isStepCount: () => () => false,
+    })
+    const { setModelCallSettings } = await import("../src/internal/model-call-settings.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const model = setModelCallSettings({}, {
+      providerOptions: { gateway: { models: ["fallback/model"] } },
+    })
+    const agent = defineAgent({
+      driver: {
+        execution: {
+          callSettings: { providerOptions: { gateway: { order: ["preferred"] } } },
+        },
+        maxRetries: 0,
+        model: () => model as never,
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toMatchObject({ text: "ok" })
+    expect(agentSettings[0]).toMatchObject({
+      maxRetries: 0,
+      providerOptions: {
+        gateway: {
+          models: ["fallback/model"],
+          order: ["preferred"],
+        },
+      },
+    })
+  })
+
+  it("rejects raw Channel settings under unknown names", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    expect(() => defineAgent({
+      channels: { support: { messages: false } as never },
+      driver: { run: () => "ok" },
+    })).toThrow('Channel "support" must be an Agent Channel definition or use a built-in Channel name')
+  })
+
   it("rejects invalid Channel factory results with the Channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

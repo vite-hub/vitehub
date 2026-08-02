@@ -265,6 +265,43 @@ describe("agent channels", () => {
     }
   })
 
+  it("uses standard Telegram environment bindings when options are omitted", async () => {
+    vi.resetModules()
+    const createTelegramAdapter = vi.fn(() => ({ name: "telegram" }))
+    vi.doMock("@chat-adapter/telegram", () => ({ createTelegramAdapter }))
+    try {
+      const { telegram } = await import("../src/channels.ts")
+      const channel = telegram()
+      const context = {
+        cloudflare: {
+          env: {
+            TELEGRAM_BOT_TOKEN: "bot-token",
+            TELEGRAM_WEBHOOK_SECRET_TOKEN: "webhook-secret",
+          },
+        },
+      } as never
+
+      if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
+      await expect(channel.adapter(context)).resolves.toEqual({ name: "telegram" })
+      expect(createTelegramAdapter).toHaveBeenCalledWith({
+        botToken: "bot-token",
+        secretToken: "webhook-secret",
+      })
+
+      const webhooks = channel.webhooks
+      if (!webhooks || typeof webhooks !== "object" || Array.isArray(webhooks)) {
+        throw new Error("Expected Telegram webhook registration.")
+      }
+      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      await expect(Promise.resolve(webhooks.secretToken(context))).resolves.toBe("webhook-secret")
+      await expect(Promise.resolve(webhooks.secretToken({ cloudflare: { env: {} } } as never))).resolves.toBeUndefined()
+    }
+    finally {
+      vi.doUnmock("@chat-adapter/telegram")
+      vi.resetModules()
+    }
+  })
+
   it("uses polling Telegram channels without a webhook route", async () => {
     const { telegram } = await import("../src/channels.ts")
     expect(telegram({ mode: "polling" }).webhooks).toBe(false)

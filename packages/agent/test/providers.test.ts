@@ -34,6 +34,18 @@ function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
+function testTelegram(
+  telegram: typeof import("../src/channels.ts")["telegram"],
+  options: NonNullable<Parameters<typeof telegram>[0]>,
+) {
+  return telegram({
+    ...options,
+    ...(options.webhooks === undefined && options.webhookSecret === undefined
+      ? { webhooks: { secretToken: false } }
+      : {}),
+  })
+}
+
 const optionalMessageAdapterRuntimeExternals = [
   "bufferutil",
   "utf-8-validate",
@@ -1501,7 +1513,7 @@ export default defineAgent({
         concurrency: "parallel",
         stream: true,
       },
-      webhooks: { id: "telegram" },
+      webhooks: { id: "telegram", secretToken: false },
     }),
   },
   driver: {
@@ -2960,7 +2972,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        support: telegram({ adapter: () => adapter as never }),
+        support: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
       messages: {
@@ -3171,7 +3183,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "accepted")
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: { filter, stream: false },
         }),
@@ -3235,7 +3247,7 @@ describe("server helpers", () => {
     const deliveryKinds: AgentMessageDeliveryKind[] = []
     const createHandler = (adapter: Adapter) => createChannelWebhookRouteHandler(defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter,
           messages: {
             filter: ({ deliveryKind }) => {
@@ -3282,7 +3294,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         web: webChat,
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run: () => ({ text: "final answer" }) },
     })
@@ -3729,8 +3741,8 @@ describe("server helpers", () => {
     const finalAdapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        final: telegram({ adapter: () => finalAdapter as never, messages: { stream: false } }),
-        progressive: telegram({ adapter: () => progressiveAdapter as never, messages: { stream: true } }),
+        final: testTelegram(telegram, { adapter: () => finalAdapter as never, messages: { stream: false } }),
+        progressive: testTelegram(telegram, { adapter: () => progressiveAdapter as never, messages: { stream: true } }),
       },
       driver: { run: () => ({ text: "channel reply" }) },
     })
@@ -3911,7 +3923,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
@@ -3972,7 +3984,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
@@ -4020,7 +4032,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter({ photoData: new Blob(["image"], { type: "application/octet-stream" }) })
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
-      channels: { telegram: telegram({ adapter: () => adapter as never }) },
+      channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
       driver: { run },
     })
 
@@ -4056,7 +4068,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => createTestChatAdapter() as never,
           webhookSecret: "secret-token",
         }),
@@ -4082,7 +4094,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
-      channels: { telegram: telegram({ adapter: () => adapter as never }) },
+      channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
       driver: { run },
     })
 
@@ -4130,7 +4142,7 @@ describe("server helpers", () => {
       .join(""))
     const agent = defineAgent({
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
@@ -4219,7 +4231,7 @@ describe("server helpers", () => {
         }),
       ],
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
@@ -4285,7 +4297,7 @@ describe("server helpers", () => {
         }),
       ],
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
@@ -4347,7 +4359,7 @@ describe("server helpers", () => {
         transcribe({ execute }),
       ],
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: { run },
     })
@@ -4768,7 +4780,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           webhooks: { secretToken: "secret-token" },
         }),
@@ -4798,11 +4810,11 @@ describe("server helpers", () => {
     const triggerOnlyAdapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           mode: "polling",
         }),
-        triggerOnly: telegram({
+        triggerOnly: testTelegram(telegram, {
           adapter: () => triggerOnlyAdapter as never,
           messages: false,
           mode: "polling",
@@ -7020,7 +7032,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: { concurrency, stream: false },
         }),
@@ -7042,7 +7054,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: { delivery: "automatic" },
         }),
@@ -7073,7 +7085,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7217,7 +7229,7 @@ describe("server helpers", () => {
     }
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7259,7 +7271,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7314,7 +7326,7 @@ describe("server helpers", () => {
     }))
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7360,7 +7372,7 @@ describe("server helpers", () => {
     }))
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7403,7 +7415,7 @@ describe("server helpers", () => {
     adapter.editMessage.mockRejectedValueOnce(new Error("edit failed"))
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7441,7 +7453,7 @@ describe("server helpers", () => {
     })).mockRejectedValueOnce(new Error("post failed"))
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7479,7 +7491,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7518,7 +7530,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7562,7 +7574,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7570,6 +7582,7 @@ describe("server helpers", () => {
             fallbackStreamingPlaceholderText: "Analyzing photo…",
             timeout: 50_000,
           },
+          webhooks: { secretToken: false },
         }),
       },
       driver: { run },
@@ -7615,6 +7628,7 @@ describe("server helpers", () => {
             fallbackStreamingPlaceholderText: "Analyzing photo…",
             timeout: 50_000,
           },
+          webhooks: { secretToken: false },
         }),
       },
       driver: { run },
@@ -7662,6 +7676,7 @@ describe("server helpers", () => {
             errorFallbackText: "Please try again.",
             timeout: 50_000,
           },
+          webhooks: { secretToken: false },
         }),
       },
       driver: {
@@ -7711,7 +7726,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7742,7 +7757,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7774,7 +7789,7 @@ describe("server helpers", () => {
     }))
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7826,7 +7841,7 @@ describe("server helpers", () => {
     ;(adapter as unknown as { deleteMessage?: unknown }).deleteMessage = undefined
     const agent = defineAgent({
       channels: {
-        telegram: telegram({
+        telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             delivery: "manual",
@@ -7986,7 +8001,7 @@ describe("server helpers", () => {
     const runs: string[][] = []
     const agent = defineAgent({
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: {
         run: ({ messages }) => {
@@ -8041,7 +8056,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
       },
       driver: {
         run,
@@ -8095,7 +8110,7 @@ describe("server helpers", () => {
     const handler = (adapter: ReturnType<typeof createTestChatAdapter>) => {
       const agent = defineAgent({
         channels: {
-          telegram: telegram({ adapter: () => adapter as never }),
+          telegram: testTelegram(telegram, { adapter: () => adapter as never }),
         },
         driver: {
           run: ({ messages }) => {
@@ -8163,7 +8178,7 @@ describe("server helpers", () => {
       const adapter = createTestChatAdapter({ persistThreadHistory: true })
       const agent = defineAgent({
         channels: {
-          telegram: telegram({ adapter: () => adapter as never }),
+          telegram: testTelegram(telegram, { adapter: () => adapter as never }),
         },
         driver: {
           run: ({ messages }) => {
@@ -8242,7 +8257,7 @@ describe("server helpers", () => {
       const adapter = createTestChatAdapter({ persistThreadHistory: true })
       const agent = defineAgent({
         channels: {
-          telegram: telegram({ adapter: () => adapter as never }),
+          telegram: testTelegram(telegram, { adapter: () => adapter as never }),
         },
         driver: {
           run: ({ messages }) => {
@@ -8501,7 +8516,7 @@ describe("server helpers", () => {
     adapter.stream = stream
     const agent = defineAgent({
       channels: {
-        support: telegram({
+        support: testTelegram(telegram, {
           adapter: () => adapter as never,
           messages: {
             stream: false,
@@ -8622,7 +8637,7 @@ describe("server helpers", () => {
         }),
       ],
       channels: {
-        support: telegram({
+        support: testTelegram(telegram, {
           adapter: () => adapter as never,
         }),
       },
@@ -8678,7 +8693,7 @@ describe("server helpers", () => {
         }),
       ],
       channels: {
-        support: telegram({
+        support: testTelegram(telegram, {
           adapter: () => adapter as never,
         }),
       },
@@ -8738,7 +8753,7 @@ describe("server helpers", () => {
         }),
       ],
       channels: {
-        support: telegram({
+        support: testTelegram(telegram, {
           adapter: () => adapter as never,
         }),
       },

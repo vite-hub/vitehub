@@ -86,6 +86,7 @@ Return `undefined` when pricing is unavailable. Keep the callback deterministic 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
+| `format` | `"usd"` | None | Adds a display-ready USD value at `invocation.usage.cost.formatted`, using six decimals for costs below one cent. |
 | `pricing` | `AgentUsagePricing` | Vercel AI Gateway catalog pricing | Resolves a cost from the model, response metadata, Agent Run metadata, and token usage. |
 
 ## Verify it
