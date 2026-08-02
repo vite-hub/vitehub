@@ -1283,8 +1283,34 @@ async function postChatStream(
   }
 
   // ponytail: Chat SDK has no per-stream fallback option; replace this when it exposes one.
-  const chatThread = thread as Thread & { _fallbackStreamingPlaceholderText?: string | null }
+  const adapter = thread.adapter
+  const placeholder = fallback === null
+    ? Promise.resolve(undefined)
+    : adapter.postMessage(thread.id, fallback).catch(() => undefined)
+  const clearPlaceholder = () => {
+    waitUntil(placeholder.then(async (message) => {
+      if (message?.id) await adapter.deleteMessage(message.threadId || thread.id, message.id)
+    }).catch(() => undefined))
+  }
+  abortSignal?.addEventListener("abort", clearPlaceholder, { once: true })
+  const chatThread = thread as Thread & { _adapter?: Adapter, _fallbackStreamingPlaceholderText?: string | null }
+  const previousAdapter = chatThread._adapter
   const previous = chatThread._fallbackStreamingPlaceholderText
+  chatThread._adapter = new Proxy(adapter, {
+    get(target, property) {
+      if (property === "postMessage" && fallback !== null) {
+        return async (...args: Parameters<Adapter["postMessage"]>) => {
+          if (args[0] === thread.id && args[1] === fallback) {
+            const message = await placeholder
+            if (message) return message
+          }
+          return adapter.postMessage(...args)
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
   chatThread._fallbackStreamingPlaceholderText = fallback
   try {
     sent = await thread.post(chatStreamPostable(thread, response) as never)
@@ -1293,6 +1319,8 @@ async function postChatStream(
     await removeAbortedChatDelivery(sent, abortSignal)
   }
   finally {
+    abortSignal?.removeEventListener("abort", clearPlaceholder)
+    chatThread._adapter = previousAdapter
     chatThread._fallbackStreamingPlaceholderText = previous
   }
 }
