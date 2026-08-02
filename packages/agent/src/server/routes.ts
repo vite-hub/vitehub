@@ -2931,28 +2931,34 @@ export function createChannelWebhookRouteHandler(
         }
       }
 
-      const baseChatOptions = getAgentChatOptions(agent)
-      const adapters = await resolveChatAdapters(baseChatOptions, context)
-      const adapterName = resolveChatAdapterName(adapters, registration)
-      const adapter = adapterName ? adapters[adapterName] : undefined
-      if (!adapter) {
-        return createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`)
-      }
-
-      try {
-        const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
-        const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline)
-        const response = await handler(request, { waitUntil: context.waitUntil })
-        if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
-          await context.flushWaitUntil?.()
+      const chatWebhookTask = (async () => {
+        const baseChatOptions = getAgentChatOptions(agent)
+        const adapters = await resolveChatAdapters(baseChatOptions, context)
+        const adapterName = resolveChatAdapterName(adapters, registration)
+        const adapter = adapterName ? adapters[adapterName] : undefined
+        if (!adapter) {
+          return createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`)
         }
-        return response
-      }
-      catch (error) {
-        const response = toHttpErrorResponse(error)
-        if (response) return response
-        throw error
-      }
+
+        try {
+          const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
+          const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline)
+          const response = await handler(request, { waitUntil: context.waitUntil })
+          if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
+            await context.flushWaitUntil?.()
+          }
+          return response
+        }
+        catch (error) {
+          const response = toHttpErrorResponse(error)
+          if (response) return response
+          throw error
+        }
+      })()
+      return await enforceChatInvocationTimeout(
+        chatWebhookTask,
+        maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
+      )
     })
   }
 }

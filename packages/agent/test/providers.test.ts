@@ -7689,7 +7689,7 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(25_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 15000ms.",
+        message: "Chat invocation timed out after 25000ms.",
       })
       expect(invocationAbortSignal).toMatchObject({
         aborted: true,
