@@ -7355,7 +7355,10 @@ describe("server helpers", () => {
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    const response = await handler(chatWebhookRequest(91_014), "telegram")
+    const response = await handler(chatWebhookRequest(91_014), "telegram", {
+      cloudflare: { env: {} },
+      waitUntil: () => undefined,
+    })
 
     expect(response.status).toBe(200)
     expect(adapter.editMessage).toHaveBeenCalledOnce()

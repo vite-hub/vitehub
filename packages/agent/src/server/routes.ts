@@ -803,7 +803,7 @@ function createManualDeliveryProgressUpdater(
       ])
       if (timeout) clearTimeout(timeout)
       if (drained || !manualDelivery.placeholder) return
-      if (abortSignal) return
+      if (abortSignal?.aborted) return
 
       const stalePlaceholder = manualDelivery.placeholder
       manualDelivery.placeholder = undefined
