@@ -3541,6 +3541,37 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
   })
 
+  it("does not block non-Cloudflare webhooks on stalled commentary delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementationOnce(() => new Promise(() => undefined))
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "message" },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
+            yield { phase: "final", text: "Final answer.", type: "text-delta" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(2018, 999), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:999", expect.any(String), { markdown: "Final answer." })
+  })
+
   it("delivers unphased final output when commentary is configured", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")

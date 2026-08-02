@@ -2593,7 +2593,7 @@ async function handleChatSdkMessage(
             )
           }
           else {
-            const commentaryDeliveries: Promise<void>[] = []
+            const commentaryDeliveries: Promise<void>[] | undefined = maximumInvocationDeadline === undefined ? undefined : []
             let finalDelivery: Promise<void> | undefined
             let finalDeliveryError: unknown
             const replies = streamAgentOutputToChatReplies(result, {
@@ -2601,7 +2601,7 @@ async function handleChatSdkMessage(
               onCommentary(response, discard) {
                 const delivery = postChatStream(thread, response, undefined, context.waitUntil, invocationDeadlineAbort?.signal, maximumInvocationDeadline)
                   .catch(() => discard())
-                commentaryDeliveries.push(delivery)
+                commentaryDeliveries?.push(delivery)
                 context.waitUntil(delivery)
               },
               onFinal(response) {
@@ -2621,7 +2621,7 @@ async function handleChatSdkMessage(
             await replies.completion.catch((error) => {
               streamError = error
             })
-            await Promise.all(commentaryDeliveries)
+            if (commentaryDeliveries) await Promise.all(commentaryDeliveries)
             await finalDelivery
             if (streamError !== undefined) throw streamError
             if (finalDeliveryError !== undefined) throw finalDeliveryError
