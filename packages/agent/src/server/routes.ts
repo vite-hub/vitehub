@@ -2382,6 +2382,7 @@ async function handleChatSdkMessage(
             : await runAgentInline(agent as never, runContext as never, invocationInput as never)
           const text = await collectAgentOutput(result, progress?.update)
           if (!manualDelivery && text) {
+            invocationDeadlineAbort?.signal.throwIfAborted()
             if (!await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal)) {
               const sent = await thread.post({ markdown: text })
               if (invocationDeadlineAbort?.signal.aborted) {
