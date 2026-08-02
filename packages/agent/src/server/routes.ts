@@ -2161,6 +2161,12 @@ async function resolveChatErrorFallbackText(
   return defaultChatErrorFallbackText
 }
 
+interface ManualChatDeliveryState {
+  errorFallback?: string
+  placeholder?: unknown
+  placeholderCleanup?: Promise<void>
+}
+
 async function postChatErrorFallback(
   error: unknown,
   thread: Thread,
@@ -2168,7 +2174,7 @@ async function postChatErrorFallback(
   options: AgentChatOptions | undefined,
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
-  manualDelivery?: { errorFallback?: string, placeholder?: unknown },
+  manualDelivery?: ManualChatDeliveryState,
   maximumInvocationDeadline?: number,
 ): Promise<void> {
   console.error({
@@ -2193,6 +2199,16 @@ async function postChatErrorFallback(
     () => callbackDelivered,
   )
   if (fallback && manualDelivery) manualDelivery.errorFallback = fallback
+  if (manualDelivery?.placeholderCleanup) {
+    const cleanup = manualDelivery.placeholderCleanup.catch(() => undefined)
+    if (maximumInvocationDeadline === undefined) await cleanup
+    else {
+      await enforceChatInvocationTimeout(
+        cleanup,
+        Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()),
+      ).catch(() => undefined)
+    }
+  }
   const fallbackDeliveryAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   const fallbackDelivery = (async () => {
     if (!fallback) {
@@ -2259,7 +2275,7 @@ async function collectAbortableChatMessage(
 async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
-  manualDelivery: { errorFallback?: string, placeholder?: unknown },
+  manualDelivery: ManualChatDeliveryState,
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
@@ -2391,7 +2407,7 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
-  const manualDeliveryState: { errorFallback?: string, placeholder?: unknown } = {}
+  const manualDeliveryState: ManualChatDeliveryState = {}
   const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
@@ -2504,14 +2520,19 @@ async function handleChatSdkMessage(
           await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
           invocationDeadlineAbort?.signal.throwIfAborted()
           const completedPlaceholder = manualDeliveryState.placeholder
-          manualDeliveryState.placeholder = undefined
           if (completedPlaceholder) {
+            const placeholderCleanup = deleteManualDeliveryPlaceholder(completedPlaceholder)
+            manualDeliveryState.placeholderCleanup = placeholderCleanup
             try {
-              await deleteManualDeliveryPlaceholder(completedPlaceholder)
+              await placeholderCleanup
+              if (manualDeliveryState.placeholder === completedPlaceholder) {
+                manualDeliveryState.placeholder = undefined
+              }
             }
-            catch (error) {
-              if (!invocationDeadlineAbort?.signal.aborted) manualDeliveryState.placeholder = completedPlaceholder
-              throw error
+            finally {
+              if (manualDeliveryState.placeholderCleanup === placeholderCleanup) {
+                manualDeliveryState.placeholderCleanup = undefined
+              }
             }
           }
         })(),
