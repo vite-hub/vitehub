@@ -1165,7 +1165,12 @@ async function finishDiscordSplitStream(
   else if (first) {
     sentMessages.push(await thread.post({ raw: first }))
   }
+  if (abortSignal?.aborted) {
+    await Promise.allSettled(sentMessages.map(deleteManualDeliveryPlaceholder))
+    abortSignal.throwIfAborted()
+  }
   for (const part of rest) {
+    abortSignal?.throwIfAborted()
     sentMessages.push(await thread.post({ raw: part }))
     if (abortSignal?.aborted) {
       await Promise.allSettled(sentMessages.map(deleteManualDeliveryPlaceholder))

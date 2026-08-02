@@ -7933,6 +7933,65 @@ describe("server helpers", () => {
     }
   })
 
+  it("does not post Discord split fragments after the Cloudflare deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
+      formatConverter: { renderPostable: (message: unknown) => string }
+      name: string
+    }
+    adapter.formatConverter = {
+      renderPostable(message: unknown) {
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        return ""
+      },
+    }
+    adapter.name = "discord"
+    Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
+    adapter.editMessage.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 26_000))
+    })
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: "Please try again.",
+            stream: true,
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: { run: () => ({ text: `${"word ".repeat(430)}done` }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_027), "discord", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", {
+        raw: expect.stringMatching(/ \(2\/2\)$/),
+      })
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("removes a manual placeholder when the error fallback is disabled", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
