@@ -7642,6 +7642,58 @@ describe("server helpers", () => {
     }
   })
 
+  it("delivers the streaming fallback when a stream ignores its Cloudflare timeout", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: "Please try again.",
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: {
+        run: async ({ input }) => {
+          expect(input.timeout).toBe(25_000)
+          await new Promise(resolve => setTimeout(resolve, 10_000))
+          return {
+            stream: (async function* () {
+              await new Promise(() => undefined)
+            })(),
+          }
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(91_022), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      const responseError = response.catch(error => error)
+
+      await vi.advanceTimersByTimeAsync(25_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("removes a manual placeholder when the error fallback is disabled", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")

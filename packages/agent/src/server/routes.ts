@@ -2188,6 +2188,7 @@ async function handleChatSdkMessage(
   messageContext?: MessageContext,
   maximumInvocationTimeout?: number,
 ): Promise<void> {
+  const invocationStartedAt = Date.now()
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
@@ -2242,9 +2243,12 @@ async function handleChatSdkMessage(
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil)
       : undefined
     const resolvedInvocationInput = invocation.input as AgentRunInput
+    const remainingMaximumInvocationTimeout = maximumInvocationTimeout === undefined
+      ? undefined
+      : Math.max(0, maximumInvocationTimeout - (Date.now() - invocationStartedAt))
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
       ...resolvedInvocationInput,
-      timeout: chatInvocationTimeout(resolvedInvocationInput.timeout, maximumInvocationTimeout),
+      timeout: chatInvocationTimeout(resolvedInvocationInput.timeout, remainingMaximumInvocationTimeout),
       context: {
         ...resolvedInvocationInput.context,
         [messageChannelStateContextKey]: state,
@@ -2283,52 +2287,54 @@ async function handleChatSdkMessage(
       manualDeliveryState.placeholder = undefined
     }
     else {
-      const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
-        output: "events",
-      })
-      try {
-        if (options?.stream === true || options?.commentary === undefined) {
-          await postChatStream(
-            thread,
-            streamAgentOutputToChatText(result),
-            typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
-            context.waitUntil,
-          )
+      await enforceChatInvocationTimeout((async () => {
+        const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
+          output: "events",
+        })
+        try {
+          if (options?.stream === true || options?.commentary === undefined) {
+            await postChatStream(
+              thread,
+              streamAgentOutputToChatText(result),
+              typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
+              context.waitUntil,
+            )
+          }
+          else {
+            let finalDelivery: Promise<void> | undefined
+            let finalDeliveryError: unknown
+            const replies = streamAgentOutputToChatReplies(result, {
+              commentary: options.commentary,
+              onCommentary(response, discard) {
+                const delivery = postChatStream(thread, response, undefined, context.waitUntil)
+                  .catch(() => discard())
+                context.waitUntil(delivery)
+              },
+              onFinal(response) {
+                finalDelivery = postChatStream(
+                  thread,
+                  response,
+                  typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
+                  context.waitUntil,
+                ).catch((error) => {
+                  finalDeliveryError = error
+                })
+              },
+            })
+            let streamError: unknown
+            await replies.completion.catch((error) => {
+              streamError = error
+            })
+            await finalDelivery
+            if (streamError !== undefined) throw streamError
+            if (finalDeliveryError !== undefined) throw finalDeliveryError
+          }
         }
-        else {
-          let finalDelivery: Promise<void> | undefined
-          let finalDeliveryError: unknown
-          const replies = streamAgentOutputToChatReplies(result, {
-            commentary: options.commentary,
-            onCommentary(response, discard) {
-              const delivery = postChatStream(thread, response, undefined, context.waitUntil)
-                .catch(() => discard())
-              context.waitUntil(delivery)
-            },
-            onFinal(response) {
-              finalDelivery = postChatStream(
-                thread,
-                response,
-                typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
-                context.waitUntil,
-              ).catch((error) => {
-                finalDeliveryError = error
-              })
-            },
-          })
-          let streamError: unknown
-          await replies.completion.catch((error) => {
-            streamError = error
-          })
-          await finalDelivery
-          if (streamError !== undefined) throw streamError
-          if (finalDeliveryError !== undefined) throw finalDeliveryError
+        finally {
+          typing?.stop()
         }
-      }
-      finally {
-        typing?.stop()
-      }
-      await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
+        await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
+      })(), maximumInvocationTimeout === undefined ? undefined : invocationInput.timeout)
     }
   }
   catch (error) {
