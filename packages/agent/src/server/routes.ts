@@ -2143,12 +2143,29 @@ async function postChatErrorFallback(
     fallbackResolutionTimeout,
   )
   if (fallback && manualDelivery) manualDelivery.errorFallback = fallback
-  if (!fallback) {
-    if (manualDelivery?.placeholder) await deleteManualDeliveryPlaceholder(manualDelivery.placeholder)
-    return
+  const fallbackDeliveryAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
+  const fallbackDelivery = (async () => {
+    if (!fallback) {
+      if (manualDelivery?.placeholder) await deleteManualDeliveryPlaceholder(manualDelivery.placeholder)
+      return
+    }
+    if (await deliverToManualDeliveryPlaceholder(manualDelivery?.placeholder, fallback)) return
+    fallbackDeliveryAbort?.signal.throwIfAborted()
+    const sent = await thread.post(fallback).catch(() => undefined)
+    if (!sent) return
+    if (fallbackDeliveryAbort?.signal.aborted) {
+      await deleteManualDeliveryPlaceholder(sent)
+      fallbackDeliveryAbort.signal.throwIfAborted()
+    }
+  })()
+  if (maximumInvocationDeadline === undefined) await fallbackDelivery
+  else {
+    await enforceChatInvocationTimeout(
+      fallbackDelivery,
+      Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()),
+      fallbackDeliveryAbort,
+    ).catch(() => undefined)
   }
-  if (await deliverToManualDeliveryPlaceholder(manualDelivery?.placeholder, fallback)) return
-  await thread.post(fallback).catch(() => undefined)
 }
 
 function createChatFinishExtension(

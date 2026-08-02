@@ -7718,6 +7718,60 @@ describe("server helpers", () => {
     }
   })
 
+  it("bounds stalled Cloudflare fallback delivery by the hard deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementation(() => new Promise(() => undefined))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: "Please try again.",
+            timeout: 50_000,
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: {
+        run: async () => ({
+          stream: (async function* () {
+            await new Promise(() => undefined)
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_023), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(0)
+
+      await vi.advanceTimersByTimeAsync(29_999)
+      await expect(Promise.race([
+        responseError.then(() => "settled"),
+        Promise.resolve("pending"),
+      ])).resolves.toBe("pending")
+
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("removes a manual placeholder when the error fallback is disabled", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
