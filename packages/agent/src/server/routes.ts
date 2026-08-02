@@ -2054,9 +2054,14 @@ async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<vo
   }
 }
 
-async function deliverToManualDeliveryPlaceholder(placeholder: unknown, message: AgentChatMessage): Promise<boolean> {
+async function deliverToManualDeliveryPlaceholder(
+  placeholder: unknown,
+  message: AgentChatMessage,
+  beforeDelete?: () => void,
+): Promise<boolean> {
   if (!placeholder) return false
   if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) return true
+  beforeDelete?.()
   await deleteManualDeliveryPlaceholder(placeholder)
   return false
 }
@@ -2132,9 +2137,14 @@ async function flushChatFinishExtensionMessages(
         for await (const chunk of message) markdown += chunk
         message = { markdown }
       }
-      if (await deliverToManualDeliveryPlaceholder(manualDelivery.placeholder, message)) {
+      const placeholder = manualDelivery.placeholder
+      if (await deliverToManualDeliveryPlaceholder(placeholder, message, abortSignal
+        ? () => {
+            manualDelivery.placeholder = undefined
+          }
+        : undefined)) {
         if (abortSignal?.aborted && manualDelivery.errorFallback) {
-          await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, manualDelivery.errorFallback)
+          await replaceManualDeliveryPlaceholder(placeholder, manualDelivery.errorFallback)
         }
         abortSignal?.throwIfAborted()
         manualDelivery.placeholder = undefined
