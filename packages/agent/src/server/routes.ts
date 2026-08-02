@@ -1973,6 +1973,7 @@ function chatErrorHookArgs(
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
   error: unknown,
+  onPost?: () => void,
 ): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
   const inputMessage = input?.messages.at(-1)
   const metadata = inputMessage?.metadata && typeof inputMessage.metadata === "object"
@@ -1988,7 +1989,10 @@ function chatErrorHookArgs(
     },
     run,
     thread: {
-      post: async postedMessage => postChatMessage(thread, postedMessage as AgentChatMessage),
+      post: async (postedMessage) => {
+        await postChatMessage(thread, postedMessage as AgentChatMessage)
+        onPost?.()
+      },
     },
   }
 }
@@ -2099,6 +2103,7 @@ async function resolveChatErrorFallbackText(
   options: AgentChatOptions | undefined,
   args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
   resolutionTimeout?: number,
+  callbackDelivered?: () => boolean,
 ): Promise<string | undefined> {
   const fallback = options?.errorFallbackText
   if (fallback === null) return undefined
@@ -2108,7 +2113,7 @@ async function resolveChatErrorFallbackText(
       return resolved || undefined
     }
     catch {
-      return defaultChatErrorFallbackText
+      return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
   if (typeof fallback === "string") return fallback
@@ -2137,10 +2142,14 @@ async function postChatErrorFallback(
   const fallbackResolutionTimeout = maximumInvocationDeadline === undefined
     ? undefined
     : Math.min(1_000, Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()))
+  let callbackDelivered = false
   const fallback = await resolveChatErrorFallbackText(
     options,
-    chatErrorHookArgs(thread, message, input, run, error),
+    chatErrorHookArgs(thread, message, input, run, error, () => {
+      callbackDelivered = true
+    }),
     fallbackResolutionTimeout,
+    () => callbackDelivered,
   )
   if (fallback && manualDelivery) manualDelivery.errorFallback = fallback
   const fallbackDeliveryAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
@@ -2183,6 +2192,29 @@ function createChatFinishExtension(
   }
 }
 
+async function collectAbortableChatMessage(
+  message: AsyncIterable<string>,
+  abortSignal: AbortSignal,
+): Promise<{ markdown: string }> {
+  const iterator = message[Symbol.asyncIterator]()
+  let markdown = ""
+  while (true) {
+    abortSignal.throwIfAborted()
+    const next = await new Promise<IteratorResult<string>>((resolve, reject) => {
+      const onAbort = () => {
+        void iterator.return?.().catch(() => undefined)
+        reject(abortSignal.reason)
+      }
+      abortSignal.addEventListener("abort", onAbort, { once: true })
+      iterator.next().then(resolve, reject).finally(() => {
+        abortSignal.removeEventListener("abort", onAbort)
+      })
+    })
+    if (next.done) return { markdown }
+    markdown += next.value
+  }
+}
+
 async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
@@ -2192,6 +2224,9 @@ async function flushChatFinishExtensionMessages(
   const messages = chat[chatFinishMessagesKey].splice(0)
   for (let message of messages) {
     abortSignal?.throwIfAborted()
+    if (abortSignal && isAsyncIterable(message)) {
+      message = await collectAbortableChatMessage(message, abortSignal)
+    }
     if (manualDelivery.placeholder) {
       if (isAsyncIterable(message)) {
         let markdown = ""
