@@ -1128,12 +1128,20 @@ function renderDiscordPostable(adapter: Adapter, postable: AdapterPostableMessag
   if (typeof postable === "object" && postable !== null && "markdown" in postable && typeof postable.markdown === "string") return postable.markdown
 }
 
-async function postDiscordSplitContent(thread: Thread, postable: AdapterPostableMessage): Promise<boolean> {
+async function postDiscordSplitContent(
+  thread: Thread,
+  postable: AdapterPostableMessage,
+  abortSignal?: AbortSignal,
+): Promise<boolean> {
   if (discordLongContentMode(thread.adapter) !== "split") return false
   const rendered = renderDiscordPostable(thread.adapter, postable)
   if (!rendered || rendered.length <= discordMaxContentLength) return false
   for (const part of discordContentParts(rendered)) {
-    await thread.post({ raw: part })
+    const sent = await thread.post({ raw: part })
+    if (abortSignal?.aborted) {
+      await deleteManualDeliveryPlaceholder(sent)
+      abortSignal.throwIfAborted()
+    }
   }
   return true
 }
@@ -2289,8 +2297,12 @@ async function handleChatSdkMessage(
             : await runAgentInline(agent as never, runContext as never, invocationInput as never)
           const text = await collectAgentOutput(result, progress?.update)
           if (!manualDelivery && text) {
-            if (!await postDiscordSplitContent(thread, { markdown: text })) {
-              await thread.post({ markdown: text })
+            if (!await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal)) {
+              const sent = await thread.post({ markdown: text })
+              if (invocationDeadlineAbort?.signal.aborted) {
+                await deleteManualDeliveryPlaceholder(sent)
+                invocationDeadlineAbort.signal.throwIfAborted()
+              }
             }
           }
           await progress?.finish()
