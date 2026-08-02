@@ -2282,6 +2282,7 @@ async function handleChatSdkMessage(
   let typing: ChatTypingRefresh | undefined
   let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
   const manualDeliveryState: { errorFallback?: string, placeholder?: unknown } = {}
+  const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
     if (typeof options?.timeout === "number" && Number.isFinite(options.timeout) && options.timeout > 0) {
@@ -2318,7 +2319,11 @@ async function handleChatSdkMessage(
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
-      manualDeliveryState.placeholder = await thread.post(thinkingFallback)
+      manualDeliveryState.placeholder = await enforceChatInvocationTimeout(
+        thread.post(thinkingFallback),
+        maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now()),
+        invocationDeadlineAbort,
+      )
     }
     typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
@@ -2334,7 +2339,6 @@ async function handleChatSdkMessage(
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined
       ? undefined
       : Math.max(0, maximumInvocationDeadline - Date.now())
-    const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
       ...resolvedInvocationInput,
       ...(invocationDeadlineAbort
