@@ -6760,6 +6760,41 @@ describe("server helpers", () => {
     }
   })
 
+  it("does not retry an ambiguously failed native streaming placeholder post", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("provider response lost"))
+    adapter.stream = vi.fn(async () => null)
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          errorFallbackText: null,
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => "done" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(21051), "telegram")).rejects.toThrow("provider response lost")
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it...")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("does not block native output on slow fallback delivery or cleanup", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")

@@ -1248,7 +1248,7 @@ async function postChatStream(
     const nativeStream = adapter.stream!.bind(adapter)
     const placeholder = fallback === null
       ? Promise.resolve(undefined)
-      : adapter.postMessage(thread.id, fallback).catch(() => undefined)
+      : adapter.postMessage(thread.id, fallback)
     let cleared = false
     let clearing: Promise<void> | undefined
     let clearRequested = false
