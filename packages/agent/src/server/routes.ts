@@ -1189,12 +1189,44 @@ async function removeAbortedChatDelivery(sent: unknown, abortSignal?: AbortSigna
   abortSignal.throwIfAborted()
 }
 
+async function settleChatCleanup(
+  task: Promise<unknown>,
+  maximumDeadline?: number,
+  abortSignal?: AbortSignal,
+): Promise<void> {
+  const abortableTask = abortSignal
+    ? new Promise<unknown>((resolve, reject) => {
+        const onAbort = () => {
+          abortSignal.removeEventListener("abort", onAbort)
+          reject(abortSignal.reason)
+        }
+        abortSignal.addEventListener("abort", onAbort, { once: true })
+        task.then(
+          (value) => {
+            abortSignal.removeEventListener("abort", onAbort)
+            resolve(value)
+          },
+          (error) => {
+            abortSignal.removeEventListener("abort", onAbort)
+            reject(error)
+          },
+        )
+        if (abortSignal.aborted) onAbort()
+      })
+    : task
+  await enforceChatInvocationTimeout(
+    abortableTask,
+    maximumDeadline === undefined ? undefined : Math.max(0, maximumDeadline - Date.now()),
+  ).catch(() => undefined)
+}
+
 async function postChatStream(
   thread: Thread,
   response: ChatTextStream,
   fallback: string | null | undefined,
   waitUntil: AgentWaitUntil,
   abortSignal?: AbortSignal,
+  maximumDeadline?: number,
 ): Promise<void> {
   abortSignal?.throwIfAborted()
   let sent: unknown
@@ -1218,17 +1250,17 @@ async function postChatStream(
     const clearPlaceholder = async () => {
       if (cleared) return
       if (clearing) return clearing
-      clearing = placeholder.then(async (message) => {
+      clearing = settleChatCleanup(placeholder.then(async (message) => {
         if (!message?.id) return
         await adapter.deleteMessage(message.threadId || thread.id, message.id)
         cleared = true
-      }).catch(() => undefined).finally(() => {
+      }), maximumDeadline, abortSignal).finally(() => {
         clearing = undefined
       })
       return clearing
     }
     const finishPlaceholder = () => {
-      waitUntil(clearPlaceholder().then(() => cleared ? undefined : clearPlaceholder()))
+      waitUntil(clearPlaceholder().then(() => cleared || abortSignal?.aborted ? undefined : clearPlaceholder()))
     }
     abortSignal?.addEventListener("abort", finishPlaceholder, { once: true })
     const nativeResponse: ChatTextStream = {
@@ -1294,9 +1326,9 @@ async function postChatStream(
     ? Promise.resolve(undefined)
     : adapter.postMessage(thread.id, fallback).catch(() => undefined)
   const clearPlaceholder = () => {
-    waitUntil(placeholder.then(async (message) => {
+    waitUntil(settleChatCleanup(placeholder.then(async (message) => {
       if (message?.id) await adapter.deleteMessage(message.threadId || thread.id, message.id)
-    }).catch(() => undefined))
+    }), maximumDeadline, abortSignal))
   }
   abortSignal?.addEventListener("abort", clearPlaceholder, { once: true })
   const chatThread = thread as Thread & { _adapter?: Adapter, _fallbackStreamingPlaceholderText?: string | null }
@@ -1978,6 +2010,7 @@ function chatErrorHookArgs(
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
   error: unknown,
+  abortSignal?: AbortSignal,
   onPost?: () => void,
 ): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
   const inputMessage = input?.messages.at(-1)
@@ -1995,7 +2028,7 @@ function chatErrorHookArgs(
     run,
     thread: {
       post: async (postedMessage) => {
-        await postChatMessage(thread, postedMessage as AgentChatMessage)
+        await postChatMessage(thread, postedMessage as AgentChatMessage, abortSignal)
         onPost?.()
       },
     },
@@ -2108,13 +2141,14 @@ async function resolveChatErrorFallbackText(
   options: AgentChatOptions | undefined,
   args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
   resolutionTimeout?: number,
+  resolutionAbort?: AbortController,
   callbackDelivered?: () => boolean,
 ): Promise<string | undefined> {
   const fallback = options?.errorFallbackText
   if (fallback === null) return undefined
   if (typeof fallback === "function") {
     try {
-      const resolved = await enforceChatInvocationTimeout(Promise.resolve(fallback(args)), resolutionTimeout)
+      const resolved = await enforceChatInvocationTimeout(Promise.resolve(fallback(args)), resolutionTimeout, resolutionAbort)
       return resolved || undefined
     }
     catch {
@@ -2148,12 +2182,14 @@ async function postChatErrorFallback(
     ? undefined
     : Math.min(1_000, Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()))
   let callbackDelivered = false
+  const fallbackResolutionAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   const fallback = await resolveChatErrorFallbackText(
     options,
-    chatErrorHookArgs(thread, message, input, run, error, () => {
+    chatErrorHookArgs(thread, message, input, run, error, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
     }),
     fallbackResolutionTimeout,
+    fallbackResolutionAbort,
     () => callbackDelivered,
   )
   if (fallback && manualDelivery) manualDelivery.errorFallback = fallback
@@ -2496,6 +2532,7 @@ async function handleChatSdkMessage(
               typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
               context.waitUntil,
               invocationDeadlineAbort?.signal,
+              maximumInvocationDeadline,
             )
           }
           else {
@@ -2505,7 +2542,7 @@ async function handleChatSdkMessage(
             const replies = streamAgentOutputToChatReplies(result, {
               commentary: options.commentary,
               onCommentary(response, discard) {
-                const delivery = postChatStream(thread, response, undefined, context.waitUntil, invocationDeadlineAbort?.signal)
+                const delivery = postChatStream(thread, response, undefined, context.waitUntil, invocationDeadlineAbort?.signal, maximumInvocationDeadline)
                   .catch(() => discard())
                 commentaryDeliveries.push(delivery)
                 context.waitUntil(delivery)
@@ -2517,6 +2554,7 @@ async function handleChatSdkMessage(
                   typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
                   context.waitUntil,
                   invocationDeadlineAbort?.signal,
+                  maximumInvocationDeadline,
                 ).catch((error) => {
                   finalDeliveryError = error
                 })

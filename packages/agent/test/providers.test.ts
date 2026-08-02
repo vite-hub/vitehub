@@ -7965,6 +7965,55 @@ describe("server helpers", () => {
     }
   })
 
+  it("removes fallback callback delivery that completes after timing out", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => {
+      if (message === "Tailored fallback.") {
+        await new Promise(resolve => setTimeout(resolve, 2_000))
+        return { id: "late-tailored", raw: { message }, threadId }
+      }
+      return { id: "default-fallback", raw: { message }, threadId }
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          messages: {
+            errorFallbackText: async ({ thread }) => {
+              await thread.post("Tailored fallback.")
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: () => { throw new Error("model timeout") } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_029), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await responseError
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Sorry, I couldn't process that message.")
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "late-tailored")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it("does not post Discord split fragments after the Cloudflare deadline", async () => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
