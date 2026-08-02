@@ -7595,8 +7595,9 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    const run = vi.fn(({ input }) => {
+    const run = vi.fn(async ({ input }) => {
       expect(input.timeout).toBe(25_000)
+      await new Promise(resolve => setTimeout(resolve, 10_000))
       return {
         stream: (async function* () {
           await new Promise(() => undefined)
