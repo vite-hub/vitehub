@@ -7649,6 +7649,7 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    let invocationAbortSignal: AbortSignal | undefined
     const agent = defineAgent({
       channels: {
         telegram: telegram({
@@ -7662,6 +7663,7 @@ describe("server helpers", () => {
       driver: {
         run: async ({ input }) => {
           expect(input.timeout).toBe(25_000)
+          invocationAbortSignal = input.abortSignal
           await new Promise(resolve => setTimeout(resolve, 10_000))
           return {
             stream: (async function* () {
@@ -7685,6 +7687,10 @@ describe("server helpers", () => {
 
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 25000ms.",
+      })
+      expect(invocationAbortSignal).toMatchObject({
+        aborted: true,
+        reason: expect.objectContaining({ message: "Chat invocation timed out after 25000ms." }),
       })
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
     }

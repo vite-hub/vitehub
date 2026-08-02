@@ -2160,14 +2160,22 @@ function chatInvocationTimeout(
   return timeout === undefined ? maximum : Math.min(timeout, maximum)
 }
 
-async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number | undefined): Promise<T> {
+async function enforceChatInvocationTimeout<T>(
+  task: Promise<T>,
+  timeout: number | undefined,
+  abortController?: AbortController,
+): Promise<T> {
   if (timeout === undefined) return await task
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       task,
       new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(`Chat invocation timed out after ${timeout}ms.`)), timeout)
+        timeoutId = setTimeout(() => {
+          const error = new Error(`Chat invocation timed out after ${timeout}ms.`)
+          abortController?.abort(error)
+          reject(error)
+        }, timeout)
       }),
     ])
   }
@@ -2246,8 +2254,16 @@ async function handleChatSdkMessage(
     const remainingMaximumInvocationTimeout = maximumInvocationTimeout === undefined
       ? undefined
       : Math.max(0, maximumInvocationTimeout - (Date.now() - invocationStartedAt))
+    const invocationDeadlineAbort = maximumInvocationTimeout === undefined ? undefined : new AbortController()
     const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
       ...resolvedInvocationInput,
+      ...(invocationDeadlineAbort
+        ? {
+            abortSignal: resolvedInvocationInput.abortSignal
+              ? AbortSignal.any([resolvedInvocationInput.abortSignal, invocationDeadlineAbort.signal])
+              : invocationDeadlineAbort.signal,
+          }
+        : {}),
       timeout: chatInvocationTimeout(resolvedInvocationInput.timeout, remainingMaximumInvocationTimeout),
       context: {
         ...resolvedInvocationInput.context,
@@ -2275,6 +2291,7 @@ async function handleChatSdkMessage(
           return await collectAgentOutput(result, progress?.update)
         })(),
         maximumInvocationTimeout === undefined ? undefined : invocationInput.timeout,
+        invocationDeadlineAbort,
       )
       if (!manualDelivery && text) {
         if (!await postDiscordSplitContent(thread, { markdown: text })) {
@@ -2334,7 +2351,7 @@ async function handleChatSdkMessage(
           typing?.stop()
         }
         await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
-      })(), maximumInvocationTimeout === undefined ? undefined : invocationInput.timeout)
+      })(), maximumInvocationTimeout === undefined ? undefined : invocationInput.timeout, invocationDeadlineAbort)
     }
   }
   catch (error) {
