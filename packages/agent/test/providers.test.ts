@@ -5625,7 +5625,10 @@ describe("server helpers", () => {
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
       body: "{}",
       method: "POST",
-    }), "support")
+    }), "support", {
+      cloudflare: { env: {} },
+      waitUntil: () => undefined,
+    })
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
@@ -7905,7 +7908,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("closes stalled finish iterators before opening Cloudflare delivery", async () => {
+  it("closes stalled finish iterators before timeout fallback delivery", async () => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -7961,7 +7964,7 @@ describe("server helpers", () => {
         message: "Chat invocation timed out after 25000ms.",
       })
       expect(iteratorReturn).toHaveBeenCalledOnce()
-      expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
     }
     finally {

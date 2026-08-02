@@ -2249,27 +2249,46 @@ function createChatFinishExtension(
   }
 }
 
+async function* abortableChatMessage(
+  message: AsyncIterable<string>,
+  abortSignal: AbortSignal,
+): AsyncIterable<string> {
+  const iterator = message[Symbol.asyncIterator]()
+  let closed = false
+  const close = async () => {
+    if (closed) return
+    closed = true
+    await iterator.return?.().catch(() => undefined)
+  }
+  try {
+    while (true) {
+      abortSignal.throwIfAborted()
+      const next = await new Promise<IteratorResult<string>>((resolve, reject) => {
+        const onAbort = () => {
+          void close()
+          reject(abortSignal.reason)
+        }
+        abortSignal.addEventListener("abort", onAbort, { once: true })
+        iterator.next().then(resolve, reject).finally(() => {
+          abortSignal.removeEventListener("abort", onAbort)
+        })
+      })
+      if (next.done) return
+      yield next.value
+    }
+  }
+  finally {
+    await close()
+  }
+}
+
 async function collectAbortableChatMessage(
   message: AsyncIterable<string>,
   abortSignal: AbortSignal,
 ): Promise<{ markdown: string }> {
-  const iterator = message[Symbol.asyncIterator]()
   let markdown = ""
-  while (true) {
-    abortSignal.throwIfAborted()
-    const next = await new Promise<IteratorResult<string>>((resolve, reject) => {
-      const onAbort = () => {
-        void iterator.return?.().catch(() => undefined)
-        reject(abortSignal.reason)
-      }
-      abortSignal.addEventListener("abort", onAbort, { once: true })
-      iterator.next().then(resolve, reject).finally(() => {
-        abortSignal.removeEventListener("abort", onAbort)
-      })
-    })
-    if (next.done) return { markdown }
-    markdown += next.value
-  }
+  for await (const chunk of abortableChatMessage(message, abortSignal)) markdown += chunk
+  return { markdown }
 }
 
 async function flushChatFinishExtensionMessages(
@@ -2282,7 +2301,9 @@ async function flushChatFinishExtensionMessages(
   for (let message of messages) {
     abortSignal?.throwIfAborted()
     if (abortSignal && isAsyncIterable(message)) {
-      message = await collectAbortableChatMessage(message, abortSignal)
+      message = manualDelivery.placeholder
+        ? await collectAbortableChatMessage(message, abortSignal)
+        : abortableChatMessage(message, abortSignal)
     }
     if (manualDelivery.placeholder) {
       if (isAsyncIterable(message)) {
