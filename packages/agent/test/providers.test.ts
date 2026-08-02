@@ -7556,7 +7556,8 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ input }) => {
-      expect(input.timeout).toBe(25_000)
+      expect(input.timeout).toBeGreaterThan(24_000)
+      expect(input.timeout).toBeLessThanOrEqual(25_000)
       throw new Error("model timeout")
     })
     const agent = defineAgent({

@@ -2282,25 +2282,25 @@ async function handleChatSdkMessage(
       // Manual delivery disables Chat SDK reply streaming, but still consumes
       // normalized Agent events so transient Capability output can update the
       // framework-owned placeholder without exposing ordinary Agent text.
-      const text = await enforceChatInvocationTimeout(
+      await enforceChatInvocationTimeout(
         (async () => {
           const result = manualDelivery
             ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
             : await runAgentInline(agent as never, runContext as never, invocationInput as never)
-          return await collectAgentOutput(result, progress?.update)
+          const text = await collectAgentOutput(result, progress?.update)
+          if (!manualDelivery && text) {
+            if (!await postDiscordSplitContent(thread, { markdown: text })) {
+              await thread.post({ markdown: text })
+            }
+          }
+          await progress?.finish()
+          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
+          if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
+          manualDeliveryState.placeholder = undefined
         })(),
         maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout,
         invocationDeadlineAbort,
       )
-      if (!manualDelivery && text) {
-        if (!await postDiscordSplitContent(thread, { markdown: text })) {
-          await thread.post({ markdown: text })
-        }
-      }
-      await progress?.finish()
-      await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState)
-      if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
-      manualDeliveryState.placeholder = undefined
     }
     else {
       await enforceChatInvocationTimeout((async () => {
