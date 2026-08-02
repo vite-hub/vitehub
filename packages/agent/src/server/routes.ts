@@ -2084,7 +2084,7 @@ async function postChatErrorFallback(
   options: AgentChatOptions | undefined,
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
-  manualDeliveryPlaceholder?: unknown,
+  manualDelivery?: { errorFallback?: string, placeholder?: unknown },
 ): Promise<void> {
   console.error({
     component: "@vite-hub/agent",
@@ -2094,11 +2094,12 @@ async function postChatErrorFallback(
     thread_id: message.threadId,
   })
   const fallback = await resolveChatErrorFallbackText(options, chatErrorHookArgs(thread, message, input, run, error))
+  if (fallback && manualDelivery) manualDelivery.errorFallback = fallback
   if (!fallback) {
-    if (manualDeliveryPlaceholder) await deleteManualDeliveryPlaceholder(manualDeliveryPlaceholder)
+    if (manualDelivery?.placeholder) await deleteManualDeliveryPlaceholder(manualDelivery.placeholder)
     return
   }
-  if (await deliverToManualDeliveryPlaceholder(manualDeliveryPlaceholder, fallback)) return
+  if (await deliverToManualDeliveryPlaceholder(manualDelivery?.placeholder, fallback)) return
   await thread.post(fallback).catch(() => undefined)
 }
 
@@ -2120,7 +2121,7 @@ function createChatFinishExtension(
 async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
-  manualDelivery: { placeholder?: unknown },
+  manualDelivery: { errorFallback?: string, placeholder?: unknown },
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
@@ -2132,6 +2133,9 @@ async function flushChatFinishExtensionMessages(
         message = { markdown }
       }
       if (await deliverToManualDeliveryPlaceholder(manualDelivery.placeholder, message)) {
+        if (abortSignal?.aborted && manualDelivery.errorFallback) {
+          await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, manualDelivery.errorFallback)
+        }
         abortSignal?.throwIfAborted()
         manualDelivery.placeholder = undefined
         continue
@@ -2239,7 +2243,7 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
-  const manualDeliveryState: { placeholder?: unknown } = {}
+  const manualDeliveryState: { errorFallback?: string, placeholder?: unknown } = {}
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
     if (typeof options?.timeout === "number" && Number.isFinite(options.timeout) && options.timeout > 0) {
@@ -2339,8 +2343,9 @@ async function handleChatSdkMessage(
           await progress?.finish()
           await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
           invocationDeadlineAbort?.signal.throwIfAborted()
-          if (manualDeliveryState.placeholder) await deleteManualDeliveryPlaceholder(manualDeliveryState.placeholder)
+          const completedPlaceholder = manualDeliveryState.placeholder
           manualDeliveryState.placeholder = undefined
+          if (completedPlaceholder) await deleteManualDeliveryPlaceholder(completedPlaceholder)
         })(),
         maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout,
         invocationDeadlineAbort,
@@ -2405,7 +2410,7 @@ async function handleChatSdkMessage(
   catch (error) {
     typing?.stop()
     await progress?.finish()
-    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState.placeholder)
+    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState)
     throw error
   }
   finally {
