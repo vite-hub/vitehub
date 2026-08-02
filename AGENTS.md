@@ -43,6 +43,10 @@ The fix is complete only when the consumer works without the patch. Retire combi
 
 ## Default Rules
 
+- Design source changes around the intended final contract, not the smallest diff. The smallest downstream patch is only a way to prove the fix.
+- Before preserving a legacy path, search this repository and known consumers for current callers. Migrate real callers to the final contract; delete speculative compatibility unless the task names a requirement to keep it.
+- Put shared behavior at the ViteHub boundary that owns it instead of duplicating policy across framework integrations or consumers.
+- Verify the intended flow and any assumptions removed with the old path, including affected runtime behavior, public types, generated output, and documentation.
 - Preserve ViteHub abstractions over local convenience.
 - Prefer code and CLI control over dashboard-only workflows.
 - Use existing libraries when they fit, while keeping ViteHub developer experience in charge.
