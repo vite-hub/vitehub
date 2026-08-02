@@ -1224,6 +1224,7 @@ async function postChatStream(
     const finishPlaceholder = () => {
       waitUntil(clearPlaceholder().then(() => cleared ? undefined : clearPlaceholder()))
     }
+    abortSignal?.addEventListener("abort", finishPlaceholder, { once: true })
     const nativeResponse: ChatTextStream = {
       getText: response.getText,
       async *[Symbol.asyncIterator]() {
@@ -1273,6 +1274,7 @@ async function postChatStream(
       await removeAbortedChatDelivery(sent, abortSignal)
     }
     finally {
+      abortSignal?.removeEventListener("abort", finishPlaceholder)
       chatThread._adapter = previousAdapter
       chatThread._fallbackStreamingPlaceholderText = previousFallback
       finishPlaceholder()
@@ -2360,6 +2362,7 @@ async function handleChatSdkMessage(
             )
           }
           else {
+            const commentaryDeliveries: Promise<void>[] = []
             let finalDelivery: Promise<void> | undefined
             let finalDeliveryError: unknown
             const replies = streamAgentOutputToChatReplies(result, {
@@ -2367,6 +2370,7 @@ async function handleChatSdkMessage(
               onCommentary(response, discard) {
                 const delivery = postChatStream(thread, response, undefined, context.waitUntil, invocationDeadlineAbort?.signal)
                   .catch(() => discard())
+                commentaryDeliveries.push(delivery)
                 context.waitUntil(delivery)
               },
               onFinal(response) {
@@ -2385,6 +2389,7 @@ async function handleChatSdkMessage(
             await replies.completion.catch((error) => {
               streamError = error
             })
+            await Promise.all(commentaryDeliveries)
             await finalDelivery
             if (streamError !== undefined) throw streamError
             if (finalDeliveryError !== undefined) throw finalDeliveryError
