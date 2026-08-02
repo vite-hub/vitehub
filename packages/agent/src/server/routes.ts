@@ -2098,12 +2098,18 @@ async function deliverToManualDeliveryPlaceholder(
 async function resolveChatErrorFallbackText(
   options: AgentChatOptions | undefined,
   args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
+  resolutionTimeout?: number,
 ): Promise<string | undefined> {
   const fallback = options?.errorFallbackText
   if (fallback === null) return undefined
   if (typeof fallback === "function") {
-    const resolved = await fallback(args)
-    return resolved || undefined
+    try {
+      const resolved = await enforceChatInvocationTimeout(Promise.resolve(fallback(args)), resolutionTimeout)
+      return resolved || undefined
+    }
+    catch {
+      return defaultChatErrorFallbackText
+    }
   }
   if (typeof fallback === "string") return fallback
   const publicError = toAgentPublicError(args.error, "http")
@@ -2119,6 +2125,7 @@ async function postChatErrorFallback(
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
   manualDelivery?: { errorFallback?: string, placeholder?: unknown },
+  maximumInvocationDeadline?: number,
 ): Promise<void> {
   console.error({
     component: "@vite-hub/agent",
@@ -2127,7 +2134,14 @@ async function postChatErrorFallback(
     message_id: message.id,
     thread_id: message.threadId,
   })
-  const fallback = await resolveChatErrorFallbackText(options, chatErrorHookArgs(thread, message, input, run, error))
+  const fallbackResolutionTimeout = maximumInvocationDeadline === undefined
+    ? undefined
+    : Math.min(1_000, Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()))
+  const fallback = await resolveChatErrorFallbackText(
+    options,
+    chatErrorHookArgs(thread, message, input, run, error),
+    fallbackResolutionTimeout,
+  )
   if (fallback && manualDelivery) manualDelivery.errorFallback = fallback
   if (!fallback) {
     if (manualDelivery?.placeholder) await deleteManualDeliveryPlaceholder(manualDelivery.placeholder)
@@ -2461,7 +2475,7 @@ async function handleChatSdkMessage(
   catch (error) {
     typing?.stop()
     await progress?.finish()
-    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState)
+    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState, maximumInvocationDeadline)
     throw error
   }
   finally {
