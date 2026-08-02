@@ -7413,14 +7413,17 @@ describe("server helpers", () => {
     }
   })
 
-  it("retains a stalled progress placeholder for the Cloudflare timeout fallback", async () => {
+  it("removes a stalled progress placeholder before the Cloudflare timeout fallback", async () => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    adapter.editMessage.mockImplementationOnce(async () => await new Promise(() => undefined))
+    let resolveProgressEdit: (() => void) | undefined
+    adapter.editMessage.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveProgressEdit = resolve
+    }))
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -7459,8 +7462,12 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 25000ms.",
       })
-      expect(adapter.postMessage).toHaveBeenCalledOnce()
-      expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", "Please send the photo again.")
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
+      expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
+      resolveProgressEdit?.()
+      await vi.runAllTimersAsync()
+      expect(adapter.editMessage).toHaveBeenCalledOnce()
     }
     finally {
       consoleError.mockRestore()

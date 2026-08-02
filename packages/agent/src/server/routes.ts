@@ -803,10 +803,13 @@ function createManualDeliveryProgressUpdater(
       ])
       if (timeout) clearTimeout(timeout)
       if (drained || !manualDelivery.placeholder) return
-      if (abortSignal?.aborted) return
 
       const stalePlaceholder = manualDelivery.placeholder
       manualDelivery.placeholder = undefined
+      if (abortSignal?.aborted) {
+        waitUntil(deleteManualDeliveryPlaceholder(stalePlaceholder).catch(() => undefined))
+        return
+      }
       const cleanup = draining.then(async () => {
         await deleteManualDeliveryPlaceholder(stalePlaceholder).catch(() => undefined)
       })
