@@ -2171,7 +2171,10 @@ interface ManualChatDeliveryState {
   placeholderCleanup?: Promise<void>
 }
 
-const chatFallbackDeliveryReserveMs = 4_000
+const cloudflareChatBackgroundTimeoutMs = 30_000
+const cloudflareChatFallbackTimeoutMs = 2_000
+const cloudflareChatInvocationTimeoutMs = cloudflareChatBackgroundTimeoutMs - cloudflareChatFallbackTimeoutMs
+const chatFallbackDeliveryReserveMs = 1_000
 
 async function postChatErrorFallback(
   error: unknown,
@@ -2192,7 +2195,7 @@ async function postChatErrorFallback(
   })
   const fallbackResolutionTimeout = maximumInvocationDeadline === undefined
     ? undefined
-    : Math.max(0, maximumInvocationDeadline + 5_000 - chatFallbackDeliveryReserveMs - Date.now())
+    : Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - chatFallbackDeliveryReserveMs - Date.now())
   let callbackDelivered = false
   let resolveCallbackDelivery: (() => void) | undefined
   const callbackDelivery = new Promise<void>((resolve) => {
@@ -2220,7 +2223,7 @@ async function postChatErrorFallback(
     else {
       await enforceChatInvocationTimeout(
         cleanup,
-        Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()),
+        Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - Date.now()),
       ).catch(() => undefined)
     }
   }
@@ -2243,7 +2246,7 @@ async function postChatErrorFallback(
   else {
     await enforceChatInvocationTimeout(
       fallbackDelivery,
-      Math.max(0, maximumInvocationDeadline + 5_000 - Date.now()),
+      Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - Date.now()),
       fallbackDeliveryAbort,
     ).catch(() => undefined)
   }
@@ -2392,8 +2395,6 @@ async function isChatMessageAuthorized(
   }
   return invoker
 }
-
-const cloudflareChatBackgroundTimeoutMs = 25_000
 
 function chatInvocationTimeout(
   timeout: number | undefined,
@@ -2954,9 +2955,9 @@ export function createChannelWebhookRouteHandler(
       handlerOptions.capabilities,
       routeAgentIdentity(handlerOptions),
     )
-    // Cloudflare cancels waitUntil after 30 seconds, so fallback delivery needs its own time budget.
+    // Cloudflare cancels waitUntil after 30 seconds, so the final two seconds stay available for cleanup and fallback delivery.
     const maximumInvocationDeadline = context.runtime === "cloudflare-agents" && handlerOptions.waitUntil
-      ? webhookStartedAt + cloudflareChatBackgroundTimeoutMs
+      ? webhookStartedAt + cloudflareChatInvocationTimeoutMs
       : undefined
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
