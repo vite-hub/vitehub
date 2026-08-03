@@ -1442,6 +1442,7 @@ export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfi
 
 export interface AgentChatErrorHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChatAgentHookArgs<TRuntimeConfig> {
   error: unknown
+  toolResults: AgentToolStepItem[]
 }
 
 export interface AgentChatEventHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {

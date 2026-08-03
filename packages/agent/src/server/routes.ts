@@ -43,6 +43,7 @@ import type {
   AgentMessageDeliveryKind,
   AgentRunInput,
   AgentRunMetadata,
+  AgentToolStepItem,
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentRuntimeName,
@@ -712,6 +713,7 @@ function fallbackWebhookFromRequest(request: Request): string | undefined {
 async function collectAgentOutput(
   result: unknown,
   onProgress?: (summary: string) => void,
+  onToolResult?: (result: AgentToolStepItem) => void,
 ): Promise<string> {
   if (result instanceof Response) {
     if (result.headers.get("content-type")?.includes("application/json")) {
@@ -745,6 +747,13 @@ async function collectAgentOutput(
     }
     const summary = progressSummaryFromEvent(event)
     if (summary) onProgress?.(summary)
+    if (event.type === "tool-result" && !event.error) {
+      onToolResult?.({
+        output: event.output,
+        toolCallId: event.id,
+        toolName: event.name,
+      })
+    }
     if (event.type === "error") {
       throw new Error(event.error)
     }
@@ -958,6 +967,7 @@ function createChatTextStream(): ChatTextStreamController {
 
 function streamAgentOutputToChatText(
   result: Promise<unknown>,
+  onToolResult?: (result: AgentToolStepItem) => void,
 ): ChatTextStream {
   let collected = ""
   return {
@@ -981,6 +991,13 @@ function streamAgentOutputToChatText(
       }
 
       for await (const event of streamAgentOutputToEvents(output)) {
+        if (event.type === "tool-result" && !event.error) {
+          onToolResult?.({
+            output: event.output,
+            toolCallId: event.id,
+            toolName: event.name,
+          })
+        }
         if (event.type === "text-delta") {
           collected += event.text
           yield event.text
@@ -1000,6 +1017,7 @@ function streamAgentOutputToChatReplies(
     commentary: "hidden" | "message"
     onCommentary: (stream: ChatTextStream, discard: () => void) => void
     onFinal: (stream: ChatTextStream) => void
+    onToolResult?: (result: AgentToolStepItem) => void
   },
 ): { completion: Promise<void> } {
   const commentary = createChatTextStream()
@@ -1025,6 +1043,13 @@ function streamAgentOutputToChatReplies(
           })()
         : streamAgentOutputToEvents(output)
       for await (const event of events) {
+        if (event.type === "tool-result" && !event.error) {
+          options.onToolResult?.({
+            output: event.output,
+            toolCallId: event.id,
+            toolName: event.name,
+          })
+        }
         if (event.type === "error") throw new Error(event.error)
         if (event.type !== "text-delta" || !event.text) continue
         if (event.phase === undefined) {
@@ -2014,6 +2039,7 @@ function chatErrorHookArgs(
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
   error: unknown,
+  toolResults: AgentToolStepItem[],
   abortSignal?: AbortSignal,
   onPost?: () => void,
 ): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
@@ -2030,6 +2056,7 @@ function chatErrorHookArgs(
       text: message.text,
     },
     run,
+    toolResults: [...toolResults],
     thread: {
       post: async (postedMessage) => {
         await postChatMessage(thread, postedMessage as AgentChatMessage, abortSignal)
@@ -2183,6 +2210,7 @@ async function postChatErrorFallback(
   options: AgentChatOptions | undefined,
   input: AgentChatMessageTriggerInput | undefined,
   run: AgentRunMetadata | undefined,
+  toolResults: AgentToolStepItem[],
   manualDelivery?: ManualChatDeliveryState,
   maximumInvocationDeadline?: number,
 ): Promise<void> {
@@ -2204,7 +2232,7 @@ async function postChatErrorFallback(
   const fallbackResolutionAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   const fallbackResolution = resolveChatErrorFallbackText(
     options,
-    chatErrorHookArgs(thread, message, input, run, error, fallbackResolutionAbort?.signal, () => {
+    chatErrorHookArgs(thread, message, input, run, error, toolResults, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
       resolveCallbackDelivery?.()
     }),
@@ -2445,6 +2473,7 @@ async function handleChatSdkMessage(
   let typing: ChatTypingRefresh | undefined
   let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
   const manualDeliveryState: ManualChatDeliveryState = {}
+  const toolResults: AgentToolStepItem[] = []
   const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
@@ -2542,7 +2571,7 @@ async function handleChatSdkMessage(
           const result = manualDelivery
             ? await streamAgent(agent as never, runContext as never, invocationInput as never, { output: "events" })
             : await runAgentInline(agent as never, runContext as never, invocationInput as never)
-          const text = await collectAgentOutput(result, progress?.update)
+          const text = await collectAgentOutput(result, progress?.update, toolResult => toolResults.push(toolResult))
           if (!manualDelivery && text) {
             invocationDeadlineAbort?.signal.throwIfAborted()
             if (!await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal)) {
@@ -2586,7 +2615,7 @@ async function handleChatSdkMessage(
           if (options?.stream === true || options?.commentary === undefined) {
             await postChatStream(
               thread,
-              streamAgentOutputToChatText(result),
+              streamAgentOutputToChatText(result, toolResult => toolResults.push(toolResult)),
               typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
               context.waitUntil,
               invocationDeadlineAbort?.signal,
@@ -2599,6 +2628,7 @@ async function handleChatSdkMessage(
             let finalDeliveryError: unknown
             const replies = streamAgentOutputToChatReplies(result, {
               commentary: options.commentary,
+              onToolResult: toolResult => toolResults.push(toolResult),
               onCommentary(response, discard) {
                 const delivery = postChatStream(thread, response, undefined, context.waitUntil, invocationDeadlineAbort?.signal, maximumInvocationDeadline)
                   .catch(() => discard())
@@ -2638,7 +2668,7 @@ async function handleChatSdkMessage(
   catch (error) {
     typing?.stop()
     await progress?.finish()
-    await postChatErrorFallback(error, thread, message, options, input, run, manualDeliveryState, maximumInvocationDeadline)
+    await postChatErrorFallback(error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline)
     throw error
   }
   finally {
