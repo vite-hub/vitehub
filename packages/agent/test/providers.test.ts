@@ -7685,7 +7685,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      await expect(handler(chatWebhookRequest(91_021), "telegram")).rejects.toThrow("model timeout")
+      await expect(handler(chatWebhookRequest(91_035), "telegram")).rejects.toThrow("model timeout")
       expect(completedToolResults).toEqual([{
         output: { changes: 1 },
         toolCallId: "call-1",
@@ -7696,6 +7696,55 @@ describe("server helpers", () => {
         "sent-1",
         "Your meal was saved, but the final reply failed.",
       )
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it.each([
+    ["streamed text", { stream: true }, 91_033],
+    ["phased replies", { commentary: "hidden" as const, stream: false }, 91_034],
+  ])("exposes completed tool results to automatic %s error fallbacks", async (_delivery, messages, messageId) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let completedToolResults: unknown
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            ...messages,
+            errorFallbackText: ({ toolResults }) => {
+              completedToolResults = toolResults
+              return "Your meal was saved, but the final reply failed."
+            },
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { output: { changes: 1 }, toolCallId: "call-1", toolName: "db_exec", type: "tool-result" }
+            yield { error: "model timeout", type: "error" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = handler(chatWebhookRequest(messageId), "telegram")
+      await expect(response).rejects.toThrow("model timeout")
+      expect(completedToolResults).toEqual([{
+        output: { changes: 1 },
+        toolCallId: "call-1",
+        toolName: "db_exec",
+      }])
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Your meal was saved, but the final reply failed.")
     }
     finally {
       consoleError.mockRestore()

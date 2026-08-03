@@ -967,6 +967,7 @@ function createChatTextStream(): ChatTextStreamController {
 
 function streamAgentOutputToChatText(
   result: Promise<unknown>,
+  onToolResult?: (result: AgentToolStepItem) => void,
 ): ChatTextStream {
   let collected = ""
   return {
@@ -990,6 +991,13 @@ function streamAgentOutputToChatText(
       }
 
       for await (const event of streamAgentOutputToEvents(output)) {
+        if (event.type === "tool-result" && !event.error) {
+          onToolResult?.({
+            output: event.output,
+            toolCallId: event.id,
+            toolName: event.name,
+          })
+        }
         if (event.type === "text-delta") {
           collected += event.text
           yield event.text
@@ -1009,6 +1017,7 @@ function streamAgentOutputToChatReplies(
     commentary: "hidden" | "message"
     onCommentary: (stream: ChatTextStream, discard: () => void) => void
     onFinal: (stream: ChatTextStream) => void
+    onToolResult?: (result: AgentToolStepItem) => void
   },
 ): { completion: Promise<void> } {
   const commentary = createChatTextStream()
@@ -1034,6 +1043,13 @@ function streamAgentOutputToChatReplies(
           })()
         : streamAgentOutputToEvents(output)
       for await (const event of events) {
+        if (event.type === "tool-result" && !event.error) {
+          options.onToolResult?.({
+            output: event.output,
+            toolCallId: event.id,
+            toolName: event.name,
+          })
+        }
         if (event.type === "error") throw new Error(event.error)
         if (event.type !== "text-delta" || !event.text) continue
         if (event.phase === undefined) {
@@ -2599,7 +2615,7 @@ async function handleChatSdkMessage(
           if (options?.stream === true || options?.commentary === undefined) {
             await postChatStream(
               thread,
-              streamAgentOutputToChatText(result),
+              streamAgentOutputToChatText(result, toolResult => toolResults.push(toolResult)),
               typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
               context.waitUntil,
               invocationDeadlineAbort?.signal,
@@ -2612,6 +2628,7 @@ async function handleChatSdkMessage(
             let finalDeliveryError: unknown
             const replies = streamAgentOutputToChatReplies(result, {
               commentary: options.commentary,
+              onToolResult: toolResult => toolResults.push(toolResult),
               onCommentary(response, discard) {
                 const delivery = postChatStream(thread, response, undefined, context.waitUntil, invocationDeadlineAbort?.signal, maximumInvocationDeadline)
                   .catch(() => discard())
