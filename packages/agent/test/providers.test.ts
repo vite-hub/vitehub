@@ -7651,6 +7651,57 @@ describe("server helpers", () => {
     }
   })
 
+  it("exposes completed tool results to manual error fallbacks", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let completedToolResults: unknown
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: ({ toolResults }) => {
+              completedToolResults = toolResults
+              return "Your meal was saved, but the final reply failed."
+            },
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { input: { statement: "INSERT INTO meals VALUES (...)" }, toolCallId: "call-1", toolName: "db_exec", type: "tool-call" }
+            yield { output: { changes: 1 }, toolCallId: "call-1", toolName: "db_exec", type: "tool-result" }
+            yield { error: "model timeout", type: "error" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_021), "telegram")).rejects.toThrow("model timeout")
+      expect(completedToolResults).toEqual([{
+        output: { changes: 1 },
+        toolCallId: "call-1",
+        toolName: "db_exec",
+      }])
+      expect(adapter.editMessage).toHaveBeenCalledWith(
+        "telegram:456",
+        "sent-1",
+        "Your meal was saved, but the final reply failed.",
+      )
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("replaces a manual placeholder with the error fallback", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
