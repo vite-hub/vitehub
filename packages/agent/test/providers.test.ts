@@ -7557,10 +7557,10 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.advanceTimersByTimeAsync(25_100)
+      await vi.advanceTimersByTimeAsync(28_100)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
       expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
@@ -7724,7 +7724,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.deleteMessage.mockImplementation(async () => {
-      await new Promise(resolve => setTimeout(resolve, 26_000))
+      await new Promise(resolve => setTimeout(resolve, 29_000))
       throw new Error("delete failed")
     })
     const agent = defineAgent({
@@ -7748,10 +7748,10 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.advanceTimersByTimeAsync(26_000)
+      await vi.advanceTimersByTimeAsync(29_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.postMessage).toHaveBeenCalledOnce()
       expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
@@ -7814,8 +7814,8 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ input }) => {
-      expect(input.timeout).toBeGreaterThan(24_000)
-      expect(input.timeout).toBeLessThanOrEqual(25_000)
+      expect(input.timeout).toBeGreaterThan(27_000)
+      expect(input.timeout).toBeLessThanOrEqual(28_000)
       throw new Error("model timeout")
     })
     const agent = defineAgent({
@@ -7856,7 +7856,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(async ({ input }) => {
-      expect(input.timeout).toBe(25_000)
+      expect(input.timeout).toBe(28_000)
       await new Promise(resolve => setTimeout(resolve, 10_000))
       return {
         stream: (async function* () {
@@ -7890,10 +7890,10 @@ describe("server helpers", () => {
       expect(run).toHaveBeenCalledOnce()
       const responseError = response.catch(error => error)
 
-      await vi.advanceTimersByTimeAsync(25_000)
+      await vi.advanceTimersByTimeAsync(28_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
     }
@@ -7927,7 +7927,7 @@ describe("server helpers", () => {
       },
       driver: {
         run: async ({ input }) => {
-          expect(input.timeout).toBe(15_000)
+          expect(input.timeout).toBe(18_000)
           invocationAbortSignal = input.abortSignal
           return {
             stream: (async function* () {
@@ -7947,14 +7947,14 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(0)
       const responseError = response.catch(error => error)
 
-      await vi.advanceTimersByTimeAsync(25_000)
+      await vi.advanceTimersByTimeAsync(28_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       expect(invocationAbortSignal).toMatchObject({
         aborted: true,
-        reason: expect.objectContaining({ message: "Chat invocation timed out after 15000ms." }),
+        reason: expect.objectContaining({ message: "Chat invocation timed out after 18000ms." }),
       })
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
     }
@@ -8008,7 +8008,7 @@ describe("server helpers", () => {
 
       await vi.advanceTimersByTimeAsync(1)
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
     }
@@ -8057,14 +8057,14 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.advanceTimersByTimeAsync(25_000)
+      await vi.advanceTimersByTimeAsync(28_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
 
-      await vi.advanceTimersByTimeAsync(5_000)
+      await vi.advanceTimersByTimeAsync(2_000)
       expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "late finish message")
     }
     finally {
@@ -8123,10 +8123,10 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.advanceTimersByTimeAsync(25_000)
+      await vi.advanceTimersByTimeAsync(28_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       expect(iteratorReturn).toHaveBeenCalledOnce()
       expect(adapter.postMessage).toHaveBeenCalledTimes(2)
@@ -8259,7 +8259,7 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.advanceTimersByTimeAsync(25_000)
+      await vi.advanceTimersByTimeAsync(28_000)
       await vi.advanceTimersByTimeAsync(1_000)
 
       await responseError
@@ -8295,7 +8295,7 @@ describe("server helpers", () => {
     adapter.name = "discord"
     Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
     adapter.editMessage.mockImplementation(async () => {
-      await new Promise(resolve => setTimeout(resolve, 26_000))
+      await new Promise(resolve => setTimeout(resolve, 29_000))
     })
     const agent = defineAgent({
       channels: {
@@ -8317,10 +8317,10 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.advanceTimersByTimeAsync(25_000)
+      await vi.advanceTimersByTimeAsync(28_000)
 
       await expect(responseError).resolves.toMatchObject({
-        message: "Chat invocation timed out after 25000ms.",
+        message: "Chat invocation timed out after 28000ms.",
       })
       await vi.advanceTimersByTimeAsync(1_000)
       expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", {
