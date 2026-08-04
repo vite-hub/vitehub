@@ -347,7 +347,9 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
 }
 
 export interface AgentWebhookInvocationOwnership {
+  concurrencyGroup?: string
   concurrencyKey?: string
+  concurrencyLimit?: number
   concurrencyTtlMs?: number
   deliveryId: string
 }

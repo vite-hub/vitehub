@@ -1697,6 +1697,7 @@ export default defineAgent({
         }
 
         const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+        const queuePlugin = await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
 
         expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
         expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
@@ -1710,6 +1711,10 @@ export default defineAgent({
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
+        expect(webhookRoute).toContain("export function resumeWebhookQueues()")
+        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], webhookState: viteHubChatStateResolver })")
+        expect(queuePlugin).toContain("import { resumeWebhookQueues } from \"./chat-webhook-route\"")
+        expect(queuePlugin).toContain("nitroApp.hooks.hook('close', stop)")
         expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })")
       }
       finally {
@@ -5295,6 +5300,176 @@ describe("server helpers", () => {
     expect(rejected.status).toBe(401)
     await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it("persists every webhook delivery and drains it under global concurrency", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-queue-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const releases: Array<() => void> = []
+    let active = 0
+    let maxActive = 0
+    const run = vi.fn(async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise<void>(resolve => releases.push(resolve))
+      active -= 1
+      return "accepted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
+                const number = (input as { payload?: { number?: number } }).payload?.number || 0
+                return {
+                  input: { prompt: deliveryId },
+                  webhook: {
+                    concurrencyGroup: "reviews",
+                    concurrencyKey: `pr-${number}`,
+                    concurrencyLimit: 2,
+                    deliveryId,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (deliveryId: string, number: number) => new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ number }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": deliveryId,
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    const options = { agentName: "review", webhookState: state }
+
+    try {
+      const responses = await Promise.all([
+        handler(request("delivery-1", 1), "github", options),
+        handler(request("delivery-2", 2), "github", options),
+        handler(request("delivery-3", 3), "github", options),
+        handler(request("delivery-4", 4), "github", options),
+      ])
+      expect(responses.map(response => response.status)).toEqual([200, 200, 200, 200])
+      await expect(Promise.all(responses.map(response => response.json()))).resolves.toEqual([
+        { accepted: true, duplicate: false, ok: true, queued: true },
+        { accepted: true, duplicate: false, ok: true, queued: true },
+        { accepted: true, duplicate: false, ok: true, queued: true },
+        { accepted: true, duplicate: false, ok: true, queued: true },
+      ])
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      expect(maxActive).toBe(2)
+
+      const duplicate = await handler(request("delivery-4", 4), "github", options)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
+
+      releases.splice(0).forEach(release => release())
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      expect(maxActive).toBe(2)
+      releases.splice(0).forEach(release => release())
+      await vi.waitFor(() => expect(active).toBe(0))
+    }
+    finally {
+      releases.splice(0).forEach(release => release())
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("resumes persisted webhook deliveries after a process restart", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-resume-"))
+    const url = `file:${join(stateDir, "state.sqlite")}`
+    const scope = "webhook:review:github:github:"
+    const body = JSON.stringify({ number: 42 })
+    const firstProcessState = createLibsqlAgentState({ url })
+    await firstProcessState.connect()
+    await firstProcessState.enqueueWebhookDelivery({
+      concurrencyGroup: "review:reviews",
+      concurrencyKey: `${scope}:pr-42`,
+      concurrencyLimit: 2,
+      deliveryId: "delivery-restart",
+      enqueuedAt: Date.now(),
+      leaseTtlMs: 1_000,
+      request: {
+        body,
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-restart",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      scope,
+      webhookId: "github",
+    })
+    await firstProcessState.disconnect()
+
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "resumed" },
+                webhook: {
+                  concurrencyGroup: "reviews",
+                  concurrencyKey: `pr-${(input as { payload: { number: number } }).payload.number}`,
+                  concurrencyLimit: 2,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const restoredState = createLibsqlAgentState({ url })
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({
+      agentName: "review",
+      webhookState: restoredState,
+    })
+
+    try {
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(async () => {
+        await expect(restoredState.enqueueWebhookDelivery({
+          concurrencyGroup: "review:reviews",
+          concurrencyLimit: 2,
+          deliveryId: "delivery-restart",
+          enqueuedAt: Date.now(),
+          leaseTtlMs: 1_000,
+          request: { body, headers: {}, method: "POST", url: "https://example.com" },
+          scope,
+          webhookId: "github",
+        })).resolves.toBe(false)
+      })
+    }
+    finally {
+      stop()
+      await restoredState.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("claims webhook deliveries and exact-context concurrency before running the agent", async () => {

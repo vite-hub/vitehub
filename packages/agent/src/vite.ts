@@ -39,6 +39,7 @@ const mergeNoExternal = createNoExternalMerger(agentPackageName)
 const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway-route.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
+const generatedAgentWebhookQueuePlugin = ".vitehub/agent/webhook-queue-plugin.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const generatedAgentEmailRuntime = ".vitehub/agent/email-runtime.js"
 const generatedAgentScheduleRegistry = ".vitehub/agent/schedule-registry.js"
@@ -628,6 +629,12 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
   }
 }
 
+function mergeNitroPlugins(nitro: NitroConfig, plugins: string[]): NitroConfig {
+  if (plugins.length === 0) return nitro
+  const existingPlugins = Array.isArray(nitro.plugins) ? nitro.plugins : []
+  return { ...nitro, plugins: [...existingPlugins, ...plugins] }
+}
+
 function normalizeNitroRoute(route: string): string {
   const normalized = route.startsWith("/") ? route : `/${route}`
   return normalized.replace(/\[([^\]]+)\]/g, ":$1")
@@ -1209,6 +1216,15 @@ async function generateAgentWebhookRouteHandler(
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     "",
     ...routeCapabilities.setup,
+    ...(options.libsqlState
+      ? [
+          "export function resumeWebhookQueues() {",
+          "  const stops = Object.entries(webhookHandlers).map(([name, handler]) => handler.resume({ agentIdentity: agentIdentities[name], webhookState: viteHubChatStateResolver }))",
+          "  return () => stops.forEach(stop => stop())",
+          "}",
+          "",
+        ]
+      : []),
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     "",
@@ -1341,6 +1357,21 @@ async function writeAgentWebhookRouteHandler(
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
+  const queuePluginPath = join(root, generatedAgentWebhookQueuePlugin)
+  if (options.libsqlState) {
+    await writeFile(queuePluginPath, [
+      `import { resumeWebhookQueues } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      "",
+      "export default function viteHubWebhookQueuePlugin(nitroApp) {",
+      "  const stop = resumeWebhookQueues()",
+      "  nitroApp.hooks.hook('close', stop)",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+  }
+  else {
+    await rm(queuePluginPath, { force: true })
+  }
 }
 
 async function generateAgentDiscordGatewayRouteHandler(
@@ -1822,6 +1853,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
+      const installWebhookQueue = Boolean(resolved && hasHostedAgents && !denoOutput && resolveLibsqlAgentState(resolved, config))
       const nitroHandlers = [
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{
@@ -1848,7 +1880,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             getCloudflareStateImport(agent, frameworkOptions),
           )
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
-      const mergedNitro = mergeNitroHandlers(nitro, nitroHandlers)
+      const mergedNitro = mergeNitroPlugins(
+        mergeNitroHandlers(nitro, nitroHandlers),
+        installWebhookQueue ? [join(root, generatedAgentWebhookQueuePlugin)] : [],
+      )
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
         ...(nitroHandlers.length

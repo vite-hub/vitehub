@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createLibsqlAgentState, createSqliteAgentState, type SqliteAgentStateDriver, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
 
 import type { QueueEntry, StateAdapter } from "chat"
+import type { AgentWebhookQueueDelivery } from "../src/internal/webhook-queue.ts"
 
 const tempDirs: string[] = []
 
@@ -26,6 +27,25 @@ function queueEntry(text = "hello"): QueueEntry {
     enqueuedAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     message: { author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" }, formatted: { children: [], type: "root" }, id: "m", raw: {}, text, threadId: "thread" } as never,
+  }
+}
+
+function webhookDelivery(deliveryId: string, concurrencyKey?: string): AgentWebhookQueueDelivery {
+  return {
+    concurrencyGroup: "review",
+    ...(concurrencyKey ? { concurrencyKey } : {}),
+    concurrencyLimit: 2,
+    deliveryId,
+    enqueuedAt: Date.now(),
+    leaseTtlMs: 1_000,
+    request: {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      url: "https://example.com/api/github",
+    },
+    scope: "webhook:review:github:",
+    webhookId: "github",
   }
 }
 
@@ -70,6 +90,56 @@ describe("SQLite Agent State Provider", () => {
     const restored = createLibsqlAgentState({ tablePrefix: "test_agent_state_", url })
     await restored.connect()
     await expect(restored.get("seen")).resolves.toEqual({ id: 1 })
+    await restored.disconnect()
+  })
+
+  it("leases webhook deliveries under global and per-key concurrency", async () => {
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-1", "pr-1"))).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-1", "pr-1"))).resolves.toBe(false)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-2", "pr-1"))).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-3", "pr-2"))).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-4", "pr-3"))).resolves.toBe(true)
+
+    const first = await queue.claimWebhookDelivery("webhook:review:github:")
+    const second = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(first?.deliveryId).toBe("delivery-1")
+    expect(second?.deliveryId).toBe("delivery-3")
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
+
+    await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
+    await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
+    const third = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(third?.deliveryId).toBe("delivery-2")
+
+    await queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)
+    await queue.completeWebhookDelivery(third!.scope, third!.deliveryId, third!.leaseToken)
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "delivery-4" })
+    await state.disconnect()
+  })
+
+  it("reclaims expired webhook leases after reconnect and fences stale workers", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state, url } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("delivery-1"))
+    const abandoned = await queue.claimWebhookDelivery("webhook:review:github:")
+    await state.disconnect()
+
+    vi.advanceTimersByTime(1_001)
+    const restored = createLibsqlAgentState({ tablePrefix: "test_agent_state_", url })
+    await restored.connect()
+    const reclaimed = await restored.claimWebhookDelivery("webhook:review:github:")
+    expect(reclaimed?.deliveryId).toBe("delivery-1")
+    expect(reclaimed?.leaseToken).not.toBe(abandoned?.leaseToken)
+    await expect(restored.completeWebhookDelivery(reclaimed!.scope, reclaimed!.deliveryId, abandoned!.leaseToken)).resolves.toBe(false)
+    await expect(restored.completeWebhookDelivery(reclaimed!.scope, reclaimed!.deliveryId, reclaimed!.leaseToken)).resolves.toBe(true)
+    await expect(restored.enqueueWebhookDelivery(webhookDelivery("delivery-1"))).resolves.toBe(false)
     await restored.disconnect()
   })
 
