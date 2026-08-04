@@ -72,6 +72,15 @@ export function createAgentInvocationStreamResponse(
     timeout = undefined
   }
 
+  function armTimeoutSignal(controller: ReadableStreamDefaultController<Uint8Array>): void {
+    clearTimeoutSignal()
+    if (options.timeout && options.timeout > 0) {
+      timeout = setTimeout(() => {
+        fail(controller, new Error(`Agent Invocation Stream timed out after ${options.timeout}ms of inactivity.`), "invocation")
+      }, options.timeout)
+    }
+  }
+
   function close(controller: ReadableStreamDefaultController<Uint8Array>): void {
     clearTimeoutSignal()
     closed = true
@@ -128,6 +137,7 @@ export function createAgentInvocationStreamResponse(
     if (closed || abortController.signal.aborted) return false
     try {
       controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      armTimeoutSignal(controller)
       return true
     }
     catch (cause) {
@@ -138,11 +148,7 @@ export function createAgentInvocationStreamResponse(
 
   return new Response(new ReadableStream({
     start(controller) {
-      if (options.timeout && options.timeout > 0) {
-        timeout = setTimeout(() => {
-          fail(controller, new Error(`Agent Invocation Stream timed out after ${options.timeout}ms.`), "invocation")
-        }, options.timeout)
-      }
+      armTimeoutSignal(controller)
       run(event => emit(controller, event), abortController.signal)
         .then(() => {
           if (closed || abortController.signal.aborted) return
