@@ -287,7 +287,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
         }
         if (leaseId && remoteRoot) {
           await runCrabbox(sessionOptions, leaseId, {
-            command: `rm -rf -- ${shellQuote(remoteRoot)}`,
+            command: removeDisposableRootCommand(remoteRoot),
           }).catch(() => undefined);
         }
         releaseWorkspace()
@@ -679,7 +679,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       }
       finally {
         let cleanupFailure: unknown
-        const result = await runCrabbox(state.options, state.leaseId, { command: `rm -rf -- ${shellQuote(state.root)}` }).catch((error) => {
+        const result = await runCrabbox(state.options, state.leaseId, { command: removeDisposableRootCommand(state.root) }).catch((error) => {
           cleanupFailure = error
           return undefined
         })
@@ -859,6 +859,10 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     },
   } satisfies RuntimeSession
   return session
+}
+
+function removeDisposableRootCommand(root: string) {
+  return `chmod -R u+w -- ${shellQuote(root)} 2>/dev/null || true; rm -rf -- ${shellQuote(root)}`
 }
 
 async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal | undefined) {

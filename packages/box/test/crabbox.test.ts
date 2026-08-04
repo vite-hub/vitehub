@@ -115,6 +115,39 @@ describe("createCrabboxRuntime", () => {
     )
   }, 30_000)
 
+  it("removes a disposable checkout with read-only nested content when closed", async () => {
+    const root = await temporaryRoot()
+    const repository = join(root, "repository")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(repository), mkdir(bin)])
+    await fakeCrabbox(bin)
+    await runGit(repository, ["init", "--initial-branch=main"])
+    await writeFile(join(repository, "README.md"), "checkout\n")
+    await runGit(repository, ["add", "README.md"])
+    await runGit(repository, [
+      "-c", "user.name=Fixture",
+      "-c", "user.email=fixture@example.com",
+      "commit", "-m", "initial",
+    ])
+    const sha = (await execFileAsync("git", ["-C", repository, "rev-parse", "HEAD"])).stdout.trim()
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({
+        checkout: { ref: "refs/heads/main", remote: repository, sha },
+        runtime: createCrabboxRuntime({ profile: "babysitter" }),
+      }, {})
+      const session = await box.open()
+      const sessionRoot = dirname(session.cwd)
+      await expect(session.exec("sh", ["-c", "mkdir read-only && touch read-only/file && chmod 400 read-only/file && chmod 500 read-only"], {
+        cwd: session.cwd,
+      })).resolves.toMatchObject({ code: 0 })
+
+      await session.close()
+
+      await expect(stat(sessionRoot)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  }, 30_000)
+
   it("removes a partial disposable checkout when revision verification fails", async () => {
     const root = await temporaryRoot()
     const repository = join(root, "repository")
