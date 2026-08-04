@@ -1,7 +1,7 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
-import { Chat, StreamingPlan, convertEmojiPlaceholders } from "chat"
+import { Chat, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
 import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
@@ -1623,6 +1623,71 @@ function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T
   return isRecord(options) ? options[key] as T | undefined : undefined
 }
 
+interface ChatLockTracker {
+  refresh(lockKey: string): () => void
+  state: StateAdapter
+}
+
+function createChatLockTracker(state: StateAdapter): ChatLockTracker {
+  const locks = new Map<string, { lock: Lock, ttlMs: number }>()
+  const trackedState = new Proxy(state, {
+    get(target, property) {
+      if (property === "acquireLock") {
+        return async (lockKey: string, ttlMs: number) => {
+          const lock = await target.acquireLock(lockKey, ttlMs)
+          if (lock) locks.set(lockKey, { lock, ttlMs })
+          return lock
+        }
+      }
+      if (property === "forceReleaseLock") {
+        return async (lockKey: string) => {
+          try {
+            await target.forceReleaseLock(lockKey)
+          }
+          finally {
+            locks.delete(lockKey)
+          }
+        }
+      }
+      if (property === "releaseLock") {
+        return async (lock: Lock) => {
+          try {
+            await target.releaseLock(lock)
+          }
+          finally {
+            if (locks.get(lock.threadId)?.lock.token === lock.token) locks.delete(lock.threadId)
+          }
+        }
+      }
+      const value = Reflect.get(target, property)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+
+  return {
+    refresh(lockKey) {
+      const tracked = locks.get(lockKey)
+      if (!tracked) return () => undefined
+      const interval = setInterval(() => {
+        void state.extendLock(tracked.lock, tracked.ttlMs).then((extended) => {
+          if (!extended) clearInterval(interval)
+        }, () => clearInterval(interval))
+      }, Math.max(1, Math.floor(tracked.ttlMs / 3)))
+      return () => clearInterval(interval)
+    },
+    state: trackedState,
+  }
+}
+
+async function chatSdkLockKey(adapter: Adapter, threadId: string, options: AgentChatOptions | undefined): Promise<string> {
+  const channelId = adapter.channelIdFromThreadId(threadId)
+  const configuredScope = chatSdkOption<ChatConfig["lockScope"]>(options, "lockScope")
+  const scope = typeof configuredScope === "function"
+    ? await configuredScope({ adapter, channelId, isDM: adapter.isDM?.(threadId) ?? false, threadId })
+    : configuredScope ?? adapter.lockScope ?? "thread"
+  return scope === "channel" ? channelId : threadId
+}
+
 function createChatSdkConfig(
   adapterName: string,
   adapter: Adapter,
@@ -1635,10 +1700,10 @@ function createChatSdkConfig(
   const identity: ChatConfig["identity"] = options?.identity ?? (options?.transcripts
     ? ({ author }) => author.isBot === true ? null : `${adapterName}:${author.userId}`
     : undefined)
-  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel">(options, "concurrency")
+  const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial">(options, "concurrency")
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
-    concurrency: concurrency === "parallel" ? "concurrent" : concurrency,
+    concurrency: concurrency === "parallel" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -1946,6 +2011,7 @@ async function chatTriggerMessages(
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
+  historyThroughCurrent = false,
 ): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
     rejectOversizedTextAttachments: true,
@@ -1962,7 +2028,7 @@ async function chatTriggerMessages(
   } catch {}
 
   const durable = await durableChatThreadMessages(thread, limit)
-  const messages = [
+  let messages = [
     ...(await Promise.all(durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item)))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
@@ -1976,7 +2042,11 @@ async function chatTriggerMessages(
     return deduped
   }, [])
 
-  if (!current.id || !messages.some(item => item.id === current.id)) {
+  if (historyThroughCurrent && current.id) {
+    const currentIndex = messages.findIndex(item => item.id === current.id)
+    messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [current]
+  }
+  else if (!current.id || !messages.some(item => item.id === current.id)) {
     messages.push(current)
   }
   return messages.slice(-limit)
@@ -2467,6 +2537,7 @@ async function handleChatSdkMessage(
   state: { keyPrefix: string, state: StateAdapter },
   messageContext?: MessageContext,
   maximumInvocationDeadline?: number,
+  historyThroughCurrent = false,
 ): Promise<void> {
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
@@ -2484,7 +2555,7 @@ async function handleChatSdkMessage(
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) return
 
-    const messages = await chatTriggerMessages(thread, message, options, messageContext)
+    const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
       : messages.at(-1)
@@ -2676,6 +2747,99 @@ async function handleChatSdkMessage(
   }
 }
 
+type AgentMessageDeliveryKindResolver =
+  (message: ChatSdkMessage) => MaybePromise<AgentMessageDeliveryKind | undefined>
+
+function createChatSdkMessageThread(
+  chat: Chat,
+  adapter: Adapter,
+  state: StateAdapter,
+  source: Thread,
+  message: ChatSdkMessage,
+  options: AgentChatOptions | undefined,
+): Thread {
+  const fallbackStreamingPlaceholderText = typeof options?.fallbackStreamingPlaceholderText === "string"
+    ? options.fallbackStreamingPlaceholderText
+    : options?.fallbackStreamingPlaceholderText === null ? null : undefined
+  return new ThreadImpl({
+    adapter,
+    channelId: adapter.channelIdFromThreadId(message.threadId),
+    channelVisibility: adapter.getChannelVisibility?.(message.threadId),
+    currentMessage: message,
+    fallbackStreamingPlaceholderText,
+    id: message.threadId,
+    initialMessage: message,
+    isDM: adapter.isDM?.(message.threadId) ?? false,
+    logger: chat.getLogger(),
+    stateAdapter: state,
+    streamingUpdateIntervalMs: chatSdkOption<number>(options, "streamingUpdateIntervalMs"),
+    threadHistory: chatThreadHistoryCache(source) as never,
+  })
+}
+
+async function serialMessageDeliveryKind(thread: Thread, message: ChatSdkMessage): Promise<AgentMessageDeliveryKind | undefined> {
+  if (thread.isDM) return "direct"
+  if (await thread.isSubscribed()) return message.isMention ? "mention" : "subscribed"
+  if (!message.isMention) return
+  await thread.subscribe().catch(() => undefined)
+  return "mention"
+}
+
+async function handleChatSdkMessages(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  thread: Thread,
+  message: ChatSdkMessage,
+  resolveDeliveryKind: AgentMessageDeliveryKindResolver,
+  options: AgentChatOptions | undefined,
+  state: { keyPrefix: string, state: StateAdapter },
+  adapter: Adapter,
+  chat: Chat,
+  lockTracker: ChatLockTracker,
+  messageContext?: MessageContext,
+  maximumInvocationDeadline?: number,
+): Promise<void> {
+  const serial = chatSdkOption<string>(options, "concurrency") === "serial"
+  const messages = serial ? [...messageContext?.skipped ?? [], message] : [message]
+  const stopRefreshingLock = serial
+    ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options))
+    : () => undefined
+
+  try {
+    for (const queuedMessage of messages) {
+      try {
+        const queuedThread = serial
+          ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options)
+          : thread
+        const deliveryKind = serial
+          ? await serialMessageDeliveryKind(queuedThread, queuedMessage)
+          : await resolveDeliveryKind(queuedMessage)
+        if (!deliveryKind) continue
+        await handleChatSdkMessage(
+          agent,
+          context,
+          registration,
+          queuedThread,
+          queuedMessage,
+          deliveryKind,
+          options,
+          state,
+          serial ? undefined : messageContext,
+          maximumInvocationDeadline,
+          serial,
+        )
+      }
+      catch (error) {
+        if (!serial) throw error
+      }
+    }
+  }
+  finally {
+    stopRefreshingLock()
+  }
+}
+
 async function createChannelChat(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -2687,21 +2851,26 @@ async function createChannelChat(
   maximumInvocationDeadline?: number,
 ): Promise<Chat> {
   const resolvedState = await resolveChatState(options, context, registration, handlerOptions)
+  const lockTracker = createChatLockTracker(resolvedState.state)
   const chat = new Chat(createChatSdkConfig(
     adapterName,
     adapter,
-    resolvedState.state,
+    lockTracker.state,
     options,
   ))
   const state = { keyPrefix: resolvedState.titleKeyPrefix, state: resolvedState.state }
   chat.onDirectMessage((thread, message, _channel, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, "direct", options, state, messageContext, maximumInvocationDeadline))
+    handleChatSdkMessages(agent, context, registration, thread, message, () => "direct", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
   chat.onNewMention(async (thread, message, messageContext) => {
-    await thread.subscribe().catch(() => undefined)
-    await handleChatSdkMessage(agent, context, registration, thread, message, "mention", options, state, messageContext, maximumInvocationDeadline)
+    if (chatSdkOption<string>(options, "concurrency") !== "serial") {
+      await thread.subscribe().catch(() => undefined)
+      await handleChatSdkMessages(agent, context, registration, thread, message, () => "mention", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline)
+      return
+    }
+    await handleChatSdkMessages(agent, context, registration, thread, message, () => "mention", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline)
   })
   chat.onSubscribedMessage((thread, message, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, message.isMention ? "mention" : "subscribed", options, state, messageContext, maximumInvocationDeadline))
+    handleChatSdkMessages(agent, context, registration, thread, message, queuedMessage => queuedMessage.isMention ? "mention" : "subscribed", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
 
   return chat
 }

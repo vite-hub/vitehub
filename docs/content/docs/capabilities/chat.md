@@ -79,7 +79,7 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 | `identity` | `IdentityResolver` | channel-qualified user id when transcripts are enabled | Resolve the identity used to partition transcripts. |
 | `stream` | `boolean` | inherited | Whether the chat trigger should stream output. |
 | `streamingUpdateIntervalMs` | `number` | inherited | Minimum interval between streamed Channel message updates. |
-| `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| string` | inherited | Message concurrency behavior. |
+| `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| "serial" \| string` | inherited | Overlapping message behavior. `serial` runs each retained message as a separate awaited Agent Invocation in queue order; `queue` coalesces retained messages into one invocation. Queue retention and failure guarantees come from the configured Chat State runtime. |
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope used for message locks. |
 | `dedupeTtlMs` | `number` | inherited | Time-to-live for Chat SDK duplicate-message keys. |
 | `userName` | `string` | `"vitehub"` | Agent username used by adapter-backed Chat SDK delivery. |
