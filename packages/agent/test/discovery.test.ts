@@ -1621,7 +1621,7 @@ describe("agent chat capability discovery", () => {
     expect(reactionEffect).not.toHaveBeenCalled()
     expect(replyEffect).not.toHaveBeenCalled()
     expect(abortSignal).toBeInstanceOf(AbortSignal)
-    expect(timeout).toBe(1234)
+    expect(timeout).toBeUndefined()
   })
 
   it("serves plain Agent Definitions from the Agent Invocation Stream endpoint", async () => {
