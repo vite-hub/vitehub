@@ -7128,6 +7128,7 @@ describe("server helpers", () => {
     ["parallel", "concurrent"],
     ["drop", "drop"],
     ["queue", "queue"],
+    ["serial", "queue"],
   ] as const)("maps ViteHub %s message concurrency to Chat SDK %s", async (concurrency, expectedConcurrency) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -7148,6 +7149,272 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect((adapter._chatInstance() as unknown as { _concurrencyStrategy: string })._concurrencyStrategy).toBe(expectedConcurrency)
+  })
+
+  it("processes retained serial messages in queue order after an earlier failure", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-serial-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const extendLock = vi.spyOn(state, "extendLock")
+    const adapter = createTestChatAdapter()
+    const order: string[] = []
+    const histories: string[][] = []
+    let firstStarted!: () => void
+    let releaseFirst!: () => void
+    const firstStartedPromise = new Promise<void>(resolve => {
+      firstStarted = resolve
+    })
+    const firstPending = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+    const run = vi.fn(async ({ messages }) => {
+      const texts = messages.map((message: { parts: Array<{ text?: string, type?: string }> }) =>
+        message.parts.find(part => part.type === "text")?.text || "")
+      const text = texts.at(-1) || ""
+      histories.push(texts)
+      order.push(text)
+      if (text === "A") {
+        firstStarted()
+        await firstPending
+        throw new Error("A failed")
+      }
+      return "ok"
+    })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "serial",
+            errorFallbackText: null,
+            state,
+            stream: false,
+            triggerHistory: { maxMessages: 2, source: "thread" },
+          },
+        }),
+      },
+      driver: { run },
+    }) as never)
+
+    try {
+      vi.useFakeTimers()
+      await state.connect()
+      const firstResponse = handler(chatWebhookRequest(91_010, 456, "A"), "telegram", { agentName: "support" })
+      await firstStartedPromise
+      await expect(handler(chatWebhookRequest(91_011, 456, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await vi.advanceTimersByTimeAsync(31_000)
+      expect(extendLock).toHaveBeenCalled()
+      await expect(handler(chatWebhookRequest(91_012, 456, "C"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(chatWebhookRequest(91_013, 456, "D"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      expect(order).toEqual(["A"])
+
+      releaseFirst()
+      await expect(firstResponse).resolves.toMatchObject({ status: 200 })
+      expect(order).toEqual(["A", "B", "C", "D"])
+      expect(run).toHaveBeenCalledTimes(4)
+      expect(histories).toEqual([["A"], ["B"], ["C"], ["D"]])
+    }
+    finally {
+      releaseFirst()
+      consoleError.mockRestore()
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves queued message threads with channel-scoped serial processing", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-serial-threads-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    vi.spyOn(adapter, "channelIdFromThreadId").mockReturnValue("telegram:channel")
+    let firstStarted!: () => void
+    let releaseFirst!: () => void
+    const firstStartedPromise = new Promise<void>(resolve => {
+      firstStarted = resolve
+    })
+    const firstPending = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+    const run = vi.fn(async () => {
+      if (run.mock.calls.length === 1) {
+        firstStarted()
+        await firstPending
+      }
+      return "ok"
+    })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "serial",
+            lockScope: "channel",
+            state,
+            stream: false,
+            triggerHistory: "none",
+          },
+        }),
+      },
+      driver: { run },
+    }) as never)
+    const request = (messageId: number, threadId: number, text: string) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: threadId, type: "group" },
+          from: { id: messageId, username: `user-${messageId}` },
+          isMention: true,
+          message_id: messageId,
+          text,
+        },
+      }),
+      method: "POST",
+    })
+
+    try {
+      await state.connect()
+      const firstResponse = handler(request(91_015, 456, "A"), "telegram", { agentName: "support" })
+      await firstStartedPromise
+      await expect(handler(request(91_016, 789, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      releaseFirst()
+      await expect(firstResponse).resolves.toMatchObject({ status: 200 })
+
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "ok" })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "ok" })
+    }
+    finally {
+      releaseFirst()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps queue concurrency coalesced", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-queue-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const order: string[] = []
+    let firstStarted!: () => void
+    let releaseFirst!: () => void
+    const firstStartedPromise = new Promise<void>(resolve => {
+      firstStarted = resolve
+    })
+    const firstPending = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+    const run = vi.fn(async ({ messages }) => {
+      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      order.push(text?.text || "")
+      if (text?.text === "A") {
+        firstStarted()
+        await firstPending
+      }
+      return "ok"
+    })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "queue", state, stream: false, triggerHistory: "none" },
+        }),
+      },
+      driver: { run },
+    }) as never)
+
+    try {
+      await state.connect()
+      const firstResponse = handler(chatWebhookRequest(91_020, 456, "A"), "telegram", { agentName: "support" })
+      await firstStartedPromise
+      await expect(handler(chatWebhookRequest(91_021, 456, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(chatWebhookRequest(91_022, 456, "C"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+
+      releaseFirst()
+      await expect(firstResponse).resolves.toMatchObject({ status: 200 })
+      await vi.waitFor(() => expect(order).toEqual(["A", "C"]))
+      expect(run).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      releaseFirst()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves mention and subscription eligibility for serial batches", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-serial-routing-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const routed: Array<{ deliveryKind: string, text: string }> = []
+    const request = (messageId: number, text: string, isMention = false) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "group" },
+          from: { id: 123, username: "maxi" },
+          isMention,
+          message_id: messageId,
+          text,
+        },
+      }),
+      method: "POST",
+    })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "serial",
+            filter: ({ deliveryKind, message }) => {
+              const text = message.parts.find(part => part.type === "text")
+              routed.push({ deliveryKind, text: text?.type === "text" ? text.text : "" })
+              return true
+            },
+            lockScope: "thread",
+            state,
+            stream: false,
+            triggerHistory: "none",
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    }) as never)
+
+    try {
+      await state.connect()
+      const lock = await state.acquireLock("telegram:456", 60_000)
+      if (!lock) throw new Error("Expected the test lock to be acquired.")
+      await expect(handler(request(91_030, "before mention"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(91_031, "mention", true), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(91_032, "after mention"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      expect(routed).toEqual([])
+
+      await state.releaseLock(lock)
+      await expect(handler(request(91_033, "drain"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+
+      expect(routed).toEqual([
+        { deliveryKind: "mention", text: "mention" },
+        { deliveryKind: "subscribed", text: "after mention" },
+      ])
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("preserves automatic chat delivery", async () => {

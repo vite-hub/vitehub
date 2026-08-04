@@ -1510,7 +1510,7 @@ export type AgentChatMessage =
 
 export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 
-export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | (string & {})
+export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | "serial" | (string & {})
 
 export type AgentMessageDeliveryKind = "direct" | "mention" | "subscribed"
 
