@@ -148,7 +148,7 @@ function writeDevUsage(context: AgentCliContext): void {
     "  --cli <name>      Run a Capability CLI command attached to the Agent.",
     "  --payload <path>  Agent Trigger payload JSON file.",
     "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
-    "  --timeout <ms>    Agent Invocation Stream inactivity timeout. Defaults to 90000.",
+    "  --timeout <ms>    Stream inactivity timeout; command deadline. Defaults to 90000.",
     "  -h, --help        Show this help.",
     "",
   ].join("\n"))

@@ -59,7 +59,7 @@ If the proof is timing out before it reaches the interesting failure, increase t
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json
 ```
 
-When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms> of inactivity`, first decide whether the invocation is expected to stay silent longer than the default timeout. If so, rerun with `vitehub agent dev --timeout <ms>`. If the timeout is surprising, inspect the Agent Driver boundary and any Workspace or harness session setup before changing prompts.
+When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms> of inactivity`, first decide whether the streamed invocation is expected to stay silent longer than the default timeout. If so, rerun with `vitehub agent dev --timeout <ms>`. If the timeout is surprising, inspect the Agent Driver boundary and any Workspace or harness session setup before changing prompts. For Capability CLI and `!` Workspace commands, the same option is a wall-clock command deadline because those operations do not emit Agent Invocation Stream events.
 
 ## When to escalate
 

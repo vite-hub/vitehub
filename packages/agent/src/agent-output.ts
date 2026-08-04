@@ -554,8 +554,11 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     return
   }
   if (value instanceof Response) {
-    const text = await value.text()
-    if (text) yield { text, type: "text-delta" }
+    if (value.body) {
+      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
+        if (text) yield { text, type: "text-delta" }
+      }
+    }
     yield { type: "finish" }
     return
   }

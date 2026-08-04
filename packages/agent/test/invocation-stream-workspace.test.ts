@@ -762,7 +762,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
       expect.objectContaining({ id: "workspace.prepare:review", phase: "workspace.prepare", status: "started", type: "progress" }),
       expect.objectContaining({ durationMs: expect.any(Number), id: "workspace.prepare:review", phase: "workspace.prepare", status: "completed", type: "progress" }),
-      { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream timed out after 100ms of inactivity.", type: "error" },
       { type: "done" },
     ])
     expect(harnessCreateSessionOptions[0]?.abortSignal).toBeInstanceOf(AbortSignal)

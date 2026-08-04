@@ -22,7 +22,7 @@ describe("Agent Invocation Stream", () => {
     ])
 
     expect(text.trim().split("\n").map(line => JSON.parse(line))).toEqual([
-      { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream timed out after 10ms of inactivity.", type: "error" },
       { type: "done" },
     ])
     expect(aborted).toBe(true)

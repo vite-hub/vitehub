@@ -76,7 +76,8 @@ export function createAgentInvocationStreamResponse(
     clearInactivityTimeout()
     if (options.timeout && options.timeout > 0) {
       timeout = setTimeout(() => {
-        fail(controller, new Error(`Agent Invocation Stream timed out after ${options.timeout}ms of inactivity.`), "invocation")
+        const error = `Agent Invocation Stream timed out after ${options.timeout}ms of inactivity.`
+        fail(controller, new Error(error), "invocation", { code: "INTERNAL", error })
       }, options.timeout)
     }
   }
@@ -107,13 +108,14 @@ export function createAgentInvocationStreamResponse(
     controller: ReadableStreamDefaultController<Uint8Array>,
     cause: unknown,
     context: "invocation" | "serialization" = "serialization",
+    publicError?: Omit<AgentInvocationStreamErrorEvent, "type">,
   ): void {
     if (closed) return
     clearInactivityTimeout()
     abort(cause)
     try {
       write(controller, {
-        ...toAgentPublicError(cause, context),
+        ...(publicError ?? toAgentPublicError(cause, context)),
         type: "error",
       })
       closeFailed(controller)
