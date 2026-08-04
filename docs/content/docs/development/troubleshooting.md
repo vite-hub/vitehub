@@ -53,13 +53,13 @@ find dist -maxdepth 4 -type f | sort
 
 Separate Agent runtime failures from model behavior.
 Use `vitehub agent dev` to inspect one interactive Agent Invocation, then use Agent Evals when the failure is repeatable behavior.
-If the proof is timing out before it reaches the interesting failure, increase the dev-loop `--timeout` or the Agent Eval Runner `agent.eval.testTimeout` in `vite.config.ts`.
+If the proof is timing out before it reaches the interesting failure, increase the dev-loop inactivity `--timeout` or the Agent Eval Runner `agent.eval.testTimeout` in `vite.config.ts`.
 
 ```bash [Terminal]
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json
 ```
 
-When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms>`, first decide whether the invocation is expected to run longer than the default timeout. If so, rerun with `vitehub agent dev --timeout <ms>`. If the timeout is surprising, inspect the Agent Driver boundary and any Workspace or harness session setup before changing prompts.
+When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms> of inactivity`, first decide whether the invocation is expected to stay silent longer than the default timeout. If so, rerun with `vitehub agent dev --timeout <ms>`. If the timeout is surprising, inspect the Agent Driver boundary and any Workspace or harness session setup before changing prompts.
 
 ## When to escalate
 
