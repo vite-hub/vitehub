@@ -24,6 +24,7 @@ import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -57,6 +58,7 @@ import type {
 import type { AttachmentPart, MessagePart } from "../messages.ts"
 import type { Adapter, AdapterPostableMessage, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
 import type { UIMessage } from "ai"
+import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -80,6 +82,11 @@ export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOption
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
   webhookState?: AgentWebhookStateResolver<ViteAgentRouteRuntimeConfig>
+}
+
+export interface AgentChannelWebhookRouteHandler {
+  (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions): Promise<Response>
+  resume(options?: AgentChannelWebhookRouteOptions): () => void
 }
 
 export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOptions {
@@ -511,6 +518,17 @@ async function findAgentWebhookRegistration(
   return providerMatches.length === 1 ? providerMatches[0] : undefined
 }
 
+async function agentWebhookRegistrations(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+): Promise<AgentWebhookRegistrationMatch[]> {
+  const triggers = await resolveAgentTriggers(agent as never, context as never)
+  return Object.values(triggers).flatMap(trigger => (trigger.webhooks || []).map(registration => ({
+    registration,
+    trigger: trigger as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>,
+  })))
+}
+
 async function matchedWebhookRegistrationRequiresVerification(
   registration: AgentWebhookRegistrationDefinition,
   context: ViteAgentRouteRuntimeContext,
@@ -607,6 +625,52 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease", value: 
   return `${prefix}${kind}:${value}`
 }
 
+const defaultWebhookQueueRetryMs = 1_000
+
+function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
+  if (value === undefined) return
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError("[vitehub] Webhook delivery ownership concurrencyLimit must be a positive integer.")
+  }
+  return value
+}
+
+function persistedWebhookRequest(
+  deliveryId: string,
+  request: Request,
+  body: string,
+  webhookId: string,
+  ownership: { concurrencyGroup?: string, concurrencyKey?: string, concurrencyLimit: number, concurrencyTtlMs?: number },
+  scope: string,
+  agentName: string,
+): AgentWebhookQueueDelivery {
+  const enqueuedAt = Date.now()
+  return {
+    concurrencyGroup: `${agentName}:${ownership.concurrencyGroup?.trim() || "default"}`,
+    ...(ownership.concurrencyKey ? { concurrencyKey: `${scope}:${ownership.concurrencyKey}` } : {}),
+    concurrencyLimit: ownership.concurrencyLimit,
+    deliveryId,
+    enqueuedAt,
+    leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
+    request: {
+      body,
+      headers: requestHeaders(request),
+      method: request.method,
+      url: request.url,
+    },
+    scope,
+    webhookId,
+  }
+}
+
+function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Request {
+  return new Request(delivery.request.url, {
+    body: delivery.request.body || undefined,
+    headers: delivery.request.headers,
+    method: delivery.request.method,
+  })
+}
+
 function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
   const duration = value ?? fallback
   if (!Number.isFinite(duration) || duration <= 0) {
@@ -653,6 +717,103 @@ function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: numbe
   return () => {
     stopped = true
     if (timer) clearTimeout(timer)
+  }
+}
+
+function startWebhookQueueHeartbeat(
+  state: AgentWebhookQueueStateAdapter,
+  delivery: AgentWebhookQueueLease,
+  onLost: () => void,
+): () => void {
+  const intervalMs = Math.max(1, Math.floor(delivery.leaseTtlMs / 2))
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const extend = async () => {
+    if (stopped) return
+    try {
+      if (!await state.extendWebhookDeliveryLease(
+        delivery.scope,
+        delivery.deliveryId,
+        delivery.leaseToken,
+        delivery.leaseTtlMs,
+      )) {
+        stopped = true
+        onLost()
+      }
+    }
+    catch {
+      stopped = true
+      onLost()
+    }
+    if (!stopped) timer = setTimeout(extend, intervalMs)
+  }
+  timer = setTimeout(extend, intervalMs)
+  return () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function executeQueuedWebhookDelivery(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  state: AgentWebhookQueueStateAdapter,
+  delivery: AgentWebhookQueueLease,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+): Promise<void> {
+  const request = requestFromPersistedWebhook(delivery)
+  const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
+  const context = createRuntimeContext(
+    request,
+    undefined,
+    waitUntil,
+    handlerOptions.cloudflare,
+    handlerOptions.runtime,
+    handlerOptions.capabilities,
+    routeAgentIdentity(handlerOptions),
+  )
+  const ownershipAbort = new AbortController()
+  const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
+    ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
+  })
+  try {
+    const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+    if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
+    const input = await createAgentWebhookTriggerInput(request, match.registration)
+    const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
+    if (!isResolvedAgentTriggerHandledInvocation(invocation)) {
+      if (!invocation.webhook || invocation.webhook.deliveryId !== delivery.deliveryId) {
+        throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
+      }
+      const runContext = createRuntimeContext(
+        request,
+        invocation.run,
+        waitUntil,
+        handlerOptions.cloudflare,
+        handlerOptions.runtime,
+        handlerOptions.capabilities,
+        routeAgentIdentity(handlerOptions),
+      )
+      await runWithRuntimeCloudflareEnv(runContext, async () => {
+        const result = await runAgent(agent as never, runContext as never, {
+          ...invocation.input,
+          abortSignal: invocation.input.abortSignal
+            ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal])
+            : ownershipAbort.signal,
+        } as never)
+        if (!isWorkflowRun(result) || result.status !== "queued") await runContext.flushWaitUntil?.()
+      })
+    }
+    if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      ownershipAbort.abort(new Error("[vitehub] Webhook queue completion lost its lease."))
+    }
+  }
+  catch (error) {
+    const retryDelay = Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
+    await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, Date.now() + retryDelay)
+    console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed and will be retried.`, error)
+  }
+  finally {
+    stopHeartbeat()
   }
 }
 
@@ -3136,8 +3297,40 @@ export function createChannelChatRouteHandler(
 
 export function createChannelWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-): (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions) => Promise<Response> {
-  return async (request, webhook, handlerOptions = {}) => {
+): AgentChannelWebhookRouteHandler {
+  const queueScopes = new Map<string, { options: AgentChannelWebhookRouteOptions, state: AgentWebhookQueueStateAdapter }>()
+  const drainingScopes = new Set<string>()
+  const activeDeliveries = new Set<Promise<void>>()
+
+  const drainQueue = async (scope: string) => {
+    const queue = queueScopes.get(scope)
+    if (!queue || drainingScopes.has(scope)) return
+    drainingScopes.add(scope)
+    try {
+      while (true) {
+        const delivery = await queue.state.claimWebhookDelivery(scope)
+        if (!delivery) break
+        const task = executeQueuedWebhookDelivery(agent, queue.state, delivery, queue.options)
+        activeDeliveries.add(task)
+        task.finally(() => {
+          activeDeliveries.delete(task)
+          void drainQueue(scope)
+        })
+      }
+    }
+    finally {
+      drainingScopes.delete(scope)
+    }
+  }
+
+  const registerQueue = (scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
+    if (!hasAgentWebhookQueue(state)) return false
+    queueScopes.set(scope, { options, state })
+    void drainQueue(scope)
+    return true
+  }
+
+  const handler: AgentChannelWebhookRouteHandler = async (request, webhook, handlerOptions = {}) => {
     const webhookStartedAt = Date.now()
     if (request.method !== "HEAD" && request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
@@ -3197,7 +3390,7 @@ export function createChannelWebhookRouteHandler(
             await context.flushWaitUntil?.()
             return invocation.response
           }
-          if (invocation.webhook?.concurrencyKey !== undefined && await hasActiveWorkflowRuntime(agent, context)) {
+          if ((invocation.webhook?.concurrencyKey !== undefined || invocation.webhook?.concurrencyLimit !== undefined) && await hasActiveWorkflowRuntime(agent, context)) {
             return createJsonErrorResponse(503, "Webhook concurrency ownership requires inline Agent execution.")
           }
           const webhookState = invocation.webhook
@@ -3205,6 +3398,31 @@ export function createChannelWebhookRouteHandler(
             : undefined
           if (invocation.webhook && !webhookState) {
             return createJsonErrorResponse(503, "Durable Agent state is required for webhook delivery ownership.")
+          }
+          if (invocation.webhook?.concurrencyLimit !== undefined && webhookState) {
+            const { concurrencyKey, deliveryId } = invocation.webhook
+            if (!deliveryId.trim()) {
+              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId.")
+            }
+            if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
+              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured.")
+            }
+            const concurrencyLimit = positiveWebhookConcurrencyLimit(invocation.webhook.concurrencyLimit)!
+            if (!hasAgentWebhookQueue(webhookState.state)) {
+              return createJsonErrorResponse(503, "Persistent webhook concurrency requires a queue-capable Agent state provider.")
+            }
+            const delivery = persistedWebhookRequest(
+              deliveryId,
+              request,
+              await request.clone().text(),
+              webhookId,
+              { ...invocation.webhook, concurrencyLimit },
+              webhookState.keyPrefix,
+              routeAgentIdentity(handlerOptions)?.name || "agent",
+            )
+            const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
+            registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+            return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
           let deliveryClaimKey: string | undefined
@@ -3347,6 +3565,38 @@ export function createChannelWebhookRouteHandler(
       )
     })
   }
+  handler.resume = (handlerOptions = {}) => {
+    let stopped = false
+    const discover = async () => {
+      const request = new Request("http://vitehub.local/_vitehub/webhook-queue")
+      const context = createRuntimeContext(
+        request,
+        undefined,
+        await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+        handlerOptions.cloudflare,
+        handlerOptions.runtime,
+        handlerOptions.capabilities,
+        routeAgentIdentity(handlerOptions),
+      )
+      for (const { registration } of await agentWebhookRegistrations(agent, context)) {
+        if (stopped) return
+        const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+        if (webhookState) registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+      }
+    }
+    void discover()
+    const timer = setInterval(() => {
+      if (!stopped) {
+        for (const scope of queueScopes.keys()) void drainQueue(scope)
+      }
+    }, defaultWebhookQueueRetryMs)
+    timer.unref?.()
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }
+  return handler
 }
 
 const telegramPollingChats = new WeakMap<object, Map<string, Promise<Chat>>>()
