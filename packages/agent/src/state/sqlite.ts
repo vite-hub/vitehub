@@ -201,6 +201,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         return {
           ...JSON.parse(candidate.value) as AgentWebhookQueueDelivery,
           attempts: numberValue(candidate.attempts),
+          leaseExpiresAt: now + leaseTtlMs,
           leaseToken,
         }
       }

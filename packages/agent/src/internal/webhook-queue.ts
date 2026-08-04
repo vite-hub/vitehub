@@ -19,6 +19,7 @@ export interface AgentWebhookQueueDelivery {
 
 export interface AgentWebhookQueueLease extends AgentWebhookQueueDelivery {
   attempts: number
+  leaseExpiresAt: number
   leaseToken: string
 }
 
