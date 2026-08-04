@@ -726,6 +726,8 @@ function startWebhookQueueHeartbeat(
   onLost: () => void,
 ): () => void {
   const intervalMs = Math.max(1, Math.floor(delivery.leaseTtlMs / 2))
+  const retryMs = Math.max(1, Math.min(250, Math.floor(delivery.leaseTtlMs / 4)))
+  let knownLeaseExpiresAt = delivery.leaseExpiresAt
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const extend = async () => {
@@ -739,11 +741,19 @@ function startWebhookQueueHeartbeat(
       )) {
         stopped = true
         onLost()
+        return
       }
+      knownLeaseExpiresAt = Date.now() + delivery.leaseTtlMs
     }
     catch {
-      stopped = true
-      onLost()
+      const remainingMs = knownLeaseExpiresAt - Date.now()
+      if (remainingMs <= 0) {
+        stopped = true
+        onLost()
+        return
+      }
+      timer = setTimeout(extend, Math.min(retryMs, remainingMs))
+      return
     }
     if (!stopped) timer = setTimeout(extend, intervalMs)
   }

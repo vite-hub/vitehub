@@ -5472,6 +5472,86 @@ describe("server helpers", () => {
     }
   })
 
+  it("retries transient webhook lease heartbeat contention without aborting the run", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-heartbeat-busy-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const extendLease = vi.fn(state.extendWebhookDeliveryLease.bind(state))
+    extendLease.mockRejectedValueOnce(Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" }))
+    const busyState = new Proxy(state, {
+      get(target, property) {
+        if (property === "extendWebhookDeliveryLease") return extendLease
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    let abortSignal: AbortSignal | undefined
+    let releaseRun!: () => void
+    const activeRun = new Promise<void>(resolve => {
+      releaseRun = resolve
+    })
+    const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+      abortSignal = input.abortSignal
+      await activeRun
+      return "accepted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "heartbeat" },
+                webhook: {
+                  concurrencyLimit: 1,
+                  concurrencyTtlMs: 1_000,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"))
+      const response = await handler(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-busy",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", { agentName: "review", webhookState: busyState })
+      expect(response.status).toBe(200)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(extendLease).toHaveBeenCalledOnce()
+      expect(abortSignal?.aborted).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(250)
+      expect(extendLease).toHaveBeenCalledTimes(2)
+      expect(abortSignal?.aborted).toBe(false)
+    }
+    finally {
+      releaseRun()
+      await vi.runAllTimersAsync()
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("claims webhook deliveries and exact-context concurrency before running the agent", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
