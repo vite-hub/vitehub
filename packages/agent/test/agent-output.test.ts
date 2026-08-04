@@ -860,6 +860,23 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("emits handled Response body chunks as they arrive", async () => {
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("first"))
+        controller.enqueue(new TextEncoder().encode("second"))
+        controller.close()
+      },
+    }))
+    const events = []
+    for await (const event of streamAgentOutputToEvents(response)) events.push(event)
+    expect(events).toEqual([
+      { text: "first", type: "text-delta" },
+      { text: "second", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
   it("emits usage from promise-backed textStream results", async () => {
     const output = {
       textStream: (async function* () {

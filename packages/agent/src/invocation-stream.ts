@@ -66,14 +66,24 @@ export function createAgentInvocationStreamResponse(
   let closed = false
   let timeout: ReturnType<typeof setTimeout> | undefined
 
-  function clearTimeoutSignal(): void {
+  function clearInactivityTimeout(): void {
     if (!timeout) return
     clearTimeout(timeout)
     timeout = undefined
   }
 
+  function resetInactivityTimeout(controller: ReadableStreamDefaultController<Uint8Array>): void {
+    clearInactivityTimeout()
+    if (options.timeout && options.timeout > 0) {
+      timeout = setTimeout(() => {
+        const error = `Agent Invocation Stream timed out after ${options.timeout}ms of inactivity.`
+        fail(controller, new Error(error), "invocation", { code: "INTERNAL", error })
+      }, options.timeout)
+    }
+  }
+
   function close(controller: ReadableStreamDefaultController<Uint8Array>): void {
-    clearTimeoutSignal()
+    clearInactivityTimeout()
     closed = true
     controller.close()
   }
@@ -98,13 +108,14 @@ export function createAgentInvocationStreamResponse(
     controller: ReadableStreamDefaultController<Uint8Array>,
     cause: unknown,
     context: "invocation" | "serialization" = "serialization",
+    publicError?: Omit<AgentInvocationStreamErrorEvent, "type">,
   ): void {
     if (closed) return
-    clearTimeoutSignal()
+    clearInactivityTimeout()
     abort(cause)
     try {
       write(controller, {
-        ...toAgentPublicError(cause, context),
+        ...(publicError ?? toAgentPublicError(cause, context)),
         type: "error",
       })
       closeFailed(controller)
@@ -128,6 +139,7 @@ export function createAgentInvocationStreamResponse(
     if (closed || abortController.signal.aborted) return false
     try {
       controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      resetInactivityTimeout(controller)
       return true
     }
     catch (cause) {
@@ -138,11 +150,7 @@ export function createAgentInvocationStreamResponse(
 
   return new Response(new ReadableStream({
     start(controller) {
-      if (options.timeout && options.timeout > 0) {
-        timeout = setTimeout(() => {
-          fail(controller, new Error(`Agent Invocation Stream timed out after ${options.timeout}ms.`), "invocation")
-        }, options.timeout)
-      }
+      resetInactivityTimeout(controller)
       run(event => emit(controller, event), abortController.signal)
         .then(() => {
           if (closed || abortController.signal.aborted) return
@@ -150,7 +158,7 @@ export function createAgentInvocationStreamResponse(
         })
         .catch((cause) => {
           if (closed || abortController.signal.aborted) return
-          clearTimeoutSignal()
+          clearInactivityTimeout()
           emit(controller, {
             ...toAgentPublicError(cause, "invocation"),
             type: "error",
@@ -159,7 +167,7 @@ export function createAgentInvocationStreamResponse(
         })
     },
     cancel() {
-      clearTimeoutSignal()
+      clearInactivityTimeout()
       closed = true
       abort()
     },

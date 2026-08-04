@@ -22,10 +22,36 @@ describe("Agent Invocation Stream", () => {
     ])
 
     expect(text.trim().split("\n").map(line => JSON.parse(line))).toEqual([
-      { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream timed out after 10ms of inactivity.", type: "error" },
       { type: "done" },
     ])
     expect(aborted).toBe(true)
+  })
+
+  it("keeps active streams open beyond the inactivity timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      const response = createAgentInvocationStreamResponse(async (emit) => {
+        for (const text of ["first", "second", "third"]) {
+          await new Promise(resolve => setTimeout(resolve, 20))
+          emit({ text, type: "text-delta" })
+        }
+      }, { timeout: 30 })
+
+      const text = response.text()
+      await vi.advanceTimersByTimeAsync(60)
+
+      await expect(text).resolves.toBe([
+        JSON.stringify({ text: "first", type: "text-delta" }),
+        JSON.stringify({ text: "second", type: "text-delta" }),
+        JSON.stringify({ text: "third", type: "text-delta" }),
+        JSON.stringify({ type: "done" }),
+        "",
+      ].join("\n"))
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("treats AbortError from cancellation aborts as cleanup", async () => {
