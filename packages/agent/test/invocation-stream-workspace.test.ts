@@ -766,9 +766,9 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       { type: "done" },
     ])
     expect(harnessCreateSessionOptions[0]?.abortSignal).toBeInstanceOf(AbortSignal)
-    expect(harnessCreateSessionOptions[0]?.timeout).toBe(100)
+    expect(harnessCreateSessionOptions[0]?.timeout).toBeUndefined()
     expect(harnessStreamInputs[0]?.abortSignal).toBeInstanceOf(AbortSignal)
-    expect(harnessStreamInputs[0]?.timeout).toBe(100)
+    expect(harnessStreamInputs[0]?.timeout).toBeUndefined()
     await waitFor(() => {
       expect(workspaceClose).toHaveBeenCalledOnce()
       expect(harnessSessionDestroy).toHaveBeenCalledOnce()
@@ -797,7 +797,9 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     harnessStreamResult.mockReturnValueOnce({
       fullStream: (async function* () {
+        await new Promise(resolve => setTimeout(resolve, 60))
         yield { text: "Scoped review completed.", type: "text-delta" }
+        await new Promise(resolve => setTimeout(resolve, 60))
         yield { type: "finish" }
       })(),
     })
@@ -843,6 +845,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
       payload: { prompt: "review" },
+      timeout: 100,
       trigger: "github.webhook",
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
@@ -861,6 +864,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       { type: "finish" },
       { type: "done" },
     ])
+    expect(harnessCreateSessionOptions[0]?.timeout).toBeUndefined()
+    expect(harnessStreamInputs[0]?.timeout).toBeUndefined()
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
     }))
