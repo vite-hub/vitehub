@@ -289,7 +289,7 @@ describe("createCodexDriver", () => {
 
   it("discards the isolated Box Codex Home when harness preparation fails", async () => {
     const { createCodexDriver } = await import("../src/harness/codex.ts")
-    const run = vi.fn(async () => ({ exitCode: 0, stderr: "" }))
+    const run = vi.fn(async (_options: { command: string }) => ({ exitCode: 0, stderr: "" }))
     const driver = createCodexDriver({ sandbox: false })
     const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => Promise<{ close: (error?: unknown) => Promise<void> } | undefined>
     const prepared = await prepareSession({ run }, { id: "failed-invocation", isolateBoxHome: true })
