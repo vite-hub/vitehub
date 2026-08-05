@@ -208,7 +208,7 @@ describe("createCrabboxRuntime", () => {
       requires: [null as never],
       cwd: workspace,
     }, {})).rejects.toThrow("Box requirements must be commands or direct command checks");
-    for (const timeout of [0, -1, 1.5, Number.NaN, 2 ** 32]) {
+    for (const timeout of [0, -1, 1.5, Number.NaN, 2 ** 31]) {
       await expect(resolveBox({
         runtime: createCrabboxRuntime(),
         requires: [{ command: "gh", timeout }],

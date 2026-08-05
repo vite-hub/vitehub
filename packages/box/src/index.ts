@@ -668,10 +668,10 @@ function normalizeRequirements(
     const timeout = value.timeout;
     if (
       timeout !== undefined
-      && (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2 ** 32 - 1)
+      && (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2 ** 31 - 1)
     ) {
       throw new TypeError(
-        "[vitehub] Box requirement timeout must be a positive integer no greater than 4294967295ms.",
+        "[vitehub] Box requirement timeout must be a positive integer no greater than 2147483647ms.",
       );
     }
     return { args, command, name, ...(timeout === undefined ? {} : { timeout }) };
