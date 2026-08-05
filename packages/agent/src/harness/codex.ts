@@ -19,6 +19,7 @@ import type {
 } from "../types.ts"
 
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
+const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
@@ -74,6 +75,17 @@ const codexBridgePrepareDependenciesCommand = [
 
 function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {
   const harness = createCodex(settings)
+  const adaptSandbox = (
+    provider: AgentHarnessSandboxProviderInput,
+    options?: { box?: boolean, defaultSandbox?: boolean, invocation?: { id: string, isolateBoxHome: boolean } },
+  ) => adaptCodexHarnessSandbox(provider, {
+    ...(options?.box && options.invocation?.isolateBoxHome
+      ? { codexHomeRelativeToHome: `.vitehub/codex-home-${options.invocation.id}` }
+      : {}),
+    defaultSandbox: options?.defaultSandbox,
+    isolateHome: !options?.box || options.invocation?.isolateBoxHome,
+    preferOpenAI,
+  })
   return {
     ...harness,
     [harnessGlobalSkillsDirectory]: (context: { box?: unknown }, invocation?: { id: string, isolateBoxHome: boolean }) => context.box
@@ -84,17 +96,8 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
     [harnessSessionPrepare]: async (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => {
       return await prepareCodexHome(session, invocation)
     },
-    [harnessSandboxAdapter]: (
-      provider: AgentHarnessSandboxProviderInput,
-      options?: { box?: boolean, defaultSandbox?: boolean, invocation?: { id: string, isolateBoxHome: boolean } },
-    ) => adaptCodexHarnessSandbox(provider, {
-      ...(options?.box && options.invocation?.isolateBoxHome
-        ? { codexHomeRelativeToHome: `.vitehub/codex-home-${options.invocation.id}` }
-        : {}),
-      defaultSandbox: options?.defaultSandbox,
-      isolateHome: !options?.box || options.invocation?.isolateBoxHome,
-      preferOpenAI,
-    }),
+    [harnessSandboxAdapter]: adaptSandbox,
+    [harnessInvocationSandboxAdapter]: adaptSandbox,
     async getBootstrap() {
       const [pkg, lock, bridge] = await Promise.all([
         readCodexBridgeAsset("package.json"),

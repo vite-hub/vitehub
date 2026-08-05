@@ -99,6 +99,7 @@ const harnessAttachmentMaxBytes = 25 * 1024 * 1024
 const harnessAgentPackage = "@ai-sdk/harness/agent"
 const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
+const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 
@@ -860,13 +861,20 @@ async function createHarnessAgent<
   const defaultSandbox = context.harnessSandboxProvider === undefined && driverSandbox === undefined
   const baseSandbox = context.harnessSandboxProvider ?? driverSandbox ?? await createDefaultHarnessSandbox(context)
   assertHarnessSandboxRuntime(baseSandbox, context)
+  const adaptInvocationSandbox = (harness as Record<PropertyKey, unknown>)[harnessInvocationSandboxAdapter]
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
   let sandbox = baseSandbox
-  if (typeof adaptSandbox === "function") {
-    sandbox = (adaptSandbox as (provider: object, options: { box: boolean, defaultSandbox: boolean, invocation: { id: string, isolateBoxHome: boolean } }) => object)(baseSandbox, {
+  if (typeof adaptInvocationSandbox === "function") {
+    sandbox = (adaptInvocationSandbox as (provider: object, options: { box: boolean, defaultSandbox: boolean, invocation: { id: string, isolateBoxHome: boolean } }) => object)(baseSandbox, {
       box: Boolean(context.box),
       defaultSandbox,
       invocation,
+    })
+  }
+  else if (typeof adaptSandbox === "function") {
+    sandbox = (adaptSandbox as (provider: object, options: { box: boolean, defaultSandbox: boolean }) => object)(baseSandbox, {
+      box: Boolean(context.box),
+      defaultSandbox,
     })
   }
   else if (defaultSandbox && (harness as { harnessId?: unknown }).harnessId === "codex") {
