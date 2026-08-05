@@ -195,10 +195,14 @@ describe("Cloudflare Computer Box runtime", () => {
     expect(disposeWorkspace).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects an abort while Computer is still opening the execution handle", async () => {
+  it("waits for opening executions before closing the workspace", async () => {
     let resolveExecution!: (execution: Awaited<ReturnType<CloudflareComputerWorkspace["runtime"]["exec"]>>) => void;
-    const kill = vi.fn(async () => {});
+    let finishKill!: () => void;
+    const kill = vi.fn(() => new Promise<void>(resolve => {
+      finishKill = resolve;
+    }));
     const disposeExecution = vi.fn();
+    const disposeWorkspace = vi.fn();
     const workspace = {
       fs: emptyFilesystem(),
       runtime: {
@@ -206,6 +210,128 @@ describe("Cloudflare Computer Box runtime", () => {
           resolveExecution = resolve;
         }),
       },
+      [Symbol.dispose]: disposeWorkspace,
+    } satisfies CloudflareComputerWorkspace;
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {});
+    const session = await box.open();
+    const pending = session.exec("sleep", ["60"]);
+    const closing = session.close();
+
+    await expect(Promise.race([closing.then(() => "closed"), Promise.resolve("pending")])).resolves.toBe("pending");
+    resolveExecution({
+      id: "late",
+      kill,
+      async result() {
+        return { exitCode: 0, stderr: "", stdout: "" };
+      },
+      [Symbol.dispose]: disposeExecution,
+    });
+
+    await vi.waitFor(() => expect(kill).toHaveBeenCalledWith("SIGKILL"));
+    expect(disposeWorkspace).not.toHaveBeenCalled();
+    finishKill();
+    await closing;
+    await expect(pending).rejects.toThrow("closed");
+    expect(kill).toHaveBeenCalledWith("SIGKILL");
+    expect(disposeExecution).toHaveBeenCalledTimes(1);
+    expect(disposeWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels execution-handle RPCs by their assigned ID during close", async () => {
+    let rejectExecution!: (reason: unknown) => void;
+    const exec = vi.fn((...[_command, options]: Parameters<CloudflareComputerWorkspace["runtime"]["exec"]>) => new Promise<never>((_resolve, reject) => {
+      rejectExecution = reject;
+      expect(options?.id).toMatch(/^vitehub-/);
+    }));
+    const killExec = vi.fn(async (id: string) => {
+      rejectExecution(new Error(`killed ${id}`));
+    });
+    const disposeWorkspace = vi.fn();
+    const workspace = {
+      fs: emptyFilesystem(),
+      runtime: { exec, killExec },
+      [Symbol.dispose]: disposeWorkspace,
+    } satisfies CloudflareComputerWorkspace;
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {});
+    const session = await box.open();
+    const pending = session.exec("sleep", ["60"]);
+
+    await session.close();
+
+    await expect(pending).rejects.toThrow("killed vitehub-");
+    expect(killExec).toHaveBeenCalledWith(expect.stringMatching(/^vitehub-/), { signal: "SIGKILL" });
+    expect(disposeWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizes filesystem options and listing order", async () => {
+    const mkdir = vi.fn(async () => {});
+    const rm = vi.fn(async () => {});
+    const workspace = {
+      fs: {
+        ...emptyFilesystem(),
+        async lstat(path: string) {
+          return stat(path.endsWith("/directory") ? "directory" : "file", 0);
+        },
+        mkdir,
+        async readdir() {
+          return [
+            { isDirectory: false, isFile: true, isSymbolicLink: false, name: "z.txt" },
+            { isDirectory: true, isFile: false, isSymbolicLink: false, name: "directory" },
+            { isDirectory: false, isFile: true, isSymbolicLink: false, name: "a.txt" },
+          ];
+        },
+        rm,
+      },
+      runtime: { async exec() { throw new Error("unexpected exec"); } },
+    } satisfies CloudflareComputerWorkspace;
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {});
+    const session = await box.open();
+    mkdir.mockClear();
+    rm.mockClear();
+
+    await session.files.mkdir("/workspace/new", { recursive: false });
+    await session.files.remove("/workspace/old", { recursive: false });
+    expect(mkdir).toHaveBeenCalledWith("/workspace/new", undefined);
+    expect(rm).toHaveBeenCalledWith("/workspace/old", { force: true });
+    expect((await session.files.list("/workspace")).map(entry => entry.path)).toEqual([
+      "/workspace/a.txt",
+      "/workspace/directory",
+      "/workspace/z.txt",
+    ]);
+    await session.close();
+  });
+
+  it("rejects an abort while Computer is still opening the execution handle", async () => {
+    let resolveExecution!: (execution: Awaited<ReturnType<CloudflareComputerWorkspace["runtime"]["exec"]>>) => void;
+    let finishKill!: () => void;
+    const kill = vi.fn(() => new Promise<void>(resolve => {
+      finishKill = resolve;
+    }));
+    const disposeExecution = vi.fn();
+    const disposeWorkspace = vi.fn();
+    const workspace = {
+      fs: emptyFilesystem(),
+      runtime: {
+        exec: () => new Promise<Awaited<ReturnType<CloudflareComputerWorkspace["runtime"]["exec"]>>>(resolve => {
+          resolveExecution = resolve;
+        }),
+      },
+      [Symbol.dispose]: disposeWorkspace,
     } satisfies CloudflareComputerWorkspace;
     const box = await resolveBox({
       runtime: createCloudflareComputerRuntime({
@@ -219,6 +345,7 @@ describe("Cloudflare Computer Box runtime", () => {
     controller.abort(new Error("cancelled"));
 
     await expect(pending).rejects.toThrow("cancelled");
+    const closing = session.close();
     resolveExecution({
       id: "late",
       kill,
@@ -228,7 +355,41 @@ describe("Cloudflare Computer Box runtime", () => {
       [Symbol.dispose]: disposeExecution,
     });
     await vi.waitFor(() => expect(kill).toHaveBeenCalledWith("SIGKILL"));
+    expect(disposeWorkspace).not.toHaveBeenCalled();
+    finishKill();
+    await closing;
     expect(disposeExecution).toHaveBeenCalledTimes(1);
+    expect(disposeWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("kills an execution when abort wins as its handle opens", async () => {
+    const controller = new AbortController();
+    const kill = vi.fn(async () => {});
+    const workspace = {
+      fs: emptyFilesystem(),
+      runtime: {
+        async exec() {
+          queueMicrotask(() => controller.abort(new Error("cancelled")));
+          return {
+            id: "opening",
+            kill,
+            async result() {
+              return { exitCode: 0, stderr: "", stdout: "" };
+            },
+          };
+        },
+      },
+    } satisfies CloudflareComputerWorkspace;
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {});
+    const session = await box.open();
+
+    await expect(session.exec("sleep", ["60"], { signal: controller.signal })).rejects.toThrow("cancelled");
+    expect(kill).toHaveBeenCalledWith("SIGKILL");
     await session.close();
   });
 });

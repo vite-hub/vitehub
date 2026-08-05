@@ -201,19 +201,22 @@ export { WorkspaceServiceProxy } from '@cloudflare/computer'
 
 export class AgentComputer extends withWorkspace(
   class extends DurableObject<Env> {},
-  self => ({
-    storage: self.ctx.storage,
-    backends: [
-      new WorkerShellBackend({
-        loader: self.env.LOADER,
-        workspace: {
-          binding: 'AGENT_COMPUTER',
-          id: self.ctx.id.toString(),
-        },
-        ctx: self.ctx,
-      }),
-    ],
-  }),
+  self => {
+    const { ctx, env } = self as unknown as { ctx: DurableObjectState, env: Env }
+    return {
+      storage: ctx.storage,
+      backends: [
+        new WorkerShellBackend({
+          loader: env.LOADER,
+          workspace: {
+            binding: 'AGENT_COMPUTER',
+            id: ctx.id.toString(),
+          },
+          ctx,
+        }),
+      ],
+    }
+  },
 ) {}
 ```
 

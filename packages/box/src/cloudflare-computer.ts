@@ -25,8 +25,13 @@ export interface CloudflareComputerWorkspace {
       cwd?: string;
       encoding?: "utf8";
       env?: Record<string, string>;
+      id?: string;
       timeoutMs?: number;
     }): Promise<CloudflareComputerExecHandle>;
+    killExec?(id: string, options?: {
+      backend?: string;
+      signal?: "SIGTERM" | "SIGKILL" | "SIGINT" | "SIGHUP";
+    }): Promise<void>;
   };
   [Symbol.dispose]?(): void;
 }
@@ -121,6 +126,7 @@ function createCloudflareComputerSession(
 ): RuntimeSession {
   let disposed = false;
   const activeExecutions = new Set<CloudflareComputerExecHandle>();
+  const openingExecutions = new Map<string, Promise<void>>();
   const releaseExecution = (execution: CloudflareComputerExecHandle) => {
     if (!activeExecutions.delete(execution)) return;
     execution[Symbol.dispose]?.();
@@ -130,13 +136,21 @@ function createCloudflareComputerSession(
     id,
     async destroy() {
       disposed = true;
-      const results = await Promise.allSettled([...activeExecutions].map(async (execution) => {
+      const openings = [...openingExecutions];
+      const results = await Promise.allSettled(openings.map(async ([executionId]) => {
+        await workspace.runtime.killExec?.(executionId, {
+          ...(backend ? { backend } : {}),
+          signal: "SIGKILL",
+        });
+      }));
+      await Promise.allSettled(openings.map(([, opening]) => opening));
+      results.push(...await Promise.allSettled([...activeExecutions].map(async (execution) => {
         try {
           await execution.kill("SIGKILL");
         } finally {
           releaseExecution(execution);
         }
-      }));
+      })));
       results.push(...await Promise.allSettled([
         workspace.fs.rm("/home/vitehub", { force: true, recursive: true }),
         workspace.fs.rm("/workspace", { force: true, recursive: true }),
@@ -163,7 +177,7 @@ function createCloudflareComputerSession(
     },
     async makeDirectory({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();
-      await workspace.fs.mkdir(path, { recursive });
+      await workspace.fs.mkdir(path, recursive ? { recursive: true } : undefined);
     },
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
@@ -176,25 +190,38 @@ function createCloudflareComputerSession(
     },
     async removeFile({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();
-      await workspace.fs.rm(path, { force: true, recursive });
+      await workspace.fs.rm(path, recursive ? { force: true, recursive: true } : { force: true });
     },
     async run({ abortSignal, command, env, timeout, workingDirectory }) {
-      const execution = await openExecution(workspace.runtime.exec(command, {
+      if (disposed) throw new Error("[vitehub] Box session is closed.");
+      const executionId = `vitehub-${crypto.randomUUID()}`;
+      const pending = workspace.runtime.exec(command, {
         ...(backend ? { backend } : {}),
         cwd: workingDirectory ?? "/workspace",
         encoding: "utf8",
         env: { ...baseEnv, ...env },
+        id: executionId,
         ...(timeout === undefined ? {} : { timeoutMs: timeout }),
-      }), abortSignal);
-      if (disposed) {
-        try {
-          await execution.kill("SIGKILL");
-        } finally {
-          execution[Symbol.dispose]?.();
+      });
+      const opening = pending.then(async (execution) => {
+        if (disposed || abortSignal?.aborted) {
+          try {
+            await execution.kill("SIGKILL");
+          } finally {
+            execution[Symbol.dispose]?.();
+          }
+          throw abortSignal?.aborted ? abortSignal.reason : new Error("[vitehub] Box session is closed.");
         }
-        throw new Error("[vitehub] Box session is closed.");
-      }
-      activeExecutions.add(execution);
+        activeExecutions.add(execution);
+        return execution;
+      });
+      const openingSettled = opening.then(() => {}, () => {});
+      openingExecutions.set(executionId, openingSettled);
+      void openingSettled.finally(() => openingExecutions.delete(executionId));
+      const execution = await waitForExecution(opening, abortSignal, () => workspace.runtime.killExec?.(executionId, {
+        ...(backend ? { backend } : {}),
+        signal: "SIGKILL",
+      }));
       try {
         const result = await abortExecution(execution, abortSignal);
         return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
@@ -210,9 +237,10 @@ function createCloudflareComputerSession(
   };
 }
 
-async function openExecution(
+async function waitForExecution(
   pending: Promise<CloudflareComputerExecHandle>,
   signal: AbortSignal | undefined,
+  cancel: () => Promise<void> | undefined,
 ) {
   if (!signal) return await pending;
   signal.throwIfAborted();
@@ -220,6 +248,7 @@ async function openExecution(
     let aborted = false;
     const abort = () => {
       aborted = true;
+      void cancel()?.catch(() => {});
       reject(signal.reason);
     };
     signal.addEventListener("abort", abort, { once: true });
@@ -227,9 +256,7 @@ async function openExecution(
       signal.removeEventListener("abort", abort);
       if (!aborted) {
         resolve(execution);
-        return;
       }
-      void execution.kill("SIGKILL").catch(() => {}).finally(() => execution[Symbol.dispose]?.());
     }, (error) => {
       signal.removeEventListener("abort", abort);
       if (!aborted) reject(error);
@@ -257,12 +284,15 @@ async function listComputerFiles(
       result.push(...await listComputerFiles(filesystem, childPath, true, signal));
     }
   }
-  return result;
+  return result.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 async function abortExecution(execution: CloudflareComputerExecHandle, signal: AbortSignal | undefined) {
   if (!signal) return await execution.result();
-  signal.throwIfAborted();
+  if (signal.aborted) {
+    await execution.kill("SIGKILL").catch(() => {});
+    throw signal.reason;
+  }
   return await new Promise<Awaited<ReturnType<CloudflareComputerExecHandle["result"]>>>((resolve, reject) => {
     const abort = () => {
       void execution.kill("SIGKILL").catch(() => {});
