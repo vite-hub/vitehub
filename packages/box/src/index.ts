@@ -53,6 +53,7 @@ export type BoxRequirement =
       args?: readonly string[];
       command: string;
       name?: string;
+      timeout?: number;
     };
 
 export type BoxValue<T, Context> =
@@ -222,6 +223,7 @@ export interface ResolvedBoxRequirementInput {
   readonly args: readonly string[];
   readonly command: string;
   readonly name: string;
+  readonly timeout?: number;
 }
 
 export interface BoxRuntimeInput {
@@ -245,6 +247,7 @@ export interface BoxEnvironment {
 export interface BoxResolvedRequirement {
   readonly command: string;
   readonly name: string;
+  readonly timeout?: number;
 }
 
 export interface BoxPlan {
@@ -662,7 +665,16 @@ function normalizeRequirements(
     if (command.includes("\0") || args.some((argument) => argument.includes("\0")))
       throw new TypeError("[vitehub] Box requirement commands and arguments cannot contain NUL.");
     const name = value.name?.trim() || [command, ...args].join(" ");
-    return { args, command, name };
+    const timeout = value.timeout;
+    if (
+      timeout !== undefined
+      && (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2 ** 31 - 1)
+    ) {
+      throw new TypeError(
+        "[vitehub] Box requirement timeout must be a positive integer no greater than 2147483647ms.",
+      );
+    }
+    return { args, command, name, ...(timeout === undefined ? {} : { timeout }) };
   });
   return [...new Map(requirements.map((value) => [JSON.stringify(value), value])).values()];
 }

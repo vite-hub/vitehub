@@ -9,6 +9,12 @@ import type {
 } from "../index.ts";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 import { materializeGitCheckout } from "./git-checkout.ts";
+import {
+  boxRequirementError,
+  boxRequirementPlan,
+  boxRequirementSecrets,
+  boxRequirementSignal,
+} from "./requirements.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
 interface RemoteRuntimeOptions {
@@ -69,7 +75,7 @@ export function remoteBoxPlan(
     environment: { env: {} },
     executionAuthority: options.executionAuthority,
     identity: input.identity,
-    requirements: input.requirements.map(({ command, name }) => ({ command, name })),
+    requirements: boxRequirementPlan(input.requirements),
     runtime: options.runtime,
     workspace: {
       state: "disposable",
@@ -85,6 +91,7 @@ export async function openRemoteBox(
     initialize?: (session: BoxSession, context: { signal?: AbortSignal }) => Promise<void>;
     signal?: AbortSignal;
   },
+  environment: Readonly<Record<string, string>>,
 ) {
   assertRemoteInput(input, options.runtime);
   const session = createBoxSession(runtimeSession, {
@@ -93,7 +100,7 @@ export async function openRemoteBox(
     signal: options.signal,
   });
   try {
-    await materializeRemotePlan(input, runtimeSession, options);
+    await materializeRemotePlan(input, runtimeSession, options, environment);
     await options.initialize?.(session, { signal: options.signal });
     return session;
   } catch (error) {
@@ -132,10 +139,14 @@ async function materializeRemotePlan(
   input: BoxRuntimeInput,
   session: RuntimeSession,
   options: Pick<RemoteRuntimeOptions, "home" | "workspace" | "preserveWorkspace"> & { signal?: AbortSignal },
+  environment: Readonly<Record<string, string>>,
 ) {
   const home = options.home ?? "/home/vitehub";
   const workspace = options.workspace ?? "/workspace";
   const abortSignal = options.signal;
+  const diagnosticSecrets = [...boxRequirementSecrets(
+    Object.keys(input.plan.env).map(name => environment[name]!),
+  )];
   for (const path of new Set([home, ...(options.preserveWorkspace ? [] : [workspace])])) {
     if (await session.existsFile({ abortSignal, path }))
       await session.removeFile({ abortSignal, path, recursive: true });
@@ -143,6 +154,8 @@ async function materializeRemotePlan(
   await session.makeDirectory({ abortSignal, path: home, recursive: true });
   await session.makeDirectory({ abortSignal, path: workspace, recursive: true });
   for (const [path, file] of Object.entries(input.plan.files)) {
+    const content = await file.resolve();
+    diagnosticSecrets.push(...boxRequirementSecrets([content]));
     await session.makeDirectory({
       abortSignal,
       path: dirnameRemotePath(joinRemotePath(home, path)),
@@ -150,7 +163,7 @@ async function materializeRemotePlan(
     });
     await session.writeBinaryFile({
       abortSignal,
-      content: await file.resolve(),
+      content,
       path: joinRemotePath(home, path),
     });
   }
@@ -168,7 +181,13 @@ async function materializeRemotePlan(
       },
     });
   }
-  await validateRequirements(session, input.requirements, workspace, abortSignal);
+  await validateRequirements(
+    session,
+    input.requirements,
+    workspace,
+    abortSignal,
+    diagnosticSecrets,
+  );
 }
 
 function joinRemotePath(...parts: string[]) {
@@ -185,18 +204,25 @@ async function validateRequirements(
   requirements: readonly ResolvedBoxRequirementInput[],
   workspace: string,
   abortSignal: AbortSignal | undefined,
+  secrets: readonly string[],
 ) {
   for (const requirement of requirements) {
     const command = ["command -v", shellQuote(requirement.command), ">/dev/null"];
     if (requirement.args.length)
       command.push("&&", shellQuote(requirement.command), ...requirement.args.map(shellQuote));
-    const result = await session.run({
-      abortSignal,
-      command: command.join(" "),
-      workingDirectory: workspace,
-    });
+    let result: Awaited<ReturnType<RuntimeSession["run"]>>;
+    try {
+      result = await session.run({
+        abortSignal: boxRequirementSignal(requirement, abortSignal),
+        command: command.join(" "),
+        workingDirectory: workspace,
+      });
+    } catch (cause) {
+      if (abortSignal?.aborted) throw abortSignal.reason;
+      throw boxRequirementError(requirement, cause, secrets);
+    }
     if (result.exitCode !== 0)
-      throw new Error(`[vitehub] Box requirement "${requirement.name}" failed.`);
+      throw boxRequirementError(requirement, result, secrets);
   }
 }
 

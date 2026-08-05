@@ -37,6 +37,13 @@ import type {
   ResolvedBoxState,
 } from "../index.ts";
 import { materializeGitCheckout } from "./git-checkout.ts";
+import {
+  boxRequirementError,
+  boxRequirementPlan,
+  boxRequirementSecrets,
+  boxRequirementSignal,
+  collectBoxRequirementOutput,
+} from "./requirements.ts";
 import { markBuiltInBoxRuntime } from "./runtime.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
@@ -111,7 +118,7 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
         environment: { env: {} },
         executionAuthority: trustedHostExecutionAuthority,
         identity: input.identity,
-        requirements: input.requirements.map(({ command, name }) => ({ command, name })),
+        requirements: boxRequirementPlan(input.requirements),
         runtime: "trusted-host",
         workspace: cwd
           ? { path: cwd, state: "authoritative" as const, workDir: "workspace" as const }
@@ -222,7 +229,18 @@ async function createSession(
       sessionId: createOptions.sessionId,
       workspace: input.cwd,
     });
-    await validateRequirements(input.requirements, env, checkout ?? input.cwd ?? root);
+    await validateRequirements(
+      input.requirements,
+      env,
+      checkout ?? input.cwd ?? root,
+      createOptions.abortSignal,
+      boxRequirementSecrets([
+        ...Object.keys(input.plan.env).map(name => env[name]),
+        ...files.map(file => file.contents),
+        ...states.flatMap(state => state.seed.map(file => file.contents)),
+      ]),
+      input.plan.state.length === 0,
+    );
     await createOptions.initialize?.(session);
     return session;
   } catch (error) {
@@ -616,6 +634,9 @@ async function validateRequirements(
   requirements: readonly ResolvedBoxRequirementInput[],
   env: Record<string, string>,
   cwd: string | undefined,
+  abortSignal: AbortSignal | undefined,
+  secrets: readonly string[],
+  includeDiagnosticOutput: boolean,
 ) {
   for (const requirement of requirements) {
     const executable = await findExecutable(
@@ -625,19 +646,51 @@ async function validateRequirements(
       cwd,
     );
     if (!executable)
-      throw new Error(
-        `[vitehub] Box requirement "${requirement.name}" is unavailable: ${requirement.command} is not on PATH.`,
+      throw boxRequirementError(
+        requirement,
+        { message: `${requirement.command} is not on PATH.` },
+        secrets,
+        requirement.timeout,
+        includeDiagnosticOutput,
       );
     if (!requirement.args.length) continue;
+    const timeout = requirement.timeout ?? 10_000;
+    let result: { exitCode: number; stderr: string; stdout: string };
     try {
-      await promisify(execFile)(executable, requirement.args, {
+      const child = spawnChildProcess(executable, requirement.args, {
         cwd,
+        detached: process.platform !== "win32",
         env,
         shell: isWindowsCommandShim(executable),
-        timeout: 10_000,
       });
-    } catch {
-      throw new Error(`[vitehub] Box requirement "${requirement.name}" failed.`);
+      const handle = processHandle(
+        child,
+        boxRequirementSignal({ ...requirement, timeout }, abortSignal),
+      );
+      const [stderr, stdout, { exitCode }] = await Promise.all([
+        collectBoxRequirementOutput(handle.stderr, secrets),
+        collectBoxRequirementOutput(handle.stdout, secrets),
+        handle.wait(),
+      ]);
+      result = { exitCode, stderr, stdout };
+    } catch (cause) {
+      if (abortSignal?.aborted) throw abortSignal.reason;
+      throw boxRequirementError(
+        requirement,
+        cause,
+        secrets,
+        timeout,
+        includeDiagnosticOutput,
+      );
+    }
+    if (result.exitCode !== 0) {
+      throw boxRequirementError(
+        requirement,
+        result,
+        secrets,
+        timeout,
+        includeDiagnosticOutput,
+      );
     }
   }
 }

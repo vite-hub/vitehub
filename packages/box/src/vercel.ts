@@ -142,7 +142,7 @@ export function createVercelRuntime(options: VercelBoxOptions = {}): BoxRuntime 
         workspace,
         preserveWorkspace: Boolean(options.source),
         signal: openOptions?.signal,
-      });
+      }, env);
     },
   });
 }

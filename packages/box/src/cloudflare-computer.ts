@@ -102,7 +102,7 @@ export function createCloudflareComputerRuntime(options: CloudflareComputerBoxOp
         initialize: openOptions.initialize,
         runtime: "cloudflare-computer",
         signal: openOptions.signal,
-      });
+      }, env);
     },
   });
 }
