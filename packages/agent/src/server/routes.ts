@@ -636,6 +636,7 @@ function persistedWebhookRequest(
   ownership: { concurrencyGroup?: string, concurrencyKey?: string, concurrencyLimit: number, concurrencyTtlMs?: number },
   scope: string,
   agentName: string,
+  invocation: { input: unknown, run?: unknown },
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
   return {
@@ -644,6 +645,7 @@ function persistedWebhookRequest(
     concurrencyLimit: ownership.concurrencyLimit,
     deliveryId,
     enqueuedAt,
+    invocation,
     leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
     request: {
       body,
@@ -786,14 +788,24 @@ async function executeQueuedWebhookDelivery(
   if (lifecycleSignal.aborted) stopForLifecycle()
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
   try {
-    const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-    if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
-    const input = await createAgentWebhookTriggerInput(request, match.registration)
-    const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
-    if (!isResolvedAgentTriggerHandledInvocation(invocation)) {
-      if (!invocation.webhook || invocation.webhook.deliveryId !== delivery.deliveryId) {
-        throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
+    type PersistedInvocation = {
+      input: Record<string, unknown> & { abortSignal?: AbortSignal }
+      run?: Parameters<typeof createRuntimeContext>[1]
+    }
+    let invocation = delivery.invocation as PersistedInvocation | undefined
+    if (!invocation) {
+      const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+      if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
+      const input = await createAgentWebhookTriggerInput(request, match.registration)
+      const resolved = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
+      if (!isResolvedAgentTriggerHandledInvocation(resolved)) {
+        if (!resolved.webhook || resolved.webhook.deliveryId !== delivery.deliveryId) {
+          throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
+        }
+        invocation = resolved as unknown as PersistedInvocation
       }
+    }
+    if (invocation) {
       const runContext = createRuntimeContext(
         request,
         invocation.run,
@@ -3472,6 +3484,10 @@ export function createChannelWebhookRouteHandler(
               { ...invocation.webhook, concurrencyLimit },
               webhookState.keyPrefix,
               routeAgentIdentity(handlerOptions)?.name || "agent",
+              {
+                input: invocation.input,
+                ...(invocation.run ? { run: invocation.run } : {}),
+              },
             )
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)

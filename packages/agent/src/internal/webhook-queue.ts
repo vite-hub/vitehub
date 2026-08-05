@@ -6,6 +6,10 @@ export interface AgentWebhookQueueDelivery {
   concurrencyLimit: number
   deliveryId: string
   enqueuedAt: number
+  invocation?: {
+    input: unknown
+    run?: unknown
+  }
   leaseTtlMs: number
   request: {
     body: string

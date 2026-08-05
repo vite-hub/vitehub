@@ -5323,24 +5323,25 @@ describe("server helpers", () => {
       active -= 1
       return "accepted"
     })
+    const invoke = vi.fn((_context, input) => {
+      const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
+      const number = (input as { payload?: { number?: number } }).payload?.number || 0
+      return {
+        input: { prompt: deliveryId },
+        webhook: {
+          concurrencyGroup: "reviews",
+          concurrencyKey: `pr-${number}`,
+          concurrencyLimit: 2,
+          deliveryId,
+        },
+      }
+    })
     const agent = defineAgent({
       channels: {
         github: github({
           triggers: {
             webhook: {
-              invoke: (_context, input) => {
-                const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
-                const number = (input as { payload?: { number?: number } }).payload?.number || 0
-                return {
-                  input: { prompt: deliveryId },
-                  webhook: {
-                    concurrencyGroup: "reviews",
-                    concurrencyKey: `pr-${number}`,
-                    concurrencyLimit: 2,
-                    deliveryId,
-                  },
-                }
-              },
+              invoke,
             },
           },
           webhooks: { secretToken: false },
@@ -5385,6 +5386,7 @@ describe("server helpers", () => {
       expect(maxActive).toBe(2)
       releases.splice(0).forEach(release => release())
       await vi.waitFor(() => expect(active).toBe(0))
+      expect(invoke).toHaveBeenCalledTimes(5)
     }
     finally {
       releases.splice(0).forEach(release => release())
