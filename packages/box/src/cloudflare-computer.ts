@@ -174,13 +174,14 @@ function createCloudflareComputerSession(
       abortSignal?.throwIfAborted();
       await workspace.fs.rm(path, { force: true, recursive });
     },
-    async run({ abortSignal, command, env, workingDirectory }) {
-      const execution = await workspace.runtime.exec(command, {
+    async run({ abortSignal, command, env, timeout, workingDirectory }) {
+      const execution = await openExecution(workspace.runtime.exec(command, {
         ...(backend ? { backend } : {}),
         cwd: workingDirectory ?? "/workspace",
         encoding: "utf8",
         env: { ...baseEnv, ...env },
-      });
+        ...(timeout === undefined ? {} : { timeoutMs: timeout }),
+      }), abortSignal);
       if (disposed) {
         try {
           await execution.kill("SIGKILL");
@@ -203,6 +204,33 @@ function createCloudflareComputerSession(
       await workspace.fs.writeFile(path, content);
     },
   };
+}
+
+async function openExecution(
+  pending: Promise<CloudflareComputerExecHandle>,
+  signal: AbortSignal | undefined,
+) {
+  if (!signal) return await pending;
+  signal.throwIfAborted();
+  return await new Promise<CloudflareComputerExecHandle>((resolve, reject) => {
+    let aborted = false;
+    const abort = () => {
+      aborted = true;
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    void pending.then((execution) => {
+      signal.removeEventListener("abort", abort);
+      if (!aborted) {
+        resolve(execution);
+        return;
+      }
+      void execution.kill("SIGKILL").catch(() => {}).finally(() => execution[Symbol.dispose]?.());
+    }, (error) => {
+      signal.removeEventListener("abort", abort);
+      if (!aborted) reject(error);
+    });
+  });
 }
 
 async function listComputerFiles(
