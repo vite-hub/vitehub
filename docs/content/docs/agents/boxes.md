@@ -105,7 +105,7 @@ A public repository may contain:
 
 It must not contain plaintext bearer credentials or the capability that decrypts committed ciphertext. Supply that root capability through Server Env, workload identity, an interactive unlock, or another deployment-owned source.
 
-Resolved env values, materialized file contents, mutable state, decryption capabilities, physical Home paths, and sandbox handles are excluded from serialized Box metadata and ViteHub-generated workspaces or artifacts. Requirement failures discard command output, and Crabbox sends materialization bytes over stdin instead of command arguments. Every process inside the Box remains trusted and can still read or log its credentials.
+Resolved env values, materialized file contents, mutable state, decryption capabilities, physical Home paths, and sandbox handles are excluded from serialized Box metadata and ViteHub-generated workspaces or artifacts. Requirement failures report bounded stderr or stdout diagnostics after redacting declared env values, and Crabbox sends materialization bytes over stdin instead of command arguments. Every process inside the Box remains trusted and can still read or log its credentials.
 
 ## Understand fail-closed boot
 
@@ -132,14 +132,14 @@ A string checks only that an executable exists. An object supplies a fixed comma
 requires: [
   "git",
   "kubectl",
-  { name: "GitHub CLI", command: "gh", args: ["auth", "status"] },
+  { name: "GitHub CLI", command: "gh", args: ["auth", "status"], timeout: 10_000 },
   { name: "Acme CLI", command: "acme", args: ["auth", "status"] },
 ];
 ```
 
 An arbitrary CLI can consume a declared env value, a native file such as `.kube/config`, or both. If it later refreshes files, move its writable directory to `home.state`; the Box API does not change.
 
-Requirement names, commands, and argv are inspectable declaration metadata, so keep credentials in `env` or Home files rather than arguments.
+Requirement names, commands, argv, and optional millisecond timeouts are inspectable declaration metadata, so keep credentials in `env` or Home files rather than arguments. Direct command checks use the declared `timeout`; trusted-host checks default to 10 seconds when it is omitted.
 
 ## Run through Crabbox
 
