@@ -76,18 +76,23 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   const harness = createCodex(settings)
   return {
     ...harness,
-    [harnessGlobalSkillsDirectory]: (context: { box?: unknown }) => context.box
-      ? ".codex/skills"
+    [harnessGlobalSkillsDirectory]: (context: { box?: unknown }, invocation?: { id: string, isolateBoxHome: boolean }) => context.box
+      ? invocation?.isolateBoxHome
+        ? `.vitehub/codex-home-${invocation.id}/skills`
+        : ".codex/skills"
       : "tmp/harness/codex-home/skills",
-    [harnessSessionPrepare]: async (session: object) => {
-      await prepareCodexHome(session)
+    [harnessSessionPrepare]: async (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => {
+      return await prepareCodexHome(session, invocation)
     },
     [harnessSandboxAdapter]: (
       provider: AgentHarnessSandboxProviderInput,
-      options?: { box?: boolean, defaultSandbox?: boolean },
+      options?: { box?: boolean, defaultSandbox?: boolean, invocation?: { id: string, isolateBoxHome: boolean } },
     ) => adaptCodexHarnessSandbox(provider, {
+      ...(options?.box && options.invocation?.isolateBoxHome
+        ? { codexHomeRelativeToHome: `.vitehub/codex-home-${options.invocation.id}` }
+        : {}),
       defaultSandbox: options?.defaultSandbox,
-      isolateHome: !options?.box,
+      isolateHome: !options?.box || options.invocation?.isolateBoxHome,
       preferOpenAI,
     }),
     async getBootstrap() {
@@ -118,13 +123,26 @@ async function readCodexBridgeAsset(name: string): Promise<string> {
   return await readFile(fileURLToPath(new URL(`./bridge/${name}`, pathToFileURL(packageEntry))), "utf8")
 }
 
-async function prepareCodexHome(session: object): Promise<void> {
-  const result = await (session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }).run({
+async function prepareCodexHome(session: object, invocation?: { id?: string, isolateBoxHome: boolean }): Promise<{ close: () => Promise<void> } | undefined> {
+  const sandbox = session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }
+  const result = await sandbox.run({
     command:
-      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="$HOME/.codex" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ] && [ -f "$ambient_home/auth.json" ] && [ ! -e "$codex_home/auth.json" ]; then cp "$ambient_home/auth.json" "$codex_home/auth.json" && chmod 600 "$codex_home/auth.json"; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml"',
+      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="$HOME/.codex" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ]; then if [ -f "$ambient_home/auth.json" ] && [ ! -e "$codex_home/auth.json" ]; then cp "$ambient_home/auth.json" "$codex_home/auth.json" && chmod 600 "$codex_home/auth.json"; fi; if [ -f "$ambient_home/config.toml" ] && [ ! -e "$codex_home/config.toml" ]; then cp "$ambient_home/config.toml" "$codex_home/config.toml"; fi; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml"',
   })
   if (result.exitCode !== 0) {
+    if (invocation?.isolateBoxHome && invocation.id) {
+      await sandbox.run({ command: `rm -rf -- "$HOME/.vitehub/codex-home-${invocation.id}"` }).catch(() => undefined)
+    }
     throw new Error(`[vitehub] Failed to prepare Codex Home: ${result.stderr || "sandbox command failed"}`)
+  }
+  if (!invocation?.isolateBoxHome || !invocation.id) return
+  return {
+    async close() {
+      const cleanup = await sandbox.run({ command: `rm -rf -- "$HOME/.vitehub/codex-home-${invocation.id}"` })
+      if (cleanup.exitCode !== 0) {
+        throw new Error(`[vitehub] Failed to remove the invocation Codex Home: ${cleanup.stderr || "sandbox command failed"}`)
+      }
+    },
   }
 }
 

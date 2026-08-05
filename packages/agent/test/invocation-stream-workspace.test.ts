@@ -871,10 +871,10 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     }))
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       paths: ["skills"],
-      sessionWorkDir: "/workspace/.vitehub-agent-skills",
+      sessionWorkDir: expect.stringMatching(/^\/workspace\/\.vitehub-agent-skills-/),
     }))
     expect(harnessSessionRun).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("cp -Rn .vitehub-agent-skills/skills/. skills"),
+      command: expect.stringMatching(/cp -Rn \.vitehub-agent-skills-[^/]+\/skills\/\. skills/),
       workingDirectory: "/workspace",
     }))
   })

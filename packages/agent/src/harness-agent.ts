@@ -806,10 +806,11 @@ async function resolveHarness<
 function resolveHarnessGlobalSkillsDirectory(
   harness: object,
   context: AgentAdapterRunContext,
+  invocation: { id: string, isolateBoxHome: boolean },
 ): unknown {
   const directory = (harness as Record<PropertyKey, unknown>)[harnessGlobalSkillsDirectory]
   return typeof directory === "function"
-    ? (directory as (context: AgentAdapterRunContext) => unknown)(context)
+    ? (directory as (context: AgentAdapterRunContext, invocation: { id: string, isolateBoxHome: boolean }) => unknown)(context, invocation)
     : directory
 }
 
@@ -835,6 +836,7 @@ async function createHarnessAgent<
 >(
   options: HarnessAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+  invocation: { id: string, isolateBoxHome: boolean },
   prepareWorkspaceSession: (
     session: unknown,
     sessionWorkDir: string,
@@ -847,7 +849,7 @@ async function createHarnessAgent<
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import(/* @vite-ignore */ harnessAgentPackage) as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
-  const globalSkillsDirectory = resolveHarnessGlobalSkillsDirectory(harness, context)
+  const globalSkillsDirectory = resolveHarnessGlobalSkillsDirectory(harness, context, invocation)
   if (context.globalSkills?.length && !isHarnessRelativeDirectory(globalSkillsDirectory)) {
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
@@ -861,9 +863,10 @@ async function createHarnessAgent<
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
   let sandbox = baseSandbox
   if (typeof adaptSandbox === "function") {
-    sandbox = (adaptSandbox as (provider: object, options: { box: boolean, defaultSandbox: boolean }) => object)(baseSandbox, {
+    sandbox = (adaptSandbox as (provider: object, options: { box: boolean, defaultSandbox: boolean, invocation: { id: string, isolateBoxHome: boolean } }) => object)(baseSandbox, {
       box: Boolean(context.box),
       defaultSandbox,
+      invocation,
     })
   }
   else if (defaultSandbox && (harness as { harnessId?: unknown }).harnessId === "codex") {
@@ -934,11 +937,11 @@ async function resolveHarnessGlobalSkills(
   return { paths: skills.map(skill => skill.path), workspace }
 }
 
-async function resolveHarnessColocatedSkills(context: AgentAdapterRunContext) {
+async function resolveHarnessColocatedSkills(context: AgentAdapterRunContext, workspaceName: string) {
   const sources = context.context.get<ColocatedAgentSkills>(colocatedAgentSkillsContextKey)
   if (!sources || !Object.keys(sources).length) return
   const definition = {
-    name: "__vitehub_agent_skills",
+    name: workspaceName,
     sources,
     store: { provider: "memory" as const },
   }
@@ -947,7 +950,7 @@ async function resolveHarnessColocatedSkills(context: AgentAdapterRunContext) {
     mode: "read" as const,
   }
   const { useWorkspace } = await import("@vite-hub/workspace")
-  return useWorkspace("__vitehub_agent_skills", workspaceOptions)
+  return useWorkspace(workspaceName, workspaceOptions)
 }
 
 async function prepareHarnessColocatedSkills(
@@ -958,29 +961,38 @@ async function prepareHarnessColocatedSkills(
   abortSignal?: AbortSignal,
   refresh = false,
   workingDirectory = destination,
+  stagingDirectoryName = ".vitehub-agent-skills",
 ): Promise<boolean> {
   if (!workspace) return false
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
-  const stagingDirectory = `${destination.replace(/\/+$/, "")}/.vitehub-agent-skills`
-  const prepared = await prepareHarnessWorkspaceSession(workspace, {
-    abortSignal,
-    paths: ["skills"],
-    session: session as never,
-    sessionWorkDir: stagingDirectory,
-  })
+  const stagingDirectory = `${destination.replace(/\/+$/, "")}/${stagingDirectoryName}`
+  let prepared: Awaited<ReturnType<typeof prepareHarnessWorkspaceSession>> | undefined
   try {
+    prepared = await prepareHarnessWorkspaceSession(workspace, {
+      abortSignal,
+      paths: ["skills"],
+      session: session as never,
+      sessionWorkDir: stagingDirectory,
+    })
     const refreshCommand = refresh
-      ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; rm -rf -- ${target}/"$managed"; done < "$manifest"; fi && : > "$manifest" && find .vitehub-agent-skills/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; >> "$manifest" && `
+      ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; rm -rf -- ${target}/"$managed"; done < "$manifest"; fi && : > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; >> "$manifest" && `
       : ""
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
-      command: `find .vitehub-agent-skills/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}cp -Rn .vitehub-agent-skills/skills/. ${target} && rm -rf .vitehub-agent-skills`,
+      command: `find ${stagingDirectoryName}/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}cp -Rn ${stagingDirectoryName}/skills/. ${target} && rm -rf ${stagingDirectoryName}`,
       workingDirectory,
     })
     if (result.exitCode !== 0) throw new Error(result.stderr || "sandbox command failed")
   }
   catch (error) {
-    await prepared.close(error)
+    try {
+      await (session as HarnessGlobalSkillsSandbox).run({
+        command: `rm -rf -- ${stagingDirectoryName}`,
+        workingDirectory,
+      })
+    }
+    catch {}
+    await prepared?.close(error)
     throw new Error(`[vitehub] Failed to install colocated Agent Skills: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
   }
   await prepared.close()
@@ -1358,10 +1370,18 @@ export function createHarnessAgentAdapter<
   async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     let workspaceSession: { close: (error?: unknown) => MaybePromise<void>, refreshGitBaseline?: () => MaybePromise<void> } | undefined
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
+    let harnessProfileSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
     let preparedSandbox: HarnessPreparedSandbox | undefined
     let attachmentDirectory: string | undefined
-    const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
-    const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
+    const skillsWorkspaceId = globalThis.crypto.randomUUID()
+    const skillsStagingDirectory = `.vitehub-agent-skills-${skillsWorkspaceId}`
+    const colocatedWorkspaceSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_workspace_skills_${skillsWorkspaceId}`)
+    const colocatedGlobalSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_global_skills_${skillsWorkspaceId}`)
+    const invocation = {
+      id: skillsWorkspaceId,
+      isolateBoxHome: Boolean(context.box && colocatedGlobalSkills),
+    }
+    const resolved = await createHarnessAgent(options, context, invocation, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
       preparedSandbox = {
         abortSignal,
         session: session as HarnessAttachmentSandbox,
@@ -1397,6 +1417,9 @@ export function createHarnessAgentAdapter<
           await writeHarnessInstructionFiles(session as HarnessInstructionSandbox, sessionWorkDir, abortSignal, harnessInstructions)
           if (harnessInstructions) await workspaceSession.refreshGitBaseline?.()
         }
+        const globalSkillsDestination = globalSkillsWorkingDirectory && isHarnessRelativeDirectory(globalSkillsDirectory)
+          ? posix.join(globalSkillsWorkingDirectory, globalSkillsDirectory)
+          : undefined
         globalSkillsSession = await prepareHarnessGlobalSkills(
           globalSkillsWorkspace,
           session,
@@ -1404,34 +1427,43 @@ export function createHarnessAgentAdapter<
           abortSignal,
           globalSkillsWorkingDirectory,
         )
-        const installedWorkspaceSkills = await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, sessionWorkDir, "skills", abortSignal)
+        const installedWorkspaceSkills = await prepareHarnessColocatedSkills(colocatedWorkspaceSkills, session, sessionWorkDir, "skills", abortSignal, false, sessionWorkDir, skillsStagingDirectory)
         if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
+          const destination = globalSkillsDestination || globalSkillsDirectory
           await prepareHarnessColocatedSkills(
-            colocatedSkillsWorkspace,
+            colocatedGlobalSkills,
             session,
-            globalSkillsDirectory,
+            destination,
             ".",
             abortSignal,
             true,
-            globalSkillsWorkingDirectory
-              ? posix.join(globalSkillsWorkingDirectory, globalSkillsDirectory)
-              : globalSkillsDirectory,
+            destination,
+            skillsStagingDirectory,
           )
         }
         if (installedWorkspaceSkills) await workspaceSession?.refreshGitBaseline?.()
         if (typeof sessionPrepare === "function") {
-          await (sessionPrepare as (session: unknown) => MaybePromise<void>)(session)
+          const profile = await (sessionPrepare as (session: unknown, invocation: { id: string, isolateBoxHome: boolean }) => MaybePromise<unknown>)(session, invocation)
+          if (profile && typeof profile === "object" && typeof (profile as { close?: unknown }).close === "function") {
+            harnessProfileSession = profile as { close: (error?: unknown) => MaybePromise<void> }
+          }
         }
       }
       catch (error) {
         try {
-          await globalSkillsSession?.close(error)
+          try {
+            await globalSkillsSession?.close(error)
+          }
+          finally {
+            await workspaceSession?.close(error)
+          }
         }
         finally {
-          await workspaceSession?.close(error)
+          workspaceSession = undefined
+          globalSkillsSession = undefined
+          await harnessProfileSession?.close(error)
+          harnessProfileSession = undefined
         }
-        workspaceSession = undefined
-        globalSkillsSession = undefined
         throw error
       }
     })
@@ -1461,10 +1493,24 @@ export function createHarnessAgentAdapter<
             closeError = nextError
           }
         }
+        try {
+          await harnessProfileSession?.close(closeError)
+        }
+        catch (nextError) {
+          closeError = nextError
+        }
+        harnessProfileSession = undefined
         if (closeError !== error) throw closeError
       },
     }
-    const created = await createSession(resolved.agent, context, () => preparationSession, resolved)
+    let created: Awaited<ReturnType<typeof createSession>>
+    try {
+      created = await createSession(resolved.agent, context, () => preparationSession, resolved)
+    }
+    catch (error) {
+      await preparationSession.close(error)
+      throw error
+    }
     let chatPrompt: UserModelMessage | undefined
     try {
       if (context.context.has("chat") && context.messages.length) {
