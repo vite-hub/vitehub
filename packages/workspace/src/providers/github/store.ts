@@ -16,7 +16,7 @@ import {
   createGitHubFileUpdate,
   gitBlobSha,
   joinGitPath,
-  readGitHubBlob,
+  readGitHubRawFile,
   readGitHubBranchState,
   requireGitHubOption,
   resolveGitHubBranchOption,
@@ -51,6 +51,7 @@ interface GitHubWorkspaceStoreFile {
   metadata?: Record<string, unknown>;
   path: string;
   size?: number;
+  uploaded?: boolean;
 }
 
 function isReservedWorkspacePath(path: string): boolean {
@@ -136,7 +137,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: true });
+    await this.#ensure({ refresh: false });
     return await this.#readWorkspaceFile(normalized);
   }
 
@@ -166,11 +167,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       token: this.#token,
     });
     this.#files.set(normalized, {
+      bytes: update.bytes,
       gitSha: update.gitSha,
       mediaType: file.mediaType,
       metadata,
       path: normalized,
       size: contentLength(content),
+      uploaded: true,
     });
     this.#dirty = true;
   }
@@ -288,7 +291,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
     const files = changedFiles.map((file) => {
       return {
-        bytes: file.bytes,
+        bytes: file.uploaded ? undefined : file.bytes,
         fullPath: joinGitPath(this.#root, file.path),
         gitSha: file.gitSha,
         mode: gitHubFileMode(file.metadata),
@@ -412,10 +415,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async #readFileBytes(file: GitHubWorkspaceStoreFile): Promise<Uint8Array> {
     if (!file.bytes) {
-      file.bytes = await readGitHubBlob({
-        kind: "store",
+      file.bytes = await readGitHubRawFile({
+        path: joinGitPath(this.#root, file.path),
+        ref: this.#baselineRefSha!,
         repository: this.#repository,
-        sha: file.gitSha,
         token: this.#token,
       });
       file.size = file.bytes.byteLength;

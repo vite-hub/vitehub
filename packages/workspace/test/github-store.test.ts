@@ -11,7 +11,7 @@ let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
 const blobs = new Map<string, Uint8Array>();
-const jsonBlobResponses = new Set<string>();
+const treesByRef = new Map<string, typeof remoteTree>();
 
 function gitBlobSha(bytes: Uint8Array): string {
   return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
@@ -49,7 +49,7 @@ beforeEach(() => {
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
   blobs.clear();
-  jsonBlobResponses.clear();
+  treesByRef.clear();
   delete process.env.WORKSPACE_GITHUB_TOKEN;
 
   vi.stubGlobal(
@@ -69,6 +69,13 @@ beforeEach(() => {
           : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
 
+      if (url.hostname === "raw.githubusercontent.com") {
+        const [, , , ref, ...path] = decodeURIComponent(url.pathname).split("/");
+        const entry = treesByRef.get(ref!)?.find(item => item.path === path.join("/"));
+        const bytes = entry ? blobs.get(entry.sha) : undefined;
+        return bytes ? new Response(bytes) : new Response("not found", { status: 404 });
+      }
+
       if (url.pathname === "/repos/onmax/repo/git/ref/heads/mirror") {
         if (mirrorRefSha) return jsonResponse({ object: { sha: mirrorRefSha } });
         return new Response("missing mirror branch", {
@@ -81,17 +88,13 @@ beforeEach(() => {
         return jsonResponse({ object: { sha: refSha } });
       if (url.pathname.startsWith("/repos/onmax/repo/git/commits/"))
         return jsonResponse({ tree: { sha: remoteTreeSha } });
-      if (url.pathname === `/repos/onmax/repo/git/trees/${remoteTreeSha}` && method === "GET")
+      if (url.pathname === `/repos/onmax/repo/git/trees/${remoteTreeSha}` && method === "GET") {
+        treesByRef.set(refSha, structuredClone(remoteTree));
         return jsonResponse({ tree: remoteTree });
+      }
       if (url.pathname.startsWith("/repos/onmax/repo/git/blobs/") && method === "GET") {
         const sha = url.pathname.split("/").at(-1)!;
         const bytes = blobs.get(sha);
-        if (bytes && jsonBlobResponses.has(sha)) {
-          return jsonResponse({
-            content: Buffer.from(bytes).toString("base64"),
-            encoding: "base64",
-          });
-        }
         return bytes
           ? new Response(bytes, {
               headers: { "content-type": "application/octet-stream" },
@@ -229,9 +232,10 @@ describe("GitHub workspace store", () => {
       path: "data/existing.json",
     });
     expect(
-      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
-        ?.headers.get("accept"),
-    ).toBe("application/vnd.github.raw+json");
+      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET"),
+    ).toBeUndefined();
+    expect(requests.find(request => request.path.includes("/base-sha/.vitehub/workspaces/docs/data/existing.json")))
+      .toMatchObject({ headers: expect.any(Headers), method: "GET" });
     await expect(store.list("", { recursive: true })).resolves.toEqual([
       expect.objectContaining({ path: "data", type: "directory" }),
       expect.objectContaining({
@@ -373,11 +377,10 @@ describe("GitHub workspace store", () => {
     ]);
   });
 
-  it("decodes GitHub JSON blob responses when raw bytes are unavailable", async () => {
-    const content = "fallback\n";
-    const sha = textSha(content);
-    seedRemote(".vitehub/workspaces/docs/data/fallback.txt", content);
-    jsonBlobResponses.add(sha);
+  it("loads many private files from one branch snapshot without GitHub REST blob requests", async () => {
+    for (let index = 0; index < 756; index++) {
+      seedRemote(`.vitehub/workspaces/docs/data/file-${index}.txt`, `file ${index}\n`);
+    }
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
       {
@@ -389,14 +392,73 @@ describe("GitHub workspace store", () => {
       "docs",
     );
 
-    await expect(store.readFile("data/fallback.txt")).resolves.toMatchObject({
-      content: textBytes(content),
-      path: "data/fallback.txt",
+    const entries = await store.list("", { recursive: true });
+    await Promise.all(entries.filter(entry => entry.type === "file").map(entry => store.readFile(entry.path)));
+
+    expect(requests.filter(request => request.path.startsWith("/repos/"))).toHaveLength(3);
+    expect(requests.filter(request => request.path.includes("/git/blobs/"))).toEqual([]);
+    expect(requests.filter(request => request.path.startsWith("/onmax/repo/base-sha/"))).toHaveLength(756);
+    expect(requests.find(request => request.path.endsWith("/data/file-0.txt"))?.headers.get("authorization"))
+      .toBe("Bearer token");
+  });
+
+  it("encodes raw file paths against the immutable loaded commit and shapes failures", async () => {
+    seedRemote(".vitehub/workspaces/docs/data/a #%å.txt", "content\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.readFile("data/a #%å.txt")).resolves.toMatchObject({ content: textBytes("content\n") });
+    expect(requests.at(-1)?.path).toBe(
+      "/onmax/repo/base-sha/.vitehub/workspaces/docs/data/a%20%23%25%C3%A5.txt",
+    );
+
+    remoteTree = [];
+    const missingStore = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+    seedRemote(".vitehub/workspaces/docs/missing.txt", "missing\n");
+    await missingStore.list();
+    blobs.delete(textSha("missing\n"));
+    await expect(missingStore.readFile("missing.txt")).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+      message: "[vitehub] GitHub workspace request failed.",
     });
-    expect(
-      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
-        ?.headers.get("accept"),
-    ).toBe("application/vnd.github.raw+json");
+  });
+
+  it("refreshes the loaded snapshot through list before later file reads", async () => {
+    seedRemote(".vitehub/workspaces/docs/README.md", "first\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+
+    await store.list();
+
+    refSha = "next-sha";
+    remoteTreeSha = "next-tree";
+    remoteTree = [];
+    seedRemote(".vitehub/workspaces/docs/README.md", "second\n");
+
+    await expect(store.readFile("README.md")).resolves.toMatchObject({ content: textBytes("first\n") });
+    expect(requests.at(-1)?.path).toBe(
+      "/onmax/repo/base-sha/.vitehub/workspaces/docs/README.md",
+    );
+    await store.list();
+
+    await expect(store.readFile("README.md")).resolves.toMatchObject({ content: textBytes("second\n") });
+    expect(requests.at(-1)?.path).toBe(
+      "/onmax/repo/next-sha/.vitehub/workspaces/docs/README.md",
+    );
   });
 
   it("deletes files and directories through snapshot commits", async () => {
@@ -516,6 +578,9 @@ describe("GitHub workspace store", () => {
     ).toHaveLength(1);
     requests.length = 0;
 
+    await expect(store.readFile("tasks/todo.md")).resolves.toMatchObject({ content: textBytes("ship it\n") });
+    expect(requests).toEqual([]);
+
     await store.snapshot({ name: "sync workspace" });
 
     expect(
@@ -601,10 +666,10 @@ describe("GitHub workspace store", () => {
       metadata: undefined,
     });
 
-    expect(requests.filter((request) => request.path.includes("/git/blobs/"))).toEqual([
+    expect(requests.filter((request) => request.path.includes("/base-sha/"))).toEqual([
       expect.objectContaining({
         method: "GET",
-        path: `/repos/onmax/repo/git/blobs/${textSha("# Docs\n")}`,
+        path: "/onmax/repo/base-sha/.vitehub/workspaces/docs/README.md",
       }),
     ]);
   });
