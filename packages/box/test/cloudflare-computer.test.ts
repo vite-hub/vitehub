@@ -142,7 +142,64 @@ describe("Cloudflare Computer Box runtime", () => {
 
     expect(box.plan.runtime).toBe("cloudflare-computer");
   });
+
+  it("kills pending executions before disposing the workspace", async () => {
+    let rejectExecution!: (reason: unknown) => void;
+    const executionResult = new Promise<{ exitCode: number; stderr: string; stdout: string }>((_resolve, reject) => {
+      rejectExecution = reject;
+    });
+    const kill = vi.fn(async () => rejectExecution(new Error("killed")));
+    const disposeExecution = vi.fn();
+    const disposeWorkspace = vi.fn();
+    const workspace = {
+      fs: emptyFilesystem(),
+      runtime: {
+        async exec() {
+          return {
+            id: "pending",
+            kill,
+            result: () => executionResult,
+            [Symbol.dispose]: disposeExecution,
+          };
+        },
+      },
+      [Symbol.dispose]: disposeWorkspace,
+    } satisfies CloudflareComputerWorkspace;
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {});
+    const session = await box.open();
+    const pending = session.exec("sleep", ["60"]);
+    await vi.waitFor(() => expect(workspace.runtime.exec).toBeDefined());
+
+    await session.close();
+
+    await expect(pending).rejects.toThrow("killed");
+    expect(kill).toHaveBeenCalledWith("SIGKILL");
+    expect(disposeExecution).toHaveBeenCalledTimes(1);
+    expect(disposeWorkspace).toHaveBeenCalledTimes(1);
+  });
 });
+
+function emptyFilesystem(): CloudflareComputerWorkspace["fs"] {
+  return {
+    async lstat() {
+      return stat("directory", 0);
+    },
+    async mkdir() {},
+    async readFile() {
+      return new ReadableStream();
+    },
+    async readdir() {
+      return [];
+    },
+    async rm() {},
+    async writeFile() {},
+  };
+}
 
 function stat(type: "directory" | "file", size: number): CloudflareComputerFileStat {
   return {

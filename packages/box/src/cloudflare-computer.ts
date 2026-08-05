@@ -120,16 +120,28 @@ function createCloudflareComputerSession(
   backend: string | undefined,
 ): RuntimeSession {
   let disposed = false;
-  const dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    workspace[Symbol.dispose]?.();
+  const activeExecutions = new Set<CloudflareComputerExecHandle>();
+  const releaseExecution = (execution: CloudflareComputerExecHandle) => {
+    if (!activeExecutions.delete(execution)) return;
+    execution[Symbol.dispose]?.();
   };
   return {
     defaultWorkingDirectory: "/workspace",
     id,
     async destroy() {
-      dispose();
+      disposed = true;
+      const results = await Promise.allSettled([...activeExecutions].map(async (execution) => {
+        try {
+          await execution.kill("SIGKILL");
+        } finally {
+          releaseExecution(execution);
+        }
+      }));
+      workspace[Symbol.dispose]?.();
+      const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failures.length > 0) {
+        throw new AggregateError(failures.map(result => result.reason), "[vitehub] Failed to stop Cloudflare Computer executions.");
+      }
     },
     async existsFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
@@ -169,11 +181,20 @@ function createCloudflareComputerSession(
         encoding: "utf8",
         env: { ...baseEnv, ...env },
       });
+      if (disposed) {
+        try {
+          await execution.kill("SIGKILL");
+        } finally {
+          execution[Symbol.dispose]?.();
+        }
+        throw new Error("[vitehub] Box session is closed.");
+      }
+      activeExecutions.add(execution);
       try {
         const result = await abortExecution(execution, abortSignal);
         return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
       } finally {
-        execution[Symbol.dispose]?.();
+        releaseExecution(execution);
       }
     },
     async stop() {},
