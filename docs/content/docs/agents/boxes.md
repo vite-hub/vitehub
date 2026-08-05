@@ -262,7 +262,7 @@ export default {
 
 The Worker shell backend uses `just-bash` in an isolate. It does not provide the full Linux userland required by Node.js, package managers, Git, Codex, or other native CLIs. Select a configured Computer Container backend for those commands, and use its registered backend ID in the Box declaration.
 
-ViteHub derives the Durable Object name from `box.open({ id })`. It resets `/home/vitehub` and `/workspace` when that ID opens again, materializes the Box declaration, and runs requirement checks through the selected backend. Closing the Box disposes Computer RPC handles without deleting the Durable Object or files outside those managed roots.
+ViteHub derives the Durable Object name from `box.open({ id })`. It resets `/home/vitehub` and `/workspace`, materializes the Box declaration, and runs requirement checks through the selected backend. Closing the Box stops active executions, clears those managed roots, and disposes Computer RPC handles without deleting the Durable Object or files elsewhere in its authoritative filesystem.
 
 Computer chooses the execution backend at runtime, so ViteHub reports its isolation, network, process, and credential authority as unknown. Inspect the selected Computer backend and deployment configuration before giving the Box secrets or untrusted code.
 

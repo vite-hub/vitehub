@@ -137,10 +137,14 @@ function createCloudflareComputerSession(
           releaseExecution(execution);
         }
       }));
+      results.push(...await Promise.allSettled([
+        workspace.fs.rm("/home/vitehub", { force: true, recursive: true }),
+        workspace.fs.rm("/workspace", { force: true, recursive: true }),
+      ]));
       workspace[Symbol.dispose]?.();
       const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failures.length > 0) {
-        throw new AggregateError(failures.map(result => result.reason), "[vitehub] Failed to stop Cloudflare Computer executions.");
+        throw new AggregateError(failures.map(result => result.reason), "[vitehub] Failed to clean up the Cloudflare Computer Box.");
       }
     },
     async existsFile({ abortSignal, path }) {

@@ -108,6 +108,7 @@ describe("Cloudflare Computer Box runtime", () => {
     });
 
     const session = await box.open({ id: "agent-1" });
+    files.set("/retained.bin", new Uint8Array([1]));
     expect(namespace.idFromName).toHaveBeenCalledWith("agent-1");
     expect(await session.files.read("/home/vitehub/.config/vitehub.bin"))
       .toEqual(new Uint8Array([0, 255]));
@@ -128,7 +129,10 @@ describe("Cloudflare Computer Box runtime", () => {
     await session.close();
     await session.close();
     expect(dispose).toHaveBeenCalledTimes(1);
-    expect(directories.has("/workspace")).toBe(true);
+    expect(directories.has("/home/vitehub")).toBe(false);
+    expect(directories.has("/workspace")).toBe(false);
+    expect(files.has("/home/vitehub/.config/vitehub.bin")).toBe(false);
+    expect(files.has("/retained.bin")).toBe(true);
   });
 
   it("selects the tagged runtime through the Box root", async () => {
