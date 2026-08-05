@@ -5642,6 +5642,101 @@ describe("server helpers", () => {
     }
   }, 15_000)
 
+  it("cancels an active webhook steer when its serialized input lease is lost", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { registerActiveAgentInvocation } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-lock-loss-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const losingState = new Proxy(state, {
+      get(target, property) {
+        if (property === "extendLock") {
+          return async (lock: { threadId: string }, ttlMs: number) => lock.threadId.includes("steer-send-lock")
+            ? false
+            : await target.extendLock(lock as never, ttlMs)
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    let accept!: () => void
+    const accepted = new Promise<void>(resolve => { accept = resolve })
+    const cancel = vi.fn(async () => ({ id: "ainv_active", outcome: "accepted" as const }))
+    const sendInput = vi.fn(async () => {
+      await accepted
+      return { id: "ainv_active", outcome: "accepted" as const }
+    })
+    const controller = {
+      cancel,
+      id: "ainv_active",
+      inspect: vi.fn(async () => ({ id: "ainv_active", outcome: "unavailable" as const })),
+      sendInput,
+      support: { followUp: false, steer: true },
+    }
+    const ownerKey = "webhook:review:github:github::pr-42"
+    const unregister = registerActiveAgentInvocation(ownerKey, controller)
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
+                return {
+                  input: { prompt: deliveryId },
+                  webhook: {
+                    busy: "steer",
+                    concurrencyGroup: "reviews",
+                    concurrencyKey: "pr-42",
+                    concurrencyLimit: 1,
+                    concurrencyTtlMs: 1_000,
+                    deliveryId,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: async () => "unused" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ number: 42 }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-lock-loss",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+
+    vi.useFakeTimers()
+    try {
+      const steering = handler(request, "github", { agentName: "review", webhookState: losingState })
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
+      accept()
+      const response = await steering
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      await expect(state.claimWebhookDelivery("webhook:review:github:github:")).resolves.toMatchObject({
+        deliveryId: "delivery-lock-loss",
+      })
+    }
+    finally {
+      accept()
+      unregister()
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("resumes persisted webhook deliveries after a process restart", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")

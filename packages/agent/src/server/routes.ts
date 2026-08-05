@@ -737,7 +737,11 @@ async function steerQueuedWebhookDelivery(
       if (!sendLock) {
         return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
       }
-      const stopSendHeartbeat = startWebhookLockHeartbeat(state, sendLock, delivery.leaseTtlMs, () => undefined)
+      let sendLockLost = false
+      const stopSendHeartbeat = startWebhookLockHeartbeat(state, sendLock, delivery.leaseTtlMs, () => {
+        sendLockLost = true
+        void controller.cancel(new Error("[vitehub] Webhook steering lost its serialized input lease.")).catch(() => {})
+      })
       const steeringLease: AgentWebhookQueueLease = {
         ...delivery,
         attempts: 0,
@@ -756,35 +760,39 @@ async function steerQueuedWebhookDelivery(
         void controller.cancel(new Error("[vitehub] Webhook steering lost its durable delivery lease.")).catch(() => {})
       })
       try {
+        let accepted = false
         try {
           const result = await controller.sendInput(input, { mode: "steer" })
-          if (result.outcome === "accepted") {
-            if (steeringLeaseLost) {
-              await state.delete(claimKey)
-              return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
-            }
-            keepLockUntilInvocationSettles = true
-            const settlement = awaitAgentInvocationResult(controller)
-              .then(async () => {
-                const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
-                if (completed) await state.set(claimKey, "steered")
-                else await state.delete(claimKey)
-              })
-              .catch(async () => {
-                await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
-                await state.delete(claimKey)
-              })
-              .finally(async () => {
-                stopDeliveryHeartbeat()
-                stopHeartbeat()
-                await state.releaseLock(lock)
-              })
-              .catch(() => {})
-            waitUntil?.(settlement)
-            return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
-          }
+          accepted = result.outcome === "accepted"
         }
         catch {}
+        if (steeringLeaseLost || sendLockLost) {
+          stopDeliveryHeartbeat()
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.delete(claimKey)
+          return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
+        }
+        if (accepted) {
+          keepLockUntilInvocationSettles = true
+          const settlement = awaitAgentInvocationResult(controller)
+            .then(async () => {
+              const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
+              if (completed) await state.set(claimKey, "steered")
+              else await state.delete(claimKey)
+            })
+            .catch(async () => {
+              await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+              await state.delete(claimKey)
+            })
+            .finally(async () => {
+              stopDeliveryHeartbeat()
+              stopHeartbeat()
+              await state.releaseLock(lock)
+            })
+            .catch(() => {})
+          waitUntil?.(settlement)
+          return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
+        }
         stopDeliveryHeartbeat()
         await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
         await state.set(claimKey, "queued")
