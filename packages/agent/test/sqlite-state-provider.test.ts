@@ -280,7 +280,15 @@ describe("SQLite Agent State Provider", () => {
 
     await expect(queue.claimWebhookSteering(delivery, "steer-token", Date.now() + 1_000)).resolves.toBe(true)
     await expect(queue.enqueueWebhookDelivery(delivery)).resolves.toBe(false)
+    await queue.enqueueWebhookDelivery(webhookDelivery("unrelated-1", "pr-1"))
+    await queue.enqueueWebhookDelivery(webhookDelivery("unrelated-2", "pr-2"))
+    const unrelated1 = await queue.claimWebhookDelivery(delivery.scope)
+    const unrelated2 = await queue.claimWebhookDelivery(delivery.scope)
+    expect(unrelated1?.deliveryId).toBe("unrelated-1")
+    expect(unrelated2?.deliveryId).toBe("unrelated-2")
     await expect(queue.claimWebhookDelivery(delivery.scope)).resolves.toBeNull()
+    await queue.completeWebhookDelivery(unrelated1!.scope, unrelated1!.deliveryId, unrelated1!.leaseToken)
+    await queue.completeWebhookDelivery(unrelated2!.scope, unrelated2!.deliveryId, unrelated2!.leaseToken)
 
     vi.advanceTimersByTime(1_001)
     const recovered = await queue.claimWebhookDelivery(delivery.scope)

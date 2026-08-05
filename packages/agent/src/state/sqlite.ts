@@ -184,7 +184,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             candidate.concurrency_key, candidate.concurrency_limit, candidate.lease_ttl_ms, candidate.attempts
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
-            AND (candidate.status = 'queued' OR (candidate.status = 'running' AND candidate.lease_expires_at <= ?))
+            AND (candidate.status = 'queued' OR (candidate.status IN ('running', 'steering') AND candidate.lease_expires_at <= ?))
             AND (
               SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
               WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
@@ -209,7 +209,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           `UPDATE ${this.tables.webhookQueue}
             SET status = 'running', lease_token = ?, lease_expires_at = ?
             WHERE scope = ? AND delivery_id = ?
-              AND (status = 'queued' OR (status = 'running' AND lease_expires_at <= ?))
+              AND (status = 'queued' OR (status IN ('running', 'steering') AND lease_expires_at <= ?))
             RETURNING value`,
           [leaseToken, now + leaseTtlMs, scope, candidate.delivery_id, now],
         )
@@ -232,7 +232,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
         lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, 0, ?, ?) RETURNING delivery_id`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?) RETURNING delivery_id`,
       [
         delivery.scope,
         delivery.deliveryId,
@@ -257,7 +257,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         this.driver,
         `UPDATE ${this.tables.webhookQueue}
           SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
-          WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
+          WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
           RETURNING delivery_id`,
         [scope, deliveryId, leaseToken],
       )
@@ -382,7 +382,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const extended = await execute(
       this.driver,
       `UPDATE ${this.tables.webhookQueue} SET lease_expires_at = ?
-        WHERE scope = ? AND delivery_id = ? AND status = 'running'
+        WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering')
           AND lease_token = ? AND lease_expires_at > ? RETURNING delivery_id`,
       [now + ttlMs, scope, deliveryId, leaseToken, now],
     )
@@ -442,7 +442,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         `UPDATE ${this.tables.webhookQueue}
         SET status = 'queued', available_at = ?, attempts = attempts + 1,
           lease_token = NULL, lease_expires_at = NULL
-        WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
+        WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
         RETURNING delivery_id`,
         [availableAt, scope, deliveryId, leaseToken],
       )
