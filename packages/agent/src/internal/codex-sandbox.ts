@@ -5,7 +5,7 @@ const absoluteCodexBootstrapDir = "/tmp/harness/codex"
 const localCodexBootstrapDir = "tmp/harness/codex"
 export const codexBridgeNodeModulesEnv = "VITEHUB_CODEX_BRIDGE_NODE_MODULES"
 
-function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, rebaseBridgeNodeModulesPath: boolean, bootstrapDir?: string, codexHome?: string): T {
+function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, rebaseBridgeNodeModulesPath: boolean, bootstrapDir?: string, codexHome?: string, codexHomeRelativeToHome?: string): T {
   const defaultWorkingDirectory = bootstrapDir && codexHome
     ? undefined
     : (session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")
@@ -21,13 +21,13 @@ function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: 
   return new Proxy(session, {
     get(target, property, receiver) {
       if (property === "restricted") {
-        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), isolateHome, rebaseBridgeNodeModulesPath, anchoredBootstrapDir, anchoredCodexHome)
+        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), isolateHome, rebaseBridgeNodeModulesPath, anchoredBootstrapDir, anchoredCodexHome, codexHomeRelativeToHome)
       }
       if (property === "run" || property === "spawn") {
         return (options: { command: string, env?: Record<string, string | undefined> }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
           ...options,
-          command: options.command.replaceAll(absoluteCodexBootstrapDir, anchoredBootstrapDir),
-          ...(isolateHome ? { env: { ...options.env, CODEX_HOME: anchoredCodexHome } } : {}),
+          command: `${codexHomeRelativeToHome ? `export VITEHUB_AMBIENT_CODEX_HOME="\${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/${codexHomeRelativeToHome}"; ` : ""}${options.command.replaceAll(absoluteCodexBootstrapDir, anchoredBootstrapDir)}`,
+          ...(isolateHome && !codexHomeRelativeToHome ? { env: { ...options.env, CODEX_HOME: anchoredCodexHome } } : {}),
         } as never)
       }
       if (property === "readTextFile" || property === "writeTextFile") {
@@ -44,7 +44,7 @@ function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: 
 
 export function adaptCodexHarnessSandbox(
   provider: AgentHarnessSandboxProviderInput,
-  options: { defaultSandbox?: boolean, isolateHome?: boolean, preferOpenAI?: boolean } = {},
+  options: { codexHomeRelativeToHome?: string, defaultSandbox?: boolean, isolateHome?: boolean, preferOpenAI?: boolean } = {},
 ): AgentHarnessDriver["sandbox"] {
   if ((provider as Record<PropertyKey, unknown>)[codexSandboxAdapterApplied]) return provider
   const rebaseBridgeNodeModulesPath = (provider as { providerId?: string }).providerId === "local"
@@ -54,7 +54,7 @@ export function adaptCodexHarnessSandbox(
       if (options.defaultSandbox) stripGitHubSecrets(env)
       if (options.preferOpenAI) stripGatewaySecrets(env)
     }
-    return relativeCodexSandboxSession(session, options.isolateHome !== false, rebaseBridgeNodeModulesPath)
+    return relativeCodexSandboxSession(session, options.isolateHome !== false, rebaseBridgeNodeModulesPath, undefined, undefined, options.codexHomeRelativeToHome)
   }
   return {
     ...provider,

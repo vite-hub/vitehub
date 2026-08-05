@@ -25,7 +25,7 @@ const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
 const tempRoots: string[] = []
-const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
+const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
   fs: { exists, list, readFile, stat, writeFile },
   snapshot,
@@ -1100,36 +1100,121 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
 
-    expect(useWorkspace).toHaveBeenCalledWith("__vitehub_agent_skills", expect.objectContaining({
-      definition: expect.objectContaining({
-        sources: expect.objectContaining({ review: expect.any(Object) }),
-      }),
-      mode: "read",
-    }))
+    const colocatedWorkspaceCalls = useWorkspace.mock.calls.filter(([name]) =>
+      typeof name === "string" && name.startsWith("__vitehub_agent_"),
+    )
+    expect(colocatedWorkspaceCalls).toHaveLength(2)
+    expect(colocatedWorkspaceCalls.map(([name]) => name)).toEqual([
+      expect.stringMatching(/^__vitehub_agent_workspace_skills_/),
+      expect.stringMatching(/^__vitehub_agent_global_skills_/),
+    ])
+    for (const [name, options] of colocatedWorkspaceCalls) {
+      expect(options).toEqual(expect.objectContaining({
+        definition: expect.objectContaining({
+          name,
+          sources: expect.objectContaining({ review: expect.any(Object) }),
+        }),
+        mode: "read",
+      }))
+    }
     expect(prepareHarnessWorkspaceSession).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       ignoreWriteBackPaths: ["skills/review"],
     }))
     expect(prepareHarnessWorkspaceSession).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
       paths: ["skills"],
       session: harnessFileSession,
-      sessionWorkDir: "/workspace/codex-session/.vitehub-agent-skills",
+      sessionWorkDir: expect.stringMatching(/^\/workspace\/codex-session\/\.vitehub-agent-skills-/),
     }))
     expect(prepareHarnessWorkspaceSession).toHaveBeenNthCalledWith(3, expect.anything(), expect.objectContaining({
       paths: ["skills"],
       session: harnessFileSession,
-      sessionWorkDir: "tmp/harness/codex-home/skills/.vitehub-agent-skills",
+      sessionWorkDir: expect.stringMatching(/^tmp\/harness\/codex-home\/skills\/\.vitehub-agent-skills-/),
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("cp -Rn .vitehub-agent-skills/skills/. skills"),
+      command: expect.stringMatching(/cp -Rn \.vitehub-agent-skills-[^/]+\/skills\/\. skills/),
       workingDirectory: "/workspace/codex-session",
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("cp -Rn .vitehub-agent-skills/skills/. ."),
+      command: expect.stringMatching(/cp -Rn \.vitehub-agent-skills-[^/]+\/skills\/\. \./),
       workingDirectory: "tmp/harness/codex-home/skills",
     }))
     expect(workspaceClose).toHaveBeenCalledWith()
     expect(profileClose).toHaveBeenCalledWith()
     expect(refreshGitBaseline).toHaveBeenCalledOnce()
+  })
+
+  it("isolates concurrent global colocated Skill materialization", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    prepareHarnessWorkspaceSession.mockResolvedValue({ close: vi.fn() })
+    const createAgent = () => Object.assign(defineAgent({
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+        },
+      },
+    }), {
+      [Symbol.for("vitehub.agent.colocatedSkills")]: {
+        review: {
+          content: new TextEncoder().encode("# Review\n"),
+          materialize: "build",
+          mount: "",
+          workspacePath: "skills/review/SKILL.md",
+        },
+      },
+    })
+
+    await Promise.all([
+      runAgent(createAgent(), context(), { prompt: "first" }),
+      runAgent(createAgent(), context(), { prompt: "second" }),
+    ])
+
+    const globalWorkspaceNames = useWorkspace.mock.calls
+      .map(([name]) => name)
+      .filter((name): name is string => typeof name === "string" && name.startsWith("__vitehub_agent_global_skills_"))
+    expect(globalWorkspaceNames).toHaveLength(2)
+    expect(new Set(globalWorkspaceNames).size).toBe(2)
+
+    const globalStagingDirectories = prepareHarnessWorkspaceSession.mock.calls
+      .map(([, options]) => (options as { sessionWorkDir?: string }).sessionWorkDir)
+      .filter(path => path?.startsWith("tmp/harness/codex-home/skills/.vitehub-agent-skills-"))
+    expect(globalStagingDirectories).toHaveLength(2)
+    expect(new Set(globalStagingDirectories).size).toBe(2)
+  })
+
+  it("cleans staged colocated skills after a preparation failure", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const close = vi.fn()
+    const profileClose = vi.fn()
+    prepareHarnessWorkspaceSession
+      .mockResolvedValueOnce({ close })
+      .mockRejectedValueOnce(new Error("materialization failed"))
+    const agent = Object.assign(defineAgent({
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+          [Symbol.for("vitehub.harnessSessionPrepare")]: () => ({ close: profileClose }),
+        },
+      },
+    }), {
+      [Symbol.for("vitehub.agent.colocatedSkills")]: {
+        review: {
+          content: new TextEncoder().encode("# Review\n"),
+          materialize: "build",
+          mount: "",
+          workspacePath: "skills/review/SKILL.md",
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("materialization failed")
+    expect(harnessFileSession.run).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      command: expect.stringMatching(/^rm -rf -- \.vitehub-agent-skills-/),
+      workingDirectory: "tmp/harness/codex-home/skills",
+    }))
+    expect(close).toHaveBeenCalledWith()
+    expect(profileClose).toHaveBeenCalledWith(expect.any(Error))
   })
 
   it("does not install caller-provided colocated skills", async () => {
@@ -1214,7 +1299,7 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("closes global Skill preparation when harness session setup fails", async () => {
+  it("does not prepare global Skills when harness session setup fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const close = vi.fn()
@@ -1234,7 +1319,7 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("profile setup failed")
-    expect(close).toHaveBeenCalledWith(expect.any(Error))
+    expect(close).not.toHaveBeenCalled()
   })
 
   it("rejects global skills for non-harness Agent Drivers", async () => {

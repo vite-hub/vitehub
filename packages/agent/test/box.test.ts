@@ -8,7 +8,17 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
-const harnessObservation = vi.hoisted(() => ({ before: undefined as string | undefined, command: false, exitCode: undefined as number | undefined, live: undefined as string | undefined }))
+const harnessObservation = vi.hoisted(() => ({
+  before: undefined as string | undefined,
+  command: false,
+  exitCode: undefined as number | undefined,
+  firstGenerateBlock: undefined as Promise<void> | undefined,
+  firstGenerateStarted: undefined as (() => void) | undefined,
+  generateCount: 0,
+  globalSkill: "global",
+  live: undefined as string | undefined,
+  requiredCodexStates: [] as string[],
+}))
 
 vi.mock("@ai-sdk/harness/agent", () => ({
   HarnessAgent: class {
@@ -36,6 +46,12 @@ vi.mock("@ai-sdk/harness/agent", () => ({
     }
 
     async generate({ session }: Record<string, any>) {
+      harnessObservation.generateCount++
+      const codexState = `session-state-${harnessObservation.generateCount}`
+      if (harnessObservation.generateCount === 1 && harnessObservation.firstGenerateBlock) {
+        harnessObservation.firstGenerateStarted?.()
+        await harnessObservation.firstGenerateBlock
+      }
       if (this.settings.tools?.workspace_exec) {
         await session.host.writeTextFile({ content: "live harness edit", path: join(session.sessionWorkDir, "live.txt") })
         harnessObservation.before = await session.host.readTextFile({ path: join(session.sessionWorkDir, "live.txt") })
@@ -48,8 +64,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         return { text: live }
       }
       const result = await session.host.run({
-        command:
-          'codex_home="${CODEX_HOME:-$HOME/.codex}"; pwd; printf \'%s\\n\' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/global/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf changed > changed.txt',
+        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/${harnessObservation.globalSkill}/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; ${harnessObservation.requiredCodexStates.map(state => `test -f "$codex_home/${state}"; `).join("")}printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -66,7 +81,12 @@ afterEach(async () => {
   harnessObservation.command = false
   harnessObservation.before = undefined
   harnessObservation.exitCode = undefined
+  harnessObservation.firstGenerateBlock = undefined
+  harnessObservation.firstGenerateStarted = undefined
+  harnessObservation.generateCount = 0
+  harnessObservation.globalSkill = "global"
   harnessObservation.live = undefined
+  harnessObservation.requiredCodexStates = []
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -134,7 +154,7 @@ describe("Agent Box", () => {
       const { custom } = await import("@vite-hub/workspace")
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { skills } = await import("../src/capabilities.ts")
-      const agent = defineAgent<any, { worktreePath: string }>({
+      const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
           env: { GH_TOKEN: "box-token" },
@@ -162,7 +182,17 @@ describe("Agent Box", () => {
           }),
         ],
         driver: "codex",
+      }), {
+        [Symbol.for("vitehub.agent.colocatedSkills")]: {
+          review: {
+            content: new TextEncoder().encode("# Review\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/review/SKILL.md",
+          },
+        },
       })
+      harnessObservation.globalSkill = "review"
 
       const result = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -176,9 +206,28 @@ describe("Agent Box", () => {
 
       expect(reportedWorktree).toBe(await realpath(worktree))
       expect(reportedHome).toMatch(/\/vitehub-box-[^/]+\/home$/)
-      expect(codexHome).toBe(join(reportedHome, ".codex"))
+      expect(codexHome).toMatch(new RegExp(`^${reportedHome}/\\.vitehub/codex-home-[^/]+$`))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
+      await expect(stat(codexHome)).rejects.toMatchObject({ code: "ENOENT" })
+      harnessObservation.requiredCodexStates = ["session-state-1"]
+      await expect(Promise.all([1, 2].map(() => runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: worktree },
+        prompt: "Continue repairing the project concurrently.",
+      })))).resolves.toHaveLength(2)
+      harnessObservation.requiredCodexStates = ["session-state-2", "session-state-3"]
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: worktree },
+        prompt: "Continue repairing the project.",
+      })).resolves.toMatchObject({ text: expect.any(String) })
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
@@ -186,6 +235,92 @@ describe("Agent Box", () => {
       if (originalPath === undefined) delete process.env.PATH
       else process.env.PATH = originalPath
     }
+  })
+
+  it("keeps a shared Box global Skill profile stable for the full invocation", async () => {
+    const home = "/home/shared"
+    const codexHomes = new Set<string>()
+    const runtime = {
+      name: "shared-home-test",
+      async prepare({ identity }: { identity: string }) {
+        return {
+          cache: { state: "disposable" as const },
+          environment: { env: {} },
+          executionAuthority: unknownExecutionAuthority,
+          identity,
+          requirements: [],
+          runtime: "shared-home-test",
+          workspace: { path: "/workspace", state: "authoritative" as const },
+        }
+      },
+      async open(_input: unknown, options: { initialize?: (session: any, context: { signal?: AbortSignal }) => Promise<void>, signal?: AbortSignal }) {
+        const session = {
+          close: vi.fn(async () => {}),
+          cwd: "/workspace",
+          executionAuthority: unknownExecutionAuthority,
+          files: {
+            exists: vi.fn(async () => true),
+            list: vi.fn(async () => []),
+            mkdir: vi.fn(async () => {}),
+            read: vi.fn(async () => null),
+            remove: vi.fn(async () => {}),
+            write: vi.fn(async () => {}),
+          },
+          id: globalThis.crypto.randomUUID(),
+          async exec(_command: string, args?: readonly string[]) {
+            const script = args?.[1] || ""
+            const codexHome = script.match(/export CODEX_HOME="\$HOME\/([^"]+)"/)?.[1]
+            if (codexHome) codexHomes.add(codexHome)
+            return {
+              code: 0,
+              ok: true,
+              stderr: "",
+              stdout: script === `printf '%s' "$HOME"`
+                ? home
+                : `/workspace\n${home}\n${home}/.codex\n`,
+            }
+          },
+          spawn: vi.fn(),
+        }
+        await options.initialize?.(session, { signal: options.signal })
+        return session
+      },
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = Object.assign(defineAgent({
+      box: { runtime },
+      driver: "codex",
+    }), {
+      [Symbol.for("vitehub.agent.colocatedSkills")]: {
+        review: {
+          content: new TextEncoder().encode("# Review\n"),
+          materialize: "build",
+          mount: "",
+          workspacePath: "skills/review/SKILL.md",
+        },
+      },
+    })
+    let releaseFirstGenerate!: () => void
+    harnessObservation.firstGenerateBlock = new Promise<void>((resolve) => {
+      releaseFirstGenerate = resolve
+    })
+    const firstGenerateStarted = new Promise<void>((resolve) => {
+      harnessObservation.firstGenerateStarted = resolve
+    })
+    const run = () => runAgent(agent, {
+      memo: vi.fn((_key, create) => create()),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    }, { prompt: "Review." })
+
+    const first = run()
+    await firstGenerateStarted
+    const second = run()
+    await vi.waitFor(() => expect(harnessObservation.generateCount).toBe(2))
+    expect(codexHomes.size).toBe(2)
+    expect(Array.from(codexHomes).every(path => /^\.vitehub\/codex-home-[^/]+$/.test(path))).toBe(true)
+    releaseFirstGenerate()
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2)
   })
 
   it("runs Codex in a Box-owned disposable Git checkout", async () => {

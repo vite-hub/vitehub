@@ -19,6 +19,7 @@ import type {
 } from "../types.ts"
 
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
+const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
@@ -74,22 +75,29 @@ const codexBridgePrepareDependenciesCommand = [
 
 function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {
   const harness = createCodex(settings)
+  const adaptSandbox = (
+    provider: AgentHarnessSandboxProviderInput,
+    options?: { box?: boolean, defaultSandbox?: boolean, invocation?: { id: string, isolateBoxHome: boolean } },
+  ) => adaptCodexHarnessSandbox(provider, {
+    ...(options?.box && options.invocation?.isolateBoxHome
+      ? { codexHomeRelativeToHome: `.vitehub/codex-home-${options.invocation.id}` }
+      : {}),
+    defaultSandbox: options?.defaultSandbox,
+    isolateHome: !options?.box || options.invocation?.isolateBoxHome,
+    preferOpenAI,
+  })
   return {
     ...harness,
-    [harnessGlobalSkillsDirectory]: (context: { box?: unknown }) => context.box
-      ? ".codex/skills"
+    [harnessGlobalSkillsDirectory]: (context: { box?: unknown }, invocation?: { id: string, isolateBoxHome: boolean }) => context.box
+      ? invocation?.isolateBoxHome
+        ? `.vitehub/codex-home-${invocation.id}/skills`
+        : ".codex/skills"
       : "tmp/harness/codex-home/skills",
-    [harnessSessionPrepare]: async (session: object) => {
-      await prepareCodexHome(session)
+    [harnessSessionPrepare]: async (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => {
+      return await prepareCodexHome(session, invocation)
     },
-    [harnessSandboxAdapter]: (
-      provider: AgentHarnessSandboxProviderInput,
-      options?: { box?: boolean, defaultSandbox?: boolean },
-    ) => adaptCodexHarnessSandbox(provider, {
-      defaultSandbox: options?.defaultSandbox,
-      isolateHome: !options?.box,
-      preferOpenAI,
-    }),
+    [harnessSandboxAdapter]: adaptSandbox,
+    [harnessInvocationSandboxAdapter]: adaptSandbox,
     async getBootstrap() {
       const [pkg, lock, bridge] = await Promise.all([
         readCodexBridgeAsset("package.json"),
@@ -118,13 +126,39 @@ async function readCodexBridgeAsset(name: string): Promise<string> {
   return await readFile(fileURLToPath(new URL(`./bridge/${name}`, pathToFileURL(packageEntry))), "utf8")
 }
 
-async function prepareCodexHome(session: object): Promise<void> {
-  const result = await (session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }).run({
+async function prepareCodexHome(session: object, invocation?: { id?: string, isolateBoxHome: boolean }): Promise<{ close: (error?: unknown) => Promise<void> } | undefined> {
+  const sandbox = session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }
+  const result = await sandbox.run({
     command:
-      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="$HOME/.codex" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ] && [ -f "$ambient_home/auth.json" ] && [ ! -e "$codex_home/auth.json" ]; then cp "$ambient_home/auth.json" "$codex_home/auth.json" && chmod 600 "$codex_home/auth.json"; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml"',
+      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="${VITEHUB_AMBIENT_CODEX_HOME:-$HOME/.codex}" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ] && [ -d "$ambient_home" ]; then cp -R "$ambient_home"/. "$codex_home"; fi && rm -rf -- "$codex_home/skills/.git" && manifest="$codex_home/skills.vitehub-managed" && if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf \'%s\' "$encoded" | base64 -d) || exit 1; case "$managed" in \'\'|/*|..|../*|*/..|*/../*) exit 1 ;; esac; rm -rf -- "$codex_home/skills/$managed"; done < "$manifest" && rm -f -- "$manifest"; fi && manifest="$codex_home/skills/.vitehub-colocated" && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in \'\'|*/*|.. ) exit 1 ;; esac; rm -rf -- "$codex_home/skills/$managed"; done < "$manifest" && rm -f -- "$manifest"; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml" && if [ "$codex_home" != "$ambient_home" ]; then baseline="$codex_home.vitehub-baseline" && rm -rf -- "$baseline" && mkdir -p "$baseline" && cp -R "$codex_home"/. "$baseline"; fi',
   })
   if (result.exitCode !== 0) {
+    if (invocation?.isolateBoxHome && invocation.id) {
+      await sandbox.run({ command: `rm -rf -- "$HOME/.vitehub/codex-home-${invocation.id}" "$HOME/.vitehub/codex-home-${invocation.id}.vitehub-baseline"` }).catch(() => undefined)
+    }
     throw new Error(`[vitehub] Failed to prepare Codex Home: ${result.stderr || "sandbox command failed"}`)
+  }
+  if (!invocation?.isolateBoxHome || !invocation.id) return
+  return {
+    async close(error) {
+      if (error !== undefined) {
+        const cleanup = await sandbox.run({
+          command: `rm -rf -- "$HOME/.vitehub/codex-home-${invocation.id}" "$HOME/.vitehub/codex-home-${invocation.id}.vitehub-baseline"`,
+        })
+        if (cleanup.exitCode !== 0) {
+          throw new Error(`[vitehub] Failed to discard the invocation Codex Home after preparation failed: ${cleanup.stderr || "sandbox command failed"}`)
+        }
+        return
+      }
+      // Merge generated and modified Codex state without replaying unchanged seeded state.
+      // Concurrent changes to the same path remain completion ordered; ambient-only entries are additive.
+      const cleanup = await sandbox.run({
+        command: `codex_home="$HOME/.vitehub/codex-home-${invocation.id}" && ambient_home="\${VITEHUB_AMBIENT_CODEX_HOME:-$HOME/.codex}" && baseline="$codex_home.vitehub-baseline" && status=0; rm -rf -- "$codex_home/skills/.git" || status=$?; manifest="$codex_home/skills.vitehub-managed"; if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || { status=1; break; }; case "$managed" in ''|/*|..|../*|*/..|*/../*) status=1; break ;; esac; rm -rf -- "$codex_home/skills/$managed" "$baseline/skills/$managed" || status=$?; done < "$manifest"; rm -f -- "$manifest" || status=$?; fi; manifest="$codex_home/skills/.vitehub-colocated"; if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) status=1; break ;; esac; rm -rf -- "$codex_home/skills/$managed" "$baseline/skills/$managed" || status=$?; done < "$manifest"; rm -f -- "$manifest" || status=$?; fi; if [ "$status" -eq 0 ] && [ -d "$baseline" ]; then find "$baseline" -type f -exec sh -c 'baseline="$1"; codex_home="$2"; ambient_home="$3"; shift 3; for seeded do relative="\${seeded#"$baseline"/}"; if [ ! -e "$codex_home/$relative" ]; then if cmp -s "$seeded" "$ambient_home/$relative"; then rm -f -- "$ambient_home/$relative" || exit $?; fi; elif cmp -s "$seeded" "$codex_home/$relative"; then rm -f -- "$codex_home/$relative" || exit $?; fi; done' sh "$baseline" "$codex_home" "$ambient_home" {} + || status=$?; fi; if [ "$status" -eq 0 ]; then rm -rf -- "$baseline" || status=$?; fi; if [ "$status" -eq 0 ]; then mkdir -p "$ambient_home" || status=$?; fi; if [ "$status" -eq 0 ]; then cp -R "$codex_home"/. "$ambient_home" || status=$?; fi; if [ "$status" -eq 0 ]; then rm -rf -- "$codex_home" || status=$?; fi; exit "$status"`,
+      })
+      if (cleanup.exitCode !== 0) {
+        throw new Error(`[vitehub] Failed to preserve Codex state and remove the invocation Codex Home: ${cleanup.stderr || "sandbox command failed"}`)
+      }
+    },
   }
 }
 
