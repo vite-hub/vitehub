@@ -117,6 +117,9 @@ catalogs:
       specifier: ^1.4.2
       version: 1.4.2
   sandbox:
+    '@cloudflare/computer':
+      specifier: ^0.1.1
+      version: 0.1.1
     '@cloudflare/sandbox':
       specifier: ^0.8.14
       version: 0.8.14
@@ -726,6 +729,9 @@ importers:
       '@asciidev/box-sdk':
         specifier: ^0.0.24
         version: 0.0.24
+      '@cloudflare/computer':
+        specifier: catalog:sandbox
+        version: 0.1.1(ai@7.0.34(zod@4.4.3))(zod@4.4.3)
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
         version: 0.8.14
@@ -2324,6 +2330,20 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
       '@tanstack/ai':
+        optional: true
+      ai:
+        optional: true
+      zod:
+        optional: true
+
+  '@cloudflare/computer@0.1.1':
+    resolution: {integrity: sha512-4xWx5yX+y5MyNhtIK9N6LcyBsbzGdaxGbhfZdh51zRWRfdkI8OhL2ftBCReqaR6HD7we+Yg0rEihwBETrmkbmg==}
+    peerDependencies:
+      '@platformatic/vfs': '*'
+      ai: ^6.0.196 || ^7.0.0
+      zod: ^4.4.3
+    peerDependenciesMeta:
+      '@platformatic/vfs':
         optional: true
       ai:
         optional: true
@@ -8329,6 +8349,9 @@ packages:
 
   caniuse-lite@1.0.30001805:
     resolution: {integrity: sha512-52noaS3DubycKSXaU30TwPGIp+POyQSUVa5jBEq3vkRkY0kjyb3LQgvhU6WGyCcyXqVLWO0Cw0Q6BSdD0kUfVA==}
+
+  capnweb@0.8.0:
+    resolution: {integrity: sha512-BK/TuXUiyfLSKsmjojn70yN7oYG/JJzoURZ3tckjg5Zj2KcygPm0A5jyOlswK7SYB4f0Gh9tt+RZ132b80iLfA==}
 
   cbor-extract@2.2.2:
     resolution: {integrity: sha512-hlSxxI9XO2yQfe9g6msd3g4xCfDqK5T5P0fRMLuaLHhxn4ViPrm+a+MUfhrvH2W962RGxcBwEGzLQyjbDG1gng==}
@@ -14805,6 +14828,17 @@ snapshots:
       ai: 6.0.228(zod@4.4.3)
       zod: 4.4.3
 
+  '@cloudflare/computer@0.1.1(ai@7.0.34(zod@4.4.3))(zod@4.4.3)':
+    dependencies:
+      acorn: 8.17.0
+      capnweb: 0.8.0
+      just-bash: 3.1.0
+    optionalDependencies:
+      ai: 7.0.34(zod@4.4.3)
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - supports-color
+
   '@cloudflare/containers@0.3.7': {}
 
   '@cloudflare/kv-asset-handler@0.4.2': {}
@@ -21137,6 +21171,8 @@ snapshots:
       caniuse-lite: 1.0.30001805
 
   caniuse-lite@1.0.30001805: {}
+
+  capnweb@0.8.0: {}
 
   cbor-extract@2.2.2:
     dependencies:

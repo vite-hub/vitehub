@@ -59,6 +59,7 @@ describe("Box runtime selection", () => {
       { runtime: { kind: "crabbox", profile: "worker" } },
       { runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub" } },
       { runtime: { kind: "cloudflare", namespace: {} as never } },
+      { runtime: { kind: "cloudflare-computer", namespace: {} as never } },
       { runtime: { kind: "vercel" } },
       { runtime: custom },
     ] satisfies BoxDefinition[];
@@ -72,23 +73,31 @@ describe("Box runtime selection", () => {
   it("loads optional provider peers only after their built-in runtime is opened", async () => {
     const dist = new URL("../dist/", import.meta.url);
     const asciiFile = (await readdir(dist)).find(file => /^ascii-.*\.js$/.test(file));
+    const computerFile = (await readdir(dist)).find(file => /^cloudflare-computer-.*\.js$/.test(file));
     expect(asciiFile).toBeDefined();
-    const [index, ascii, cloudflare, vercel] = await Promise.all([
+    expect(computerFile).toBeDefined();
+    const [index, ascii, cloudflare, computer, vercel] = await Promise.all([
       readFile(new URL("index.js", dist), "utf8"),
       readFile(new URL(asciiFile!, dist), "utf8"),
       readFile(new URL("internal/cloudflare.js", dist), "utf8"),
+      readFile(new URL(computerFile!, dist), "utf8"),
       readFile(new URL("internal/vercel.js", dist), "utf8"),
     ]);
 
     expect(index).not.toContain("@asciidev/box-sdk");
     expect(index).not.toContain("@cloudflare/sandbox");
+    expect(index).not.toContain("@cloudflare/computer");
     expect(index).not.toContain("@vercel/sandbox");
     expect(ascii).toContain("@asciidev/box-sdk");
     expect(ascii).toMatch(/\bimport\(/);
     expect(ascii).not.toContain("@cloudflare/sandbox");
     expect(ascii).not.toContain("@vercel/sandbox");
     expect(cloudflare).toMatch(/\bimport\(["']@cloudflare\/sandbox["']\)/);
+    expect(cloudflare).not.toContain("@cloudflare/computer");
     expect(cloudflare).not.toContain("@vercel/sandbox");
+    expect(computer).toMatch(/\bimport\(["']@cloudflare\/computer["']\)/);
+    expect(computer).not.toContain("@cloudflare/sandbox");
+    expect(computer).not.toContain("@vercel/sandbox");
     expect(vercel).toMatch(/\bimport\(["']@vercel\/sandbox["']\)/);
     expect(vercel).not.toContain("@cloudflare/sandbox");
   });

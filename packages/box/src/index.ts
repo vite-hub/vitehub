@@ -4,6 +4,14 @@ import { isAbsolute, posix, relative, resolve } from "node:path";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 import type { AsciiBoxOptions } from "./ascii.ts";
 import type { CloudflareBoxOptions, CloudflareDurableObjectNamespace, CloudflareSandboxStub } from "./cloudflare.ts";
+import type {
+  CloudflareComputerBoxOptions,
+  CloudflareComputerDurableObjectNamespace,
+  CloudflareComputerExecHandle,
+  CloudflareComputerFileStat,
+  CloudflareComputerFilesystem,
+  CloudflareComputerWorkspace,
+} from "./cloudflare-computer.ts";
 import type { CrabboxOptions } from "./internal/crabbox.ts";
 import type { TrustedHostOptions } from "./internal/trusted-host.ts";
 import type {
@@ -20,6 +28,12 @@ import { isBuiltInBoxRuntime } from "./internal/runtime.ts";
 export type {
   AsciiBoxOptions,
   CloudflareBoxOptions,
+  CloudflareComputerBoxOptions,
+  CloudflareComputerDurableObjectNamespace,
+  CloudflareComputerExecHandle,
+  CloudflareComputerFileStat,
+  CloudflareComputerFilesystem,
+  CloudflareComputerWorkspace,
   CloudflareDurableObjectNamespace,
   CloudflareSandboxStub,
   CrabboxOptions,
@@ -85,6 +99,7 @@ export type BuiltInBoxRuntime =
   | ({ kind: "crabbox" } & CrabboxOptions)
   | ({ kind: "trusted-host" } & TrustedHostOptions)
   | ({ kind: "cloudflare" } & CloudflareBoxOptions)
+  | ({ kind: "cloudflare-computer" } & CloudflareComputerBoxOptions)
   | ({ kind: "vercel" } & VercelBoxOptions);
 
 export type BoxRuntimeDefinition = BuiltInBoxRuntime | BoxRuntime;
@@ -260,6 +275,7 @@ export interface ResolveBoxOptions {
 const reservedRuntimeNames = new Set([
   "ascii",
   "cloudflare",
+  "cloudflare-computer",
   "crabbox",
   "trusted-host",
   "vercel",
@@ -312,11 +328,15 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
     const { createCloudflareRuntime } = await import("./cloudflare.ts");
     return createCloudflareRuntime(options as unknown as CloudflareBoxOptions);
   }
+  if (kind === "cloudflare-computer") {
+    const { createCloudflareComputerRuntime } = await import("./cloudflare-computer.ts");
+    return createCloudflareComputerRuntime(options as unknown as CloudflareComputerBoxOptions);
+  }
   if (kind === "vercel") {
     const { createVercelRuntime } = await import("./vercel.ts");
     return createVercelRuntime(options as VercelBoxOptions);
   }
-  throw new Error(`[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "ascii", "crabbox", "trusted-host", "cloudflare", or "vercel".`);
+  throw new Error(`[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "ascii", "crabbox", "trusted-host", "cloudflare", "cloudflare-computer", or "vercel".`);
 }
 
 function isBoxRuntime(value: unknown): value is BoxRuntime {
