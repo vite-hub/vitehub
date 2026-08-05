@@ -25,7 +25,7 @@ import {
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { attachmentStringBytes, isAttachmentData, isAttachmentPart, isTextAttachmentMediaType, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, getMessageText, isAttachmentData, isAttachmentPart, isTextAttachmentMediaType, resolveAttachmentData } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import {
@@ -152,9 +152,22 @@ function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
 }
 
-function harnessSteeringText(input: { message?: unknown, prompt?: unknown }): string | undefined {
+function harnessSteeringMessages(value: unknown): Message[] {
+  const values = Array.isArray(value) ? value : [value]
+  return values.filter((message): message is Message => (
+    typeof message === "object"
+    && message !== null
+    && Array.isArray((message as Partial<Message>).parts)
+  ))
+}
+
+function harnessSteeringText(input: { message?: unknown, messages?: unknown, prompt?: unknown }): string | undefined {
   if (typeof input.prompt === "string" && input.prompt.trim()) return input.prompt
   if (typeof input.message === "string" && input.message.trim()) return input.message
+  const messages = [input.prompt, input.messages, input.message]
+    .flatMap(harnessSteeringMessages)
+  const text = latestHarnessUserMessage(messages).map(getMessageText).join("\n").trim()
+  return text || undefined
 }
 
 function boundProperty(target: object, property: PropertyKey): unknown {

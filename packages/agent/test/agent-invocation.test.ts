@@ -25,7 +25,7 @@ describe("Agent Invocation controllers", () => {
     const firstDone = new Promise<void>(resolve => { finishFirst = resolve })
     const secondDone = new Promise<void>(resolve => { finishSecond = resolve })
     const thirdDone = new Promise<void>(resolve => { finishThird = resolve })
-    const firstSubmit = vi.fn(async () => undefined)
+    const firstSubmit = vi.fn(async (_text: string) => undefined)
     const secondSubmit = vi.fn(async () => { throw new Error("closed") })
     const thirdSubmit = vi.fn(async () => undefined)
     const rawSession = {
@@ -54,6 +54,17 @@ describe("Agent Invocation controllers", () => {
       outcome: "accepted",
     })
     expect(firstSubmit).toHaveBeenCalledWith("follow up")
+    const userMessage = { id: "user", parts: [{ text: "message input", type: "text" as const }], role: "user" as const }
+    const assistantMessage = { id: "assistant", parts: [{ text: "ignored", type: "text" as const }], role: "assistant" as const }
+    await expect(controller.sendInput({ message: userMessage }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
+    await expect(controller.sendInput({ prompt: [assistantMessage, userMessage] }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
+    await expect(controller.sendInput({ messages: [assistantMessage, userMessage] }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
+    expect(firstSubmit.mock.calls.map(([text]) => text)).toEqual([
+      "follow up",
+      "message input",
+      "message input",
+      "message input",
+    ])
 
     await session.doPromptTurn()
     finishFirst()
