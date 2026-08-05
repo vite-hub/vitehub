@@ -85,9 +85,9 @@ describe("launch tutorials", () => {
   })
 
   it("keeps the Agents quickstart on the checked fixture", async () => {
-    const labels = ["vite.config.ts", "server/agents/greeting.ts", "src/memo.ts", "src/server.ts"]
+    const labels = ["vite.config.ts", "server/agents/greeting.ts", "src/server.ts"]
 
-    await expectPageToUseFixture("content/docs/getting-started/first-agent.md", "agents", labels)
+    await expectPageToUseFixture("content/docs/getting-started/first-agent.md", "first-agent", labels)
   })
 
   it("loads the model upgrade credential when restarting the Agents tutorial", async () => {
