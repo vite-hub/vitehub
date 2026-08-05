@@ -202,6 +202,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.anything(),
     )
     expect(mocks.existingQueueNitroConfig).toHaveBeenCalledWith({
+      development: true,
       nitro: expect.objectContaining({ preset: "cloudflare_module" }),
       projectRoot: "/tmp/vitehub-nuxt",
       root: "/tmp/vitehub-nuxt",

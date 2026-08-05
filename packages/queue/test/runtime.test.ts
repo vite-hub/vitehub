@@ -281,6 +281,20 @@ describe("cloudflare queue runtime", () => {
     expect(vercelQueueMock.send).not.toHaveBeenCalled()
   })
 
+  it("reports a missing Cloudflare binding without deployment runtime defaults", async () => {
+    setQueueRuntimeConfig({ cache: true, namePrefix: "", provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => {} },
+      }),
+    })
+
+    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
+      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
+      details: { provider: "cloudflare" },
+    })
+  })
+
   it("isolates overlapping Cloudflare fetch environments", async () => {
     let arrivals = 0
     let release!: () => void
