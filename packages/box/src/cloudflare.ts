@@ -119,7 +119,7 @@ export function createCloudflareRuntime(options: CloudflareBoxOptions): BoxRunti
         initialize: openOptions?.initialize,
         runtime: "cloudflare",
         signal: openOptions?.signal,
-      }, Object.keys(input.plan.env).map(name => env[name]));
+      }, env);
     },
   });
 }

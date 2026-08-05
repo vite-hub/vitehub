@@ -42,6 +42,7 @@ import {
   boxRequirementPlan,
   boxRequirementSecrets,
   boxRequirementSignal,
+  collectBoxRequirementOutput,
 } from "./requirements.ts";
 import { markBuiltInBoxRuntime } from "./runtime.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
@@ -667,8 +668,8 @@ async function validateRequirements(
         boxRequirementSignal({ ...requirement, timeout }, abortSignal),
       );
       const [stderr, stdout, { exitCode }] = await Promise.all([
-        collect(handle.stderr),
-        collect(handle.stdout),
+        collectBoxRequirementOutput(handle.stderr, secrets),
+        collectBoxRequirementOutput(handle.stdout, secrets),
         handle.wait(),
       ]);
       result = { exitCode, stderr, stdout };

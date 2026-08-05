@@ -2,7 +2,10 @@ import { inspect } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
-import { boxRequirementError } from "../src/internal/requirements.ts";
+import {
+  boxRequirementError,
+  collectBoxRequirementOutput,
+} from "../src/internal/requirements.ts";
 
 describe("Box requirement failures", () => {
   it("reports an effective timeout without retaining raw failure details", () => {
@@ -51,5 +54,45 @@ describe("Box requirement failures", () => {
 
     expect(error.message).toBe('[vitehub] Box requirement "setup" failed: exit code 1');
     expect(error.message).not.toContain("refreshed-state-secret");
+  });
+
+  it("includes structured details alongside an exit status", () => {
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { exitCode: 1, message: "provider rejected the credential" },
+    );
+
+    expect(error.message).toBe(
+      '[vitehub] Box requirement "setup" failed: exit code 1: provider rejected the credential',
+    );
+  });
+
+  it("caps diagnostics at 4,000 characters including the ellipsis", () => {
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { stderr: "x".repeat(4_001) },
+    );
+    const diagnostic = error.message.split("failed: ")[1]!;
+
+    expect(diagnostic).toHaveLength(4_000);
+    expect(diagnostic.endsWith("…")).toBe(true);
+  });
+
+  it("bounds collected output while redacting secrets across chunks", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("credential setup-"));
+        controller.enqueue(encoder.encode(`secret\n${"x".repeat(5_000)}`));
+        controller.close();
+      },
+    });
+
+    const output = await collectBoxRequirementOutput(stream, ["setup-secret"]);
+
+    expect(output).toHaveLength(4_000);
+    expect(output.startsWith("credential [redacted]")).toBe(true);
+    expect(output.endsWith("…")).toBe(true);
+    expect(output).not.toContain("setup-secret");
   });
 });

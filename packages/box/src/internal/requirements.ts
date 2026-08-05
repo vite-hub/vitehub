@@ -29,6 +29,54 @@ export function boxRequirementSecrets(
   ).filter(Boolean);
 }
 
+export async function collectBoxRequirementOutput(
+  stream: ReadableStream<Uint8Array>,
+  secrets: readonly string[],
+): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  const patterns = [...new Set(secrets)].filter(Boolean).sort((left, right) => right.length - left.length);
+  const maximumSecretLength = Math.max(1, ...patterns.map(value => value.length));
+  let pending = "";
+  let output = "";
+  let truncated = false;
+
+  const append = (value: string) => {
+    if (!value || truncated) return;
+    if (output.length + value.length <= maximumDiagnosticLength) {
+      output += value;
+      return;
+    }
+    output = `${(output + value).slice(0, maximumDiagnosticLength - 1)}…`;
+    truncated = true;
+  };
+  const flush = (final: boolean) => {
+    while (pending && (final || pending.length >= maximumSecretLength)) {
+      const secret = patterns.find(value => pending.startsWith(value));
+      if (secret) {
+        append("[redacted]");
+        pending = pending.slice(secret.length);
+      }
+      else {
+        append(pending[0]!);
+        pending = pending.slice(1);
+      }
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      pending += decoder.decode(value, { stream: !done });
+      flush(done);
+      if (done) return output;
+    }
+  }
+  finally {
+    reader.releaseLock();
+  }
+}
+
 export function boxRequirementError(
   requirement: ResolvedBoxRequirementInput,
   failure: unknown,
@@ -66,7 +114,7 @@ function commandFailureDetails(
   const output = includeDiagnosticOutput
     ? diagnosticText(error?.stderr, secrets) || diagnosticText(error?.stdout, secrets)
     : "";
-  const message = includeDiagnosticOutput && !status && !output
+  const message = includeDiagnosticOutput && !output
     ? diagnosticText(error?.message ?? failure, secrets)
     : "";
   return [status, output || message].filter(Boolean).join(": ");
@@ -79,6 +127,7 @@ function diagnosticText(value: unknown, secrets: readonly string[]) {
     if (secret) text = text.replaceAll(secret, "[redacted]");
   }
   text = text.trim();
-  if (text.length > maximumDiagnosticLength) text = `${text.slice(0, maximumDiagnosticLength)}…`;
+  if (text.length > maximumDiagnosticLength)
+    text = `${text.slice(0, maximumDiagnosticLength - 1)}…`;
   return text;
 }

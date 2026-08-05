@@ -91,7 +91,7 @@ export async function openRemoteBox(
     initialize?: (session: BoxSession, context: { signal?: AbortSignal }) => Promise<void>;
     signal?: AbortSignal;
   },
-  secrets: readonly string[],
+  environment: Readonly<Record<string, string>>,
 ) {
   assertRemoteInput(input, options.runtime);
   const session = createBoxSession(runtimeSession, {
@@ -100,7 +100,7 @@ export async function openRemoteBox(
     signal: options.signal,
   });
   try {
-    await materializeRemotePlan(input, runtimeSession, options, secrets);
+    await materializeRemotePlan(input, runtimeSession, options, environment);
     await options.initialize?.(session, { signal: options.signal });
     return session;
   } catch (error) {
@@ -139,12 +139,14 @@ async function materializeRemotePlan(
   input: BoxRuntimeInput,
   session: RuntimeSession,
   options: Pick<RemoteRuntimeOptions, "home" | "workspace" | "preserveWorkspace"> & { signal?: AbortSignal },
-  secrets: readonly string[],
+  environment: Readonly<Record<string, string>>,
 ) {
   const home = options.home ?? "/home/vitehub";
   const workspace = options.workspace ?? "/workspace";
   const abortSignal = options.signal;
-  const diagnosticSecrets = [...secrets];
+  const diagnosticSecrets = [...boxRequirementSecrets(
+    Object.keys(input.plan.env).map(name => environment[name]!),
+  )];
   for (const path of new Set([home, ...(options.preserveWorkspace ? [] : [workspace])])) {
     if (await session.existsFile({ abortSignal, path }))
       await session.removeFile({ abortSignal, path, recursive: true });
