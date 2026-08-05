@@ -125,6 +125,7 @@ ignoreDependencies = [
   "ai",
   # Box provider adapters load these only from runtime-selected chunks.
   "@asciidev/box-sdk",
+  "@cloudflare/computer",
   "@cloudflare/sandbox",
   "@google-cloud/storage",
   "@googleapis/drive",
