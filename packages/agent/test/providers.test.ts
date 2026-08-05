@@ -5519,7 +5519,7 @@ describe("server helpers", () => {
                     concurrencyGroup: "reviews",
                     concurrencyKey: "pr-42",
                     concurrencyLimit: 1,
-                    concurrencyTtlMs: 20,
+                    concurrencyTtlMs: 1_000,
                     deliveryId,
                   },
                 }
@@ -5548,10 +5548,11 @@ describe("server helpers", () => {
       const first = await handler(request("delivery-1"), "github", options)
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(activeAgentInvocation("webhook:review:github:github::pr-42")).toBeDefined())
 
       const steering = handler(request("delivery-2"), "github", options)
       await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await new Promise(resolve => setTimeout(resolve, 1_100))
       const inFlightDuplicate = await handler(request("delivery-2"), "github", options)
       expect(inFlightDuplicate.status).toBe(503)
       await expect(inFlightDuplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
