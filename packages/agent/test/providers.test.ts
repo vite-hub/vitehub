@@ -5624,9 +5624,10 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(completedRuns).toBe(5))
     }
     finally {
-      stop()
+      const stopping = stop()
       releaseSteer()
       releases.splice(0).forEach(release => release())
+      await stopping
       vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
