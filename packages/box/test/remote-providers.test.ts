@@ -22,6 +22,37 @@ describe("remote Box providers", () => {
     await session.close();
   });
 
+  it("reports remote requirement output without exposing Box environment values", async () => {
+    const stub = cloudflareStub(async () => ({
+      exitCode: 2,
+      stderr: "",
+      stdout: "credential remote-secret was rejected",
+      success: false,
+    }));
+    const box = await resolveBox({
+      env: { ACCESS_TOKEN: "remote-secret" },
+      requires: [{ command: "node", args: ["--version"], timeout: 5_000 }],
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+
+    expect(box.plan.requirements).toEqual([
+      { command: "node", name: "node --version", timeout: 5_000 },
+    ]);
+    const failure = await box.open().catch((error: unknown) => error as Error) as Error;
+    expect(failure.message).toContain("exit code 2: credential [redacted] was rejected");
+    expect(failure.message).not.toContain("remote-secret");
+  });
+
+  it("bounds remote requirement checks with their configured timeout", async () => {
+    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    const box = await resolveBox({
+      requires: [{ command: "node", timeout: 20 }],
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+
+    await expect(box.open()).rejects.toThrow("timed out after 20ms");
+  });
+
   it("normalizes authority from tagged remote runtimes", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
     const cloudflare = await resolveBox({

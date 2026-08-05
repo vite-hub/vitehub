@@ -16,6 +16,7 @@ import type {
   ResolvedBoxRequirementInput,
 } from "../index.ts"
 import { materializeGitCheckout } from "./git-checkout.ts"
+import { boxRequirementError, boxRequirementPlan, boxRequirementSignal } from "./requirements.ts"
 import { markBuiltInBoxRuntime } from "./runtime.ts"
 import { createBoxSession, type RuntimeSession } from "./session.ts"
 
@@ -104,7 +105,7 @@ export function createCrabboxRuntime(options: CrabboxOptions = {}): BoxRuntime {
         environment: { env: {} },
         executionAuthority: crabboxExecutionAuthority,
         identity: input.identity,
-        requirements: input.requirements.map(({ command, name }) => ({ command, name })),
+        requirements: boxRequirementPlan(input.requirements),
         runtime: "crabbox",
         workspace: workspace
           ? { path: workspace, state: "authoritative" as const, workDir: "workspace" as const }
@@ -261,7 +262,12 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
           const probeCleanup = await session.run({ abortSignal: createOptions.abortSignal,
             command: `rm -- ${shellQuote(posix.join(root, ".vitehub-copy-probe"))}` })
           if (probeCleanup.exitCode !== 0) throw crabboxError("remove Crabbox copy probe", probeCleanup)
-          await validateRequirements(session, options.requirements, createOptions.abortSignal)
+          await validateRequirements(
+            session,
+            options.requirements,
+            createOptions.abortSignal,
+            materialized.secrets,
+          )
           await createOptions.initialize?.(session)
           return session
         }
@@ -408,6 +414,7 @@ async function materializePlan(
     initializedState: [...missingState].map((index) =>
       remoteStatePath(options.stateRoot!, options.plan.state[index].key)
     ),
+    secrets: Object.values(environment),
   };
 }
 
@@ -982,17 +989,28 @@ function startTunnel(state: CrabboxSessionState, remotePort: number) {
   return tunnel
 }
 
-async function validateRequirements(session: RuntimeSession, requirements: readonly ResolvedBoxRequirementInput[], abortSignal: AbortSignal | undefined) {
+async function validateRequirements(
+  session: RuntimeSession,
+  requirements: readonly ResolvedBoxRequirementInput[],
+  abortSignal: AbortSignal | undefined,
+  secrets: readonly string[],
+) {
   for (const requirement of requirements) {
     const command = ["command -v", shellQuote(requirement.command), ">/dev/null"]
     if (requirement.args.length) command.push("&&", shellQuote(requirement.command), ...requirement.args.map(shellQuote))
-    const result = await session.run({
-      abortSignal,
-      command: command.join(" "),
-      workingDirectory: posix.join(session.defaultWorkingDirectory, "workspace"),
-    })
+    let result: Awaited<ReturnType<RuntimeSession["run"]>>
+    try {
+      result = await session.run({
+        abortSignal: boxRequirementSignal(requirement, abortSignal),
+        command: command.join(" "),
+        workingDirectory: posix.join(session.defaultWorkingDirectory, "workspace"),
+      })
+    }
+    catch (cause) {
+      throw boxRequirementError(requirement, cause, secrets)
+    }
     if (result.exitCode !== 0) {
-      throw new Error(`[vitehub] Box requirement "${requirement.name}" failed.`);
+      throw boxRequirementError(requirement, result, secrets)
     }
   }
 }

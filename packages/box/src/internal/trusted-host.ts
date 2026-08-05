@@ -37,6 +37,7 @@ import type {
   ResolvedBoxState,
 } from "../index.ts";
 import { materializeGitCheckout } from "./git-checkout.ts";
+import { boxRequirementError, boxRequirementPlan } from "./requirements.ts";
 import { markBuiltInBoxRuntime } from "./runtime.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
@@ -111,7 +112,7 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
         environment: { env: {} },
         executionAuthority: trustedHostExecutionAuthority,
         identity: input.identity,
-        requirements: input.requirements.map(({ command, name }) => ({ command, name })),
+        requirements: boxRequirementPlan(input.requirements),
         runtime: "trusted-host",
         workspace: cwd
           ? { path: cwd, state: "authoritative" as const, workDir: "workspace" as const }
@@ -222,7 +223,13 @@ async function createSession(
       sessionId: createOptions.sessionId,
       workspace: input.cwd,
     });
-    await validateRequirements(input.requirements, env, checkout ?? input.cwd ?? root);
+    await validateRequirements(
+      input.requirements,
+      env,
+      checkout ?? input.cwd ?? root,
+      createOptions.abortSignal,
+      Object.keys(input.plan.env).map(name => env[name]),
+    );
     await createOptions.initialize?.(session);
     return session;
   } catch (error) {
@@ -616,6 +623,8 @@ async function validateRequirements(
   requirements: readonly ResolvedBoxRequirementInput[],
   env: Record<string, string>,
   cwd: string | undefined,
+  abortSignal: AbortSignal | undefined,
+  secrets: readonly string[],
 ) {
   for (const requirement of requirements) {
     const executable = await findExecutable(
@@ -625,19 +634,22 @@ async function validateRequirements(
       cwd,
     );
     if (!executable)
-      throw new Error(
-        `[vitehub] Box requirement "${requirement.name}" is unavailable: ${requirement.command} is not on PATH.`,
+      throw boxRequirementError(
+        requirement,
+        { message: `${requirement.command} is not on PATH.` },
+        secrets,
       );
     if (!requirement.args.length) continue;
     try {
       await promisify(execFile)(executable, requirement.args, {
         cwd,
         env,
+        signal: abortSignal,
         shell: isWindowsCommandShim(executable),
-        timeout: 10_000,
+        timeout: requirement.timeout ?? 10_000,
       });
-    } catch {
-      throw new Error(`[vitehub] Box requirement "${requirement.name}" failed.`);
+    } catch (cause) {
+      throw boxRequirementError(requirement, cause, secrets, requirement.timeout ?? 10_000);
     }
   }
 }

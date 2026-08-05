@@ -9,6 +9,11 @@ import type {
 } from "../index.ts";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 import { materializeGitCheckout } from "./git-checkout.ts";
+import {
+  boxRequirementError,
+  boxRequirementPlan,
+  boxRequirementSignal,
+} from "./requirements.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
 interface RemoteRuntimeOptions {
@@ -69,7 +74,7 @@ export function remoteBoxPlan(
     environment: { env: {} },
     executionAuthority: options.executionAuthority,
     identity: input.identity,
-    requirements: input.requirements.map(({ command, name }) => ({ command, name })),
+    requirements: boxRequirementPlan(input.requirements),
     runtime: options.runtime,
     workspace: {
       state: "disposable",
@@ -85,6 +90,7 @@ export async function openRemoteBox(
     initialize?: (session: BoxSession, context: { signal?: AbortSignal }) => Promise<void>;
     signal?: AbortSignal;
   },
+  secrets: readonly string[],
 ) {
   assertRemoteInput(input, options.runtime);
   const session = createBoxSession(runtimeSession, {
@@ -93,7 +99,7 @@ export async function openRemoteBox(
     signal: options.signal,
   });
   try {
-    await materializeRemotePlan(input, runtimeSession, options);
+    await materializeRemotePlan(input, runtimeSession, options, secrets);
     await options.initialize?.(session, { signal: options.signal });
     return session;
   } catch (error) {
@@ -132,6 +138,7 @@ async function materializeRemotePlan(
   input: BoxRuntimeInput,
   session: RuntimeSession,
   options: Pick<RemoteRuntimeOptions, "home" | "workspace" | "preserveWorkspace"> & { signal?: AbortSignal },
+  secrets: readonly string[],
 ) {
   const home = options.home ?? "/home/vitehub";
   const workspace = options.workspace ?? "/workspace";
@@ -168,7 +175,7 @@ async function materializeRemotePlan(
       },
     });
   }
-  await validateRequirements(session, input.requirements, workspace, abortSignal);
+  await validateRequirements(session, input.requirements, workspace, abortSignal, secrets);
 }
 
 function joinRemotePath(...parts: string[]) {
@@ -185,18 +192,24 @@ async function validateRequirements(
   requirements: readonly ResolvedBoxRequirementInput[],
   workspace: string,
   abortSignal: AbortSignal | undefined,
+  secrets: readonly string[],
 ) {
   for (const requirement of requirements) {
     const command = ["command -v", shellQuote(requirement.command), ">/dev/null"];
     if (requirement.args.length)
       command.push("&&", shellQuote(requirement.command), ...requirement.args.map(shellQuote));
-    const result = await session.run({
-      abortSignal,
-      command: command.join(" "),
-      workingDirectory: workspace,
-    });
+    let result: Awaited<ReturnType<RuntimeSession["run"]>>;
+    try {
+      result = await session.run({
+        abortSignal: boxRequirementSignal(requirement, abortSignal),
+        command: command.join(" "),
+        workingDirectory: workspace,
+      });
+    } catch (cause) {
+      throw boxRequirementError(requirement, cause, secrets);
+    }
     if (result.exitCode !== 0)
-      throw new Error(`[vitehub] Box requirement "${requirement.name}" failed.`);
+      throw boxRequirementError(requirement, result, secrets);
   }
 }
 

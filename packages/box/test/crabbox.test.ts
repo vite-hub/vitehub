@@ -25,11 +25,11 @@ describe("createCrabboxRuntime", () => {
 
     const box = await resolveBox({
       runtime: createCrabboxRuntime({ profile: "babysitter" }),
-      requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
+      requires: [{ command: "gh", args: ["auth", "status"], timeout: 5_000 }, "pnpm"],
       cwd: ({ worktree }: { worktree: string }) => worktree,
     }, { worktree: workspace }, { requires: [
           { command: "codex", args: ["login", "status"] },
-          { command: "gh", args: ["auth", "status"] },
+          { command: "gh", args: ["auth", "status"], timeout: 5_000 },
         ],
       },
     );
@@ -47,7 +47,7 @@ describe("createCrabboxRuntime", () => {
       },
       runtime: "crabbox",
       requirements: [
-        { command: "gh", name: "gh auth status" },
+        { command: "gh", name: "gh auth status", timeout: 5_000 },
         { command: "pnpm", name: "pnpm" },
         { command: "codex", name: "codex login status" },
       ],
@@ -208,6 +208,13 @@ describe("createCrabboxRuntime", () => {
       requires: [null as never],
       cwd: workspace,
     }, {})).rejects.toThrow("Box requirements must be commands or direct command checks");
+    for (const timeout of [0, -1, 1.5, Number.NaN, 2 ** 32]) {
+      await expect(resolveBox({
+        runtime: createCrabboxRuntime(),
+        requires: [{ command: "gh", timeout }],
+        cwd: workspace,
+      }, {})).rejects.toThrow("Box requirement timeout must be a positive integer");
+    }
   })
 
   it("materializes environment, files, and writable state before validation", async () => {
@@ -812,22 +819,25 @@ describe("createCrabboxRuntime", () => {
     const stateLog = join(root, "state.log")
     await Promise.all([mkdir(workspace), mkdir(bin)])
     await fakeCrabbox(bin)
-    await executable(bin, "gh", 'echo "not logged in" >&2\nexit 1')
+    await executable(bin, "gh", 'echo "token=$GH_TOKEN not logged in" >&2\nexit 1')
 
     await withEnvironment({ CRABBOX_TEST_STATE_LOG: stateLog, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({
+        env: { GH_TOKEN: "crabbox-secret" },
         runtime: createCrabboxRuntime({ profile: "babysitter" }),
         requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }],
             cwd: workspace,
       }, {})
       const sandbox = boxProvider(box)
-      await expect(sandbox.createSession()).rejects.toThrow(
-          'Box requirement "GitHub CLI" failed',
-        );
+      const failure = await sandbox.createSession().catch((error: unknown) => error as Error) as Error
+      expect(failure.message).toContain('Box requirement "GitHub CLI" failed: exit code 1')
+      expect(failure.message).toContain("token=[redacted] not logged in")
+      expect(failure.message).not.toContain("crabbox-secret")
         const [stateHome] = [...new Set((await readFile(stateLog, "utf8")).trim().split("\n"))]
       await expect(stat(stateHome)).rejects.toMatchObject({ code: "ENOENT" })
     })
   }, 30_000)
+
 })
 
 async function temporaryRoot() {

@@ -146,7 +146,7 @@ export function createAsciiRuntime(
           runtime: "ascii",
           signal: openOptions.signal,
           workspace: "/home/user/.vitehub/workspace",
-        });
+        }, Object.keys(input.plan.env).map(name => env[name]));
       } catch (error) {
         if (runtimeSession) {
           try {

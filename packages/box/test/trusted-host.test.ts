@@ -569,6 +569,43 @@ describe("createTrustedHostRuntime", () => {
     );
   });
 
+  it("reports trusted-host requirement errors without exposing Box environment values", async () => {
+    const box = await resolveBox(
+      {
+        env: { ACCESS_TOKEN: "trusted-host-secret" },
+        requires: [{
+          command: "sh",
+          args: [
+            "-c",
+            'printf "credential %s was rejected\\n" "$ACCESS_TOKEN" >&2; exit 3',
+            "trusted-host-secret",
+          ],
+        }],
+        runtime: createTrustedHostRuntime(),
+      },
+      {},
+    );
+
+    const failure = await boxProvider(box).createSession()
+      .catch((error: unknown) => error as Error) as Error;
+    expect(failure.message).toContain('Box requirement "sh -c');
+    expect(failure.message).toContain('[redacted]" failed');
+    expect(failure.message).toContain("exit code 3: credential [redacted] was rejected");
+    expect(failure.message).not.toContain("trusted-host-secret");
+  });
+
+  it("bounds trusted-host requirement checks with their configured timeout", async () => {
+    const box = await resolveBox(
+      {
+        requires: [{ command: "sh", args: ["-c", "sleep 60"], timeout: 20 }],
+        runtime: createTrustedHostRuntime(),
+      },
+      {},
+    );
+
+    await expect(boxProvider(box).createSession()).rejects.toThrow("timed out after 20ms");
+  });
+
   it("resolves relative requirement executables from the Box workspace", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");
