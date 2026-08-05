@@ -5507,7 +5507,7 @@ describe("server helpers", () => {
       },
       driver: { run },
     })
-    let stop: () => void = () => undefined
+    let stop: () => void | Promise<void> = () => undefined
 
     try {
       vi.useFakeTimers()
@@ -5602,7 +5602,6 @@ describe("server helpers", () => {
     let stop: () => void = () => undefined
 
     try {
-      vi.useFakeTimers()
       stop = handler.resume({ agentName: "review", webhookState: state })
       await handler(request("delivery-stop-1"), "github", { agentName: "review", webhookState: state })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
@@ -5619,7 +5618,6 @@ describe("server helpers", () => {
     }
     finally {
       stop()
-      vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
