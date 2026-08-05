@@ -126,7 +126,7 @@ async function readCodexBridgeAsset(name: string): Promise<string> {
   return await readFile(fileURLToPath(new URL(`./bridge/${name}`, pathToFileURL(packageEntry))), "utf8")
 }
 
-async function prepareCodexHome(session: object, invocation?: { id?: string, isolateBoxHome: boolean }): Promise<{ close: () => Promise<void> } | undefined> {
+async function prepareCodexHome(session: object, invocation?: { id?: string, isolateBoxHome: boolean }): Promise<{ close: (error?: unknown) => Promise<void> } | undefined> {
   const sandbox = session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }
   const result = await sandbox.run({
     command:
@@ -140,7 +140,16 @@ async function prepareCodexHome(session: object, invocation?: { id?: string, iso
   }
   if (!invocation?.isolateBoxHome || !invocation.id) return
   return {
-    async close() {
+    async close(error) {
+      if (error !== undefined) {
+        const cleanup = await sandbox.run({
+          command: `rm -rf -- "$HOME/.vitehub/codex-home-${invocation.id}" "$HOME/.vitehub/codex-home-${invocation.id}.vitehub-baseline"`,
+        })
+        if (cleanup.exitCode !== 0) {
+          throw new Error(`[vitehub] Failed to discard the invocation Codex Home after preparation failed: ${cleanup.stderr || "sandbox command failed"}`)
+        }
+        return
+      }
       // Merge generated and modified Codex state without replaying unchanged seeded state.
       // Concurrent changes to the same path remain completion ordered; ambient-only entries are additive.
       const cleanup = await sandbox.run({

@@ -259,7 +259,7 @@ describe("createCodexDriver", () => {
     const invocation = { id: "invocation-1", isolateBoxHome: true }
     const session = await adaptSandbox(provider, { box: true, defaultSandbox: false, invocation }).createSession()
 
-    const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => Promise<{ close: () => Promise<void> } | undefined>
+    const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => Promise<{ close: (error?: unknown) => Promise<void> } | undefined>
     const prepared = await prepareSession(session, invocation)
 
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
@@ -285,6 +285,21 @@ describe("createCodexDriver", () => {
     expect(run.mock.calls.at(-1)?.[0].command).toContain('"$codex_home/skills/.vitehub-colocated"')
     expect(run.mock.calls.at(-1)?.[0].command).toContain('"$baseline/skills/$managed"')
     expect(run.mock.calls.at(-1)?.[0].command).toContain('cmp -s "$seeded" "$ambient_home/$relative"')
+  })
+
+  it("discards the isolated Box Codex Home when harness preparation fails", async () => {
+    const { createCodexDriver } = await import("../src/harness/codex.ts")
+    const run = vi.fn(async () => ({ exitCode: 0, stderr: "" }))
+    const driver = createCodexDriver({ sandbox: false })
+    const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => Promise<{ close: (error?: unknown) => Promise<void> } | undefined>
+    const prepared = await prepareSession({ run }, { id: "failed-invocation", isolateBoxHome: true })
+
+    await prepared?.close(new Error("materialization failed"))
+
+    expect(run).toHaveBeenLastCalledWith({
+      command: 'rm -rf -- "$HOME/.vitehub/codex-home-failed-invocation" "$HOME/.vitehub/codex-home-failed-invocation.vitehub-baseline"',
+    })
+    expect(run.mock.calls.at(-1)?.[0].command).not.toContain("cp -R")
   })
 
   it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {
