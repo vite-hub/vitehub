@@ -42,6 +42,7 @@ export function getActiveCloudflareBinding<T>(name: string): T | undefined {
 interface CloudflareEnvCarrier {
   context?: { cloudflare?: { env?: CloudflareWorkerEnv }, _platform?: { cloudflare?: { env?: CloudflareWorkerEnv } } }
   env?: CloudflareWorkerEnv
+  node?: { req?: { runtime?: { cloudflare?: { env?: CloudflareWorkerEnv } } } }
   req?: { runtime?: { cloudflare?: { env?: CloudflareWorkerEnv } } }
 }
 
@@ -51,6 +52,7 @@ export function getCloudflareEnv(event: unknown): CloudflareWorkerEnv | undefine
     || target?.context?.cloudflare?.env
     || target?.context?._platform?.cloudflare?.env
     || target?.req?.runtime?.cloudflare?.env
+    || target?.node?.req?.runtime?.cloudflare?.env
     || getActiveCloudflareEnv()
 }
 
@@ -67,6 +69,12 @@ interface WaitUntilCarrier {
     waitUntil?: WaitUntilFn
     runtime?: { cloudflare?: { context?: { waitUntil?: WaitUntilFn }, waitUntil?: WaitUntilFn } }
   }
+  node?: {
+    req?: {
+      waitUntil?: WaitUntilFn
+      runtime?: { cloudflare?: { context?: { waitUntil?: WaitUntilFn }, waitUntil?: WaitUntilFn } }
+    }
+  }
 }
 
 export function resolveWaitUntil(event: unknown): WaitUntilFn | undefined {
@@ -81,6 +89,9 @@ export function resolveWaitUntil(event: unknown): WaitUntilFn | undefined {
     target?.req,
     target?.req?.runtime?.cloudflare,
     target?.req?.runtime?.cloudflare?.context,
+    target?.node?.req,
+    target?.node?.req?.runtime?.cloudflare,
+    target?.node?.req?.runtime?.cloudflare?.context,
   ]
   for (const owner of owners) {
     if (typeof owner?.waitUntil === "function") {

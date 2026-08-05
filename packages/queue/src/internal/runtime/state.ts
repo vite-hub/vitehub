@@ -38,7 +38,8 @@ export function enterQueueRuntimeEvent(event: unknown): void {
     queueEventStorage.enterWith(event)
   }
   catch {}
-  setActiveCloudflareEnv(getCloudflareEnv(event))
+  const explicitEnv = event && typeof event === "object" && Object.hasOwn(event, "env")
+  setActiveCloudflareEnv(explicitEnv ? (event as { env?: Record<string, unknown> }).env : getCloudflareEnv(event))
 }
 
 export function getQueueRuntimeEvent(): unknown {
