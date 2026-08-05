@@ -1289,6 +1289,26 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.readFile("stale.md")).resolves.toBeUndefined()
   })
 
+  it("purges root-mounted build sources from list metadata without reading every file", async () => {
+    const store = createMemoryWorkspaceStore()
+    const rootSource = file({ content: "# Instructions\n", workspacePath: "AGENTS.md", mount: "" })
+    const definition: WorkspaceDefinition = {
+      name: "root-build-source-metadata",
+      sources: { instructions: rootSource },
+    }
+
+    await syncWorkspaceDefinition(definition, store)
+    const readFile = vi.spyOn(store, "readFile")
+
+    await syncWorkspaceDefinition({
+      ...definition,
+      sources: {},
+    }, store)
+
+    expect(readFile).not.toHaveBeenCalled()
+    await expect(store.readFile("AGENTS.md")).resolves.toBeUndefined()
+  })
+
   it("purges stale local build source files after store restarts", async () => {
     const root = await createRoot()
     const storeRoot = join(root, ".vitehub", "workspaces", "docs")

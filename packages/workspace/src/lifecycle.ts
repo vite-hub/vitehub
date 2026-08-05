@@ -191,11 +191,9 @@ async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuil
 
 async function removeRootBuildSourceFiles(store: WorkspaceStore, source: SyncedBuildSource) {
   const entries = await store.list("", { recursive: true })
-  await Promise.all(entries.map(async (entry) => {
-    if (entry.type !== "file") return
-    const file = await store.readFile(entry.path)
-    if (file?.metadata?.source === source.key) await store.rm(entry.path, { force: true })
-  }))
+  await Promise.all(entries
+    .filter(entry => entry.type === "file" && entry.metadata?.source === source.key)
+    .map(entry => store.rm(entry.path, { force: true })))
 }
 
 function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
