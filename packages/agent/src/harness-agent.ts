@@ -1381,12 +1381,12 @@ export function createHarnessAgentAdapter<
     let harnessProfileSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
     let preparedSandbox: HarnessPreparedSandbox | undefined
     let attachmentDirectory: string | undefined
-    const skillsWorkspaceId = globalThis.crypto.randomUUID()
-    const skillsStagingDirectory = `.vitehub-agent-skills-${skillsWorkspaceId}`
-    const colocatedWorkspaceSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_workspace_skills_${skillsWorkspaceId}`)
-    const colocatedGlobalSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_global_skills_${skillsWorkspaceId}`)
+    const harnessInvocationId = globalThis.crypto.randomUUID()
+    const skillsStagingDirectory = `.vitehub-agent-skills-${harnessInvocationId}`
+    const colocatedWorkspaceSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_workspace_skills_${harnessInvocationId}`)
+    const colocatedGlobalSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_global_skills_${harnessInvocationId}`)
     const invocation = {
-      id: skillsWorkspaceId,
+      id: harnessInvocationId,
       isolateBoxHome: Boolean(context.box && colocatedGlobalSkills),
     }
     const resolved = await createHarnessAgent(options, context, invocation, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
