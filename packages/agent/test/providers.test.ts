@@ -5544,7 +5544,12 @@ describe("server helpers", () => {
       },
       method: "POST",
     })
-    const options = { agentName: "review", webhookState: state }
+    const waitUntilTasks: Promise<unknown>[] = []
+    const options = {
+      agentName: "review",
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+      webhookState: state,
+    }
     const ownerKey = "webhook:review:github:github::pr-42"
     let stop: () => void | Promise<void> = () => undefined
     vi.useFakeTimers()
@@ -5557,6 +5562,7 @@ describe("server helpers", () => {
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
       await vi.waitFor(() => expect(activeAgentInvocation("webhook:review:github:github::pr-42")).toBeDefined())
 
+      const waitUntilCount = waitUntilTasks.length
       const steering = handler(request("delivery-2"), "github", options)
       await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
       await vi.advanceTimersByTimeAsync(1_100)
@@ -5571,6 +5577,8 @@ describe("server helpers", () => {
       releaseSteer()
       const steered = await steering
       await expect(steered.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
+      expect(waitUntilTasks).toHaveLength(waitUntilCount + 1)
+      expect(waitUntilTasks.at(-1)).toBeInstanceOf(Promise)
       expect(steeredInputs).toEqual([expect.objectContaining({
         context: expect.objectContaining({ deliveryId: "delivery-2" }),
         prompt: "delivery-2",

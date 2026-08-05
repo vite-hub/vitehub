@@ -698,6 +698,7 @@ async function steerQueuedWebhookDelivery(
   state: AgentWebhookQueueStateAdapter,
   delivery: AgentWebhookQueueDelivery,
   input: AgentRunInput,
+  waitUntil: AgentWaitUntil | undefined,
   fallback: (reserved?: boolean) => Promise<Response>,
 ): Promise<{ queued: boolean, response: Response } | undefined> {
   if (!delivery.concurrencyKey) return
@@ -763,7 +764,7 @@ async function steerQueuedWebhookDelivery(
               return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
             }
             keepLockUntilInvocationSettles = true
-            void awaitAgentInvocationResult(controller)
+            const settlement = awaitAgentInvocationResult(controller)
               .then(async () => {
                 const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
                 if (completed) await state.set(claimKey, "steered")
@@ -779,6 +780,7 @@ async function steerQueuedWebhookDelivery(
                 await state.releaseLock(lock)
               })
               .catch(() => {})
+            waitUntil?.(settlement)
             return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
           }
         }
@@ -3674,7 +3676,7 @@ export function createChannelWebhookRouteHandler(
             )
             if (invocation.webhook.busy === "steer") {
               const webhookQueueState = webhookState.state
-              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, delivery, invocation.input, async (reserved) => {
+              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, delivery, invocation.input, waitUntil, async (reserved) => {
                 if (reserved) return Response.json({ accepted: true, duplicate: false, ok: true, queued: true })
                 const queued = await webhookQueueState.enqueueWebhookDelivery(delivery)
                 return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
