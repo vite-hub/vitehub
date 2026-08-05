@@ -197,6 +197,8 @@ import { withWorkspace } from '@cloudflare/computer'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { DurableObject } from 'cloudflare:workers'
 
+export { WorkspaceServiceProxy } from '@cloudflare/computer'
+
 export class AgentComputer extends withWorkspace(
   class extends DurableObject<Env> {},
   self => ({
