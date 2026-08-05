@@ -270,6 +270,25 @@ describe("SQLite Agent State Provider", () => {
     await restored.disconnect()
   })
 
+  it("keeps accepted webhook steering durable until its invocation settles", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    const delivery = webhookDelivery("steered-delivery")
+
+    await expect(queue.claimWebhookSteering(delivery, "steer-token", Date.now() + 1_000)).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(delivery)).resolves.toBe(false)
+    await expect(queue.claimWebhookDelivery(delivery.scope)).resolves.toBeNull()
+
+    vi.advanceTimersByTime(1_001)
+    const recovered = await queue.claimWebhookDelivery(delivery.scope)
+    expect(recovered?.deliveryId).toBe(delivery.deliveryId)
+    expect(recovered?.leaseToken).not.toBe("steer-token")
+    await state.disconnect()
+  })
+
   it("requires connect before using the state adapter", async () => {
     const { state } = await createState()
     await expect(state.get("seen")).rejects.toThrow("not connected")

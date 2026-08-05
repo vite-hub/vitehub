@@ -59,6 +59,10 @@ describe("Agent Invocation controllers", () => {
     await expect(controller.sendInput({ message: userMessage }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
     await expect(controller.sendInput({ prompt: [assistantMessage, userMessage] }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
     await expect(controller.sendInput({ messages: [assistantMessage, userMessage] }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
+    await expect(controller.sendInput({ message: {
+      ...userMessage,
+      parts: [...userMessage.parts, { data: "image", mediaType: "image/png", type: "image" as const }],
+    } as never }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
     expect(firstSubmit.mock.calls.map(([text]) => text)).toEqual([
       "follow up",
       "message input",

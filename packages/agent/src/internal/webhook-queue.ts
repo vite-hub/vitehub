@@ -29,6 +29,7 @@ export interface AgentWebhookQueueLease extends AgentWebhookQueueDelivery {
 
 export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   claimWebhookDelivery(scope: string): Promise<AgentWebhookQueueLease | null>
+  claimWebhookSteering(delivery: AgentWebhookQueueDelivery, leaseToken: string, leaseExpiresAt: number): Promise<boolean>
   completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean>
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
@@ -39,6 +40,7 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
 export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhookQueueStateAdapter {
   const candidate = state as Partial<AgentWebhookQueueStateAdapter>
   return typeof candidate.claimWebhookDelivery === "function"
+    && typeof candidate.claimWebhookSteering === "function"
     && typeof candidate.completeWebhookDelivery === "function"
     && typeof candidate.enqueueWebhookDelivery === "function"
     && typeof candidate.extendWebhookDeliveryLease === "function"

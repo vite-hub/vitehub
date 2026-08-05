@@ -225,6 +225,31 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
+  async claimWebhookSteering(delivery: AgentWebhookQueueDelivery, leaseToken: string, leaseExpiresAt: number): Promise<boolean> {
+    await this.cleanupExpiredStateIfDue()
+    const inserted = await execute(
+      this.driver,
+      `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+        scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
+        lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, 0, ?, ?) RETURNING delivery_id`,
+      [
+        delivery.scope,
+        delivery.deliveryId,
+        JSON.stringify(delivery),
+        delivery.concurrencyGroup,
+        delivery.concurrencyKey || null,
+        delivery.concurrencyLimit,
+        delivery.leaseTtlMs,
+        delivery.enqueuedAt,
+        delivery.enqueuedAt,
+        leaseToken,
+        leaseExpiresAt,
+      ],
+    )
+    return inserted.length > 0
+  }
+
   async completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean> {
     const completed = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()

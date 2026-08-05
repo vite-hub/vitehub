@@ -166,7 +166,9 @@ function harnessSteeringText(input: { message?: unknown, messages?: unknown, pro
   if (typeof input.message === "string" && input.message.trim()) return input.message
   const messages = [input.prompt, input.messages, input.message]
     .flatMap(harnessSteeringMessages)
-  const text = latestHarnessUserMessage(messages).map(getMessageText).join("\n").trim()
+  const selected = latestHarnessUserMessage(messages)
+  if (selected.some(message => message.parts.some(part => part.type !== "text"))) return
+  const text = selected.map(getMessageText).join("\n").trim()
   return text || undefined
 }
 

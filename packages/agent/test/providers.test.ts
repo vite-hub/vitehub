@@ -5562,8 +5562,7 @@ describe("server helpers", () => {
       await expect(concurrentDelivery.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
       expect(steeredInputs).toHaveLength(1)
       const inFlightDuplicate = await handler(request("delivery-2"), "github", options)
-      expect(inFlightDuplicate.status).toBe(503)
-      await expect(inFlightDuplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      await expect(inFlightDuplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, steered: true })
       expect(steeredInputs).toHaveLength(1)
 
       releaseSteer()
@@ -5575,8 +5574,7 @@ describe("server helpers", () => {
       })])
 
       const duplicate = await handler(request("delivery-2"), "github", options)
-      expect(duplicate.status).toBe(503)
-      await expect(duplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, steered: true })
       expect(steeredInputs).toHaveLength(1)
 
       rejectSteer = true
@@ -5601,7 +5599,7 @@ describe("server helpers", () => {
       failRun = false
       await vi.waitFor(async () => expect(await state.get("webhook:review:github:github:steer:delivery-2")).toBeNull())
       const absent = await handler(request("delivery-2"), "github", options)
-      await expect(absent.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      await expect(absent.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
       expect(steeredInputs).toHaveLength(1)
       expect(run).toHaveBeenCalledOnce()
       stop = handler.resume(options)

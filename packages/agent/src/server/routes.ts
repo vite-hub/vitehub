@@ -698,7 +698,7 @@ async function steerQueuedWebhookDelivery(
   state: AgentWebhookQueueStateAdapter,
   delivery: AgentWebhookQueueDelivery,
   input: AgentRunInput,
-  fallback: () => Promise<Response>,
+  fallback: (reserved?: boolean) => Promise<Response>,
 ): Promise<{ queued: boolean, response: Response } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
@@ -737,15 +737,36 @@ async function steerQueuedWebhookDelivery(
         return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
       }
       const stopSendHeartbeat = startWebhookLockHeartbeat(state, sendLock, delivery.leaseTtlMs, () => undefined)
+      const steeringLease: AgentWebhookQueueLease = {
+        ...delivery,
+        attempts: 0,
+        leaseExpiresAt: lock.expiresAt,
+        leaseToken: lock.token,
+      }
+      if (!await state.claimWebhookSteering(delivery, steeringLease.leaseToken, steeringLease.leaseExpiresAt)) {
+        stopSendHeartbeat()
+        await state.releaseLock(sendLock)
+        return duplicateResponse(await state.get(claimKey) || "steering")
+      }
+      await state.set(claimKey, "steering")
+      const stopDeliveryHeartbeat = startWebhookQueueHeartbeat(state, steeringLease, () => undefined)
       try {
         try {
           const result = await controller.sendInput(input, { mode: "steer" })
           if (result.outcome === "accepted") {
             keepLockUntilInvocationSettles = true
             void awaitAgentInvocationResult(controller)
-              .then(async () => state.set(claimKey, "steered"))
-              .catch(() => {})
+              .then(async () => {
+                const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
+                if (completed) await state.set(claimKey, "steered")
+                else await state.delete(claimKey)
+              })
+              .catch(async () => {
+                await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+                await state.delete(claimKey)
+              })
               .finally(async () => {
+                stopDeliveryHeartbeat()
                 stopHeartbeat()
                 await state.releaseLock(lock)
               })
@@ -754,13 +775,17 @@ async function steerQueuedWebhookDelivery(
           }
         }
         catch {}
+        stopDeliveryHeartbeat()
+        await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+        await state.set(claimKey, "queued")
+        return { queued: true, response: await fallback(true) }
       }
       finally {
         stopSendHeartbeat()
         await state.releaseLock(sendLock)
       }
     }
-    const response = await fallback()
+    const response = await fallback(false)
     await state.set(claimKey, "queued")
     return { queued: true, response }
   }
@@ -3641,7 +3666,8 @@ export function createChannelWebhookRouteHandler(
             )
             if (invocation.webhook.busy === "steer") {
               const webhookQueueState = webhookState.state
-              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, delivery, invocation.input, async () => {
+              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, delivery, invocation.input, async (reserved) => {
+                if (reserved) return Response.json({ accepted: true, duplicate: false, ok: true, queued: true })
                 const queued = await webhookQueueState.enqueueWebhookDelivery(delivery)
                 return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
               })
