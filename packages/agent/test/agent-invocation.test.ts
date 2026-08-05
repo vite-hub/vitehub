@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createBackedAgentInvocationController } from "../src/agent-invocation.ts"
+import { createBackedAgentInvocationController, startLiveAgentInvocation } from "../src/agent-invocation.ts"
 import { subagents } from "../src/capabilities.ts"
+import { withHarnessAgentInvocationInput } from "../src/harness-agent.ts"
 import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 
 import type { AgentRuntimeContext, AgentToolDefinition } from "../src/index.ts"
 
@@ -16,6 +18,62 @@ function runtime(overrides: Partial<AgentRuntimeContext> = {}): AgentRuntimeCont
 }
 
 describe("Agent Invocation controllers", () => {
+  it("steers through an active Harness turn and removes stale controls", async () => {
+    let finishFirst!: () => void
+    let finishSecond!: () => void
+    let finishThird!: () => void
+    const firstDone = new Promise<void>(resolve => { finishFirst = resolve })
+    const secondDone = new Promise<void>(resolve => { finishSecond = resolve })
+    const thirdDone = new Promise<void>(resolve => { finishThird = resolve })
+    const firstSubmit = vi.fn(async () => undefined)
+    const secondSubmit = vi.fn(async () => { throw new Error("closed") })
+    const thirdSubmit = vi.fn(async () => undefined)
+    const rawSession = {
+      doDestroy: vi.fn(async () => undefined),
+      doPromptTurn: vi.fn()
+        .mockResolvedValueOnce({ done: firstDone, submitUserMessage: firstSubmit })
+        .mockResolvedValueOnce({ done: secondDone, submitUserMessage: secondSubmit })
+        .mockResolvedValueOnce({ done: thirdDone, submitUserMessage: thirdSubmit }),
+    }
+    const controller = startLiveAgentInvocation({
+      sendInput: (id, input, options) => sendAgentInvocationInput(id, input, options),
+      start: async () => await new Promise(() => {}),
+      support: id => agentInvocationInputSupport(id),
+    })
+    const harness = withHarnessAgentInvocationInput({
+      doStart: async () => rawSession,
+      harnessId: "test",
+    }, controller.id) as { doStart: () => Promise<typeof rawSession> }
+
+    const session = await harness.doStart()
+    expect(controller.support.steer).toBe(false)
+
+    await session.doPromptTurn()
+    expect(controller.support.steer).toBe(true)
+    await expect(controller.sendInput({ context: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({
+      outcome: "accepted",
+    })
+    expect(firstSubmit).toHaveBeenCalledWith("follow up")
+
+    await session.doPromptTurn()
+    finishFirst()
+    await firstDone
+    expect(controller.support.steer).toBe(true)
+    await expect(controller.sendInput({ prompt: "retry" }, { mode: "steer" })).resolves.toMatchObject({
+      outcome: "unavailable",
+    })
+
+    finishSecond()
+    await secondDone
+    await vi.waitFor(() => expect(controller.support.steer).toBe(false))
+
+    await session.doPromptTurn()
+    expect(controller.support.steer).toBe(true)
+    await session.doDestroy()
+    expect(controller.support.steer).toBe(false)
+    finishThird()
+  })
+
   it("starts fresh inline invocations and inspects their authoritative lifecycle", async () => {
     const completions: Array<(value: string) => void> = []
     const agent = defineAgent({

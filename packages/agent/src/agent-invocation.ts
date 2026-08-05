@@ -52,20 +52,26 @@ export interface AgentInvocationControllerAdapter<
     input: AgentRunInput<CALL_OPTIONS>,
     options: { mode: AgentInvocationInputMode },
   ) => Promise<AgentInvocationControlResult<TOutput>>
-  support?: Partial<AgentInvocationInputSupport>
+  support?: Partial<AgentInvocationInputSupport> | (() => Partial<AgentInvocationInputSupport>)
 }
 
 export type AgentInvocationFinishOutcome<TOutput = unknown> =
   | { output?: TOutput, status: "completed" }
   | { error: unknown, status: "failed" }
 
-export interface LiveAgentInvocationOptions<TOutput = unknown> {
+export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = unknown> {
   parentAbortSignal?: AbortSignal
+  sendInput?: (
+    id: string,
+    input: AgentRunInput<CALL_OPTIONS>,
+    options: { mode: AgentInvocationInputMode },
+  ) => Promise<AgentInvocationControlOutcome>
   start: (context: {
     abortSignal: AbortSignal
     id: string
     onFinish: (outcome: AgentInvocationFinishOutcome<TOutput>) => void
   }) => Promise<unknown>
+  support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
 export interface BackedAgentInvocationOptions<TOutput = unknown> {
@@ -91,15 +97,24 @@ export function createAgentInvocationController<
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
   result: Promise<unknown>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS> {
+  const resolveSupport = () => typeof adapter.support === "function" ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
-    followUp: adapter.support?.followUp === true,
-    steer: adapter.support?.steer === true,
+    get followUp() {
+      return resolveSupport()?.followUp === true
+    },
+    get steer() {
+      return resolveSupport()?.steer === true
+    },
   })
   const controller = {
     cancel: adapter.cancel,
     id,
     inspect: adapter.inspect,
-    sendInput: adapter.sendInput || (async () => ({ id, outcome: "unsupported" })),
+    async sendInput(input: AgentRunInput<CALL_OPTIONS>, options: { mode: AgentInvocationInputMode }) {
+      const supported = options.mode === "steer" ? support.steer : support.followUp
+      if (!supported || !adapter.sendInput) return { id, outcome: "unsupported" as const }
+      return adapter.sendInput(input, options)
+    },
     support,
   }
   Object.defineProperty(controller, agentInvocationResult, { value: result })
@@ -119,7 +134,7 @@ function isTerminalAgentInvocationStatus(status: AgentInvocationStatus): boolean
 }
 
 export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unknown>(
-  options: LiveAgentInvocationOptions<TOutput>,
+  options: LiveAgentInvocationOptions<TOutput, CALL_OPTIONS>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS> {
   const id = randomAgentInvocationId()
   const abortController = new AbortController()
@@ -157,9 +172,13 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
     async inspect() {
       return { invocation: { ...snapshot }, outcome: "available" }
     },
-    async sendInput() {
-      return { id, invocation: { ...snapshot }, outcome: "unsupported" }
+    async sendInput(input, inputOptions) {
+      const outcome = options.sendInput
+        ? await options.sendInput(id, input, inputOptions)
+        : "unsupported"
+      return { id, invocation: { ...snapshot }, outcome }
     },
+    support: options.support ? () => options.support!(id) : undefined,
   }, result)
 }
 

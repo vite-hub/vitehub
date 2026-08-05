@@ -347,6 +347,7 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
 }
 
 export interface AgentWebhookInvocationOwnership {
+  busy?: "steer"
   concurrencyGroup?: string
   concurrencyKey?: string
   concurrencyLimit?: number

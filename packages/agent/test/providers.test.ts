@@ -871,7 +871,6 @@ describe("agent Vite plugin", () => {
       })
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(wrapper).toContain("handler.resume({ agentIdentity: agentIdentities[name], runtime: 'vite', webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
@@ -5468,52 +5467,140 @@ describe("server helpers", () => {
     }
   })
 
-  it("re-resolves webhook invocations that cannot round-trip through JSON", async () => {
+  it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
+    const { activeAgentInvocation, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-json-safety-"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
-    const run = vi.fn(() => "accepted")
-    const cyclic: Record<string, unknown> = {}
-    cyclic.self = cyclic
-    const invoke = vi.fn((_context, input) => ({
-      input: { context: cyclic, options: { sequence: 1n }, prompt: "resolve again" },
-      webhook: {
-        concurrencyLimit: 1,
-        deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
-      },
-    }))
+    const releases: Array<() => void> = []
+    const closeControls: Array<() => void> = []
+    const steeredInputs: unknown[] = []
+    let releaseSteer: () => void = () => undefined
+    const steerAccepted = new Promise<void>(resolve => { releaseSteer = resolve })
+    let rejectSteer = false
+    let completedRuns = 0
+    const run = vi.fn(async ({ run: metadata }: { run?: { runId?: string } }) => {
+      const runId = metadata?.runId
+      if (!runId) throw new Error("Expected a controlled Agent Invocation id.")
+      const closeControl = registerAgentInvocationInputHandler(runId, {
+        async sendInput(input, options) {
+          expect(options).toEqual({ mode: "steer" })
+          if (rejectSteer) throw new Error("closed")
+          steeredInputs.push(input)
+          await steerAccepted
+          return "accepted" as const
+        },
+        support: { steer: true },
+      })
+      closeControls.push(closeControl)
+      try {
+        await new Promise<void>(resolve => releases.push(resolve))
+        return "accepted"
+      }
+      finally {
+        closeControl()
+        completedRuns += 1
+      }
+    })
     const agent = defineAgent({
       channels: {
         github: github({
-          triggers: { webhook: { invoke } },
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
+                return {
+                  input: { context: { deliveryId }, prompt: deliveryId },
+                  webhook: {
+                    busy: "steer",
+                    concurrencyGroup: "reviews",
+                    concurrencyKey: "pr-42",
+                    concurrencyLimit: 1,
+                    concurrencyTtlMs: 20,
+                    deliveryId,
+                  },
+                }
+              },
+            },
+          },
           webhooks: { secretToken: false },
         }),
       },
       driver: { run },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (deliveryId: string) => new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ number: 42 }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": deliveryId,
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    const options = { agentName: "review", webhookState: state }
+    let stop = handler.resume(options)
 
     try {
-      const response = await handler(new Request("https://example.com/api/github/webhook", {
-        body: "{}",
-        headers: {
-          "content-type": "application/json",
-          "x-github-delivery": "delivery-json-safety",
-          "x-github-event": "pull_request",
-        },
-        method: "POST",
-      }), "github", { agentName: "review", webhookState: state })
-
-      expect(response.status).toBe(200)
-      expect(enqueue.mock.calls[0]?.[0].invocation).toBeUndefined()
+      const first = await handler(request("delivery-1"), "github", options)
+      await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
-      expect(invoke).toHaveBeenCalledTimes(2)
+
+      const steering = handler(request("delivery-2"), "github", options)
+      await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
+      await new Promise(resolve => setTimeout(resolve, 50))
+      const inFlightDuplicate = await handler(request("delivery-2"), "github", options)
+      expect(inFlightDuplicate.status).toBe(503)
+      await expect(inFlightDuplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      expect(steeredInputs).toHaveLength(1)
+
+      releaseSteer()
+      const steered = await steering
+      await expect(steered.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
+      expect(steeredInputs).toEqual([expect.objectContaining({
+        context: expect.objectContaining({ deliveryId: "delivery-2" }),
+        prompt: "delivery-2",
+      })])
+
+      const duplicate = await handler(request("delivery-2"), "github", options)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, steered: true })
+      expect(steeredInputs).toHaveLength(1)
+
+      rejectSteer = true
+      const rejected = await handler(request("delivery-3"), "github", options)
+      await expect(rejected.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      rejectSteer = false
+
+      closeControls[0]!()
+      const queued = await handler(request("delivery-4"), "github", options)
+      await expect(queued.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      expect(steeredInputs).toHaveLength(1)
+      expect(run).toHaveBeenCalledOnce()
+
+      stop()
+      await vi.waitFor(() => expect(activeAgentInvocation("webhook:review:github:github::pr-42")).toBeUndefined())
+      const absent = await handler(request("delivery-5"), "github", options)
+      await expect(absent.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      expect(steeredInputs).toHaveLength(1)
+      expect(run).toHaveBeenCalledOnce()
+      stop = handler.resume(options)
+
+      releases.shift()!()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      releases.shift()!()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
+      releases.shift()!()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      releases.shift()!()
+      await vi.waitFor(() => expect(completedRuns).toBe(4))
     }
     finally {
+      stop()
+      releaseSteer()
+      releases.splice(0).forEach(release => release())
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }

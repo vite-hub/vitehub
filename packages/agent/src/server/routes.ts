@@ -3,7 +3,8 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { createRuntimeWaitUntilController, resolveRuntimeContext } from "@vite-hub/runtime"
 import { Chat, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
-import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
+import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, startAgentInvocation, streamAgent, streamAgentTrigger } from "../index.ts"
+import { awaitAgentInvocationResult } from "../agent-invocation.ts"
 import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
@@ -25,6 +26,7 @@ import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
+import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -618,7 +620,7 @@ async function resolveAgentWebhookState(
   return { keyPrefix, state }
 }
 
-function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease", value: string): string {
+function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer" | "steer-lock", value: string): string {
   return `${prefix}${kind}:${value}`
 }
 
@@ -690,6 +692,49 @@ function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Reque
     headers: delivery.request.headers,
     method: delivery.request.method,
   })
+}
+
+async function steerQueuedWebhookDelivery(
+  state: AgentWebhookQueueStateAdapter,
+  delivery: AgentWebhookQueueDelivery,
+  input: AgentRunInput,
+): Promise<Response | undefined> {
+  if (!delivery.concurrencyKey) return
+  const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
+  if (await state.get(claimKey) === true) {
+    return Response.json({ accepted: false, duplicate: true, ok: true, steered: true })
+  }
+  const lock = await state.acquireLock(
+    webhookOwnershipKey(delivery.scope, "steer-lock", delivery.deliveryId),
+    delivery.leaseTtlMs,
+  )
+  if (!lock) {
+    if (await state.get(claimKey) === true) {
+      return Response.json({ accepted: false, duplicate: true, ok: true, steered: true })
+    }
+    return Response.json({ accepted: false, busy: true, ok: true }, { status: 503 })
+  }
+  const stopHeartbeat = startWebhookLockHeartbeat(state, lock, delivery.leaseTtlMs, () => undefined)
+  try {
+    if (await state.get(claimKey) === true) {
+      return Response.json({ accepted: false, duplicate: true, ok: true, steered: true })
+    }
+    const controller = activeAgentInvocation(delivery.concurrencyKey)
+    if (!controller) return
+    try {
+      const result = await controller.sendInput(input, { mode: "steer" })
+      if (result.outcome !== "accepted") return
+    }
+    catch {
+      return
+    }
+    await state.set(claimKey, true)
+    return Response.json({ accepted: true, ok: true, steered: true })
+  }
+  finally {
+    stopHeartbeat()
+    await state.releaseLock(lock)
+  }
 }
 
 function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
@@ -846,13 +891,26 @@ async function executeQueuedWebhookDelivery(
         routeAgentIdentity(handlerOptions),
       )
       await runWithRuntimeCloudflareEnv(runContext, async () => {
-        const result = await runAgent(agent as never, runContext as never, {
+        const controller = await startAgentInvocation(agent as never, runContext as never, {
           ...invocation.input,
           abortSignal: invocation.input.abortSignal
             ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal])
             : ownershipAbort.signal,
         } as never)
-        if (!isWorkflowRun(result) || result.status !== "queued") await runContext.flushWaitUntil?.()
+        const unregister = delivery.concurrencyKey
+          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller)
+          : () => undefined
+        const unregisterOnOwnershipLoss = () => unregister()
+        if (ownershipAbort.signal.aborted) unregisterOnOwnershipLoss()
+        else ownershipAbort.signal.addEventListener("abort", unregisterOnOwnershipLoss, { once: true })
+        try {
+          const result = await awaitAgentInvocationResult(controller)
+          if (!isWorkflowRun(result) || result.status !== "queued") await runContext.flushWaitUntil?.()
+        }
+        finally {
+          ownershipAbort.signal.removeEventListener("abort", unregisterOnOwnershipLoss)
+          unregister()
+        }
       })
     }
     if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
@@ -3546,6 +3604,10 @@ export function createChannelWebhookRouteHandler(
               routeAgentIdentity(handlerOptions)?.name || "agent",
               isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
             )
+            if (invocation.webhook.busy === "steer") {
+              const response = await steerQueuedWebhookDelivery(webhookState.state, delivery, invocation.input)
+              if (response) return response
+            }
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             await registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
             return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
