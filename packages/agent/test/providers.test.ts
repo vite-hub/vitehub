@@ -7490,6 +7490,36 @@ describe("server helpers", () => {
     expect(typingOrder!).toBeLessThan(fallbackOrder!)
   })
 
+  it("does not delay manual non-streaming delivery on a hung typing request", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.startTyping.mockImplementation(() => new Promise(() => {}))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", stream: false },
+        }),
+      },
+      driver: { run: () => "internal output" },
+      hooks: {
+        "agent:finish": event => event.reply("Explicit reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await Promise.race([
+      handler(chatWebhookRequest(91_099), "telegram"),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("webhook blocked on typing status")), 100)),
+    ])
+
+    expect(response.status).toBe(200)
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Explicit reply" })
+  })
+
   it("uses generate for manual delivery without progress summaries", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")

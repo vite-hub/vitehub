@@ -851,6 +851,7 @@ function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeCo
   let stopped = false
   let timeout: ReturnType<typeof setTimeout> | undefined
   let wake: (() => void) | undefined
+  let cancelTypingWait: (() => void) | undefined
 
   const sleep = (ms: number) => new Promise<void>((resolve) => {
     wake = resolve
@@ -866,12 +867,14 @@ function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeCo
     try {
       await Promise.race([
         thread.startTyping().catch(() => undefined),
-        new Promise(resolve => {
+        new Promise<void>(resolve => {
+          cancelTypingWait = resolve
           limit = setTimeout(resolve, chatTypingRefreshTimeoutMs)
         }),
       ])
     }
     finally {
+      cancelTypingWait = undefined
       if (limit) {
         clearTimeout(limit)
       }
@@ -897,6 +900,7 @@ function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeCo
         clearTimeout(timeout)
         timeout = undefined
       }
+      cancelTypingWait?.()
       wake?.()
       wake = undefined
     },
@@ -2554,6 +2558,7 @@ async function handleChatSdkMessage(
     const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) return
+
     const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
