@@ -5481,9 +5481,10 @@ describe("server helpers", () => {
     let releaseSteer: () => void = () => undefined
     const steerAccepted = new Promise<void>(resolve => { releaseSteer = resolve })
     let rejectSteer = false
-    let failRun = false
+    let failFlush = false
     let completedRuns = 0
-    const run = vi.fn(async ({ run: metadata }: { run?: { runId?: string } }) => {
+    const run = vi.fn(async (context: { run?: { runId?: string }, waitUntil: (task: Promise<unknown>) => void }) => {
+      const { run: metadata } = context
       const runId = metadata?.runId
       if (!runId) throw new Error("Expected a controlled Agent Invocation id.")
       const closeControl = registerAgentInvocationInputHandler(runId, {
@@ -5499,7 +5500,7 @@ describe("server helpers", () => {
       closeControls.push(closeControl)
       try {
         await new Promise<void>(resolve => releases.push(resolve))
-        if (failRun) throw new Error("failed")
+        if (failFlush) context.waitUntil(Promise.reject(new Error("flush failed")))
         return "accepted"
       }
       finally {
@@ -5599,9 +5600,9 @@ describe("server helpers", () => {
       expect(run).toHaveBeenCalledOnce()
       expect(closeControls).toHaveLength(1)
       const active = activeAgentInvocation(ownerKey)
-      expect(active?.support.steer).toBe(true)
+      expect(active?.controller.support.steer).toBe(true)
       closeControls[0]!()
-      expect(active?.support.steer).toBe(false)
+      expect(active?.controller.support.steer).toBe(false)
       expect(activeAgentInvocation(ownerKey)).toBe(active)
       const queued = await handler(request("delivery-4"), "github", options)
       await expect(queued.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
@@ -5610,10 +5611,10 @@ describe("server helpers", () => {
 
       stop()
       await vi.waitFor(() => expect(activeAgentInvocation(ownerKey)).toBeUndefined())
-      failRun = true
+      failFlush = true
       releases.shift()!()
       await vi.waitFor(() => expect(completedRuns).toBe(1))
-      failRun = false
+      failFlush = false
       await vi.waitFor(async () => expect(await state.get("webhook:review:github:github:steer:delivery-2")).toBeNull())
       const absent = await handler(request("delivery-2"), "github", options)
       await expect(absent.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
@@ -5676,7 +5677,7 @@ describe("server helpers", () => {
       support: { followUp: false, steer: true },
     }
     const ownerKey = "webhook:review:github:github::pr-42"
-    const unregister = registerActiveAgentInvocation(ownerKey, controller)
+    const unregister = registerActiveAgentInvocation(ownerKey, controller, new Promise(() => {}))
     const agent = defineAgent({
       channels: {
         github: github({

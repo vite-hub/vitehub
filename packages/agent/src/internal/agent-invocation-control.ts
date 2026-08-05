@@ -14,6 +14,11 @@ interface AgentInvocationInputHandler {
   support: Partial<AgentInvocationInputSupport>
 }
 
+interface ActiveAgentInvocation {
+  controller: AgentInvocationController
+  result: Promise<unknown>
+}
+
 const invocationInputHandlersKey = Symbol.for("vitehub.agentInvocationInputHandlers")
 const activeInvocationOwnersKey = Symbol.for("vitehub.activeInvocationOwners")
 
@@ -53,14 +58,16 @@ export async function sendAgentInvocationInput(
 export function registerActiveAgentInvocation(
   ownerKey: string,
   controller: AgentInvocationController,
+  result: Promise<unknown>,
 ): () => void {
-  const owners = globalMap<AgentInvocationController>(activeInvocationOwnersKey)
-  owners.set(ownerKey, controller)
+  const owners = globalMap<ActiveAgentInvocation>(activeInvocationOwnersKey)
+  const active = { controller, result }
+  owners.set(ownerKey, active)
   return () => {
-    if (owners.get(ownerKey) === controller) owners.delete(ownerKey)
+    if (owners.get(ownerKey) === active) owners.delete(ownerKey)
   }
 }
 
-export function activeAgentInvocation(ownerKey: string): AgentInvocationController | undefined {
-  return globalMap<AgentInvocationController>(activeInvocationOwnersKey).get(ownerKey)
+export function activeAgentInvocation(ownerKey: string): ActiveAgentInvocation | undefined {
+  return globalMap<ActiveAgentInvocation>(activeInvocationOwnersKey).get(ownerKey)
 }

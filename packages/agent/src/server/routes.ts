@@ -728,8 +728,9 @@ async function steerQueuedWebhookDelivery(
     if (claimed) {
       return duplicateResponse(claimed)
     }
-    const controller = activeAgentInvocation(delivery.concurrencyKey)
-    if (controller) {
+    const active = activeAgentInvocation(delivery.concurrencyKey)
+    if (active) {
+      const { controller } = active
       const sendLock = await state.acquireLock(
         webhookOwnershipKey(delivery.scope, "steer-send-lock", delivery.concurrencyKey),
         delivery.leaseTtlMs,
@@ -774,7 +775,7 @@ async function steerQueuedWebhookDelivery(
         }
         if (accepted) {
           keepLockUntilInvocationSettles = true
-          const settlement = awaitAgentInvocationResult(controller)
+          const settlement = active.result
             .then(async () => {
               const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
               if (completed) await state.set(claimKey, "steered")
@@ -975,15 +976,19 @@ async function executeQueuedWebhookDelivery(
             ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal])
             : ownershipAbort.signal,
         } as never, { runId: invocation.run?.runId })
+        const result = awaitAgentInvocationResult(controller)
+        const settlement = result.then(async (output) => {
+          if (!isWorkflowRun(output) || output.status !== "queued") await runContext.flushWaitUntil?.()
+          return output
+        })
         const unregister = delivery.concurrencyKey
-          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller)
+          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller, settlement)
           : () => undefined
         const unregisterOnOwnershipLoss = () => unregister()
         if (ownershipAbort.signal.aborted) unregisterOnOwnershipLoss()
         else ownershipAbort.signal.addEventListener("abort", unregisterOnOwnershipLoss, { once: true })
         try {
-          const result = await awaitAgentInvocationResult(controller)
-          if (!isWorkflowRun(result) || result.status !== "queued") await runContext.flushWaitUntil?.()
+          await settlement
         }
         finally {
           ownershipAbort.signal.removeEventListener("abort", unregisterOnOwnershipLoss)
