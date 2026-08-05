@@ -749,11 +749,19 @@ async function steerQueuedWebhookDelivery(
         return duplicateResponse(await state.get(claimKey) || "steering")
       }
       await state.set(claimKey, "steering")
-      const stopDeliveryHeartbeat = startWebhookQueueHeartbeat(state, steeringLease, () => undefined)
+      let steeringLeaseLost = false
+      const stopDeliveryHeartbeat = startWebhookQueueHeartbeat(state, steeringLease, () => {
+        steeringLeaseLost = true
+        void controller.cancel(new Error("[vitehub] Webhook steering lost its durable delivery lease.")).catch(() => {})
+      })
       try {
         try {
           const result = await controller.sendInput(input, { mode: "steer" })
           if (result.outcome === "accepted") {
+            if (steeringLeaseLost) {
+              await state.delete(claimKey)
+              return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
+            }
             keepLockUntilInvocationSettles = true
             void awaitAgentInvocationResult(controller)
               .then(async () => {
