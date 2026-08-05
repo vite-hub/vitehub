@@ -851,6 +851,7 @@ function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeCo
   let stopped = false
   let timeout: ReturnType<typeof setTimeout> | undefined
   let wake: (() => void) | undefined
+  let cancelTypingWait: (() => void) | undefined
 
   const sleep = (ms: number) => new Promise<void>((resolve) => {
     wake = resolve
@@ -866,12 +867,14 @@ function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeCo
     try {
       await Promise.race([
         thread.startTyping().catch(() => undefined),
-        new Promise(resolve => {
+        new Promise<void>(resolve => {
+          cancelTypingWait = resolve
           limit = setTimeout(resolve, chatTypingRefreshTimeoutMs)
         }),
       ])
     }
     finally {
+      cancelTypingWait = undefined
       if (limit) {
         clearTimeout(limit)
       }
@@ -897,6 +900,7 @@ function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeCo
         clearTimeout(timeout)
         timeout = undefined
       }
+      cancelTypingWait?.()
       wake?.()
       wake = undefined
     },
@@ -2580,6 +2584,7 @@ async function handleChatSdkMessage(
     assertChatDeliveryOptions(options || {})
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
+    typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
       const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
@@ -2595,7 +2600,6 @@ async function handleChatSdkMessage(
         invocationDeadlineAbort,
       )
     }
-    typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
     const runContext = {
       ...context,
