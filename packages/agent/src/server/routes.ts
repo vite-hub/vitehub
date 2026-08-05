@@ -636,7 +636,7 @@ function persistedWebhookRequest(
   ownership: { concurrencyGroup?: string, concurrencyKey?: string, concurrencyLimit: number, concurrencyTtlMs?: number },
   scope: string,
   agentName: string,
-  invocation: { input: unknown, run?: unknown },
+  invocation?: { input: unknown, run?: unknown },
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
   return {
@@ -645,7 +645,7 @@ function persistedWebhookRequest(
     concurrencyLimit: ownership.concurrencyLimit,
     deliveryId,
     enqueuedAt,
-    invocation,
+    ...(invocation ? { invocation } : {}),
     leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
     request: {
       body,
@@ -656,6 +656,13 @@ function persistedWebhookRequest(
     scope,
     webhookId,
   }
+}
+
+function containsFunction(value: unknown, seen = new Set<object>()): boolean {
+  if (typeof value === "function") return true
+  if (!value || typeof value !== "object" || seen.has(value)) return false
+  seen.add(value)
+  return Object.values(value).some(entry => containsFunction(entry, seen))
 }
 
 function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Request {
@@ -3484,10 +3491,12 @@ export function createChannelWebhookRouteHandler(
               { ...invocation.webhook, concurrencyLimit },
               webhookState.keyPrefix,
               routeAgentIdentity(handlerOptions)?.name || "agent",
-              {
-                input: invocation.input,
-                ...(invocation.run ? { run: invocation.run } : {}),
-              },
+              containsFunction(invocation.input) || containsFunction(invocation.run)
+                ? undefined
+                : {
+                    input: invocation.input,
+                    ...(invocation.run ? { run: invocation.run } : {}),
+                  },
             )
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)

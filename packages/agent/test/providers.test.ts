@@ -5313,6 +5313,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-queue-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
     const releases: Array<() => void> = []
     let active = 0
     let maxActive = 0
@@ -5327,6 +5328,7 @@ describe("server helpers", () => {
       const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
       const number = (input as { payload?: { number?: number } }).payload?.number || 0
       return {
+        delivery: { finishEffects: () => undefined },
         input: { prompt: deliveryId },
         webhook: {
           concurrencyGroup: "reviews",
@@ -5369,6 +5371,8 @@ describe("server helpers", () => {
         handler(request("delivery-4", 4), "github", options),
       ])
       expect(responses.map(response => response.status)).toEqual([200, 200, 200, 200])
+      expect(enqueue).toHaveBeenCalledTimes(4)
+      expect(enqueue.mock.calls.every(([delivery]) => delivery.invocation === undefined)).toBe(true)
       await expect(Promise.all(responses.map(response => response.json()))).resolves.toEqual([
         { accepted: true, duplicate: false, ok: true, queued: true },
         { accepted: true, duplicate: false, ok: true, queued: true },
@@ -5386,7 +5390,7 @@ describe("server helpers", () => {
       expect(maxActive).toBe(2)
       releases.splice(0).forEach(release => release())
       await vi.waitFor(() => expect(active).toBe(0))
-      expect(invoke).toHaveBeenCalledTimes(5)
+      expect(invoke).toHaveBeenCalledTimes(9)
     }
     finally {
       releases.splice(0).forEach(release => release())
