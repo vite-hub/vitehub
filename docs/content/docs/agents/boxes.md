@@ -7,7 +7,7 @@ icon: i-lucide-package-open
 
 A Box is the execution environment for a harness Agent. The project declares what the Box needs, and the runtime prepares one private Home and process environment before any harness bootstrap or command runs.
 
-Use `"trusted-host"` when the Agent may use the current host's filesystem, processes, and installed executables. Use `"crabbox"` to run the same Box declaration through Crabbox Static SSH. Add a `kind` tag when either runtime needs options. Neither runtime reads credentials or configuration from the machine's normal Home.
+Use `"trusted-host"` when the Agent may use the current host's filesystem, processes, and installed executables. Use `"crabbox"` to run the same Box declaration through Crabbox Static SSH. Hosted runtimes use tagged values for ASCII, Cloudflare Sandbox, Cloudflare Computer, or Vercel Sandbox. No runtime reads credentials or configuration from the machine's normal Home.
 
 ## Run Codex in an exact disposable checkout
 
@@ -176,6 +176,96 @@ Commands must remain owned by their Box session. Daemonizing or escaping the ses
 
 On a VPS, the Agent definition is the boot declaration. The invocation path creates and validates its Box session before in-session harness bootstrap, MCP servers, or user commands run, so the service must not provision a separate auth Home or launch commands outside that session. `stateRoot` is the only host-owned storage that must exist across service restarts; the runtime creates its private contents and session leases.
 
+## Run through Cloudflare Computer
+
+Cloudflare Computer stores an authoritative virtual filesystem in a Durable Object and runs commands through a selected Computer backend. ViteHub adapts that filesystem and command surface to a Box session, so Agent definitions keep the same `env`, `home.files`, `checkout`, and `requires` declarations.
+
+::warning
+Cloudflare Computer is currently a preview. Its API is unstable, and Cloudflare does not recommend it for production workloads yet.
+::
+
+Install Computer beside the Box package:
+
+```bash [Terminal]
+pnpm add @vite-hub/box @cloudflare/computer
+```
+
+Configure the Durable Object with `@cloudflare/computer` before selecting it from a Box. The Durable Object must use `withWorkspace()` and register at least one shell backend; ViteHub does not generate the Computer class, Worker Loader binding, Container configuration, or Durable Object migration.
+
+```ts [src/agent-computer.ts]
+import { withWorkspace } from '@cloudflare/computer'
+import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
+import { DurableObject } from 'cloudflare:workers'
+
+export class AgentComputer extends withWorkspace(
+  class extends DurableObject<Env> {},
+  self => ({
+    storage: self.ctx.storage,
+    backends: [
+      new WorkerShellBackend({
+        loader: self.env.LOADER,
+        workspace: {
+          binding: 'AGENT_COMPUTER',
+          id: self.ctx.id.toString(),
+        },
+        ctx: self.ctx,
+      }),
+    ],
+  }),
+) {}
+```
+
+Add the Durable Object, migration, Worker Loader binding, and required compatibility flags to the Cloudflare deployment configuration:
+
+```jsonc [wrangler.jsonc]
+{
+  "compatibility_flags": ["nodejs_compat", "experimental"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "AGENT_COMPUTER", "class_name": "AgentComputer" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AgentComputer"] }
+  ],
+  "worker_loaders": [
+    { "binding": "LOADER" }
+  ]
+}
+```
+
+Pass the Durable Object namespace to the Box and select the registered backend by ID:
+
+```ts [src/index.ts]
+import { resolveBox } from '@vite-hub/box'
+
+export default {
+  async fetch(_request: Request, env: Env) {
+    const box = await resolveBox({
+      runtime: {
+        kind: 'cloudflare-computer',
+        namespace: env.AGENT_COMPUTER,
+        backend: 'worker-shell',
+      },
+    }, {})
+    const session = await box.open({ id: 'agent-123' })
+
+    try {
+      return Response.json(await session.exec('ls', ['-la']))
+    }
+    finally {
+      await session.close()
+    }
+  },
+} satisfies ExportedHandler<Env>
+```
+
+The Worker shell backend uses `just-bash` in an isolate. It does not provide the full Linux userland required by Node.js, package managers, Git, Codex, or other native CLIs. Select a configured Computer Container backend for those commands, and use its registered backend ID in the Box declaration.
+
+ViteHub derives the Durable Object name from `box.open({ id })`. It resets `/home/vitehub` and `/workspace` when that ID opens again, materializes the Box declaration, and runs requirement checks through the selected backend. Closing the Box disposes Computer RPC handles without deleting the Durable Object or files outside those managed roots.
+
+Computer chooses the execution backend at runtime, so ViteHub reports its isolation, network, process, and credential authority as unknown. Inspect the selected Computer backend and deployment configuration before giving the Box secrets or untrusted code.
+
 ## Migrate from path-valued `home`
 
 Path-valued `box.home` and ambient Home fallback have been removed. Migrate in this order:
@@ -206,4 +296,5 @@ V1 deliberately stops at env values, Home files, writable directory state, gener
 
 - [Agent Drivers](/docs/agents/agent-drivers)
 - [Workspace context](/docs/agents/workspace-context)
+- [Cloudflare host configuration](/docs/frameworks-hosts/cloudflare)
 - [Sandbox](/docs/server-primitives/sandbox)
