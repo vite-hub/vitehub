@@ -990,6 +990,18 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
   ]
 }
 
+function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }): string[] {
+  return [
+    "export function resumeWebhookQueues() {",
+    "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
+    "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
+    `  const stops = Object.entries(webhookHandlers).map(([name, handler]) => handler.resume({ agentIdentity: agentIdentities[name], ${routeCapabilities.requestOption}webhookState: viteHubChatStateResolver }))`,
+    "  return async () => await Promise.all(stops.map(stop => stop()))",
+    "}",
+    "",
+  ]
+}
+
 function generatedNetlifyRuntimeHelpers(): string[] {
   return [
     "function waitUntilFromContext(context) {",
@@ -1216,17 +1228,7 @@ async function generateAgentWebhookRouteHandler(
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     "",
     ...routeCapabilities.setup,
-    ...(options.libsqlState
-      ? [
-          "export function resumeWebhookQueues() {",
-          "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
-          "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
-          `  const stops = Object.entries(webhookHandlers).map(([name, handler]) => handler.resume({ agentIdentity: agentIdentities[name], ${routeCapabilities.requestOption}webhookState: viteHubChatStateResolver }))`,
-          "  return async () => await Promise.all(stops.map(stop => stop()))",
-          "}",
-          "",
-        ]
-      : []),
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities) : []),
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     "",
@@ -1508,6 +1510,7 @@ async function generateAgentDenoServer(
     ...deploymentCatalog.setup,
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     ...routeCapabilities.setup,
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities) : []),
     "function jsonError(status, message) {",
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
     "}",
@@ -1555,11 +1558,13 @@ async function generateAgentDenoServer(
     "}",
     "",
     "const serveOptions = resolveDenoServeOptions(Deno.args)",
-    "if (serveOptions) {",
-    "  Deno.serve(serveOptions, handleRequest)",
+    ...(options.libsqlState ? ["const stopWebhookQueues = resumeWebhookQueues()"] : []),
+    "const server = serveOptions ? Deno.serve(serveOptions, handleRequest) : Deno.serve(handleRequest)",
+    "try {",
+    "  await server.finished",
     "}",
-    "else {",
-    "  Deno.serve(handleRequest)",
+    "finally {",
+    ...(options.libsqlState ? ["  await stopWebhookQueues()"] : []),
     "}",
     "",
   ].join("\n")

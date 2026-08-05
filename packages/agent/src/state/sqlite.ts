@@ -227,14 +227,14 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   async completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
-    const completed = await execute(
+    const completed = await retrySqliteBusy(async () => await execute(
       this.driver,
       `UPDATE ${this.tables.webhookQueue}
         SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
         WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
         RETURNING delivery_id`,
       [scope, deliveryId, leaseToken],
-    )
+    ))
     return completed.length > 0
   }
 

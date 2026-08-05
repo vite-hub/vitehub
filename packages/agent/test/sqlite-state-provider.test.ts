@@ -121,12 +121,17 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
-  it("retries transient SQLite contention while enqueueing webhook deliveries", async () => {
+  it("retries transient SQLite contention while persisting webhook deliveries", async () => {
     const client = createClient({ url: ":memory:" })
-    let busy = true
+    let busyCompletion = true
+    let busyEnqueue = true
     const execute = vi.fn(async (statement: string, args?: unknown[]) => {
-      if (busy && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
-        busy = false
+      if (busyEnqueue && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
+        busyEnqueue = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyCompletion && statement.includes("SET status = 'completed'")) {
+        busyCompletion = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
       }
       return await client.execute({ args: (args || []) as never, sql: statement })
@@ -142,6 +147,9 @@ describe("SQLite Agent State Provider", () => {
 
     await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-busy"))).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue"))).toHaveLength(2)
+    const lease = await contended.claimWebhookDelivery("webhook:review:github:")
+    await expect(contended.completeWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken)).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'completed'"))).toHaveLength(2)
     client.close()
   })
 
