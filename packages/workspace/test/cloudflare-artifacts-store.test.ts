@@ -262,7 +262,7 @@ describe("Cloudflare Artifacts workspace store", () => {
             headers: { "content-type": "application/json" },
           })
         }
-        if (url.pathname === "/repos/onmax/repo/git/blobs/blob-sha") {
+        if (url.pathname === "/onmax/repo/base-sha/mirror/tasks/todo.md") {
           return new Response("hello\n", {
             headers: { "content-type": "application/octet-stream" },
           })
@@ -289,8 +289,8 @@ describe("Cloudflare Artifacts workspace store", () => {
     await expect(workspace.fs.readFile("tasks/todo.md")).resolves.toBe("hello\n")
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
     expect(
-      requests.find(request => request.path === "/repos/onmax/repo/git/blobs/blob-sha")?.headers.get("accept"),
-    ).toBe("application/vnd.github.raw+json")
+      requests.find(request => request.path === "/onmax/repo/base-sha/mirror/tasks/todo.md")?.headers.get("authorization"),
+    ).toBe("Bearer github-token")
   })
 
   it("preserves explicit GitHub tokens in the Cloudflare runtime", async () => {
