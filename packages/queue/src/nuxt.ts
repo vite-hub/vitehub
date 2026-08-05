@@ -39,6 +39,7 @@ export default function viteHubQueueNuxtModule(options: QueueNuxtModuleOptions =
   nuxt.hook?.("nitro:config", async (nitroConfig) => {
     const projectRoot = nuxt.options.rootDir || process.cwd()
     const nitro = await createQueueNitroConfig(plugin, {
+      development: nuxt.options.dev,
       nitro: nitroConfig,
       projectRoot,
       root: nuxt.options.srcDir || projectRoot,

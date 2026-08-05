@@ -20,6 +20,7 @@ type NuxtLike = {
 }
 
 type QueueNitroConfigHandler = (options: {
+  development?: boolean
   nitro: Record<string, unknown>
   projectRoot: string
   root: string
@@ -101,6 +102,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     if (createQueueNitroConfig) {
       const projectRoot = nuxt.options.rootDir || process.cwd()
       config.nitro = await createQueueNitroConfig({
+        development: nuxt.options.dev,
         nitro: config.nitro || {},
         projectRoot,
         root: projectRoot,

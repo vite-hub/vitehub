@@ -36,7 +36,7 @@ describe("Queue Nuxt integration", () => {
       "",
     ].join("\n"))
 
-    const nuxt = await loadNuxt({ cwd: root, dev, ready: true })
+    const nuxt = await loadNuxt({ cwd: root, overrides: { dev }, ready: true })
     try {
       expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
         expect.objectContaining({ name: "@vite-hub/queue/vite" }),
@@ -86,8 +86,21 @@ describe("Queue Nuxt integration", () => {
         rollupConfig: directNitro.rollupConfig,
       })
 
-      await expect(readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:queue")
-      await expect(readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")).resolves.toContain("enterQueueRuntimeEvent(event)")
+      const generatedPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+      const generatedMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
+      expect(generatedPlugin).toContain("cloudflare:queue")
+      expect(generatedMiddleware).toContain("enterQueueRuntimeEvent(event)")
+      if (dev) {
+        expect(`${generatedPlugin}\n${generatedMiddleware}`).not.toContain("cloudflare:workers")
+        expect(generatedPlugin).not.toContain("setQueueRuntimeEventDefaults({")
+        expect(generatedMiddleware).toContain("runtimeEvent.node?.req?.runtime?.cloudflare?.env")
+        expect(generatedMiddleware).not.toContain("?? vitehubEnv")
+      }
+      else {
+        expect(`${generatedPlugin}\n${generatedMiddleware}`).toContain("cloudflare:workers")
+        expect(generatedPlugin).toContain("setQueueRuntimeEventDefaults({")
+        expect(generatedMiddleware).toContain("Object.assign(event")
+      }
     }
     finally {
       await nuxt.close()
@@ -113,7 +126,7 @@ describe("Queue Nuxt integration", () => {
       "})",
       "",
     ].join("\n"))
-    const nuxt = await loadNuxt({ cwd: root, dev: false, ready: true })
+    const nuxt = await loadNuxt({ cwd: root, overrides: { dev: false }, ready: true })
     try {
       const nitroConfig: Record<string, unknown> = {
         alias: {},

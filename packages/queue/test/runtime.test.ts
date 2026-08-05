@@ -281,6 +281,20 @@ describe("cloudflare queue runtime", () => {
     expect(vercelQueueMock.send).not.toHaveBeenCalled()
   })
 
+  it("reports a missing Cloudflare binding without deployment runtime defaults", async () => {
+    setQueueRuntimeConfig({ cache: true, namePrefix: "", provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => {} },
+      }),
+    })
+
+    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
+      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
+      details: { provider: "cloudflare" },
+    })
+  })
+
   it("isolates overlapping Cloudflare fetch environments", async () => {
     let arrivals = 0
     let release!: () => void
@@ -538,6 +552,53 @@ describe("cloudflare queue runtime", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses Node request Cloudflare context for deferred dispatch", async () => {
+    const send = vi.fn(async () => {})
+    const waitUntil = vi.fn()
+
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => {} } }),
+    })
+
+    await runWithQueueRuntimeEvent({
+      node: {
+        req: {
+          runtime: {
+            cloudflare: {
+              context: { waitUntil },
+              env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } },
+            },
+          },
+        },
+      },
+    }, async () => {
+      deferQueue("welcome", { email: "ava@example.com" })
+      await Promise.resolve()
+    })
+
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    await waitUntil.mock.calls[0]?.[0]
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it("clears the active Cloudflare env for an explicitly unbound request", async () => {
+    const send = vi.fn(async () => {})
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => {} } }),
+    })
+
+    enterQueueRuntimeEvent({ env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } } })
+    await runQueue("welcome", { email: "first@example.com" })
+    enterQueueRuntimeEvent({ env: undefined })
+
+    await expect(runQueue("welcome", { email: "second@example.com" })).rejects.toMatchObject({
+      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
+    })
     expect(send).toHaveBeenCalledTimes(1)
   })
 })
