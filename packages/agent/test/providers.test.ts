@@ -5545,9 +5545,12 @@ describe("server helpers", () => {
       method: "POST",
     })
     const options = { agentName: "review", webhookState: state }
-    let stop = handler.resume(options)
+    const ownerKey = "webhook:review:github:github::pr-42"
+    let stop: () => void | Promise<void> = () => undefined
+    vi.useFakeTimers()
 
     try {
+      stop = handler.resume(options)
       const first = await handler(request("delivery-1"), "github", options)
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
@@ -5556,7 +5559,7 @@ describe("server helpers", () => {
 
       const steering = handler(request("delivery-2"), "github", options)
       await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
-      await new Promise(resolve => setTimeout(resolve, 1_100))
+      await vi.advanceTimersByTimeAsync(1_100)
       const concurrentDelivery = await handler(request("delivery-6"), "github", options)
       expect(concurrentDelivery.status).toBe(503)
       await expect(concurrentDelivery.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
@@ -5585,14 +5588,20 @@ describe("server helpers", () => {
       await expect(rejectedReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
       expect(steeredInputs).toHaveLength(1)
 
+      expect(run).toHaveBeenCalledOnce()
+      expect(closeControls).toHaveLength(1)
+      const active = activeAgentInvocation(ownerKey)
+      expect(active?.support.steer).toBe(true)
       closeControls[0]!()
+      expect(active?.support.steer).toBe(false)
+      expect(activeAgentInvocation(ownerKey)).toBe(active)
       const queued = await handler(request("delivery-4"), "github", options)
       await expect(queued.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       expect(steeredInputs).toHaveLength(1)
       expect(run).toHaveBeenCalledOnce()
 
       stop()
-      await vi.waitFor(() => expect(activeAgentInvocation("webhook:review:github:github::pr-42")).toBeUndefined())
+      await vi.waitFor(() => expect(activeAgentInvocation(ownerKey)).toBeUndefined())
       failRun = true
       releases.shift()!()
       await vi.waitFor(() => expect(completedRuns).toBe(1))
@@ -5618,10 +5627,11 @@ describe("server helpers", () => {
       stop()
       releaseSteer()
       releases.splice(0).forEach(release => release())
+      vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("resumes persisted webhook deliveries after a process restart", async () => {
     const { defineAgent } = await import("../src/index.ts")
