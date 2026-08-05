@@ -17,6 +17,7 @@ const harnessObservation = vi.hoisted(() => ({
   generateCount: 0,
   globalSkill: "global",
   live: undefined as string | undefined,
+  requiredCodexStates: [] as string[],
 }))
 
 vi.mock("@ai-sdk/harness/agent", () => ({
@@ -46,6 +47,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
 
     async generate({ session }: Record<string, any>) {
       harnessObservation.generateCount++
+      const codexState = `session-state-${harnessObservation.generateCount}`
       if (harnessObservation.generateCount === 1 && harnessObservation.firstGenerateBlock) {
         harnessObservation.firstGenerateStarted?.()
         await harnessObservation.firstGenerateBlock
@@ -62,7 +64,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         return { text: live }
       }
       const result = await session.host.run({
-        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/${harnessObservation.globalSkill}/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf changed > changed.txt`,
+        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/${harnessObservation.globalSkill}/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; ${harnessObservation.requiredCodexStates.map(state => `test -f "$codex_home/${state}"; `).join("")}printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -84,6 +86,7 @@ afterEach(async () => {
   harnessObservation.generateCount = 0
   harnessObservation.globalSkill = "global"
   harnessObservation.live = undefined
+  harnessObservation.requiredCodexStates = []
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -207,6 +210,24 @@ describe("Agent Box", () => {
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
       await expect(stat(codexHome)).rejects.toMatchObject({ code: "ENOENT" })
+      harnessObservation.requiredCodexStates = ["session-state-1"]
+      await expect(Promise.all([1, 2].map(() => runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: worktree },
+        prompt: "Continue repairing the project concurrently.",
+      })))).resolves.toHaveLength(2)
+      harnessObservation.requiredCodexStates = ["session-state-2", "session-state-3"]
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: worktree },
+        prompt: "Continue repairing the project.",
+      })).resolves.toMatchObject({ text: expect.any(String) })
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }

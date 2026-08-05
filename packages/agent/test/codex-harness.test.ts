@@ -266,6 +266,7 @@ describe("createCodexDriver", () => {
     }))
     expect(run.mock.calls[0][0].command).toContain('cp "$ambient_home/auth.json"')
     expect(run.mock.calls[0][0].command).toContain('cp "$ambient_home/config.toml"')
+    expect(run.mock.calls[0][0].command).toContain('baseline="$codex_home/.vitehub-baseline"')
     await session.run({ command: "codex exec" })
     expect(run).toHaveBeenLastCalledWith({
       command: "codex exec",
@@ -278,7 +279,7 @@ describe("createCodexDriver", () => {
     })
     await prepared?.close()
     expect(run).toHaveBeenLastCalledWith({
-      command: 'rm -rf -- "$HOME/.vitehub/codex-home-invocation-1"',
+      command: expect.stringMatching(/rm -rf -- "\$codex_home\/skills" "\$codex_home\/skills\.vitehub-managed".*cmp -s.*cp -R "\$codex_home"\/\. "\$ambient_home".*if \[ "\$status" -eq 0 \]; then rm -rf/),
       env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
     })
   })

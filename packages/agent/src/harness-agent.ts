@@ -1428,6 +1428,12 @@ export function createHarnessAgentAdapter<
         const globalSkillsDestination = globalSkillsWorkingDirectory && isHarnessRelativeDirectory(globalSkillsDirectory)
           ? posix.join(globalSkillsWorkingDirectory, globalSkillsDirectory)
           : undefined
+        if (typeof sessionPrepare === "function") {
+          const profile = await (sessionPrepare as (session: unknown, invocation: { id: string, isolateBoxHome: boolean }) => MaybePromise<unknown>)(session, invocation)
+          if (profile && typeof profile === "object" && typeof (profile as { close?: unknown }).close === "function") {
+            harnessProfileSession = profile as { close: (error?: unknown) => MaybePromise<void> }
+          }
+        }
         globalSkillsSession = await prepareHarnessGlobalSkills(
           globalSkillsWorkspace,
           session,
@@ -1450,12 +1456,6 @@ export function createHarnessAgentAdapter<
           )
         }
         if (installedWorkspaceSkills) await workspaceSession?.refreshGitBaseline?.()
-        if (typeof sessionPrepare === "function") {
-          const profile = await (sessionPrepare as (session: unknown, invocation: { id: string, isolateBoxHome: boolean }) => MaybePromise<unknown>)(session, invocation)
-          if (profile && typeof profile === "object" && typeof (profile as { close?: unknown }).close === "function") {
-            harnessProfileSession = profile as { close: (error?: unknown) => MaybePromise<void> }
-          }
-        }
       }
       catch (error) {
         try {

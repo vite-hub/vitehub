@@ -130,7 +130,7 @@ async function prepareCodexHome(session: object, invocation?: { id?: string, iso
   const sandbox = session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }
   const result = await sandbox.run({
     command:
-      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="$HOME/.codex" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ]; then if [ -f "$ambient_home/auth.json" ] && [ ! -e "$codex_home/auth.json" ]; then cp "$ambient_home/auth.json" "$codex_home/auth.json" && chmod 600 "$codex_home/auth.json"; fi; if [ -f "$ambient_home/config.toml" ] && [ ! -e "$codex_home/config.toml" ]; then cp "$ambient_home/config.toml" "$codex_home/config.toml"; fi; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml"',
+      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="$HOME/.codex" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ]; then if [ -f "$ambient_home/auth.json" ] && [ ! -e "$codex_home/auth.json" ]; then cp "$ambient_home/auth.json" "$codex_home/auth.json" && chmod 600 "$codex_home/auth.json"; fi; if [ -f "$ambient_home/config.toml" ] && [ ! -e "$codex_home/config.toml" ]; then cp "$ambient_home/config.toml" "$codex_home/config.toml"; fi; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml" && if [ "$codex_home" != "$ambient_home" ]; then baseline="$codex_home/.vitehub-baseline" && mkdir -p "$baseline" && for state in auth.json config.toml; do if [ -f "$codex_home/$state" ]; then cp "$codex_home/$state" "$baseline/$state"; fi; done; fi',
   })
   if (result.exitCode !== 0) {
     if (invocation?.isolateBoxHome && invocation.id) {
@@ -141,9 +141,13 @@ async function prepareCodexHome(session: object, invocation?: { id?: string, iso
   if (!invocation?.isolateBoxHome || !invocation.id) return
   return {
     async close() {
-      const cleanup = await sandbox.run({ command: `rm -rf -- "$HOME/.vitehub/codex-home-${invocation.id}"` })
+      // Merge generated and modified Codex state without replaying unchanged auth/config snapshots.
+      // Concurrent changes to the same path remain completion ordered; ambient-only entries are additive.
+      const cleanup = await sandbox.run({
+        command: `codex_home="$HOME/.vitehub/codex-home-${invocation.id}" && ambient_home="$HOME/.codex" && baseline="$codex_home/.vitehub-baseline" && status=0; rm -rf -- "$codex_home/skills" "$codex_home/skills.vitehub-managed" || status=$?; for state in auth.json config.toml; do if [ -f "$baseline/$state" ] && cmp -s "$baseline/$state" "$codex_home/$state"; then rm -f -- "$codex_home/$state" || status=$?; fi; done; rm -rf -- "$baseline" || status=$?; if [ "$status" -eq 0 ]; then mkdir -p "$ambient_home" || status=$?; fi; if [ "$status" -eq 0 ]; then cp -R "$codex_home"/. "$ambient_home" || status=$?; fi; if [ "$status" -eq 0 ]; then rm -rf -- "$codex_home" || status=$?; fi; exit "$status"`,
+      })
       if (cleanup.exitCode !== 0) {
-        throw new Error(`[vitehub] Failed to remove the invocation Codex Home: ${cleanup.stderr || "sandbox command failed"}`)
+        throw new Error(`[vitehub] Failed to preserve Codex state and remove the invocation Codex Home: ${cleanup.stderr || "sandbox command failed"}`)
       }
     },
   }

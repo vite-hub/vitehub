@@ -1185,6 +1185,7 @@ describe("defineAgent workspace option", () => {
   it("cleans staged colocated skills after a preparation failure", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const close = vi.fn()
+    const profileClose = vi.fn()
     prepareHarnessWorkspaceSession
       .mockResolvedValueOnce({ close })
       .mockRejectedValueOnce(new Error("materialization failed"))
@@ -1193,6 +1194,7 @@ describe("defineAgent workspace option", () => {
         harness: {
           provider: "codex",
           [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+          [Symbol.for("vitehub.harnessSessionPrepare")]: () => ({ close: profileClose }),
         },
       },
     }), {
@@ -1212,6 +1214,7 @@ describe("defineAgent workspace option", () => {
       workingDirectory: "tmp/harness/codex-home/skills",
     }))
     expect(close).toHaveBeenCalledWith()
+    expect(profileClose).toHaveBeenCalledWith(expect.any(Error))
   })
 
   it("does not install caller-provided colocated skills", async () => {
@@ -1296,7 +1299,7 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("closes global Skill preparation when harness session setup fails", async () => {
+  it("does not prepare global Skills when harness session setup fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const close = vi.fn()
@@ -1316,7 +1319,7 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("profile setup failed")
-    expect(close).toHaveBeenCalledWith(expect.any(Error))
+    expect(close).not.toHaveBeenCalled()
   })
 
   it("rejects global skills for non-harness Agent Drivers", async () => {
