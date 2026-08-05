@@ -159,33 +159,28 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const now = Date.now()
       const candidates = await execute(
         tx,
-        `SELECT delivery_id, value, concurrency_group, concurrency_key, concurrency_limit, lease_ttl_ms, attempts
-          FROM ${this.tables.webhookQueue}
-          WHERE scope = ? AND available_at <= ?
-            AND (status = 'queued' OR (status = 'running' AND lease_expires_at <= ?))
-          ORDER BY enqueued_at ASC LIMIT 100`,
-        [scope, now, now],
+        `SELECT candidate.delivery_id, candidate.value, candidate.concurrency_group,
+            candidate.concurrency_key, candidate.concurrency_limit, candidate.lease_ttl_ms, candidate.attempts
+          FROM ${this.tables.webhookQueue} AS candidate
+          WHERE candidate.scope = ? AND candidate.available_at <= ?
+            AND (candidate.status = 'queued' OR (candidate.status = 'running' AND candidate.lease_expires_at <= ?))
+            AND (
+              SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
+              WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
+                AND active_group.concurrency_group = candidate.concurrency_group
+            ) < candidate.concurrency_limit
+            AND (
+              candidate.concurrency_key IS NULL OR NOT EXISTS (
+                SELECT 1 FROM ${this.tables.webhookQueue} AS active_key
+                WHERE active_key.status = 'running' AND active_key.lease_expires_at > ?
+                  AND active_key.concurrency_key = candidate.concurrency_key
+              )
+            )
+          ORDER BY candidate.id ASC
+          LIMIT 1`,
+        [scope, now, now, now, now],
       )
       for (const candidate of candidates) {
-        const group = String(candidate.concurrency_group)
-        const limit = numberValue(candidate.concurrency_limit)
-        const activeGroup = await execute(
-          tx,
-          `SELECT COUNT(*) AS count FROM ${this.tables.webhookQueue}
-            WHERE status = 'running' AND lease_expires_at > ? AND concurrency_group = ?`,
-          [now, group],
-        )
-        if (numberValue(activeGroup[0]?.count) >= limit) continue
-        const concurrencyKey = typeof candidate.concurrency_key === "string" ? candidate.concurrency_key : undefined
-        if (concurrencyKey) {
-          const activeKey = await execute(
-            tx,
-            `SELECT 1 FROM ${this.tables.webhookQueue}
-              WHERE status = 'running' AND lease_expires_at > ? AND concurrency_key = ? LIMIT 1`,
-            [now, concurrencyKey],
-          )
-          if (activeKey.length > 0) continue
-        }
         const leaseToken = randomToken()
         const leaseTtlMs = numberValue(candidate.lease_ttl_ms)
         const claimed = await execute(
@@ -484,6 +479,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       }
       if (version < 3) {
         await execute(tx, `CREATE TABLE IF NOT EXISTS ${this.tables.webhookQueue} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
           scope TEXT NOT NULL,
           delivery_id TEXT NOT NULL,
           value TEXT NOT NULL,
@@ -497,12 +493,46 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           attempts INTEGER NOT NULL DEFAULT 0,
           lease_token TEXT,
           lease_expires_at INTEGER,
-          PRIMARY KEY (scope, delivery_id)
+          UNIQUE (scope, delivery_id)
         )`)
-        await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_claim ON ${this.tables.webhookQueue}(scope, status, available_at, enqueued_at)`)
+        await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_claim ON ${this.tables.webhookQueue}(scope, status, available_at, id)`)
         await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_group ON ${this.tables.webhookQueue}(concurrency_group, status, lease_expires_at)`)
         await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_key ON ${this.tables.webhookQueue}(concurrency_key, status, lease_expires_at) WHERE concurrency_key IS NOT NULL`)
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (3)`)
+        await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (4)`)
+      }
+      else if (version < 4) {
+        const migratedWebhookQueue = `${this.tables.webhookQueue}_v4`
+        await execute(tx, `CREATE TABLE ${migratedWebhookQueue} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          scope TEXT NOT NULL,
+          delivery_id TEXT NOT NULL,
+          value TEXT NOT NULL,
+          concurrency_group TEXT NOT NULL,
+          concurrency_key TEXT,
+          concurrency_limit INTEGER NOT NULL,
+          lease_ttl_ms INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          enqueued_at INTEGER NOT NULL,
+          available_at INTEGER NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          lease_token TEXT,
+          lease_expires_at INTEGER,
+          UNIQUE (scope, delivery_id)
+        )`)
+        await execute(tx, `INSERT INTO ${migratedWebhookQueue} (
+          scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
+          lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
+        ) SELECT
+          scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
+          lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
+        FROM ${this.tables.webhookQueue} ORDER BY enqueued_at ASC, rowid ASC`)
+        await execute(tx, `DROP TABLE ${this.tables.webhookQueue}`)
+        await execute(tx, `ALTER TABLE ${migratedWebhookQueue} RENAME TO ${this.tables.webhookQueue}`)
+        await execute(tx, `CREATE INDEX idx_${this.tables.webhookQueue}_claim ON ${this.tables.webhookQueue}(scope, status, available_at, id)`)
+        await execute(tx, `CREATE INDEX idx_${this.tables.webhookQueue}_group ON ${this.tables.webhookQueue}(concurrency_group, status, lease_expires_at)`)
+        await execute(tx, `CREATE INDEX idx_${this.tables.webhookQueue}_key ON ${this.tables.webhookQueue}(concurrency_key, status, lease_expires_at) WHERE concurrency_key IS NOT NULL`)
+        await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (4)`)
       }
     })
   }

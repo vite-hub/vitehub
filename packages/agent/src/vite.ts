@@ -1853,7 +1853,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
-      const installWebhookQueue = Boolean(resolved && hasHostedAgents && !denoOutput && resolveLibsqlAgentState(resolved, config))
+      const stateProvider = resolved && resolved.providers.state.provider
+      const installWebhookQueue = Boolean(
+        resolved
+        && hasHostedAgents
+        && !denoOutput
+        && !installCloudflareState
+        && (stateProvider === "auto" || stateProvider === "sqlite" || stateProvider === "libsql"),
+      )
       const nitroHandlers = [
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{

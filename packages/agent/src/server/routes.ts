@@ -769,6 +769,7 @@ async function executeQueuedWebhookDelivery(
   state: AgentWebhookQueueStateAdapter,
   delivery: AgentWebhookQueueLease,
   handlerOptions: AgentChannelWebhookRouteOptions,
+  lifecycleSignal: AbortSignal,
 ): Promise<void> {
   const request = requestFromPersistedWebhook(delivery)
   const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
@@ -785,6 +786,12 @@ async function executeQueuedWebhookDelivery(
   const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
     ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
   })
+  const stopForLifecycle = () => {
+    stopHeartbeat()
+    ownershipAbort.abort(lifecycleSignal.reason)
+  }
+  if (lifecycleSignal.aborted) stopForLifecycle()
+  else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
   try {
     const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
     if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
@@ -818,11 +825,14 @@ async function executeQueuedWebhookDelivery(
     }
   }
   catch (error) {
-    const retryDelay = Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
-    await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, Date.now() + retryDelay)
-    console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed and will be retried.`, error)
+    if (!lifecycleSignal.aborted) {
+      const retryDelay = Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
+      await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, Date.now() + retryDelay)
+      console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed and will be retried.`, error)
+    }
   }
   finally {
+    lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
   }
 }
@@ -3310,22 +3320,28 @@ export function createChannelWebhookRouteHandler(
 ): AgentChannelWebhookRouteHandler {
   const queueScopes = new Map<string, { options: AgentChannelWebhookRouteOptions, state: AgentWebhookQueueStateAdapter }>()
   const drainingScopes = new Set<string>()
-  const activeDeliveries = new Set<Promise<void>>()
+  const activeDeliveries = new Map<Promise<void>, AbortController>()
+  let queueStopped = false
 
   const drainQueue = async (scope: string) => {
     const queue = queueScopes.get(scope)
-    if (!queue || drainingScopes.has(scope)) return
+    if (queueStopped || !queue || drainingScopes.has(scope)) return
     drainingScopes.add(scope)
     try {
-      while (true) {
+      while (!queueStopped) {
         const delivery = await queue.state.claimWebhookDelivery(scope)
         if (!delivery) break
-        const task = executeQueuedWebhookDelivery(agent, queue.state, delivery, queue.options)
-        activeDeliveries.add(task)
-        task.finally(() => {
+        if (queueStopped) {
+          await queue.state.retryWebhookDelivery(scope, delivery.deliveryId, delivery.leaseToken, Date.now()).catch(() => undefined)
+          break
+        }
+        const controller = new AbortController()
+        const task = executeQueuedWebhookDelivery(agent, queue.state, delivery, queue.options, controller.signal)
+        activeDeliveries.set(task, controller)
+        void task.finally(() => {
           activeDeliveries.delete(task)
           void drainQueue(scope)
-        })
+        }).catch(error => console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" stopped unexpectedly.`, error))
       }
     }
     finally {
@@ -3577,33 +3593,50 @@ export function createChannelWebhookRouteHandler(
   }
   handler.resume = (handlerOptions = {}) => {
     let stopped = false
+    let discovered = false
+    let discovering: Promise<void> | undefined
+    queueStopped = false
     const discover = async () => {
-      const request = new Request("http://vitehub.local/_vitehub/webhook-queue")
-      const context = createRuntimeContext(
-        request,
-        undefined,
-        await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
-        handlerOptions.cloudflare,
-        handlerOptions.runtime,
-        handlerOptions.capabilities,
-        routeAgentIdentity(handlerOptions),
-      )
-      for (const { registration } of await agentWebhookRegistrations(agent, context)) {
-        if (stopped) return
-        const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
-        if (webhookState) registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
-      }
+      if (stopped || discovered || discovering) return
+      discovering = (async () => {
+        const request = new Request("http://vitehub.local/_vitehub/webhook-queue")
+        const context = createRuntimeContext(
+          request,
+          undefined,
+          await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+          handlerOptions.cloudflare,
+          handlerOptions.runtime,
+          handlerOptions.capabilities,
+          routeAgentIdentity(handlerOptions),
+        )
+        for (const { registration } of await agentWebhookRegistrations(agent, context)) {
+          if (stopped) return
+          const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+          if (webhookState) registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+        }
+        discovered = true
+      })()
+        .catch(error => console.error("[vitehub] Webhook queue startup discovery failed and will be retried.", error))
+        .finally(() => {
+          discovering = undefined
+        })
+      await discovering
     }
     void discover()
     const timer = setInterval(() => {
       if (!stopped) {
+        void discover()
         for (const scope of queueScopes.keys()) void drainQueue(scope)
       }
     }, defaultWebhookQueueRetryMs)
     timer.unref?.()
     return () => {
       stopped = true
+      queueStopped = true
       clearInterval(timer)
+      for (const controller of activeDeliveries.values()) {
+        controller.abort(new Error("[vitehub] Webhook queue stopped during Agent execution."))
+      }
     }
   }
   return handler
