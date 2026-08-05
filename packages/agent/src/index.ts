@@ -3976,8 +3976,9 @@ function createInlineAgentInvocationController<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  runId?: string,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
-  const invocationRunId = (controllerId: string) => context.run?.runId || controllerId
+  const invocationRunId = (controllerId: string) => runId || controllerId
   return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS>({
     parentAbortSignal: input.abortSignal,
     sendInput: (id, nextInput, options) => sendAgentInvocationInput(invocationRunId(id), nextInput, options),
@@ -4005,6 +4006,7 @@ export async function startAgentInvocation<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  options: { runId?: string } = {},
 ): Promise<AgentInvocationController<TOutput | Response, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
@@ -4015,7 +4017,7 @@ export async function startAgentInvocation<
   )
   return workflow
     ? createWorkflowAgentInvocationController(workflow, input.abortSignal)
-    : createInlineAgentInvocationController(agent, invocationContext, input)
+    : createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
 }
 
 export async function runAgent<

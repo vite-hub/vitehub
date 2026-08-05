@@ -906,7 +906,7 @@ async function executeQueuedWebhookDelivery(
           abortSignal: invocation.input.abortSignal
             ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal])
             : ownershipAbort.signal,
-        } as never)
+        } as never, { runId: invocation.run?.runId })
         const unregister = delivery.concurrencyKey
           ? registerActiveAgentInvocation(delivery.concurrencyKey, controller)
           : () => undefined
