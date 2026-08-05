@@ -96,6 +96,27 @@ async function execute(executor: SqliteAgentStateExecutor, statement: string, ar
   return rows(await executor.execute(statement, args))
 }
 
+function isSqliteBusy(error: unknown): boolean {
+  let current = error
+  while (current && typeof current === "object") {
+    if ((current as { code?: unknown }).code === "SQLITE_BUSY") return true
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}
+
+async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation()
+    }
+    catch (error) {
+      if (!isSqliteBusy(error) || attempt >= 7) throw error
+      await Promise.resolve()
+    }
+  }
+}
+
 export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAdapter {
   private connected = false
   private connectPromise?: Promise<void>
@@ -270,7 +291,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   async enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
-    const inserted = await execute(
+    const inserted = await retrySqliteBusy(async () => await execute(
       this.driver,
       `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
@@ -287,7 +308,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         delivery.enqueuedAt,
         delivery.enqueuedAt,
       ],
-    )
+    ))
     return inserted.length > 0
   }
 

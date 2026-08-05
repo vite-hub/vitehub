@@ -121,6 +121,30 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("retries transient SQLite contention while enqueueing webhook deliveries", async () => {
+    const client = createClient({ url: ":memory:" })
+    let busy = true
+    const execute = vi.fn(async (statement: string, args?: unknown[]) => {
+      if (busy && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
+        busy = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      return await client.execute({ args: (args || []) as never, sql: statement })
+    })
+    const contended = createSqliteAgentState({
+      driver: {
+        connect: async () => undefined,
+        execute,
+      },
+      tablePrefix: "test_agent_state_",
+    })
+    await contended.connect()
+
+    await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-busy"))).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue"))).toHaveLength(2)
+    client.close()
+  })
+
   it("finds eligible webhook work beyond blocked keys in database order", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-04T09:00:00.000Z"))
