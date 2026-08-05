@@ -1,21 +1,25 @@
 ---
 title: First Agent
-description: Define a deterministic Agent and run one observable Agent Invocation.
+description: Define a server-side Agent, call it from H3, and see the response.
 navigation.order: 4
 icon: i-lucide-bot
 ---
 
-An Agent Definition names a server-side actor and the Agent Driver that runs
-it. Start with application-owned logic so the first proof needs no credential,
-network request, or model billing.
+An Agent is a server file that tells ViteHub what to run. Every Agent needs a
+Driver, which can be a function, model, or coding harness such as Codex or Claude
+Code, among others. You can add Capabilities, Channels, Workspace access, and
+other options later.
+
+This tutorial starts with a function that returns a fixed greeting. It runs
+offline and needs no credentials.
 
 ::note
-You need Node.js 24 or newer and `pnpm`. The quickstart runs completely offline.
+You need Node.js 24.15 or newer and `pnpm`. This project runs completely offline.
 ::
 
-## Install Agents
+## Install ViteHub and the server packages
 
-Create an empty project and install ViteHub with Vite and H3.
+Create an empty project, then install ViteHub with Vite and H3.
 
 ```bash [Terminal]
 mkdir vitehub-agent-start
@@ -27,9 +31,8 @@ pnpm add vite-hub h3 vite
 
 ## Configure the server build
 
-Register `vitehub()` so the framework discovers the Agent Definition and owns
-the server integration. The route still imports the Definition directly for
-the smallest invocation proof.
+Add `vitehub()` to the Vite config. Vite builds `src/server.ts` for Node.js, and
+ViteHub discovers Agent Definitions under `server/agents`.
 
 ```ts [vite.config.ts]
 import { resolve } from "node:path"
@@ -51,7 +54,6 @@ export default defineConfig({
   plugins: [vitehub({
     preset: "node",
     agent: true,
-    blob: false,
     env: false,
   })],
   ssr: {
@@ -60,17 +62,15 @@ export default defineConfig({
 })
 ```
 
-## Define the Agent
+## Define the greeting Agent
 
-Create a deterministic Agent Driver. `driver.run` keeps the first invocation
-observable and free from provider prerequisites.
+Create `server/agents/greeting.ts`. Its required `driver.run` function reads the
+prompt and returns the greeting without calling a provider.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
-  description: "Returns a deterministic greeting for the first tutorial.",
-  runtime: false,
   driver: {
     run({ prompt }) {
       const name = typeof prompt === "string" ? prompt : "friend"
@@ -83,30 +83,11 @@ export default defineAgent({
 })
 ```
 
-The direct `runAgent()` call below has no discovered Agent identity, so it would
-already run inline. This tutorial keeps `runtime: false` explicit so the same
-Definition also stays inline if it is later invoked through discovery. Keeping
-the file under `server/agents` makes the Agent boundary easy to inspect.
+## Call the Agent from H3
 
-## Run one Agent Invocation
-
-Create one H3 route that passes [Runtime Context](/docs/concepts/runtime-context)
-separately from invocation input. `memo`, `runtime`, and `waitUntil` are explicit
-because `runAgent()` does not depend on framework globals.
-
-Create the invocation-scoped memoizer first. It initializes each key once, and
-the route creates a fresh cache for every request.
-
-```ts [src/memo.ts]
-export function createMemo() {
-  const values = new Map<string, unknown>()
-
-  return <T>(key: string, create: () => T): T => {
-    if (!values.has(key)) values.set(key, create())
-    return values.get(key) as T
-  }
-}
-```
+`runAgent()` takes the Definition, runtime values for the current request, and
+the invocation input. The route creates a new memo cache for each request,
+identifies Vite as the runtime, and reports errors from background tasks.
 
 ```ts [src/server.ts]
 import { createServer } from "node:http"
@@ -115,7 +96,15 @@ import { H3, readBody } from "h3"
 import { toNodeHandler } from "h3/node"
 import { runAgent } from "vite-hub/agent"
 import greeting from "../server/agents/greeting"
-import { createMemo } from "./memo"
+
+function createMemo() {
+  const values = new Map<string, unknown>()
+
+  return <T>(key: string, create: () => T): T => {
+    if (!values.has(key)) values.set(key, create())
+    return values.get(key) as T
+  }
+}
 
 const app = new H3().post("/greet", async (event) => {
   const body = await readBody<{ name?: string }>(event) || {}
@@ -136,16 +125,19 @@ createServer(toNodeHandler(app)).listen(port, () => {
 })
 ```
 
-## Run the server
+The route imports the Definition directly, so the greeting returns in the same
+request.
 
-Build and start the generated Node.js entry.
+## Run the Agent and see the response
+
+Build the project and start the generated Node.js server.
 
 ```bash [Terminal]
 pnpm vite build
 node dist/server.js
 ```
 
-Invoke the Agent from another terminal.
+From another terminal, send a name to the H3 route.
 
 ```bash [Terminal]
 curl -X POST http://localhost:5173/greet \
@@ -153,18 +145,14 @@ curl -X POST http://localhost:5173/greet \
   -d '{"name":"Ada"}'
 ```
 
-The deterministic invocation returns an inspectable result:
+The Agent returns the greeting:
 
 ```json [Response]
 {"text":"Hello, Ada. This result came from an Agent Invocation."}
 ```
 
-You can now replace `driver.run` with a model or coding harness while keeping
-the Agent Definition and invocation boundary.
+From here, add only what your Agent needs:
 
-## Next steps
-
-- Follow the longer [Agents tutorial](/blog/agents) to upgrade this Agent to an AI SDK model.
-- Read [Agent Definitions](/docs/agents/agent-definitions) for every Agent Driver shape.
-- Read [Invocations](/docs/agents/invocations) for streaming, trusted context, and failure handling.
-- Read [Capabilities](/docs/capabilities) before exposing tools or data.
+- Read [Agent Definitions](/docs/agents/agent-definitions) to choose another Driver or add Channels, Workspace context, trusted caller settings, or hooks.
+- Read [Capabilities](/docs/capabilities) before you give a model tools, triggers, policy, metadata, or context values.
+- Read [Invocations](/docs/agents/invocations) when the route needs streaming or failure handling.
