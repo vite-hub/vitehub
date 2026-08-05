@@ -90,6 +90,7 @@ interface RuntimeCommandOptions {
   abortSignal?: AbortSignal;
   command: string;
   env?: Record<string, string>;
+  timeout?: number;
   workingDirectory?: string;
 }
 
@@ -199,6 +200,7 @@ export function createBoxSession(
               abortSignal: operationSignal(options?.signal, options?.timeout),
               command: commandLine(command, args),
               env: options?.env ? { ...options.env } : undefined,
+              timeout: options?.timeout,
               workingDirectory: options?.cwd ?? cwd,
             });
             return adaptProcess(process);
@@ -216,6 +218,7 @@ export function createBoxSession(
         abortSignal: operationSignal(options?.signal, options?.timeout),
         command: commandLine(command, args),
         env: options?.env ? { ...options.env } : undefined,
+        timeout: options?.timeout,
         workingDirectory: options?.cwd ?? cwd,
       });
       return {
