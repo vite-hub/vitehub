@@ -121,6 +121,78 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("finds eligible webhook work beyond blocked keys in database order", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T09:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+
+    await queue.enqueueWebhookDelivery(webhookDelivery("blocker", "shared"))
+    const blocker = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(blocker?.deliveryId).toBe("blocker")
+    for (let index = 0; index < 101; index += 1) {
+      await queue.enqueueWebhookDelivery(webhookDelivery(`blocked-${index}`, "shared"))
+    }
+    await queue.enqueueWebhookDelivery(webhookDelivery("eligible", "other"))
+
+    const eligible = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(eligible?.deliveryId).toBe("eligible")
+    await queue.completeWebhookDelivery(blocker!.scope, blocker!.deliveryId, blocker!.leaseToken)
+    await queue.completeWebhookDelivery(eligible!.scope, eligible!.deliveryId, eligible!.leaseToken)
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "blocked-0" })
+    await state.disconnect()
+  })
+
+  it("migrates the production-patched webhook queue to database ordering", async () => {
+    const { state, url } = await createState()
+    await state.connect()
+    await state.disconnect()
+    const client = createClient({ url })
+    const delivery = webhookDelivery("patched-delivery")
+    await client.execute("DELETE FROM test_agent_state_schema_version WHERE version = 4")
+    await client.execute("DROP TABLE test_agent_state_webhook_queue")
+    await client.execute(`CREATE TABLE test_agent_state_webhook_queue (
+      scope TEXT NOT NULL,
+      delivery_id TEXT NOT NULL,
+      value TEXT NOT NULL,
+      concurrency_group TEXT NOT NULL,
+      concurrency_key TEXT,
+      concurrency_limit INTEGER NOT NULL,
+      lease_ttl_ms INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      enqueued_at INTEGER NOT NULL,
+      available_at INTEGER NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at INTEGER,
+      PRIMARY KEY (scope, delivery_id)
+    )`)
+    await client.execute({
+      args: [
+        delivery.scope,
+        delivery.deliveryId,
+        JSON.stringify(delivery),
+        delivery.concurrencyGroup,
+        delivery.concurrencyKey || null,
+        delivery.concurrencyLimit,
+        delivery.leaseTtlMs,
+        delivery.enqueuedAt,
+        delivery.enqueuedAt,
+      ],
+      sql: `INSERT INTO test_agent_state_webhook_queue (
+        scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
+        lease_ttl_ms, status, enqueued_at, available_at, attempts
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0)`,
+    })
+    client.close()
+
+    const restored = createLibsqlAgentState({ tablePrefix: "test_agent_state_", url })
+    await restored.connect()
+    await expect(restored.claimWebhookDelivery(delivery.scope)).resolves.toMatchObject({ deliveryId: "patched-delivery" })
+    await restored.disconnect()
+  })
+
   it("reclaims expired webhook leases after reconnect and fences stale workers", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
