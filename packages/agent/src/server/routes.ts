@@ -3317,6 +3317,7 @@ export function createChannelWebhookRouteHandler(
 ): AgentChannelWebhookRouteHandler {
   const queueScopes = new Map<string, { options: AgentChannelWebhookRouteOptions, state: AgentWebhookQueueStateAdapter }>()
   const drainingScopes = new Set<string>()
+  const pendingDrainScopes = new Set<string>()
   const retryTimers = new Map<string, { at: number, timer: ReturnType<typeof setTimeout> }>()
   const activeDeliveries = new Map<Promise<number | undefined>, AbortController>()
   let queueStopped = false
@@ -3335,9 +3336,14 @@ export function createChannelWebhookRouteHandler(
 
   const drainQueue = async (scope: string) => {
     const queue = queueScopes.get(scope)
-    if (queueStopped || !queue || drainingScopes.has(scope)) return
+    if (queueStopped || !queue) return
+    if (drainingScopes.has(scope)) {
+      pendingDrainScopes.add(scope)
+      return
+    }
     drainingScopes.add(scope)
     try {
+      const waitUntil = await resolveRuntimeWaitUntil(queue.options.waitUntil)
       while (!queueStopped) {
         const delivery = await queue.state.claimWebhookDelivery(scope)
         if (!delivery) break
@@ -3348,16 +3354,25 @@ export function createChannelWebhookRouteHandler(
         const controller = new AbortController()
         const task = executeQueuedWebhookDelivery(agent, queue.state, delivery, queue.options, controller.signal)
         activeDeliveries.set(task, controller)
+        waitUntil?.(task)
         void task.then((retryAt) => {
           if (retryAt === undefined || retryAt <= Date.now()) void drainQueue(scope)
           else scheduleQueueDrain(scope, retryAt)
-        }).catch(error => console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" stopped unexpectedly.`, error)).finally(() => {
+        }).catch((error) => {
+          console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" stopped unexpectedly.`, error)
+          scheduleQueueDrain(scope, Date.now() + defaultWebhookQueueRetryMs)
+        }).finally(() => {
           activeDeliveries.delete(task)
         })
       }
     }
+    catch (error) {
+      console.error("[vitehub] Webhook queue drain failed and will be retried.", error)
+      scheduleQueueDrain(scope, Date.now() + defaultWebhookQueueRetryMs)
+    }
     finally {
       drainingScopes.delete(scope)
+      if (pendingDrainScopes.delete(scope)) void drainQueue(scope)
     }
   }
 
@@ -3648,6 +3663,7 @@ export function createChannelWebhookRouteHandler(
       clearInterval(timer)
       for (const retryTimer of retryTimers.values()) clearTimeout(retryTimer.timer)
       retryTimers.clear()
+      pendingDrainScopes.clear()
       for (const controller of activeDeliveries.values()) {
         controller.abort(new Error("[vitehub] Webhook queue stopped during Agent execution."))
       }

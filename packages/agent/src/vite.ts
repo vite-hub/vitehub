@@ -1219,7 +1219,9 @@ async function generateAgentWebhookRouteHandler(
     ...(options.libsqlState
       ? [
           "export function resumeWebhookQueues() {",
-          "  const stops = Object.entries(webhookHandlers).map(([name, handler]) => handler.resume({ agentIdentity: agentIdentities[name], webhookState: viteHubChatStateResolver }))",
+          "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
+          "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
+          `  const stops = Object.entries(webhookHandlers).map(([name, handler]) => handler.resume({ agentIdentity: agentIdentities[name], ${routeCapabilities.requestOption}webhookState: viteHubChatStateResolver }))`,
           "  return async () => await Promise.all(stops.map(stop => stop()))",
           "}",
           "",
