@@ -273,6 +273,33 @@ export async function requestGitHubBytes(
   return new Uint8Array(await response.arrayBuffer());
 }
 
+export async function readGitHubRawFile(input: {
+  path: string;
+  ref: string;
+  repository: string;
+  token: string;
+}): Promise<Uint8Array> {
+  const { owner, repo } = splitGitHubRepository(input.repository, "store");
+  const path = input.path.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(
+    `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(input.ref)}/${path}`,
+    {
+      headers: {
+        authorization: `Bearer ${input.token}`,
+        "user-agent": "vitehub-workspace",
+      },
+    },
+  );
+  if (!response.ok) {
+    const cause = new GitHubRequestError(
+      `[vitehub] GitHub workspace raw file request failed for ${input.repository}: ${response.status} ${response.statusText}`,
+      response.status,
+    );
+    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export function findGitHubRemoteFiles(
   tree: GitHubTreeResponse,
   root: string,
