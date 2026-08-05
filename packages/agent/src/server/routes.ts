@@ -793,17 +793,18 @@ async function executeQueuedWebhookDelivery(
   if (lifecycleSignal.aborted) stopForLifecycle()
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
   try {
-    const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-    if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
-    const input = await createAgentWebhookTriggerInput(request, match.registration)
-    let invocation = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
-    if (!isResolvedAgentTriggerHandledInvocation(invocation) && invocation.webhook?.rehydrate) {
-      invocation = resolveAgentTriggerInvocationResult(await invocation.webhook.rehydrate(), invocation.trigger)
-    }
-    if (isResolvedAgentTriggerHandledInvocation(invocation)) {
-      await context.flushWaitUntil?.()
-    }
-    else {
+    const invocation = await runWithRuntimeCloudflareEnv(context, async () => {
+      const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+      if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
+      const input = await createAgentWebhookTriggerInput(request, match.registration)
+      let invocation = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
+      if (!isResolvedAgentTriggerHandledInvocation(invocation) && invocation.webhook?.rehydrate) {
+        invocation = resolveAgentTriggerInvocationResult(await invocation.webhook.rehydrate(), invocation.trigger)
+      }
+      if (isResolvedAgentTriggerHandledInvocation(invocation)) await context.flushWaitUntil?.()
+      return invocation
+    })
+    if (!isResolvedAgentTriggerHandledInvocation(invocation)) {
       if (!invocation.webhook || invocation.webhook.deliveryId !== delivery.deliveryId) {
         throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
       }

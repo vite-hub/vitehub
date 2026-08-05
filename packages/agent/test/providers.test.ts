@@ -5473,6 +5473,7 @@ describe("server helpers", () => {
   })
 
   it("rehydrates a claimed webhook delivery before running the agent", async () => {
+    const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -5517,10 +5518,13 @@ describe("server helpers", () => {
       },
     })
     const run = vi.fn(() => "accepted")
-    const rehydrate = vi.fn(() => ({
-      input: { prompt: "fresh prompt" },
-      webhook: { concurrencyLimit: 1, deliveryId },
-    }))
+    const rehydrate = vi.fn(() => {
+      expect(getActiveCloudflareEnv()?.SOURCE_TOKEN).toBe("runtime-source-token")
+      return {
+        input: { prompt: "fresh prompt" },
+        webhook: { concurrencyLimit: 1, deliveryId },
+      }
+    })
     const agent = defineAgent({
       channels: {
         github: github({
@@ -5541,7 +5545,11 @@ describe("server helpers", () => {
 
     try {
       await state.connect()
-      stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: queueState })
+      stop = createChannelWebhookRouteHandler(agent as never).resume({
+        agentName: "review",
+        cloudflare: { env: { SOURCE_TOKEN: "runtime-source-token" } },
+        webhookState: queueState,
+      })
 
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce())
