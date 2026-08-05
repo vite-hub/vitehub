@@ -255,32 +255,31 @@ describe("createCodexDriver", () => {
       },
     }
     const driver = createCodexDriver({ sandbox: provider })
-    const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<typeof rawSession> }
-    const session = await adaptSandbox(provider, { defaultSandbox: false }).createSession()
+    const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessInvocationSandboxAdapter")] as (provider: object, options: { box: boolean, defaultSandbox: boolean, invocation: { id: string, isolateBoxHome: boolean } }) => { createSession: () => Promise<typeof rawSession> }
+    const invocation = { id: "invocation-1", isolateBoxHome: true }
+    const session = await adaptSandbox(provider, { box: true, defaultSandbox: false, invocation }).createSession()
 
     const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => Promise<{ close: () => Promise<void> } | undefined>
-    const prepared = await prepareSession(session, { id: "invocation-1", isolateBoxHome: true })
+    const prepared = await prepareSession(session, invocation)
 
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("CODEX_HOME:-$HOME/.codex"),
+      command: expect.stringContaining('export VITEHUB_AMBIENT_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/.vitehub/codex-home-invocation-1";'),
     }))
+    expect(run.mock.calls[0][0].command).toContain('ambient_home="${VITEHUB_AMBIENT_CODEX_HOME:-$HOME/.codex}"')
     expect(run.mock.calls[0][0].command).toContain('cp "$ambient_home/auth.json"')
     expect(run.mock.calls[0][0].command).toContain('cp "$ambient_home/config.toml"')
     expect(run.mock.calls[0][0].command).toContain('baseline="$codex_home/.vitehub-baseline"')
     await session.run({ command: "codex exec" })
     expect(run).toHaveBeenLastCalledWith({
-      command: "codex exec",
-      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
+      command: 'export VITEHUB_AMBIENT_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/.vitehub/codex-home-invocation-1"; codex exec',
     })
     await session.restricted().run({ command: "codex exec" })
     expect(restrictedRun).toHaveBeenCalledWith({
-      command: "codex exec",
-      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
+      command: 'export VITEHUB_AMBIENT_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/.vitehub/codex-home-invocation-1"; codex exec',
     })
     await prepared?.close()
     expect(run).toHaveBeenLastCalledWith({
       command: expect.stringMatching(/rm -rf -- "\$codex_home\/skills" "\$codex_home\/skills\.vitehub-managed".*cmp -s.*cp -R "\$codex_home"\/\. "\$ambient_home".*if \[ "\$status" -eq 0 \]; then rm -rf/),
-      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
     })
   })
 

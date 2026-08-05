@@ -26,7 +26,7 @@ function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: 
       if (property === "run" || property === "spawn") {
         return (options: { command: string, env?: Record<string, string | undefined> }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
           ...options,
-          command: `${codexHomeRelativeToHome ? `export CODEX_HOME="$HOME/${codexHomeRelativeToHome}"; ` : ""}${options.command.replaceAll(absoluteCodexBootstrapDir, anchoredBootstrapDir)}`,
+          command: `${codexHomeRelativeToHome ? `export VITEHUB_AMBIENT_CODEX_HOME="\${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/${codexHomeRelativeToHome}"; ` : ""}${options.command.replaceAll(absoluteCodexBootstrapDir, anchoredBootstrapDir)}`,
           ...(isolateHome && !codexHomeRelativeToHome ? { env: { ...options.env, CODEX_HOME: anchoredCodexHome } } : {}),
         } as never)
       }
