@@ -5481,6 +5481,7 @@ describe("server helpers", () => {
     let releaseSteer: () => void = () => undefined
     const steerAccepted = new Promise<void>(resolve => { releaseSteer = resolve })
     let rejectSteer = false
+    let failRun = false
     let completedRuns = 0
     const run = vi.fn(async ({ run: metadata }: { run?: { runId?: string } }) => {
       const runId = metadata?.runId
@@ -5498,6 +5499,7 @@ describe("server helpers", () => {
       closeControls.push(closeControl)
       try {
         await new Promise<void>(resolve => releases.push(resolve))
+        if (failRun) throw new Error("failed")
         return "accepted"
       }
       finally {
@@ -5555,6 +5557,10 @@ describe("server helpers", () => {
       const steering = handler(request("delivery-2"), "github", options)
       await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
       await new Promise(resolve => setTimeout(resolve, 1_100))
+      const concurrentDelivery = await handler(request("delivery-6"), "github", options)
+      expect(concurrentDelivery.status).toBe(503)
+      await expect(concurrentDelivery.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      expect(steeredInputs).toHaveLength(1)
       const inFlightDuplicate = await handler(request("delivery-2"), "github", options)
       expect(inFlightDuplicate.status).toBe(503)
       await expect(inFlightDuplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
@@ -5569,7 +5575,8 @@ describe("server helpers", () => {
       })])
 
       const duplicate = await handler(request("delivery-2"), "github", options)
-      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, steered: true })
+      expect(duplicate.status).toBe(503)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
       expect(steeredInputs).toHaveLength(1)
 
       rejectSteer = true
@@ -5588,20 +5595,26 @@ describe("server helpers", () => {
 
       stop()
       await vi.waitFor(() => expect(activeAgentInvocation("webhook:review:github:github::pr-42")).toBeUndefined())
-      const absent = await handler(request("delivery-5"), "github", options)
+      failRun = true
+      releases.shift()!()
+      await vi.waitFor(() => expect(completedRuns).toBe(1))
+      failRun = false
+      await vi.waitFor(async () => expect(await state.get("webhook:review:github:github:steer:delivery-2")).toBeNull())
+      const absent = await handler(request("delivery-2"), "github", options)
       await expect(absent.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       expect(steeredInputs).toHaveLength(1)
       expect(run).toHaveBeenCalledOnce()
       stop = handler.resume(options)
 
-      releases.shift()!()
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 3_000 })
       releases.shift()!()
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
       releases.shift()!()
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
       releases.shift()!()
-      await vi.waitFor(() => expect(completedRuns).toBe(4))
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(5))
+      releases.shift()!()
+      await vi.waitFor(() => expect(completedRuns).toBe(5))
     }
     finally {
       stop()

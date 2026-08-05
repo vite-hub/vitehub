@@ -620,7 +620,7 @@ async function resolveAgentWebhookState(
   return { keyPrefix, state }
 }
 
-function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer" | "steer-lock", value: string): string {
+function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer" | "steer-lock" | "steer-send-lock", value: string): string {
   return `${prefix}${kind}:${value}`
 }
 
@@ -721,6 +721,7 @@ async function steerQueuedWebhookDelivery(
     return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
   }
   const stopHeartbeat = startWebhookLockHeartbeat(state, lock, delivery.leaseTtlMs, () => undefined)
+  let keepLockUntilInvocationSettles = false
   try {
     const claimed = await state.get(claimKey)
     if (claimed) {
@@ -728,22 +729,46 @@ async function steerQueuedWebhookDelivery(
     }
     const controller = activeAgentInvocation(delivery.concurrencyKey)
     if (controller) {
-      try {
-        const result = await controller.sendInput(input, { mode: "steer" })
-        if (result.outcome === "accepted") {
-          await state.set(claimKey, "steered")
-          return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
-        }
+      const sendLock = await state.acquireLock(
+        webhookOwnershipKey(delivery.scope, "steer-send-lock", delivery.concurrencyKey),
+        delivery.leaseTtlMs,
+      )
+      if (!sendLock) {
+        return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
       }
-      catch {}
+      const stopSendHeartbeat = startWebhookLockHeartbeat(state, sendLock, delivery.leaseTtlMs, () => undefined)
+      try {
+        try {
+          const result = await controller.sendInput(input, { mode: "steer" })
+          if (result.outcome === "accepted") {
+            keepLockUntilInvocationSettles = true
+            void awaitAgentInvocationResult(controller)
+              .then(async () => state.set(claimKey, "steered"))
+              .catch(() => {})
+              .finally(async () => {
+                stopHeartbeat()
+                await state.releaseLock(lock)
+              })
+              .catch(() => {})
+            return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
+          }
+        }
+        catch {}
+      }
+      finally {
+        stopSendHeartbeat()
+        await state.releaseLock(sendLock)
+      }
     }
     const response = await fallback()
     await state.set(claimKey, "queued")
     return { queued: true, response }
   }
   finally {
-    stopHeartbeat()
-    await state.releaseLock(lock)
+    if (!keepLockUntilInvocationSettles) {
+      stopHeartbeat()
+      await state.releaseLock(lock)
+    }
   }
 }
 
