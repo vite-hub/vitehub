@@ -267,7 +267,7 @@ describe("createCodexDriver", () => {
     }))
     expect(run.mock.calls[0][0].command).toContain('ambient_home="${VITEHUB_AMBIENT_CODEX_HOME:-$HOME/.codex}"')
     expect(run.mock.calls[0][0].command).toContain('cp -R "$ambient_home"/. "$codex_home"')
-    expect(run.mock.calls[0][0].command).toContain('rm -rf -- "$codex_home/skills" "$codex_home/skills.vitehub-managed"')
+    expect(run.mock.calls[0][0].command).toContain('rm -rf -- "$codex_home/skills/$managed"')
     expect(run.mock.calls[0][0].command).toContain('baseline="$codex_home.vitehub-baseline"')
     await session.run({ command: "codex exec" })
     expect(run).toHaveBeenLastCalledWith({
@@ -279,7 +279,7 @@ describe("createCodexDriver", () => {
     })
     await prepared?.close()
     expect(run).toHaveBeenLastCalledWith({
-      command: expect.stringMatching(/rm -rf -- "\$codex_home\/skills" "\$codex_home\/skills\.vitehub-managed".*find "\$baseline" -type f.*cmp -s.*cp -R "\$codex_home"\/\. "\$ambient_home".*if \[ "\$status" -eq 0 \]; then rm -rf/),
+      command: expect.stringMatching(/rm -rf -- "\$codex_home\/skills\/\$managed".*find "\$baseline" -type f.*cmp -s.*cp -R "\$codex_home"\/\. "\$ambient_home".*if \[ "\$status" -eq 0 \]; then rm -rf/),
     })
   })
 
