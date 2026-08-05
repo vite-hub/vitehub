@@ -37,7 +37,7 @@ import type {
   ResolvedBoxState,
 } from "../index.ts";
 import { materializeGitCheckout } from "./git-checkout.ts";
-import { boxRequirementError, boxRequirementPlan } from "./requirements.ts";
+import { boxRequirementError, boxRequirementPlan, boxRequirementSecrets } from "./requirements.ts";
 import { markBuiltInBoxRuntime } from "./runtime.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
@@ -228,7 +228,11 @@ async function createSession(
       env,
       checkout ?? input.cwd ?? root,
       createOptions.abortSignal,
-      Object.keys(input.plan.env).map(name => env[name]),
+      boxRequirementSecrets([
+        ...Object.keys(input.plan.env).map(name => env[name]),
+        ...files.map(file => file.contents),
+        ...states.flatMap(state => state.seed.map(file => file.contents)),
+      ]),
     );
     await createOptions.initialize?.(session);
     return session;

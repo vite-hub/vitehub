@@ -12,6 +12,7 @@ import { materializeGitCheckout } from "./git-checkout.ts";
 import {
   boxRequirementError,
   boxRequirementPlan,
+  boxRequirementSecrets,
   boxRequirementSignal,
 } from "./requirements.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
@@ -143,6 +144,7 @@ async function materializeRemotePlan(
   const home = options.home ?? "/home/vitehub";
   const workspace = options.workspace ?? "/workspace";
   const abortSignal = options.signal;
+  const diagnosticSecrets = [...secrets];
   for (const path of new Set([home, ...(options.preserveWorkspace ? [] : [workspace])])) {
     if (await session.existsFile({ abortSignal, path }))
       await session.removeFile({ abortSignal, path, recursive: true });
@@ -150,6 +152,8 @@ async function materializeRemotePlan(
   await session.makeDirectory({ abortSignal, path: home, recursive: true });
   await session.makeDirectory({ abortSignal, path: workspace, recursive: true });
   for (const [path, file] of Object.entries(input.plan.files)) {
+    const content = await file.resolve();
+    diagnosticSecrets.push(...boxRequirementSecrets([content]));
     await session.makeDirectory({
       abortSignal,
       path: dirnameRemotePath(joinRemotePath(home, path)),
@@ -157,7 +161,7 @@ async function materializeRemotePlan(
     });
     await session.writeBinaryFile({
       abortSignal,
-      content: await file.resolve(),
+      content,
       path: joinRemotePath(home, path),
     });
   }
@@ -175,7 +179,13 @@ async function materializeRemotePlan(
       },
     });
   }
-  await validateRequirements(session, input.requirements, workspace, abortSignal, secrets);
+  await validateRequirements(
+    session,
+    input.requirements,
+    workspace,
+    abortSignal,
+    diagnosticSecrets,
+  );
 }
 
 function joinRemotePath(...parts: string[]) {

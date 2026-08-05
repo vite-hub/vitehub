@@ -21,6 +21,14 @@ export function boxRequirementSignal(
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
+export function boxRequirementSecrets(
+  values: readonly (string | Uint8Array)[],
+): readonly string[] {
+  return values.map((value) =>
+    typeof value === "string" ? value : new TextDecoder().decode(value)
+  ).filter(Boolean);
+}
+
 export function boxRequirementError(
   requirement: ResolvedBoxRequirementInput,
   failure: unknown,
@@ -60,10 +68,11 @@ function commandFailureDetails(
 
 function diagnosticText(value: unknown, secrets: readonly string[]) {
   if (value === undefined || value === null) return "";
-  let text = String(value).trim();
+  let text = String(value);
   for (const secret of [...new Set(secrets)].sort((left, right) => right.length - left.length)) {
     if (secret) text = text.replaceAll(secret, "[redacted]");
   }
+  text = text.trim();
   if (text.length > maximumDiagnosticLength) text = `${text.slice(0, maximumDiagnosticLength)}…`;
   return text;
 }

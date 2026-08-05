@@ -28,4 +28,15 @@ describe("Box requirement failures", () => {
     expect(error).not.toHaveProperty("cause");
     expect(inspect(error, { depth: null })).not.toContain("setup-secret");
   });
+
+  it("redacts whitespace-bearing secrets before trimming diagnostics", () => {
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { stderr: "token setup-secret\n" },
+      ["setup-secret\n"],
+    );
+
+    expect(error.message).toBe('[vitehub] Box requirement "setup" failed: token [redacted]');
+    expect(error.message).not.toContain("setup-secret");
+  });
 });

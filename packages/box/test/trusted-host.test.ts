@@ -594,6 +594,25 @@ describe("createTrustedHostRuntime", () => {
     expect(failure.message).not.toContain("trusted-host-secret");
   });
 
+  it("reports trusted-host requirement errors without exposing Home file contents", async () => {
+    const box = await resolveBox(
+      {
+        home: { files: { ".acme/token": { contents: "file-backed-secret\n" } } },
+        requires: [{
+          command: "sh",
+          args: ["-c", 'cat "$HOME/.acme/token" >&2; exit 3'],
+        }],
+        runtime: createTrustedHostRuntime(),
+      },
+      {},
+    );
+
+    const failure = await boxProvider(box).createSession()
+      .catch((error: unknown) => error as Error) as Error;
+    expect(failure.message).toContain("exit code 3: [redacted]");
+    expect(failure.message).not.toContain("file-backed-secret");
+  });
+
   it("bounds trusted-host requirement checks with their configured timeout", async () => {
     const box = await resolveBox(
       {

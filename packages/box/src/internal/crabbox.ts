@@ -16,7 +16,12 @@ import type {
   ResolvedBoxRequirementInput,
 } from "../index.ts"
 import { materializeGitCheckout } from "./git-checkout.ts"
-import { boxRequirementError, boxRequirementPlan, boxRequirementSignal } from "./requirements.ts"
+import {
+  boxRequirementError,
+  boxRequirementPlan,
+  boxRequirementSecrets,
+  boxRequirementSignal,
+} from "./requirements.ts"
 import { markBuiltInBoxRuntime } from "./runtime.ts"
 import { createBoxSession, type RuntimeSession } from "./session.ts"
 
@@ -414,7 +419,11 @@ async function materializePlan(
     initializedState: [...missingState].map((index) =>
       remoteStatePath(options.stateRoot!, options.plan.state[index].key)
     ),
-    secrets: Object.values(environment),
+    secrets: boxRequirementSecrets([
+      ...Object.values(environment),
+      ...files.map(file => file.contents),
+      ...[...seeds.values()].flatMap(seed => seed.map(file => file.contents)),
+    ]),
   };
 }
 
