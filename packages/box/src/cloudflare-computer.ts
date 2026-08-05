@@ -4,6 +4,8 @@ import { openRemoteBox, remoteBoxPlan, resolveRemoteEnvironment } from "./intern
 import type { RuntimeSession } from "./internal/session.ts";
 import { markBuiltInBoxRuntime } from "./internal/runtime.ts";
 
+const cloudflareComputerPackage = "@cloudflare/computer";
+
 export interface CloudflareComputerBoxOptions {
   backend?: string;
   getWorkspace?: (handle: unknown) => Promise<CloudflareComputerWorkspace>;
@@ -102,7 +104,7 @@ export function createCloudflareComputerRuntime(options: CloudflareComputerBoxOp
 
 async function loadCloudflareComputer() {
   try {
-    const { getWorkspace } = await import("@cloudflare/computer");
+    const { getWorkspace } = await import(/* @vite-ignore */ cloudflareComputerPackage);
     return getWorkspace as unknown as NonNullable<CloudflareComputerBoxOptions["getWorkspace"]>;
   } catch (error) {
     throw new Error(

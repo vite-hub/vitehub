@@ -95,7 +95,8 @@ describe("Box runtime selection", () => {
     expect(cloudflare).toMatch(/\bimport\(["']@cloudflare\/sandbox["']\)/);
     expect(cloudflare).not.toContain("@cloudflare/computer");
     expect(cloudflare).not.toContain("@vercel/sandbox");
-    expect(computer).toMatch(/\bimport\(["']@cloudflare\/computer["']\)/);
+    expect(computer).toContain("@cloudflare/computer");
+    expect(computer).toMatch(/\/\* @vite-ignore \*\/\s*cloudflareComputerPackage/);
     expect(computer).not.toContain("@cloudflare/sandbox");
     expect(computer).not.toContain("@vercel/sandbox");
     expect(vercel).toMatch(/\bimport\(["']@vercel\/sandbox["']\)/);
