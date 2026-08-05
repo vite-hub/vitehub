@@ -283,6 +283,7 @@ describe("createCodexDriver", () => {
       command: expect.stringMatching(/rm -rf -- "\$codex_home\/skills\/\$managed".*find "\$baseline" -type f.*cmp -s.*cp -R "\$codex_home"\/\. "\$ambient_home".*if \[ "\$status" -eq 0 \]; then rm -rf/),
     })
     expect(run.mock.calls.at(-1)?.[0].command).toContain('"$codex_home/skills/.vitehub-colocated"')
+    expect(run.mock.calls.at(-1)?.[0].command).toContain('cmp -s "$seeded" "$ambient_home/$relative"')
   })
 
   it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {
