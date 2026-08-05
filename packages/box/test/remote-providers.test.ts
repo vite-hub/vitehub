@@ -53,6 +53,21 @@ describe("remote Box providers", () => {
     await expect(box.open()).rejects.toThrow("timed out after 20ms");
   });
 
+  it("preserves caller cancellation during remote requirement checks", async () => {
+    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    const box = await resolveBox({
+      requires: ["node"],
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const controller = new AbortController();
+    const reason = new Error("cancel requirement setup");
+
+    const opening = box.open({ signal: controller.signal });
+    controller.abort(reason);
+
+    await expect(opening).rejects.toBe(reason);
+  });
+
   it("normalizes authority from tagged remote runtimes", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
     const cloudflare = await resolveBox({

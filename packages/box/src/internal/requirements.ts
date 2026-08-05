@@ -34,8 +34,9 @@ export function boxRequirementError(
   failure: unknown,
   secrets: readonly string[] = [],
   timeout: number | undefined = requirement.timeout,
+  includeDiagnosticOutput = true,
 ): Error {
-  const details = commandFailureDetails(failure, secrets, timeout);
+  const details = commandFailureDetails(failure, secrets, timeout, includeDiagnosticOutput);
   const name = diagnosticText(requirement.name, secrets);
   return new Error(`[vitehub] Box requirement "${name}" failed${details ? `: ${details}` : "."}`);
 }
@@ -44,6 +45,7 @@ function commandFailureDetails(
   failure: unknown,
   secrets: readonly string[],
   timeout: number | undefined,
+  includeDiagnosticOutput: boolean,
 ) {
   const error =
     failure && typeof failure === "object" ? (failure as Record<string, unknown>) : undefined;
@@ -61,8 +63,12 @@ function commandFailureDetails(
             : error?.name === "AbortError"
               ? "aborted"
               : "";
-  const output = diagnosticText(error?.stderr, secrets) || diagnosticText(error?.stdout, secrets);
-  const message = status || output ? "" : diagnosticText(error?.message ?? failure, secrets);
+  const output = includeDiagnosticOutput
+    ? diagnosticText(error?.stderr, secrets) || diagnosticText(error?.stdout, secrets)
+    : "";
+  const message = includeDiagnosticOutput && !status && !output
+    ? diagnosticText(error?.message ?? failure, secrets)
+    : "";
   return [status, output || message].filter(Boolean).join(": ");
 }
 

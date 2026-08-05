@@ -272,6 +272,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
             options.requirements,
             createOptions.abortSignal,
             materialized.secrets,
+            options.plan.state.length === 0,
           )
           await createOptions.initialize?.(session)
           return session
@@ -1003,6 +1004,7 @@ async function validateRequirements(
   requirements: readonly ResolvedBoxRequirementInput[],
   abortSignal: AbortSignal | undefined,
   secrets: readonly string[],
+  includeDiagnosticOutput: boolean,
 ) {
   for (const requirement of requirements) {
     const command = ["command -v", shellQuote(requirement.command), ">/dev/null"]
@@ -1016,10 +1018,23 @@ async function validateRequirements(
       })
     }
     catch (cause) {
-      throw boxRequirementError(requirement, cause, secrets)
+      if (abortSignal?.aborted) throw abortSignal.reason
+      throw boxRequirementError(
+        requirement,
+        cause,
+        secrets,
+        requirement.timeout,
+        includeDiagnosticOutput,
+      )
     }
     if (result.exitCode !== 0) {
-      throw boxRequirementError(requirement, result, secrets)
+      throw boxRequirementError(
+        requirement,
+        result,
+        secrets,
+        requirement.timeout,
+        includeDiagnosticOutput,
+      )
     }
   }
 }

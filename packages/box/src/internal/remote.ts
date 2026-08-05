@@ -216,6 +216,7 @@ async function validateRequirements(
         workingDirectory: workspace,
       });
     } catch (cause) {
+      if (abortSignal?.aborted) throw abortSignal.reason;
       throw boxRequirementError(requirement, cause, secrets);
     }
     if (result.exitCode !== 0)

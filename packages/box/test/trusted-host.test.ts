@@ -616,13 +616,47 @@ describe("createTrustedHostRuntime", () => {
   it("bounds trusted-host requirement checks with their configured timeout", async () => {
     const box = await resolveBox(
       {
-        requires: [{ command: "sh", args: ["-c", "sleep 60"], timeout: 20 }],
+        requires: [{
+          command: process.execPath,
+          args: [
+            "-e",
+            "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+          ],
+          timeout: 20,
+        }],
         runtime: createTrustedHostRuntime(),
       },
       {},
     );
 
     await expect(boxProvider(box).createSession()).rejects.toThrow("timed out after 20ms");
+  });
+
+  it("suppresses requirement output when durable Home state is mounted", async () => {
+    const root = await temporaryRoot();
+    const box = await resolveBox(
+      {
+        home: {
+          state: {
+            ".acme": {
+              key: "requirement-diagnostic-state",
+              seed: { token: { contents: "durable-state-secret" } },
+            },
+          },
+        },
+        requires: [{
+          command: "sh",
+          args: ["-c", 'cat "$HOME/.acme/token" >&2; exit 3'],
+        }],
+        runtime: createTrustedHostRuntime({ stateRoot: join(root, "state") }),
+      },
+      {},
+    );
+
+    const failure = await boxProvider(box).createSession()
+      .catch((error: unknown) => error as Error) as Error;
+    expect(failure.message).toContain("exit code 3");
+    expect(failure.message).not.toContain("durable-state-secret");
   });
 
   it("resolves relative requirement executables from the Box workspace", async () => {

@@ -39,4 +39,17 @@ describe("Box requirement failures", () => {
     expect(error.message).toBe('[vitehub] Box requirement "setup" failed: token [redacted]');
     expect(error.message).not.toContain("setup-secret");
   });
+
+  it("suppresses diagnostic output when it cannot be exhaustively redacted", () => {
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { exitCode: 1, stderr: "refreshed-state-secret" },
+      [],
+      undefined,
+      false,
+    );
+
+    expect(error.message).toBe('[vitehub] Box requirement "setup" failed: exit code 1');
+    expect(error.message).not.toContain("refreshed-state-secret");
+  });
 });

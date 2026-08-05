@@ -105,7 +105,7 @@ A public repository may contain:
 
 It must not contain plaintext bearer credentials or the capability that decrypts committed ciphertext. Supply that root capability through Server Env, workload identity, an interactive unlock, or another deployment-owned source.
 
-Resolved env values, materialized file contents, mutable state, decryption capabilities, physical Home paths, and sandbox handles are excluded from serialized Box metadata and ViteHub-generated workspaces or artifacts. Requirement failures report bounded stderr or stdout diagnostics after redacting declared env values, and Crabbox sends materialization bytes over stdin instead of command arguments. Every process inside the Box remains trusted and can still read or log its credentials.
+Resolved env values, materialized file contents, mutable state, decryption capabilities, physical Home paths, and sandbox handles are excluded from serialized Box metadata and ViteHub-generated workspaces or artifacts. Requirement failures report bounded stderr or stdout diagnostics after redacting declared env and Home file values. When durable Home state is mounted, ViteHub omits command output because mutable state cannot be exhaustively redacted. Crabbox sends materialization bytes over stdin instead of command arguments. Every process inside the Box remains trusted and can still read or log its credentials.
 
 ## Understand fail-closed boot
 

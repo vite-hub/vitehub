@@ -37,7 +37,12 @@ import type {
   ResolvedBoxState,
 } from "../index.ts";
 import { materializeGitCheckout } from "./git-checkout.ts";
-import { boxRequirementError, boxRequirementPlan, boxRequirementSecrets } from "./requirements.ts";
+import {
+  boxRequirementError,
+  boxRequirementPlan,
+  boxRequirementSecrets,
+  boxRequirementSignal,
+} from "./requirements.ts";
 import { markBuiltInBoxRuntime } from "./runtime.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
@@ -233,6 +238,7 @@ async function createSession(
         ...files.map(file => file.contents),
         ...states.flatMap(state => state.seed.map(file => file.contents)),
       ]),
+      input.plan.state.length === 0,
     );
     await createOptions.initialize?.(session);
     return session;
@@ -629,6 +635,7 @@ async function validateRequirements(
   cwd: string | undefined,
   abortSignal: AbortSignal | undefined,
   secrets: readonly string[],
+  includeDiagnosticOutput: boolean,
 ) {
   for (const requirement of requirements) {
     const executable = await findExecutable(
@@ -642,18 +649,47 @@ async function validateRequirements(
         requirement,
         { message: `${requirement.command} is not on PATH.` },
         secrets,
+        requirement.timeout,
+        includeDiagnosticOutput,
       );
     if (!requirement.args.length) continue;
+    const timeout = requirement.timeout ?? 10_000;
+    let result: { exitCode: number; stderr: string; stdout: string };
     try {
-      await promisify(execFile)(executable, requirement.args, {
+      const child = spawnChildProcess(executable, requirement.args, {
         cwd,
+        detached: process.platform !== "win32",
         env,
-        signal: abortSignal,
         shell: isWindowsCommandShim(executable),
-        timeout: requirement.timeout ?? 10_000,
       });
+      const handle = processHandle(
+        child,
+        boxRequirementSignal({ ...requirement, timeout }, abortSignal),
+      );
+      const [stderr, stdout, { exitCode }] = await Promise.all([
+        collect(handle.stderr),
+        collect(handle.stdout),
+        handle.wait(),
+      ]);
+      result = { exitCode, stderr, stdout };
     } catch (cause) {
-      throw boxRequirementError(requirement, cause, secrets, requirement.timeout ?? 10_000);
+      if (abortSignal?.aborted) throw abortSignal.reason;
+      throw boxRequirementError(
+        requirement,
+        cause,
+        secrets,
+        timeout,
+        includeDiagnosticOutput,
+      );
+    }
+    if (result.exitCode !== 0) {
+      throw boxRequirementError(
+        requirement,
+        result,
+        secrets,
+        timeout,
+        includeDiagnosticOutput,
+      );
     }
   }
 }
