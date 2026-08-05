@@ -698,38 +698,48 @@ async function steerQueuedWebhookDelivery(
   state: AgentWebhookQueueStateAdapter,
   delivery: AgentWebhookQueueDelivery,
   input: AgentRunInput,
-): Promise<Response | undefined> {
+  fallback: () => Promise<Response>,
+): Promise<{ queued: boolean, response: Response } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
-  if (await state.get(claimKey) === true) {
-    return Response.json({ accepted: false, duplicate: true, ok: true, steered: true })
+  const duplicateResponse = (claim: unknown) => claim === "queued"
+    ? { queued: false, response: Response.json({ accepted: false, duplicate: true, ok: true, queued: false }) }
+    : { queued: false, response: Response.json({ accepted: false, duplicate: true, ok: true, steered: true }) }
+  const existingClaim = await state.get(claimKey)
+  if (existingClaim) {
+    return duplicateResponse(existingClaim)
   }
   const lock = await state.acquireLock(
     webhookOwnershipKey(delivery.scope, "steer-lock", delivery.deliveryId),
     delivery.leaseTtlMs,
   )
   if (!lock) {
-    if (await state.get(claimKey) === true) {
-      return Response.json({ accepted: false, duplicate: true, ok: true, steered: true })
+    const claimed = await state.get(claimKey)
+    if (claimed) {
+      return duplicateResponse(claimed)
     }
-    return Response.json({ accepted: false, busy: true, ok: true }, { status: 503 })
+    return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
   }
   const stopHeartbeat = startWebhookLockHeartbeat(state, lock, delivery.leaseTtlMs, () => undefined)
   try {
-    if (await state.get(claimKey) === true) {
-      return Response.json({ accepted: false, duplicate: true, ok: true, steered: true })
+    const claimed = await state.get(claimKey)
+    if (claimed) {
+      return duplicateResponse(claimed)
     }
     const controller = activeAgentInvocation(delivery.concurrencyKey)
-    if (!controller) return
-    try {
-      const result = await controller.sendInput(input, { mode: "steer" })
-      if (result.outcome !== "accepted") return
+    if (controller) {
+      try {
+        const result = await controller.sendInput(input, { mode: "steer" })
+        if (result.outcome === "accepted") {
+          await state.set(claimKey, "steered")
+          return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
+        }
+      }
+      catch {}
     }
-    catch {
-      return
-    }
-    await state.set(claimKey, true)
-    return Response.json({ accepted: true, ok: true, steered: true })
+    const response = await fallback()
+    await state.set(claimKey, "queued")
+    return { queued: true, response }
   }
   finally {
     stopHeartbeat()
@@ -3605,8 +3615,15 @@ export function createChannelWebhookRouteHandler(
               isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
             )
             if (invocation.webhook.busy === "steer") {
-              const response = await steerQueuedWebhookDelivery(webhookState.state, delivery, invocation.input)
-              if (response) return response
+              const webhookQueueState = webhookState.state
+              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, delivery, invocation.input, async () => {
+                const queued = await webhookQueueState.enqueueWebhookDelivery(delivery)
+                return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
+              })
+              if (outcome) {
+                if (outcome.queued) registerQueue(webhookState.keyPrefix, webhookQueueState, handlerOptions)
+                return outcome.response
+              }
             }
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             await registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)

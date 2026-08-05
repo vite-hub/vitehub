@@ -5514,6 +5514,7 @@ describe("server helpers", () => {
                 const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
                 return {
                   input: { context: { deliveryId }, prompt: deliveryId },
+                  run: { runId: deliveryId },
                   webhook: {
                     busy: "steer",
                     concurrencyGroup: "reviews",
@@ -5548,6 +5549,7 @@ describe("server helpers", () => {
       const first = await handler(request("delivery-1"), "github", options)
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
       await vi.waitFor(() => expect(activeAgentInvocation("webhook:review:github:github::pr-42")).toBeDefined())
 
       const steering = handler(request("delivery-2"), "github", options)
@@ -5574,6 +5576,9 @@ describe("server helpers", () => {
       const rejected = await handler(request("delivery-3"), "github", options)
       await expect(rejected.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       rejectSteer = false
+      const rejectedReplay = await handler(request("delivery-3"), "github", options)
+      await expect(rejectedReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
+      expect(steeredInputs).toHaveLength(1)
 
       closeControls[0]!()
       const queued = await handler(request("delivery-4"), "github", options)

@@ -3977,12 +3977,13 @@ function createInlineAgentInvocationController<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
+  const invocationRunId = (controllerId: string) => context.run?.runId || controllerId
   return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS>({
     parentAbortSignal: input.abortSignal,
-    sendInput: (id, nextInput, options) => sendAgentInvocationInput(id, nextInput, options),
+    sendInput: (id, nextInput, options) => sendAgentInvocationInput(invocationRunId(id), nextInput, options),
     start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
       ...context,
-      run: { ...context.run, runId: id },
+      run: { ...context.run, runId: invocationRunId(id) },
     }, { ...input, abortSignal }, {
       kind: "run",
       onFinish(outcome) {
@@ -3992,7 +3993,7 @@ function createInlineAgentInvocationController<
       },
       renderOutput: true,
     }),
-    support: id => agentInvocationInputSupport(id),
+    support: id => agentInvocationInputSupport(invocationRunId(id)),
   })
 }
 
