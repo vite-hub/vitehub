@@ -1713,6 +1713,7 @@ export default defineAgent({
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
         expect(webhookRoute).toContain("export function resumeWebhookQueues()")
         expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], webhookState: viteHubChatStateResolver })")
+        expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
         expect(queuePlugin).toContain("import { resumeWebhookQueues } from \"./chat-webhook-route\"")
         expect(queuePlugin).toContain("nitroApp.hooks.hook('close', stop)")
         expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })")
@@ -5604,9 +5605,8 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       await handler(request("delivery-stop-2"), "github", { agentName: "review", webhookState: state })
 
-      stop()
+      await stop()
       expect(activeSignal?.aborted).toBe(true)
-      await vi.advanceTimersByTimeAsync(30_001)
       expect(run).toHaveBeenCalledOnce()
 
       const first = await state.claimWebhookDelivery("webhook:review:github:github:")
@@ -5762,6 +5762,63 @@ describe("server helpers", () => {
     }
     finally {
       stop()
+      consoleError.mockRestore()
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("retries a failed queued webhook delivery without the startup pump", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-route-retry-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValue("accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "retry" },
+                webhook: {
+                  concurrencyLimit: 1,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"))
+      await handler(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-route-retry",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", { agentName: "review", webhookState: state })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+    }
+    finally {
       consoleError.mockRestore()
       vi.useRealTimers()
       await state.disconnect()

@@ -86,7 +86,7 @@ export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOption
 
 export interface AgentChannelWebhookRouteHandler {
   (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions): Promise<Response>
-  resume(options?: AgentChannelWebhookRouteOptions): () => void
+  resume(options?: AgentChannelWebhookRouteOptions): () => Promise<void>
 }
 
 export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOptions {
@@ -497,14 +497,7 @@ async function findAgentWebhookRegistration(
   request: Request,
   webhook?: string,
 ): Promise<AgentWebhookRegistrationMatch | undefined> {
-  const triggers = await resolveAgentTriggers(agent as never, context as never)
-  const registrations: AgentWebhookRegistrationMatch[] = []
-  for (const trigger of Object.values(triggers)) {
-    for (const registration of trigger.webhooks || []) {
-      const match = { registration, trigger: trigger as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> }
-      registrations.push(match)
-    }
-  }
+  const registrations = await agentWebhookRegistrations(agent, context)
   const pathMatches = registrations.filter(match => webhookRegistrationPathMatches(request, match.registration))
   if (pathMatches.length === 1) return pathMatches[0]
   if (pathMatches.length > 1) return undefined
@@ -770,7 +763,7 @@ async function executeQueuedWebhookDelivery(
   delivery: AgentWebhookQueueLease,
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
-): Promise<void> {
+): Promise<number | undefined> {
   const request = requestFromPersistedWebhook(delivery)
   const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
   const context = createRuntimeContext(
@@ -825,10 +818,14 @@ async function executeQueuedWebhookDelivery(
     }
   }
   catch (error) {
-    if (!lifecycleSignal.aborted) {
-      const retryDelay = Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
-      await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, Date.now() + retryDelay)
+    const retryDelay = lifecycleSignal.aborted
+      ? 0
+      : Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
+    const retryAt = Date.now() + retryDelay
+    if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt)) {
+      if (lifecycleSignal.aborted) return retryAt
       console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed and will be retried.`, error)
+      return retryAt
     }
   }
   finally {
@@ -3320,8 +3317,21 @@ export function createChannelWebhookRouteHandler(
 ): AgentChannelWebhookRouteHandler {
   const queueScopes = new Map<string, { options: AgentChannelWebhookRouteOptions, state: AgentWebhookQueueStateAdapter }>()
   const drainingScopes = new Set<string>()
-  const activeDeliveries = new Map<Promise<void>, AbortController>()
+  const retryTimers = new Map<string, { at: number, timer: ReturnType<typeof setTimeout> }>()
+  const activeDeliveries = new Map<Promise<number | undefined>, AbortController>()
   let queueStopped = false
+
+  const scheduleQueueDrain = (scope: string, at: number) => {
+    const existing = retryTimers.get(scope)
+    if (existing && existing.at <= at) return
+    if (existing) clearTimeout(existing.timer)
+    const timer = setTimeout(() => {
+      retryTimers.delete(scope)
+      void drainQueue(scope)
+    }, Math.max(0, at - Date.now()))
+    timer.unref?.()
+    retryTimers.set(scope, { at, timer })
+  }
 
   const drainQueue = async (scope: string) => {
     const queue = queueScopes.get(scope)
@@ -3338,10 +3348,12 @@ export function createChannelWebhookRouteHandler(
         const controller = new AbortController()
         const task = executeQueuedWebhookDelivery(agent, queue.state, delivery, queue.options, controller.signal)
         activeDeliveries.set(task, controller)
-        void task.finally(() => {
+        void task.then((retryAt) => {
+          if (retryAt === undefined || retryAt <= Date.now()) void drainQueue(scope)
+          else scheduleQueueDrain(scope, retryAt)
+        }).catch(error => console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" stopped unexpectedly.`, error)).finally(() => {
           activeDeliveries.delete(task)
-          void drainQueue(scope)
-        }).catch(error => console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" stopped unexpectedly.`, error))
+        })
       }
     }
     finally {
@@ -3630,13 +3642,16 @@ export function createChannelWebhookRouteHandler(
       }
     }, defaultWebhookQueueRetryMs)
     timer.unref?.()
-    return () => {
+    return async () => {
       stopped = true
       queueStopped = true
       clearInterval(timer)
+      for (const retryTimer of retryTimers.values()) clearTimeout(retryTimer.timer)
+      retryTimers.clear()
       for (const controller of activeDeliveries.values()) {
         controller.abort(new Error("[vitehub] Webhook queue stopped during Agent execution."))
       }
+      await Promise.allSettled(activeDeliveries.keys())
     }
   }
   return handler

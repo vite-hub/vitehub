@@ -1220,7 +1220,7 @@ async function generateAgentWebhookRouteHandler(
       ? [
           "export function resumeWebhookQueues() {",
           "  const stops = Object.entries(webhookHandlers).map(([name, handler]) => handler.resume({ agentIdentity: agentIdentities[name], webhookState: viteHubChatStateResolver }))",
-          "  return () => stops.forEach(stop => stop())",
+          "  return async () => await Promise.all(stops.map(stop => stop()))",
           "}",
           "",
         ]
