@@ -19,7 +19,7 @@ import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
-import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
+import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationResult, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
@@ -796,8 +796,14 @@ async function executeQueuedWebhookDelivery(
     const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
     if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
     const input = await createAgentWebhookTriggerInput(request, match.registration)
-    const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
-    if (!isResolvedAgentTriggerHandledInvocation(invocation)) {
+    let invocation = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
+    if (!isResolvedAgentTriggerHandledInvocation(invocation) && invocation.webhook?.rehydrate) {
+      invocation = resolveAgentTriggerInvocationResult(await invocation.webhook.rehydrate(), invocation.trigger)
+    }
+    if (isResolvedAgentTriggerHandledInvocation(invocation)) {
+      await context.flushWaitUntil?.()
+    }
+    else {
       if (!invocation.webhook || invocation.webhook.deliveryId !== delivery.deliveryId) {
         throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
       }

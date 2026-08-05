@@ -5472,6 +5472,200 @@ describe("server helpers", () => {
     }
   })
 
+  it("rehydrates a claimed webhook delivery before running the agent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const scope = "webhook:review:github:github:"
+    const deliveryId = "delivery-rehydrate"
+    const claim = vi.fn()
+      .mockResolvedValueOnce({
+        attempts: 1,
+        concurrencyGroup: "review:default",
+        concurrencyLimit: 1,
+        deliveryId,
+        enqueuedAt: Date.now(),
+        leaseExpiresAt: Date.now() + 1_000,
+        leaseToken: "lease-rehydrate",
+        leaseTtlMs: 1_000,
+        request: {
+          body: "{}",
+          headers: {
+            "content-type": "application/json",
+            "x-github-delivery": deliveryId,
+            "x-github-event": "pull_request",
+          },
+          method: "POST",
+          url: "https://example.com/api/github/webhook",
+        },
+        scope,
+        webhookId: "github",
+      })
+      .mockResolvedValue(null)
+    const complete = vi.fn(async () => true)
+    const queueState = new Proxy(state, {
+      get(target, property) {
+        if (property === "claimWebhookDelivery") return claim
+        if (property === "completeWebhookDelivery") return complete
+        if (property === "extendWebhookDeliveryLease") return vi.fn(async () => true)
+        if (property === "retryWebhookDelivery") return vi.fn(async () => true)
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const run = vi.fn(() => "accepted")
+    const rehydrate = vi.fn(() => ({
+      input: { prompt: "fresh prompt" },
+      webhook: { concurrencyLimit: 1, deliveryId },
+    }))
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "stale prompt" },
+                webhook: { concurrencyLimit: 1, deliveryId, rehydrate },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    let stop: () => void = () => undefined
+
+    try {
+      await state.connect()
+      stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: queueState })
+
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce())
+      expect(rehydrate).toHaveBeenCalledOnce()
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        input: expect.objectContaining({ prompt: "fresh prompt" }),
+      }))
+      expect(run).not.toHaveBeenCalledWith(expect.objectContaining({
+        input: expect.objectContaining({ prompt: "stale prompt" }),
+      }))
+    }
+    finally {
+      stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("completes handled rehydration and retries changed delivery identity", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-outcomes-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const scope = "webhook:review:github:github:"
+    const deliveries = ["delivery-handled", "delivery-changed"].map(deliveryId => ({
+      attempts: 1,
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 2,
+      deliveryId,
+      enqueuedAt: Date.now(),
+      leaseExpiresAt: Date.now() + 1_000,
+      leaseToken: `lease-${deliveryId}`,
+      leaseTtlMs: 1_000,
+      request: {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": deliveryId,
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      scope,
+      webhookId: "github",
+    }))
+    const claim = vi.fn(async () => deliveries.shift() ?? null)
+    const complete = vi.fn(async () => true)
+    const retry = vi.fn(async () => true)
+    const queueState = new Proxy(state, {
+      get(target, property) {
+        if (property === "claimWebhookDelivery") return claim
+        if (property === "completeWebhookDelivery") return complete
+        if (property === "extendWebhookDeliveryLease") return vi.fn(async () => true)
+        if (property === "retryWebhookDelivery") return retry
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const run = vi.fn(() => "accepted")
+    let handled = false
+    let releaseDeferred: () => void = () => undefined
+    const deferred = new Promise<void>((resolve) => {
+      releaseDeferred = resolve
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (context, input) => {
+                const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
+                return {
+                  input: { prompt: "stale prompt" },
+                  webhook: {
+                    concurrencyLimit: 2,
+                    deliveryId,
+                    rehydrate: () => {
+                      if (deliveryId === "delivery-handled") {
+                        handled = true
+                        context.waitUntil(deferred)
+                        return new Response(null, { status: 202 })
+                      }
+                      return {
+                        input: { prompt: "wrong delivery" },
+                        webhook: { concurrencyLimit: 2, deliveryId: "different-delivery" },
+                      }
+                    },
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    let stop: () => void = () => undefined
+
+    try {
+      await state.connect()
+      stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: queueState })
+
+      await vi.waitFor(() => expect(handled).toBe(true))
+      await vi.waitFor(() => expect(retry).toHaveBeenCalledWith(scope, "delivery-changed", expect.any(String), expect.any(Number)))
+      expect(complete).not.toHaveBeenCalled()
+      releaseDeferred()
+      await vi.waitFor(() => expect(complete).toHaveBeenCalledWith(scope, "delivery-handled", expect.any(String)))
+      expect(complete).not.toHaveBeenCalledWith(scope, "delivery-changed", expect.any(String))
+      expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      releaseDeferred()
+      stop()
+      consoleError.mockRestore()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("retries webhook queue discovery after a transient startup failure", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")

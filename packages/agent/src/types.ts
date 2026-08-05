@@ -343,15 +343,17 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
-  webhook?: AgentWebhookInvocationOwnership
+  webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
 }
 
-export interface AgentWebhookInvocationOwnership {
+export interface AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> {
   concurrencyGroup?: string
   concurrencyKey?: string
   concurrencyLimit?: number
   concurrencyTtlMs?: number
   deliveryId: string
+  /** Rebuilds a persistent webhook invocation from current source data after the delivery is claimed. */
+  rehydrate?: () => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
 }
 
 export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
