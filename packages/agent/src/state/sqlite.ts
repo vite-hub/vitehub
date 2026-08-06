@@ -476,7 +476,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   async setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
-    return await this.transaction(async (tx) => {
+    return await retrySqliteBusy(async () => await this.transaction(async (tx) => {
       const now = Date.now()
       const existing = await execute(
         tx,
@@ -489,7 +489,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const expiresAt = ttlMs ? Date.now() + ttlMs : null
       await execute(tx, `INSERT INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
       return true
-    })
+    }))
   }
 
   async subscribe(threadId: string): Promise<void> {

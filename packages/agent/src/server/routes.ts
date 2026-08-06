@@ -595,11 +595,32 @@ function webhookScopeComponent(value: string): string {
   return encodeURIComponent(value)
 }
 
+const webhookStateBackendIds = new WeakMap<StateAdapter, Promise<string>>()
+
+function resolveWebhookStateBackendId(state: StateAdapter, keyPrefix: string): Promise<string> {
+  const existing = webhookStateBackendIds.get(state)
+  if (existing) return existing
+  const resolving = (async () => {
+    const backendIdKey = `${keyPrefix}backend-id`
+    const stored = await state.get(backendIdKey)
+    if (typeof stored === "string" && stored) return stored
+    await state.setIfNotExists(backendIdKey, globalThis.crypto.randomUUID())
+    const backendId = await state.get(backendIdKey)
+    if (typeof backendId !== "string" || !backendId) {
+      throw new Error("[vitehub] Webhook Agent state returned an invalid backend identity.")
+    }
+    return backendId
+  })()
+  webhookStateBackendIds.set(state, resolving)
+  void resolving.catch(() => webhookStateBackendIds.delete(state))
+  return resolving
+}
+
 async function resolveAgentWebhookState(
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
   handlerOptions: AgentChannelWebhookRouteOptions,
-): Promise<{ keyPrefix: string, state: StateAdapter } | undefined> {
+): Promise<{ backendId: string, keyPrefix: string, state: StateAdapter } | undefined> {
   const stateOption = handlerOptions.webhookState
   if (!stateOption) return
   const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
@@ -617,7 +638,8 @@ async function resolveAgentWebhookState(
   } as never)
   if (!state) return
   await state.connect()
-  return { keyPrefix, state }
+  const backendId = await resolveWebhookStateBackendId(state, keyPrefix)
+  return { backendId, keyPrefix, state }
 }
 
 function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer" | "steer-lock" | "steer-send-lock", value: string): string {
@@ -697,6 +719,7 @@ function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Reque
 async function steerQueuedWebhookDelivery(
   state: AgentWebhookQueueStateAdapter,
   activeInvocationScope: object,
+  backendId: string,
   delivery: AgentWebhookQueueDelivery,
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
@@ -732,7 +755,7 @@ async function steerQueuedWebhookDelivery(
     if (claimed) {
       return duplicateResponse(claimed)
     }
-    const active = activeAgentInvocation(delivery.concurrencyKey, activeInvocationScope)
+    const active = activeAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, activeInvocationScope)
     if (active) {
       const { controller } = active
       const sendLock = await state.acquireLock(
@@ -936,6 +959,7 @@ async function executeQueuedWebhookDelivery(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   state: AgentWebhookQueueStateAdapter,
   activeInvocationScope: object,
+  backendId: string,
   delivery: AgentWebhookQueueLease,
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
@@ -1005,7 +1029,7 @@ async function executeQueuedWebhookDelivery(
           return output
         })
         const unregister = delivery.concurrencyKey
-          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller, settlement, activeInvocationScope)
+          ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, settlement, activeInvocationScope)
           : () => undefined
         const unregisterOnOwnershipLoss = () => unregister()
         if (ownershipAbort.signal.aborted) unregisterOnOwnershipLoss()
@@ -3521,8 +3545,8 @@ export function createChannelChatRouteHandler(
 export function createChannelWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): AgentChannelWebhookRouteHandler {
-  const queueScopes = new Map<string, { options: AgentChannelWebhookRouteOptions, state: AgentWebhookQueueStateAdapter }>()
-  const queueStates = new Set<AgentWebhookQueueStateAdapter>()
+  const queueScopes = new Map<string, { backendId: string, options: AgentChannelWebhookRouteOptions, scope: string, state: AgentWebhookQueueStateAdapter }>()
+  const queueStates = new Map<AgentWebhookQueueStateAdapter, string>()
   const drainingScopes = new Set<string>()
   const pendingDrainScopes = new Set<string>()
   const retryTimers = new Map<string, { at: number, resolve: () => void, timer: ReturnType<typeof setTimeout> }>()
@@ -3532,8 +3556,8 @@ export function createChannelWebhookRouteHandler(
   let queueStopped = false
   let drainQueue: (scope: string) => Promise<void>
 
-  const scheduleQueueDrain = (scope: string, at: number, waitUntil?: AgentWaitUntil) => {
-    const existing = retryTimers.get(scope)
+  const scheduleQueueDrain = (queueId: string, at: number, waitUntil?: AgentWaitUntil) => {
+    const existing = retryTimers.get(queueId)
     if (existing && existing.at <= at) return
     if (existing) {
       clearTimeout(existing.timer)
@@ -3544,49 +3568,49 @@ export function createChannelWebhookRouteHandler(
       resolveScheduled = resolve
     })
     const timer = setTimeout(() => {
-      retryTimers.delete(scope)
-      void drainQueue(scope).finally(resolveScheduled)
+      retryTimers.delete(queueId)
+      void drainQueue(queueId).finally(resolveScheduled)
     }, Math.max(0, at - Date.now()))
     timer.unref?.()
-    retryTimers.set(scope, { at, resolve: resolveScheduled, timer })
+    retryTimers.set(queueId, { at, resolve: resolveScheduled, timer })
     waitUntil?.(scheduled)
   }
 
-  const drainQueueOnce = async (scope: string) => {
-    const queue = queueScopes.get(scope)
+  const drainQueueOnce = async (queueId: string) => {
+    const queue = queueScopes.get(queueId)
     if (queueStopped || !queue) return
-    if (drainingScopes.has(scope)) {
-      pendingDrainScopes.add(scope)
+    if (drainingScopes.has(queueId)) {
+      pendingDrainScopes.add(queueId)
       return
     }
-    drainingScopes.add(scope)
+    drainingScopes.add(queueId)
     try {
       const waitUntil = await resolveRuntimeWaitUntil(queue.options.waitUntil)
       while (!queueStopped) {
-        const delivery = await queue.state.claimWebhookDelivery(scope)
+        const delivery = await queue.state.claimWebhookDelivery(queue.scope)
         if (!delivery) {
-          if (![...activeDeliveries.values()].some(active => active.scope === scope)) {
-            scheduleQueueDrain(scope, Date.now() + defaultWebhookQueueRetryMs)
+          if (![...activeDeliveries.values()].some(active => active.scope === queueId)) {
+            scheduleQueueDrain(queueId, Date.now() + defaultWebhookQueueRetryMs, waitUntil)
           }
           break
         }
         if (queueStopped) {
-          await queue.state.retryWebhookDelivery(scope, delivery.deliveryId, delivery.leaseToken, Date.now()).catch(() => undefined)
+          await queue.state.retryWebhookDelivery(queue.scope, delivery.deliveryId, delivery.leaseToken, Date.now()).catch(() => undefined)
           break
         }
         const controller = new AbortController()
-        const task = executeQueuedWebhookDelivery(agent, queue.state, activeInvocationScope, delivery, queue.options, controller.signal)
-        activeDeliveries.set(task, { controller, scope })
+        const task = executeQueuedWebhookDelivery(agent, queue.state, activeInvocationScope, queue.backendId, delivery, queue.options, controller.signal)
+        activeDeliveries.set(task, { controller, scope: queueId })
         waitUntil?.(task)
         void task.then((retryAt) => {
-          for (const registeredScope of queueScopes.keys()) {
-            if (registeredScope !== scope) void drainQueue(registeredScope)
+          for (const registeredQueueId of queueScopes.keys()) {
+            if (registeredQueueId !== queueId) void drainQueue(registeredQueueId)
           }
-          if (retryAt === undefined || retryAt <= Date.now()) void drainQueue(scope)
-          else scheduleQueueDrain(scope, retryAt, waitUntil)
+          if (retryAt === undefined || retryAt <= Date.now()) void drainQueue(queueId)
+          else scheduleQueueDrain(queueId, retryAt, waitUntil)
         }).catch((error) => {
           console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" stopped unexpectedly.`, error)
-          scheduleQueueDrain(scope, Date.now() + defaultWebhookQueueRetryMs, waitUntil)
+          scheduleQueueDrain(queueId, Date.now() + defaultWebhookQueueRetryMs, waitUntil)
         }).finally(() => {
           activeDeliveries.delete(task)
         })
@@ -3594,26 +3618,27 @@ export function createChannelWebhookRouteHandler(
     }
     catch (error) {
       console.error("[vitehub] Webhook queue drain failed and will be retried.", error)
-      scheduleQueueDrain(scope, Date.now() + defaultWebhookQueueRetryMs, await resolveRuntimeWaitUntil(queue.options.waitUntil))
+      scheduleQueueDrain(queueId, Date.now() + defaultWebhookQueueRetryMs, await resolveRuntimeWaitUntil(queue.options.waitUntil))
     }
     finally {
-      drainingScopes.delete(scope)
-      if (pendingDrainScopes.delete(scope)) void drainQueue(scope)
+      drainingScopes.delete(queueId)
+      if (pendingDrainScopes.delete(queueId)) void drainQueue(queueId)
     }
   }
 
-  drainQueue = (scope) => {
-    const task = drainQueueOnce(scope)
+  drainQueue = (queueId) => {
+    const task = drainQueueOnce(queueId)
     inFlightDrains.add(task)
     void task.finally(() => inFlightDrains.delete(task))
     return task
   }
 
-  const registerQueue = async (scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
+  const registerQueue = async (backendId: string, scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
     if (!hasAgentWebhookQueue(state)) return false
-    queueStates.add(state)
-    queueScopes.set(scope, { options, state })
-    const task = drainQueue(scope)
+    queueStates.set(state, backendId)
+    const queueId = `${backendId}:${scope}`
+    queueScopes.set(queueId, { backendId, options, scope, state })
+    const task = drainQueue(queueId)
     const waitUntil = await resolveRuntimeWaitUntil(options.waitUntil)
     waitUntil?.(task)
     return true
@@ -3713,18 +3738,18 @@ export function createChannelWebhookRouteHandler(
             )
             if (invocation.webhook.busy === "steer") {
               const webhookQueueState = webhookState.state
-              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, activeInvocationScope, delivery, invocation.input, waitUntil, async (reserved) => {
+              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, activeInvocationScope, webhookState.backendId, delivery, invocation.input, waitUntil, async (reserved) => {
                 if (reserved) return Response.json({ accepted: true, duplicate: false, ok: true, queued: true })
                 const queued = await webhookQueueState.enqueueWebhookDelivery(delivery)
                 return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
               })
               if (outcome) {
-                if (outcome.queued) registerQueue(webhookState.keyPrefix, webhookQueueState, handlerOptions)
+                if (outcome.queued) registerQueue(webhookState.backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
                 return outcome.response
               }
             }
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
-            await registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+            await registerQueue(webhookState.backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
             return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
@@ -3878,9 +3903,9 @@ export function createChannelWebhookRouteHandler(
     const discoverScopes = async () => {
       if (stopped || discoveringScopes) return
       discoveringScopes = (async () => {
-        for (const state of queueStates) {
+        for (const [state, backendId] of queueStates) {
           for (const scope of await state.webhookDeliveryScopes()) {
-            if (scope.startsWith(agentScopePrefix) && !queueScopes.has(scope)) await registerQueue(scope, state, handlerOptions)
+            if (scope.startsWith(agentScopePrefix)) await registerQueue(backendId, scope, state, handlerOptions)
           }
         }
       })()
@@ -3907,14 +3932,14 @@ export function createChannelWebhookRouteHandler(
           const state = await resolveMaybe(handlerOptions.webhookState, context as never)
           if (state) {
             await state.connect()
-            if (hasAgentWebhookQueue(state)) queueStates.add(state)
+            if (hasAgentWebhookQueue(state)) queueStates.set(state, await resolveWebhookStateBackendId(state, agentScopePrefix))
           }
         }
         for (const { registration } of await agentWebhookRegistrations(agent, context)) {
           if (stopped) return
           const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
           if (webhookState && hasAgentWebhookQueue(webhookState.state)) {
-            await registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+            await registerQueue(webhookState.backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
           }
         }
         await discoverScopes()
