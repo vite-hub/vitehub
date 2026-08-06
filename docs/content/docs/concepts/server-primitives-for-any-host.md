@@ -1,6 +1,6 @@
 ---
 title: Server primitives
-description: Learn how ViteHub gives application code access to databases, queues, storage, and other server-side capabilities.
+description: Build server-backed features with databases, queues, storage, and more while keeping your application portable across hosts.
 navigation.group: Start here
 navigation.order: 2
 icon: i-lucide-server
