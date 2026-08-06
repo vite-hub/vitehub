@@ -6,7 +6,7 @@ navigation.order: 2
 icon: i-lucide-server
 ---
 
-Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes. The application decides when to call the primitive and what to do with its result.
+Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
 
 A Vite Integration connects the primitive to the local runtime and deployment host. Application code calls the package's Runtime Helper while ViteHub handles the host-specific setup.
 
