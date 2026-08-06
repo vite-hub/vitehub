@@ -759,7 +759,7 @@ async function steerQueuedWebhookDelivery(
     if (active) {
       const { controller } = active
       const sendLock = await state.acquireLock(
-        webhookOwnershipKey(delivery.scope, "steer-send-lock", delivery.concurrencyKey),
+        webhookOwnershipKey(`webhook-backend:${webhookScopeComponent(backendId)}:`, "steer-send-lock", delivery.concurrencyKey),
         delivery.leaseTtlMs,
       )
       if (!sendLock) {
@@ -3561,7 +3561,7 @@ export function createChannelWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): AgentChannelWebhookRouteHandler {
   const queueScopes = new Map<string, { backendId: string, options: AgentChannelWebhookRouteOptions, scope: string, state: AgentWebhookQueueStateAdapter }>()
-  const queueStates = new Map<AgentWebhookQueueStateAdapter, string>()
+  const queueStates = new Map<AgentWebhookQueueStateAdapter, Map<string, string> | undefined>()
   const drainingScopes = new Set<string>()
   const pendingDrainScopes = new Set<string>()
   const retryTimers = new Map<string, { at: number, resolve: () => void, timer: ReturnType<typeof setTimeout> }>()
@@ -3650,7 +3650,8 @@ export function createChannelWebhookRouteHandler(
 
   const registerQueue = async (backendId: string, scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
     if (!hasAgentWebhookQueue(state)) return false
-    queueStates.set(state, backendId)
+    if (!queueStates.has(state)) queueStates.set(state, new Map())
+    queueStates.get(state)?.set(scope, backendId)
     const queueId = `${backendId}:${scope}`
     queueScopes.set(queueId, { backendId, options, scope, state })
     const task = drainQueue(queueId)
@@ -3921,9 +3922,18 @@ export function createChannelWebhookRouteHandler(
     const discoverScopes = async () => {
       if (stopped || discoveringScopes) return
       discoveringScopes = (async () => {
-        for (const [state, backendId] of queueStates) {
-          for (const scope of await state.webhookDeliveryScopes()) {
-            if (scope.startsWith(agentScopePrefix)) await registerQueue(backendId, scope, state, handlerOptions)
+        for (const [state, knownScopes] of queueStates) {
+          const persistedScopes = new Set(await state.webhookDeliveryScopes())
+          if (knownScopes) {
+            for (const [scope, backendId] of knownScopes) {
+              if (persistedScopes.has(scope)) await registerQueue(backendId, scope, state, handlerOptions)
+            }
+          }
+          else {
+            const backendId = await resolveWebhookStateBackendId(state, agentScopePrefix)
+            for (const scope of persistedScopes) {
+              if (scope.startsWith(agentScopePrefix)) await registerQueue(backendId, scope, state, handlerOptions)
+            }
           }
         }
       })()
@@ -3951,7 +3961,7 @@ export function createChannelWebhookRouteHandler(
           if (state) {
             await state.connect()
             if (hasAgentWebhookQueue(state)) {
-              queueStates.set(state, await resolveWebhookStateBackendId(state, agentScopePrefix))
+              queueStates.set(state, undefined)
             }
           }
         }
