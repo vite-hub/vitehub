@@ -84,6 +84,8 @@ describe("Agent Invocation controllers", () => {
     expect(controller.support.steer).toBe(true)
     await expect(controller.sendInput({ context: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
     await expect(controller.sendInput({ options: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
+    await expect(controller.sendInput({ prompt: "follow up", timeout: 1_000 }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
+    await expect(controller.sendInput({ abortSignal: new AbortController().signal, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
     await expect(controller.sendInput({ prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
     expect(firstSubmit).toHaveBeenCalledWith("follow up")
     const userMessage = { id: "user", parts: [{ text: "message input", type: "text" as const }], role: "user" as const }

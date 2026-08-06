@@ -161,8 +161,9 @@ function harnessSteeringMessages(value: unknown): Message[] {
   ))
 }
 
-function harnessSteeringText(input: { context?: unknown, message?: unknown, messages?: unknown, options?: unknown, prompt?: unknown }): string | undefined {
-  if (input.context !== undefined || input.options !== undefined) return
+function harnessSteeringText(input: { message?: unknown, messages?: unknown, prompt?: unknown }): string | undefined {
+  const messageFields = new Set(["message", "messages", "prompt"])
+  if (Object.entries(input).some(([field, value]) => value !== undefined && !messageFields.has(field))) return
   const selectedInput = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message ?? input.prompt)
   if (typeof selectedInput === "string" && selectedInput.trim()) return selectedInput
   const messages = harnessSteeringMessages(selectedInput)
