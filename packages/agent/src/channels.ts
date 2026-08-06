@@ -96,12 +96,17 @@ export type {
   AgentMessageChannelSettings,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
-export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+export interface AgentChannelOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
+  TAuth = unknown,
+> {
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
   capabilities?: AgentChannelDefinition<TRuntimeConfig>["capabilities"]
   effects?: AgentChannelDefinition<TRuntimeConfig>["effects"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
+  route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
   triggers?: AgentChannelDefinition<TRuntimeConfig>["triggers"]
   webhooks?: AgentChannelDefinition<TRuntimeConfig>["webhooks"]
 }
@@ -113,9 +118,7 @@ export interface AgentWebChatChannelOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
   TAuth = unknown,
-> extends AgentChannelOptions<TRuntimeConfig> {
-  route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
-}
+> extends AgentChannelOptions<TRuntimeConfig, TBody, TAuth> {}
 
 type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
   MaybeResolvable<T, AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>>
@@ -2037,8 +2040,12 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
   })
 }
 
-export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+export function http<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
+  TAuth = unknown,
+>(
+  options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   if ("path" in options) {
     throw new TypeError("[vitehub] http({ path }) is not wired yet. Webhook routes are configured with webhooks.path.")
