@@ -589,8 +589,8 @@ async function createAgentWebhookTriggerInput(request: Request, registration: Ag
 }
 
 const defaultWebhookConcurrencyTtlMs = 30_000
-function webhookAgentScopeComponent(agentName: string): string {
-  return encodeURIComponent(agentName)
+function webhookScopeComponent(value: string): string {
+  return encodeURIComponent(value)
 }
 
 async function resolveAgentWebhookState(
@@ -603,7 +603,7 @@ async function resolveAgentWebhookState(
   const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
   const origin = chatRegistrationOrigin(registration)
   const registrationId = registration.id || registration.path || origin
-  const keyPrefix = `webhook:${webhookAgentScopeComponent(agentName)}:${origin}:${registrationId}:`
+  const keyPrefix = `webhook:${webhookScopeComponent(agentName)}:${webhookScopeComponent(origin)}:${webhookScopeComponent(registrationId)}:`
   const state = await resolveMaybe(stateOption, {
     ...context,
     webhook: {
@@ -3695,7 +3695,7 @@ export function createChannelWebhookRouteHandler(
     let discovering: Promise<void> | undefined
     let discoveringScopes: Promise<void> | undefined
     queueStopped = false
-    const agentScopePrefix = `webhook:${webhookAgentScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
+    const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
     const discoverScopes = async () => {
       if (stopped || discoveringScopes) return
       discoveringScopes = (async () => {

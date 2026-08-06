@@ -6511,7 +6511,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "accepted")
     const agent = defineAgent({
       channels: {
-        support: github({
+        "support:team": github({
           triggers: {
             webhook: {
               invoke: () => ({
@@ -6521,8 +6521,8 @@ describe("server helpers", () => {
             },
           },
           webhooks: [
-            { id: "primary", path: "/api/support/primary", secretToken: false },
-            { id: "fallback", path: "/api/support/fallback", secretToken: false },
+            { id: "primary:one", path: "/api/support/primary", secretToken: false },
+            { id: "fallback:two", path: "/api/support/fallback", secretToken: false },
           ],
         }),
       },
@@ -6537,15 +6537,15 @@ describe("server helpers", () => {
     }
 
     try {
-      const primary = await handler(new Request("https://example.com/webhook", { method: "POST" }), "primary", options)
-      const fallback = await handler(new Request("https://example.com/webhook", { method: "POST" }), "fallback", options)
+      const primary = await handler(new Request("https://example.com/webhook", { method: "POST" }), "primary:one", options)
+      const fallback = await handler(new Request("https://example.com/webhook", { method: "POST" }), "fallback:two", options)
 
       await expect(primary.json()).resolves.toEqual({ accepted: true, ok: true })
       await expect(fallback.json()).resolves.toEqual({ accepted: true, ok: true })
       await Promise.all(waitUntilTasks)
       expect(run).toHaveBeenCalledTimes(2)
-      await expect(state.get("webhook:support:support:primary:delivery:shared-delivery")).resolves.toBe(true)
-      await expect(state.get("webhook:support:support:fallback:delivery:shared-delivery")).resolves.toBe(true)
+      await expect(state.get("webhook:support:support%3Ateam:primary%3Aone:delivery:shared-delivery")).resolves.toBe(true)
+      await expect(state.get("webhook:support:support%3Ateam:fallback%3Atwo:delivery:shared-delivery")).resolves.toBe(true)
     }
     finally {
       await state.disconnect()
