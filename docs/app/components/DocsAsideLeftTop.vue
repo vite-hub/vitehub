@@ -15,10 +15,14 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 
     <nav class="vh-docs-lane-switcher" aria-label="Documentation product">
       <NuxtLink
-        v-for="option in laneOptions"
+        v-for="(option, index) in laneOptions"
         :key="option.id"
         :to="laneTarget(option.id)"
-        :class="['vh-docs-lane-option', { 'is-active': lane === option.id }]"
+        :class="['vh-docs-lane-option', {
+          'is-active': lane === option.id,
+          'is-before-active': lane === laneOptions[index + 1]?.id,
+          'is-after-active': lane === laneOptions[index - 1]?.id,
+        }]"
         :aria-current="lane === option.id ? 'page' : undefined"
       >
         <UIcon :name="option.icon" class="size-4 shrink-0" />
@@ -42,7 +46,7 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   justify-content: center;
   gap: 0.375rem;
   padding: 0.5rem;
-  border: 1px solid var(--ui-border);
+  border: 0;
   border-radius: 0;
   background: var(--ui-bg-muted);
   color: var(--ui-text-muted);
@@ -52,6 +56,18 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   opacity: 0.68;
   text-align: center;
   transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease, transform 150ms ease;
+}
+
+.vh-docs-lane-option:not(.is-active) {
+  border-bottom: 1px solid var(--ui-border-accented);
+}
+
+.vh-docs-lane-option.is-before-active {
+  border-right: 1px solid var(--ui-border-accented);
+}
+
+.vh-docs-lane-option.is-after-active {
+  border-left: 1px solid var(--ui-border-accented);
 }
 
 .vh-docs-lane-option:hover,
