@@ -62,6 +62,9 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
         throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)
       }
       if (engine === "kitesurf") {
+        if (openOptions.idleTimeoutMs !== undefined) {
+          throw browserProviderError("cloudflare", "configure an idle timeout for Kitesurf")
+        }
         return {
           close() {},
           connection: {

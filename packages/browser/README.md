@@ -51,6 +51,8 @@ export default defineConfig({
 
 ViteHub generates the Cloudflare Browser Run binding and uses Kitesurf by default. It closes every session after its Browser Definition completes or throws. `runBrowser()` returns an error-first result, so application code handles runtime failures without a `try/catch`. A definition can open more than one session; each one belongs to that invocation.
 
+Kitesurf uses Cloudflare's service-defined session timeout and rejects `idleTimeoutMs`. Select `engine: "chromium"` when an invocation must configure a persistent session's idle timeout.
+
 ## Low-level sessions
 
 `createBrowser()` remains available for standalone integrations where the caller owns provider selection and cleanup. Controller attachment is imperative:

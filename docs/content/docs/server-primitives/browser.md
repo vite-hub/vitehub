@@ -113,6 +113,8 @@ export default defineConfig({
 
 The Cloudflare preset writes the Browser Run binding plus the `nodejs_compat` and `no_websocket_standard_binary_type` flags to Nitro's generated Provider Output. The second flag preserves `ArrayBuffer` delivery for the Playwright WebSocket connection.
 
+Kitesurf uses Cloudflare's service-defined session timeout and does not accept `idleTimeoutMs`. Select `engine: 'chromium'` when an invocation must configure a persistent session's idle timeout.
+
 Cloudflare can run a local browser during `wrangler dev`. Set `remote: true` only when a local proof must connect to Cloudflare's Browser Run service. Both the root integration and direct `hubBrowser()` output write the Browser binding and required compatibility flags while preserving unrelated Wrangler fields.
 
 ## Low-level sessions

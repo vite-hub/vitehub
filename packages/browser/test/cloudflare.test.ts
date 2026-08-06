@@ -22,6 +22,12 @@ describe("cloudflareBrowser", () => {
     await session.close()
   })
 
+  it("rejects idle timeouts that sessionless Kitesurf cannot honor", async () => {
+    const provider = cloudflareBrowser({ binding: { fetch: vi.fn() } })
+
+    await expect(provider.open({ idleTimeoutMs: 120_000 })).rejects.toThrow("configure an idle timeout for Kitesurf")
+  })
+
   it("acquires without attaching and terminates independently", async () => {
     const send = vi.fn()
     const detach = vi.fn()
