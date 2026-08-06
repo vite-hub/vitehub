@@ -50,7 +50,7 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   padding: 0.5rem;
   color: var(--ui-text-muted);
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: 550;
   line-height: 1rem;
   text-align: center;
   transition: background-color 150ms ease, color 150ms ease;
@@ -66,9 +66,8 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 }
 
 .vh-docs-lane-option.is-active {
-  background: var(--ui-bg);
-  color: var(--ui-text-highlighted);
-  box-shadow: inset 0 -2px var(--ui-text-highlighted);
+  background: var(--ui-bg-inverted);
+  color: var(--ui-text-inverted);
 }
 
 .vh-sidebar-search {
