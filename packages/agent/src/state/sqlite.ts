@@ -34,7 +34,7 @@ export interface SqliteAgentStateOptions {
 export interface LibsqlAgentStateClient {
   close?: () => MaybePromise<void>
   execute: (statement: string | { args?: unknown[], sql: string }) => MaybePromise<SqliteAgentStateResult>
-  transaction?: (mode?: "deferred" | "read" | "write") => MaybePromise<{
+  transaction: (mode?: "deferred" | "read" | "write") => MaybePromise<{
     close?: () => MaybePromise<void>
     commit: () => MaybePromise<void>
     execute: (statement: string | { args?: unknown[], sql: string }) => MaybePromise<SqliteAgentStateResult>
@@ -580,7 +580,7 @@ export function createSqliteAgentState(options: SqliteAgentStateOptions): ViteHu
   return new ViteHubSqliteAgentStateAdapter(options)
 }
 
-function libsqlExecute(client: LibsqlAgentStateClient): SqliteAgentStateExecutor["execute"] {
+function libsqlExecute(client: Pick<LibsqlAgentStateClient, "execute">): SqliteAgentStateExecutor["execute"] {
   return async (statement, args = []) => await client.execute({ args, sql: statement })
 }
 
@@ -620,7 +620,7 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
       async transaction(run) {
         if (!client) throw new Error("[vitehub] libSQL Agent State is not connected.")
         if (!client.transaction) {
-          return await run({ execute: libsqlExecute(client) })
+          throw new Error("[vitehub] libSQL Agent State clients must support transactions.")
         }
         const transaction = await client.transaction("write")
         try {

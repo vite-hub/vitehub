@@ -252,6 +252,18 @@ describe("SQLite Agent State Provider", () => {
     await expect(state.get("seen")).rejects.toThrow("not connected")
   })
 
+  it("requires custom libSQL clients to support transactions", async () => {
+    const state = createLibsqlAgentState({
+      client: {
+        async execute() {
+          return { rows: [] }
+        },
+      } as never,
+    })
+
+    await expect(state.connect()).rejects.toThrow("libSQL Agent State clients must support transactions")
+  })
+
   it("can reconnect an owned libSQL client after disconnect", async () => {
     const { state } = await createState()
     await state.connect()

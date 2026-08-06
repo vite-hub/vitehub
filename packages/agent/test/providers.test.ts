@@ -715,6 +715,8 @@ describe("agent Vite plugin", () => {
       expect(wrapper).not.toContain("let viteHubChatState:")
       expect(wrapper).not.toContain("build-token")
       expect(wrapper).toContain("function chatStateFromLibsql()")
+      expect(wrapper).toContain("export function resumeWebhookQueues()")
+      expect(wrapper).toContain("const stopWebhookQueues = resumeWebhookQueues()")
       expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(wrapper).not.toContain("@vite-hub/schedule/runtime")
