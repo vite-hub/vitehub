@@ -20,20 +20,38 @@ Server Primitives are APIs that application code calls to work with server-side 
 
 ## How a primitive works in your app
 
-Database shows the pattern in a small Vite app. Enable the package integration first:
+Most ViteHub primitives follow the same pattern:
 
 :::steps{level="3"}
 
 ### Configure
 
-```ts [vite.config.ts]
-import { hubDb } from '@vite-hub/database/vite'
-import { defineConfig } from 'vite'
+::tabs
+  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs"}
+    ```ts [nuxt.config.ts]
+    import viteHubNuxt from 'vite-hub/nuxt'
 
-export default defineConfig({
-  plugins: [hubDb()],
-})
-```
+    export default defineNuxtConfig({
+      modules: [
+        [viteHubNuxt, { preset: 'node', database: true }],
+      ],
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nitro" icon="i-simple-icons-unjs"}
+    ```ts [vite.config.ts]
+    import { defineConfig } from 'vite'
+    import { vitehub } from 'vite-hub'
+
+    export default defineConfig({
+      plugins: [
+        vitehub({ preset: 'node', database: true }),
+      ],
+    })
+    ```
+  :::
+::
 
 ### Define the database
 
