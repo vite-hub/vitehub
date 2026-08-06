@@ -16,8 +16,8 @@ ViteHub automatically adapts the primitive for local development and for your de
 | --- | --- |
 | Read configuration or secrets | [Env](/docs/server-primitives/env) |
 | Store application data | [Database](/docs/server-primitives/database) or [KV](/docs/server-primitives/kv) |
-| Persist files or expose read-only origins | [Workspace](/docs/server-primitives/workspace) and [Source](/docs/server-primitives/source) |
 | Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
+| Persist files or expose read-only origins | [Workspace](/docs/server-primitives/workspace) and [Source](/docs/server-primitives/source) |
 | Run isolated commands or code | [Shell](/docs/server-primitives/shell) or [Sandbox](/docs/server-primitives/sandbox) |
 
 ## Agent Primitives use LLMs to run actions on demand
