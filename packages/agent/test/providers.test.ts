@@ -5401,6 +5401,64 @@ describe("server helpers", () => {
     }
   })
 
+  it("replaces request abort signals before persisting webhook invocations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-abort-signal-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
+    const run = vi.fn(({ input }: { input: { abortSignal?: AbortSignal } }) => {
+      expect(input.abortSignal).toBeInstanceOf(AbortSignal)
+      expect(input.abortSignal?.aborted).toBe(false)
+      return "accepted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: {
+                  abortSignal: AbortSignal.abort(new Error("request ended")),
+                  prompt: "persist safely",
+                },
+                webhook: {
+                  concurrencyLimit: 1,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-abort-signal",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", { agentName: "review", webhookState: state })
+
+      expect(response.status).toBe(200)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(enqueue.mock.calls[0]?.[0].invocation?.input).not.toHaveProperty("abortSignal")
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("resumes persisted webhook deliveries after a process restart", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")

@@ -665,6 +665,16 @@ function containsFunction(value: unknown, seen = new Set<object>()): boolean {
   return Object.values(value).some(entry => containsFunction(entry, seen))
 }
 
+function persistedWebhookInvocation(
+  invocation: { input: Record<string, unknown>, run?: unknown },
+): { input: Record<string, unknown>, run?: unknown } {
+  const { abortSignal: _abortSignal, ...input } = invocation.input
+  return {
+    input,
+    ...(invocation.run ? { run: invocation.run } : {}),
+  }
+}
+
 function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Request {
   return new Request(delivery.request.url, {
     body: delivery.request.body || undefined,
@@ -3375,6 +3385,9 @@ export function createChannelWebhookRouteHandler(
         activeDeliveries.set(task, controller)
         waitUntil?.(task)
         void task.then((retryAt) => {
+          for (const registeredScope of queueScopes.keys()) {
+            if (registeredScope !== scope) void drainQueue(registeredScope)
+          }
           if (retryAt === undefined || retryAt <= Date.now()) void drainQueue(scope)
           else scheduleQueueDrain(scope, retryAt)
         }).catch((error) => {
@@ -3493,10 +3506,7 @@ export function createChannelWebhookRouteHandler(
               routeAgentIdentity(handlerOptions)?.name || "agent",
               containsFunction(invocation.input) || containsFunction(invocation.run)
                 ? undefined
-                : {
-                    input: invocation.input,
-                    ...(invocation.run ? { run: invocation.run } : {}),
-                  },
+                : persistedWebhookInvocation(invocation as unknown as { input: Record<string, unknown>, run?: unknown }),
             )
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
