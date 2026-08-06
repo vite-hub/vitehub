@@ -82,7 +82,6 @@
     "./browser/providers/local": "./dist/browser/providers/local.js",
     "./channels": "./dist/channels.js",
     "./channels/server": "./dist/channels/server.js",
-    "./channels/vite": "./dist/channels/vite.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",
     "./email": "./dist/email.js",
