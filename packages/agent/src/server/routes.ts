@@ -3950,7 +3950,9 @@ export function createChannelWebhookRouteHandler(
           const state = await resolveMaybe(handlerOptions.webhookState, context as never)
           if (state) {
             await state.connect()
-            if (hasAgentWebhookQueue(state)) queueStates.set(state, await resolveWebhookStateBackendId(state, agentScopePrefix))
+            if (hasAgentWebhookQueue(state)) {
+              queueStates.set(state, await resolveWebhookStateBackendId(state, agentScopePrefix))
+            }
           }
         }
         for (const { registration } of await agentWebhookRegistrations(agent, context)) {
