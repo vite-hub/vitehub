@@ -26,7 +26,7 @@ Most ViteHub primitives follow the same pattern:
 
 ### Configure
 
-Enable the primitive in your framework configuration so ViteHub can discover its Definition and prepare the runtime for development and deployment.
+Enable the primitive in the build configuration used by your framework. ViteHub uses its Vite integration for Vite and Nitro 3, and its Nuxt module for Nuxt 5.
 
 ::tabs
   :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="grayscale"}
@@ -42,7 +42,7 @@ Enable the primitive in your framework configuration so ViteHub can discover its
     ```
   :::
 
-  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs" class="grayscale"}
+  :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs" class="grayscale"}
     ```ts [nuxt.config.ts]
     import viteHubNuxt from 'vite-hub/nuxt'
 
@@ -54,23 +54,17 @@ Enable the primitive in your framework configuration so ViteHub can discover its
     ```
   :::
 
-  :::tabs-item{label="Nitro" icon="i-unjs-nitro" class="grayscale"}
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro" class="grayscale"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
+    import { nitro } from 'nitro/vite'
     import { vitehub } from 'vite-hub'
 
     export default defineConfig({
       plugins: [
         vitehub({ preset: 'node', database: true }),
+        nitro(),
       ],
-    })
-    ```
-
-    ```ts [nitro.config.ts]
-    import { defineNitroConfig } from 'nitropack/config'
-
-    export default defineNitroConfig({
-      preset: 'node',
     })
     ```
   :::
@@ -98,7 +92,7 @@ Create a Database Definition in the location used by your framework. It declares
     ```
   :::
 
-  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs" class="grayscale"}
+  :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs" class="grayscale"}
     ```ts [server/databases/notes/config.ts]
     import { defineDatabase } from '@vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -115,7 +109,7 @@ Create a Database Definition in the location used by your framework. It declares
     ```
   :::
 
-  :::tabs-item{label="Nitro" icon="i-unjs-nitro" class="grayscale"}
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro" class="grayscale"}
     ```ts [server/databases/notes/config.ts]
     import { defineDatabase } from '@vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
