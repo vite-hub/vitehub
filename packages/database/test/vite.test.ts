@@ -328,6 +328,7 @@ describe("hubDb", () => {
     expect(databasesCode).toContain(definition)
     expect(databasesCode).toContain("\"default\"")
     expect(databasesCode).toContain("\"server/databases/migrations\"")
+    await expect(readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")).resolves.toContain('declare module "#vitehub/database/databases"')
   })
 
   it("refreshes generated artifacts during definition hot updates", async () => {

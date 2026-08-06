@@ -162,10 +162,11 @@ export default defineDatabase({
 Named databases should represent real ownership or operational boundaries, not folder organization.
 
 ```ts [server/api/events.get.ts]
-import { databases } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
-  return databases.analytics.db.select().from(databases.analytics.schema.events)
+  const { db, schema } = useDatabase('analytics')
+  return db.select().from(schema.events)
 })
 ```
 

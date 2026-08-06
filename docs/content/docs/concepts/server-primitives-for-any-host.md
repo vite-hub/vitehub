@@ -129,16 +129,15 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
 Import the generated Runtime Helper in a server route and query the named database. ViteHub connects that call to the provider configured for the current environment.
 
 ```ts [server/api/notes.get.ts]
-import { databases } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
-  return databases.notes.db.select().from(databases.notes.schema.notes)
+  const { db, schema } = useDatabase('notes')
+  return db.select().from(schema.notes)
 })
 ```
 
 ::
-
-ViteHub discovers the Database Definition, generates the Drizzle Runtime Surface, and adapts the provider output for development and deployment. Other primitives follow the same shape, but their Definition locations and Runtime Helpers differ.
 
 ## Inspect the boundary
 

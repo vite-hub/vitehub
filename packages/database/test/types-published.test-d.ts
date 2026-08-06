@@ -1,11 +1,24 @@
 import { defineDatabase } from "@vite-hub/database"
-import { agentDb, db, databases, schema } from "@vite-hub/database/drizzle"
+import { agentDb, db, databases, schema, useDatabase } from "@vite-hub/database/drizzle"
 import { hubDb } from "@vite-hub/database/nuxt"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Database, DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+
+const analyticsSchema = {
+  events: sqliteTable("events", { name: text("name").notNull() }),
+}
+
+declare module "#vitehub/database/databases" {
+  interface DatabaseRegistry {
+    analytics: {
+      config: import("@vite-hub/database").ResolvedDrizzleDatabaseConfig
+      schema: typeof analyticsSchema
+    }
+  }
+}
 
 describe("published package types", () => {
   it("resolves virtual schema types from the drizzle subpath without manual ambient imports", () => {
@@ -15,6 +28,9 @@ describe("published package types", () => {
     expectTypeOf(db).toMatchTypeOf<typeof databases.default.db>()
     expectTypeOf(agentDb.query).toBeFunction()
     expectTypeOf(agentDb.database("analytics").exec).toBeFunction()
+    expectTypeOf(useDatabase("analytics").schema.events).toEqualTypeOf(analyticsSchema.events)
+    // @ts-expect-error Unknown database names must be rejected by the generated registry.
+    useDatabase("missing")
   })
 
   it("returns a typed runtime database from defineDatabase", () => {
