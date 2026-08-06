@@ -46,9 +46,8 @@ export function useChannel<const TName extends ChannelDefinitionName>(name: TNam
   ChannelDefinitionDefault<ChannelRegistryDefinition<TName>>
 >
 export function useChannel<
-  TConnectors extends ChannelConnectorMap = ChannelConnectorMap,
-  TDefault extends keyof TConnectors & string = never,
->(name: string): ChannelClient<TConnectors, TDefault>
+  TName extends string,
+>(name: string extends TName ? TName : never): ChannelClient<ChannelConnectorMap>
 export function useChannel<TConnectors extends ChannelConnectorMap = ChannelConnectorMap>(name: string): ChannelClient<TConnectors> {
   if (typeof name !== "string" || name.trim().length === 0) {
     throw new TypeError("`useChannel()` requires a non-empty channel name.")

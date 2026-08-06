@@ -27,9 +27,8 @@ export type ChannelsVitePlugin = Plugin & { api: ChannelsVitePluginAPI }
 
 function renderRegistry(definitions: DiscoveredChannelDefinition[]): string {
   return [
-    "const registry = {",
-    ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: () => import(${JSON.stringify(definition.handler)}),`),
-    "}",
+    "const registry = Object.create(null)",
+    ...definitions.map(definition => `registry[${JSON.stringify(definition.name)}] = () => import(${JSON.stringify(definition.handler)})`),
     "",
     "export default registry",
     "",

@@ -73,6 +73,18 @@ describe("hubChannels", () => {
     )
   })
 
+  it("preserves prototype-like Channel names in the generated registry", async () => {
+    const root = await createTempProject()
+    await writeChannel(root, "server/channels/__proto__.ts")
+    const plugin = hubChannels()
+
+    await resolvePlugin(plugin, root)
+
+    const registry = (plugin.load as (id: string) => string)(`\0${CHANNELS_REGISTRY_ID}`)
+    expect(registry).toContain("const registry = Object.create(null)")
+    expect(registry).toContain('registry["__proto__"] =')
+  })
+
   it("refreshes and invalidates the virtual registry on definition changes", async () => {
     const root = await createTempProject()
     const plugin = hubChannels()

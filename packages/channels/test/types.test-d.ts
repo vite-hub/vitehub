@@ -28,5 +28,11 @@ channel.send("Build finished.", { connector: "telegram", channelId: "channel-1" 
 const discovered = useChannel("alerts")
 discovered.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
 
+// @ts-expect-error Generated Channel names reject unknown literals.
+useChannel("alrets")
+
+const runtimeName: string = "runtime-channel"
+useChannel(runtimeName)
+
 // @ts-expect-error Discovered Channel names retain connector-specific options.
 discovered.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
