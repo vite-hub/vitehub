@@ -706,7 +706,10 @@ async function steerQueuedWebhookDelivery(
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
   const duplicateResponse = (claim: unknown) => claim === "queued"
     ? { queued: true, response: Response.json({ accepted: false, duplicate: true, ok: true, queued: false }) }
-    : { queued: false, response: Response.json({ accepted: false, duplicate: true, ok: true, steered: true }) }
+    : {
+        queued: claim === "steering",
+        response: Response.json({ accepted: false, duplicate: true, ok: true, steered: true }),
+      }
   const existingClaim = await state.get(claimKey)
   if (existingClaim) {
     return duplicateResponse(existingClaim)
