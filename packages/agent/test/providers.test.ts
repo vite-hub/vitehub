@@ -6317,7 +6317,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("periodically discovers persisted scopes only for the resumed Agent", async () => {
+  it("periodically discovers persisted scopes only for the exact resumed Agent", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -6348,15 +6348,15 @@ describe("server helpers", () => {
         method: "POST",
         url: "https://example.com/api/github/webhook",
       },
-      scope: "webhook:other:github:github:",
+      scope: "webhook:review%3Atriage%3Achild:github:github:",
       webhookId: "github",
     })
     const claim = vi.spyOn(state, "claimWebhookDelivery")
-    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review:triage", webhookState: state })
 
     try {
-      await vi.waitFor(() => expect(claim).toHaveBeenCalledWith("webhook:review:github:github:"))
-      expect(claim).not.toHaveBeenCalledWith("webhook:other:github:github:")
+      await vi.waitFor(() => expect(claim).toHaveBeenCalledWith("webhook:review%3Atriage:github:github:"))
+      expect(claim).not.toHaveBeenCalledWith("webhook:review%3Atriage%3Achild:github:github:")
       await state.enqueueWebhookDelivery({
         concurrencyGroup: "review:default",
         concurrencyLimit: 1,
@@ -6365,11 +6365,11 @@ describe("server helpers", () => {
         invocation: { input: { prompt: "persisted" } },
         leaseTtlMs: 30_000,
         request: { body: "{}", headers: {}, method: "POST", url: "https://example.com" },
-        scope: "webhook:review:github:removed-registration:",
+        scope: "webhook:review%3Atriage:github:removed-registration:",
         webhookId: "removed-registration",
       })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 2_000 })
-      expect(claim).not.toHaveBeenCalledWith("webhook:other:github:github:")
+      expect(claim).not.toHaveBeenCalledWith("webhook:review%3Atriage%3Achild:github:github:")
     }
     finally {
       await stop()

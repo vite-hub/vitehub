@@ -572,6 +572,10 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         await execute(tx, `CREATE INDEX idx_${this.tables.webhookQueue}_key ON ${this.tables.webhookQueue}(concurrency_key, status, lease_expires_at) WHERE concurrency_key IS NOT NULL`)
         await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (4)`)
       }
+      if (version < 5) {
+        await execute(tx, `CREATE INDEX IF NOT EXISTS idx_${this.tables.webhookQueue}_active_scope ON ${this.tables.webhookQueue}(scope) WHERE status != 'completed'`)
+        await execute(tx, `INSERT INTO ${this.tables.schemaVersion} (version) VALUES (5)`)
+      }
     })
   }
 

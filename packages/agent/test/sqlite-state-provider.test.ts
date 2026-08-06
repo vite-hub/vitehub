@@ -155,6 +155,7 @@ describe("SQLite Agent State Provider", () => {
       tablePrefix: "test_agent_state_",
     })
     await contended.connect()
+    expect(execute.mock.calls.some(([statement]) => statement.includes("_active_scope"))).toBe(true)
 
     ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
     busyCleanup = true
@@ -204,7 +205,7 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
     const client = createClient({ url })
     const delivery = webhookDelivery("patched-delivery")
-    await client.execute("DELETE FROM test_agent_state_schema_version WHERE version = 4")
+    await client.execute("DELETE FROM test_agent_state_schema_version WHERE version >= 4")
     await client.execute("DROP TABLE test_agent_state_webhook_queue")
     await client.execute(`CREATE TABLE test_agent_state_webhook_queue (
       scope TEXT NOT NULL,
