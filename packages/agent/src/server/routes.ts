@@ -1801,7 +1801,7 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
   }
 }
 
-function chatStateOwnsScope(state: AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined): boolean {
+function stateResolverOwnsScope(state: unknown): boolean {
   if (typeof state === "function") {
     return (state as typeof state & { ownsScope?: boolean }).ownsScope !== false
   }
@@ -1834,7 +1834,7 @@ async function resolveChatState(
       titleKeyPrefix: "",
     }
   }
-  if (options?.state === undefined && !chatStateOwnsScope(handlerOptions.state)) {
+  if (options?.state === undefined && !stateResolverOwnsScope(handlerOptions.state)) {
     return {
       state: withChatStateScope(state, stateKeyPrefix, agentKeyPrefix),
       titleKeyPrefix: "",
@@ -3358,6 +3358,7 @@ export function createChannelWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): AgentChannelWebhookRouteHandler {
   const queueScopes = new Map<string, { options: AgentChannelWebhookRouteOptions, state: AgentWebhookQueueStateAdapter }>()
+  const queueStates = new Set<AgentWebhookQueueStateAdapter>()
   const drainingScopes = new Set<string>()
   const pendingDrainScopes = new Set<string>()
   const retryTimers = new Map<string, { at: number, resolve: () => void, timer: ReturnType<typeof setTimeout> }>()
@@ -3445,6 +3446,7 @@ export function createChannelWebhookRouteHandler(
 
   const registerQueue = (scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
     if (!hasAgentWebhookQueue(state)) return false
+    queueStates.add(state)
     queueScopes.set(scope, { options, state })
     void drainQueue(scope)
     return true
@@ -3697,8 +3699,7 @@ export function createChannelWebhookRouteHandler(
     const discoverScopes = async () => {
       if (stopped || discoveringScopes) return
       discoveringScopes = (async () => {
-        const states = new Set([...queueScopes.values()].map(queue => queue.state))
-        for (const state of states) {
+        for (const state of queueStates) {
           for (const scope of await state.webhookDeliveryScopes()) {
             if (scope.startsWith(agentScopePrefix)) registerQueue(scope, state, handlerOptions)
           }
@@ -3723,6 +3724,13 @@ export function createChannelWebhookRouteHandler(
           handlerOptions.capabilities,
           routeAgentIdentity(handlerOptions),
         )
+        if (handlerOptions.webhookState && !stateResolverOwnsScope(handlerOptions.webhookState)) {
+          const state = await resolveMaybe(handlerOptions.webhookState, context as never)
+          if (state) {
+            await state.connect()
+            if (hasAgentWebhookQueue(state)) queueStates.add(state)
+          }
+        }
         for (const { registration } of await agentWebhookRegistrations(agent, context)) {
           if (stopped) return
           const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)

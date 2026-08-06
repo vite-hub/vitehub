@@ -928,7 +928,7 @@ function generatedRuntimeHelpers(): string[] {
     "  return value && typeof value === 'object' && typeof candidate?.waitUntil === 'function' ? candidate.waitUntil.bind(value) : undefined",
     "}",
     "",
-    "function waitUntilFromEvent(event: H3Event) {",
+    "export function waitUntilFromEvent(event: H3Event) {",
     "  const runtimeEvent = event as ViteHubGeneratedEvent",
     "  return waitUntilFromValue(runtimeEvent)",
     "    || waitUntilFromValue(runtimeEvent.context)",
@@ -1367,11 +1367,14 @@ async function writeAgentWebhookRouteHandler(
   const queuePluginPath = join(root, generatedAgentWebhookQueuePlugin)
   if (options.libsqlState) {
     await writeFile(queuePluginPath, [
-      `import { resumeWebhookQueues } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      `import { resumeWebhookQueues, waitUntilFromEvent } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
-      "  const stop = resumeWebhookQueues()",
-      "  nitroApp.hooks.hook('close', stop)",
+      "  let stop",
+      "  nitroApp.hooks.hook('request', event => {",
+      "    stop ||= resumeWebhookQueues(waitUntilFromEvent(event))",
+      "  })",
+      "  nitroApp.hooks.hook('close', async () => await stop?.())",
       "}",
       "",
     ].join("\n"), "utf8")

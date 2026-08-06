@@ -1718,8 +1718,10 @@ export default defineAgent({
         expect(webhookRoute).toContain("if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined")
         expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], webhookState: viteHubChatStateResolver, waitUntil })")
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
-        expect(queuePlugin).toContain("import { resumeWebhookQueues } from \"./chat-webhook-route\"")
-        expect(queuePlugin).toContain("nitroApp.hooks.hook('close', stop)")
+        expect(queuePlugin).toContain("import { resumeWebhookQueues, waitUntilFromEvent } from \"./chat-webhook-route\"")
+        expect(queuePlugin).toContain("nitroApp.hooks.hook('request', event => {")
+        expect(queuePlugin).toContain("stop ||= resumeWebhookQueues(waitUntilFromEvent(event))")
+        expect(queuePlugin).toContain("nitroApp.hooks.hook('close', async () => await stop?.())")
         expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })")
       }
       finally {
@@ -6309,6 +6311,38 @@ describe("server helpers", () => {
     try {
       await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
       expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("resumes persisted invocations after the final webhook registration is removed", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-removed-registration-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({ driver: { run } })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-for-removed-registration",
+      enqueuedAt: Date.now(),
+      invocation: { input: { prompt: "persisted" } },
+      leaseTtlMs: 30_000,
+      request: { body: "{}", headers: {}, method: "POST", url: "https://example.com" },
+      scope: "webhook:review:github:removed-registration:",
+      webhookId: "removed-registration",
+    })
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
+
+    try {
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
     }
     finally {
       await stop()
