@@ -10,7 +10,7 @@ function isConnector(value: unknown): value is { send: unknown } {
   return Boolean(value) && typeof value === "object" && typeof (value as { send?: unknown }).send === "function"
 }
 
-export function validateChannelDefinition(value: unknown): asserts value is ChannelDefinition {
+function validateChannelDefinition(value: unknown): asserts value is ChannelDefinition {
   const definition = value as ChannelDefinition
   if (!definition || typeof definition !== "object") {
     throw new TypeError("`defineChannel()` expects an object with connectors.")
