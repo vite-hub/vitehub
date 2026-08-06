@@ -1,7 +1,6 @@
 ---
 title: Runtime Helpers and stable imports
 description: Understand which imports application code uses to call ViteHub.
-navigation.group: Runtime execution
 navigation.order: 21
 icon: i-lucide-code-2
 ---

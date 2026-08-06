@@ -1,7 +1,6 @@
 ---
 title: Auth User vs Agent Invoker
 description: Choose the identity for application access and Agent execution.
-navigation.group: Choose between
 navigation.order: 42
 navigation.lanes: [agents]
 icon: i-lucide-user-check

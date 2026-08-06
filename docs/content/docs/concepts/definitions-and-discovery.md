@@ -1,7 +1,6 @@
 ---
 title: Definition discovery
 description: Understand how a ViteHub file becomes a named runtime entry.
-navigation.group: Core vocabulary
 navigation.order: 10
 icon: i-lucide-file-code-2
 ---

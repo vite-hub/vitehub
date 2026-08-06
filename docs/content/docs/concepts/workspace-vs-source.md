@@ -1,7 +1,6 @@
 ---
 title: Workspace vs Source
 description: Choose between a persistent file tree and a read-only origin.
-navigation.group: Choose between
 navigation.order: 41
 icon: i-lucide-folder-tree
 ---

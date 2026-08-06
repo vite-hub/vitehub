@@ -1,7 +1,6 @@
 ---
 title: Server Primitive vs Capability
 description: Choose between an application API and an Agent ability.
-navigation.group: Choose between
 navigation.order: 40
 icon: i-lucide-blocks
 ---
