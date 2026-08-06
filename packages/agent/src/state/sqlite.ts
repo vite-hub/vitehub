@@ -441,8 +441,10 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async releaseLock(lock: Lock): Promise<void> {
-    await this.cleanupExpiredStateIfDue()
-    await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND token = ?`, [lock.threadId, lock.token])
+    await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND token = ?`, [lock.threadId, lock.token])
+    })
   }
 
   async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number): Promise<boolean> {

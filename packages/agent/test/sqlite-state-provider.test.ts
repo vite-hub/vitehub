@@ -128,6 +128,7 @@ describe("SQLite Agent State Provider", () => {
     let busyCleanup = false
     let busyEnqueue = true
     let busyRetry = true
+    let busyRelease = true
     let busySteering = true
     let busyLock = true
     const execute = vi.fn(async (statement: string, args?: unknown[]) => {
@@ -137,6 +138,10 @@ describe("SQLite Agent State Provider", () => {
       }
       if (busySteering && statement.includes("INSERT OR IGNORE") && statement.includes("'steering'")) {
         busySteering = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyRelease && statement.includes("DELETE FROM test_agent_state_locks WHERE thread_id = ? AND token = ?")) {
+        busyRelease = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
       }
       if (busyEnqueue && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
@@ -166,8 +171,11 @@ describe("SQLite Agent State Provider", () => {
     })
     await contended.connect()
     expect(execute.mock.calls.some(([statement]) => statement.includes("_active_scope"))).toBe(true)
-    await expect(contended.acquireLock("contended", 1_000)).resolves.toMatchObject({ threadId: "contended" })
+    const contendedLock = await contended.acquireLock("contended", 1_000)
+    expect(contendedLock).toMatchObject({ threadId: "contended" })
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT INTO test_agent_state_locks"))).toHaveLength(2)
+    await expect(contended.releaseLock(contendedLock!)).resolves.toBeUndefined()
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks WHERE thread_id = ? AND token = ?"))).toHaveLength(2)
 
     ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
     busyCleanup = true
@@ -184,7 +192,7 @@ describe("SQLite Agent State Provider", () => {
     busyCleanup = true
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
-    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(9)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(11)
     ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
     busyCleanup = true
     await expect(contended.claimWebhookSteering(webhookDelivery("steering-busy"), "steer-token", Date.now() + 1_000)).resolves.toBe(true)
