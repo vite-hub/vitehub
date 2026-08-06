@@ -9,6 +9,8 @@ A Channel names where an Agent Invocation came from and how message-shaped event
 
 Use Channels for reachability and delivery. Use Agent Actors for identity, and use input commands for explicit user-authored command handling.
 
+This page documents Agent Channels. For ordinary named outbound delivery from server code, see [Channels](/docs/reference/channels).
+
 Channel Kind helpers are imported from `@vite-hub/agent/channels`, not the root `@vite-hub/agent` entry.
 
 ```ts [server/agents/support.ts]

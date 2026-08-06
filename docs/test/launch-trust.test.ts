@@ -83,7 +83,7 @@ describe("launch documentation trust boundaries", () => {
     const conventions = readFileSync(resolve(docsRoot, "reference/file-conventions.md"), "utf8");
 
     expect(config).toContain("`vitehub()` requires exactly one built-in `preset`");
-    expect(config).toContain("The root `vitehub()` facade enables Agent, Blob, Browser, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace with `true`");
+    expect(config).toContain("The root `vitehub()` facade enables Agent, Blob, Browser, Channels, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace with `true`");
     expect(config).toContain("Netlify does not infer a provider");
     expect(conventions).toContain("`server/databases/<name>/config.ts`");
     expect(conventions).toContain("`<path>.agent.ts`");
