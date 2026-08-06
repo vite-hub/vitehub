@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { CHANNELS_REGISTRY_ID, hubChannels } from "../src/vite.ts"
@@ -32,6 +32,20 @@ afterEach(async () => {
 })
 
 describe("hubChannels", () => {
+  it("aliases generated Channel runtime modules into Nitro builds", async () => {
+    const root = await createTempProject()
+    const definition = await writeChannel(root, "server/channels/alerts.ts")
+    const plugin = hubChannels()
+    const result = await (plugin.config as unknown as (config: Record<PropertyKey, unknown>) => Promise<Record<string, unknown>>)({
+      root,
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+    })
+    const alias = (result.nitro as { alias: Record<string, string> }).alias
+
+    await expect(readFile(alias["#vitehub/channels/registry"]!, "utf8")).resolves.toContain(JSON.stringify(definition))
+    await expect(readFile(alias["#vitehub/channels/runtime"]!, "utf8")).resolves.toContain("#vitehub/env/server")
+  })
+
   it("serves a discovered registry through a stable virtual module", async () => {
     const root = await createTempProject()
     const definition = await writeChannel(root, "server/channels/alerts.ts")

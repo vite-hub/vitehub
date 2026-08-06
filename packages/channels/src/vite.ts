@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import { discoverChannelDefinitions } from "./discovery.ts"
@@ -46,6 +46,30 @@ function renderRuntimeModule(serverEnv: boolean): string {
     "export function resolveChannelRuntimeEnv() { return useServerEnv() }",
     "",
   ].join("\n")
+}
+
+async function configureNitroChannels(
+  config: Record<string, unknown>,
+  projectRoot: string,
+  definitions: DiscoveredChannelDefinition[],
+): Promise<Record<string, unknown>> {
+  const generatedDir = resolve(projectRoot, ".vitehub", "nitro", "channels")
+  const registryFile = resolve(generatedDir, "registry.ts")
+  const runtimeFile = resolve(generatedDir, "runtime.ts")
+  await Promise.all([
+    writeFileIfChanged(registryFile, renderRegistry(definitions)),
+    writeFileIfChanged(runtimeFile, renderRuntimeModule(true)),
+  ])
+  const nitro = config.nitro && typeof config.nitro === "object" ? config.nitro as Record<string, unknown> : {}
+  const alias = nitro.alias && typeof nitro.alias === "object" ? nitro.alias as Record<string, unknown> : {}
+  return {
+    ...nitro,
+    alias: {
+      ...alias,
+      [CHANNELS_REGISTRY_ID]: registryFile,
+      [CHANNELS_RUNTIME_ID]: runtimeFile,
+    },
+  }
 }
 
 function renderGeneratedTypes(definitions: DiscoveredChannelDefinition[], serverEnv: boolean): string {
@@ -114,11 +138,17 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       getDefinitions: () => definitions,
       refresh,
     },
-    config(config) {
+    async config(config) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      return {
+      const nextConfig: Record<string, unknown> = {
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }
+      if (hasNitroConfigContext(config)) {
+        const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
+        const nitroDefinitions = discoverChannelDefinitions({ rootDir: root, serverDirs })
+        nextConfig.nitro = await configureNitroChannels(config as Record<string, unknown>, root, nitroDefinitions)
+      }
+      return nextConfig
     },
     async configResolved(config) {
       resolved = config
