@@ -35,6 +35,24 @@ const sections = computed(() => {
         groups.set(label, [...(groups.get(label) || []), page]);
       }
 
+      if (section.id === "concepts") {
+        const startHerePages = groups.get("Start here") || [];
+        groups.set("Start here", [
+          ...startHerePages,
+          {
+            id: "agents-overview",
+            path: "/docs/agents",
+            title: "Agents",
+            sourceTitle: "Agents",
+            description: null,
+            icon: "i-lucide-bot",
+            group: "Start here",
+            navigation: true,
+            order: 3,
+          },
+        ]);
+      }
+
       return {
         ...section,
         pageGroups: [...groups].map(([label, groupPages]) => ({ label, pages: groupPages })),
