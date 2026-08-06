@@ -43,7 +43,7 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   gap: 0.375rem;
   padding: 0.5rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: 0;
   background: var(--ui-bg-muted);
   color: var(--ui-text-muted);
   font-size: 0.75rem;
@@ -62,8 +62,8 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 
 .vh-docs-lane-option.is-active {
   border: 0;
-  background: var(--ui-bg-inverted);
-  color: var(--ui-text-inverted);
+  background: var(--ui-bg);
+  color: var(--ui-text-highlighted);
   font-weight: 650;
   opacity: 0.82;
 }
