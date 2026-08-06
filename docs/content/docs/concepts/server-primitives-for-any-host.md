@@ -72,7 +72,7 @@ Enable the primitive in the build configuration used by your framework. ViteHub 
 
 ### Define the database
 
-Create a Database Definition file that ViteHub discovers automatically. Its file name becomes the database name, and the file defines the schema.
+Create a Database Definition file that ViteHub discovers automatically. Its file name becomes the database name, and the file defines the schema and options.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
