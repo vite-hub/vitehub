@@ -14,15 +14,26 @@ Add the Channels integration to your Vite config. ViteHub then discovers files b
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({ preset: 'node', channels: true })],
+  env: {
+    server: {
+      telegram: {
+        botToken: env({
+          secret: true,
+          source: env.source('TELEGRAM_BOT_TOKEN'),
+        }),
+      },
+    },
+  },
 })
 ```
 
 ## Define a named Channel
 
-Create `server/channels/alerts.ts`. The connector function receives the message text and only the options for that connector. Replace the example `console.info` call with your provider client.
+Create `server/channels/alerts.ts`. The resolver receives typed Server Env, and ViteHub evaluates it for each send so request or host runtime values are not captured when the module loads. Unseal a secret only when the provider call needs the raw value.
 
 ```ts [server/channels/alerts.ts]
 import { defineChannel } from 'vite-hub/channels'
@@ -31,17 +42,25 @@ type TelegramOptions = {
   chatId: string
 }
 
-export default defineChannel({
+export default defineChannel(({ env }) => ({
   connectors: {
     telegram: {
       async send(text: string, { chatId }: TelegramOptions) {
-        console.info(`[telegram:${chatId}] ${text}`)
-        return { id: `${chatId}:${Date.now()}` }
+        const response = await fetch(`https://api.telegram.org/bot${env.telegram.botToken.unseal()}/sendMessage`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text }),
+        })
+        if (!response.ok) throw new Error(`Telegram returned ${response.status}.`)
+        const result = await response.json() as { result?: { message_id?: number } }
+        return { id: result.result?.message_id?.toString() }
       },
     },
   },
-})
+}))
 ```
+
+This example calls Telegram directly to keep the connector contract visible; use a provider client when your application already has one. Channels does not bundle provider adapters. For a connector that does not need credentials, keep the object form and omit the resolver.
 
 The file name becomes the Channel name. For a Vite suffix definition, use `src/alerts.channel.ts` instead; both forms discover the same `alerts` Channel.
 

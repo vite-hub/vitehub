@@ -47,6 +47,20 @@ describe("hubChannels", () => {
     )
   })
 
+  it("bridges typed Server Env into resolver definitions when Env is enabled", async () => {
+    const root = await createTempProject()
+    const plugin = hubChannels()
+    await (plugin.configResolved as unknown as (config: { root: string, plugins: Array<{ name: string }> }) => Promise<void>)({
+      root,
+      plugins: [{ name: "@vite-hub/env/vite" }],
+    })
+
+    const runtimeId = (plugin.resolveId as (id: string) => string | undefined)("#vitehub/channels/runtime")
+    expect(runtimeId).toBe("\0#vitehub/channels/runtime")
+    expect((plugin.load as (id: string) => string | undefined)(runtimeId!)).toContain("#vitehub/env/server")
+    await expect(readFile(join(root, ".vitehub/types/channels.d.ts"), "utf8")).resolves.toContain("ChannelRuntimeEnv extends ServerEnv")
+  })
+
   it("refreshes and invalidates the virtual registry on definition changes", async () => {
     const root = await createTempProject()
     const plugin = hubChannels()

@@ -14,6 +14,11 @@ describe("defineChannel", () => {
     expect(defineChannel(definition)).toBe(definition)
   })
 
+  it("keeps Env-backed resolver definitions intact", () => {
+    const resolver = () => ({ connectors: { fixture: connector } })
+    expect(defineChannel(resolver)).toBe(resolver)
+  })
+
   it.each([
     [{}, "connectors"],
     [{ connectors: {} }, "at least one"],

@@ -11,6 +11,9 @@
       "#vitehub/channels/registry": [
         "packages/channels/src/runtime/empty-registry.ts"
       ],
+      "#vitehub/channels/runtime": [
+        "packages/channels/src/runtime/empty-runtime.ts"
+      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ]
