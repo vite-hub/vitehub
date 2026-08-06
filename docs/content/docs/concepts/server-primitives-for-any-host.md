@@ -18,7 +18,7 @@ Server Primitives are APIs that application code calls to work with server-side 
 | Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
 | Run isolated automation | [Browser](/docs/server-primitives/browser), [Shell](/docs/server-primitives/shell), or [Sandbox](/docs/server-primitives/sandbox) |
 
-## The common pattern
+## How a primitive works in your app
 
 Most primitives follow the same setup:
 
