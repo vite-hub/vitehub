@@ -27,19 +27,7 @@ Most ViteHub primitives follow the same pattern:
 ### Configure
 
 ::tabs
-  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs"}
-    ```ts [nuxt.config.ts]
-    import viteHubNuxt from 'vite-hub/nuxt'
-
-    export default defineNuxtConfig({
-      modules: [
-        [viteHubNuxt, { preset: 'node', database: true }],
-      ],
-    })
-    ```
-  :::
-
-  :::tabs-item{label="Nitro" icon="i-unjs-nitro"}
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="grayscale"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
     import { vitehub } from 'vite-hub'
@@ -51,31 +39,103 @@ Most ViteHub primitives follow the same pattern:
     })
     ```
   :::
+
+  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs" class="grayscale"}
+    ```ts [nuxt.config.ts]
+    import viteHubNuxt from 'vite-hub/nuxt'
+
+    export default defineNuxtConfig({
+      modules: [
+        [viteHubNuxt, { preset: 'node', database: true }],
+      ],
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nitro" icon="i-unjs-nitro" class="grayscale"}
+    ```ts [vite.config.ts]
+    import { defineConfig } from 'vite'
+    import { vitehub } from 'vite-hub'
+
+    export default defineConfig({
+      plugins: [
+        vitehub({ preset: 'node', database: true }),
+      ],
+    })
+    ```
+
+    ```ts [nitro.config.ts]
+    import { defineNitroConfig } from 'nitropack/config'
+
+    export default defineNitroConfig({
+      preset: 'node',
+    })
+    ```
+  :::
 ::
 
 ### Define the database
 
-```ts [src/database.ts]
-import { defineDatabase } from '@vite-hub/database'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+::tabs
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="grayscale"}
+    ```ts [src/notes.database.ts]
+    import { defineDatabase } from '@vite-hub/database'
+    import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const notes = sqliteTable('notes', {
-  id: integer('id').primaryKey(),
-  title: text('title').notNull(),
-})
+    const notes = sqliteTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    })
 
-export default defineDatabase({
-  schema: { notes },
-})
-```
+    export default defineDatabase({
+      name: 'notes',
+      schema: { notes },
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs" class="grayscale"}
+    ```ts [server/databases/notes/config.ts]
+    import { defineDatabase } from '@vite-hub/database'
+    import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+    const notes = sqliteTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    })
+
+    export default defineDatabase({
+      name: 'notes',
+      schema: { notes },
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nitro" icon="i-unjs-nitro" class="grayscale"}
+    ```ts [server/databases/notes/config.ts]
+    import { defineDatabase } from '@vite-hub/database'
+    import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+    const notes = sqliteTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    })
+
+    export default defineDatabase({
+      name: 'notes',
+      schema: { notes },
+    })
+    ```
+  :::
+::
 
 ### Use it from server code
 
 ```ts [server/api/notes.get.ts]
-import { db, schema } from '@vite-hub/database/drizzle'
+import { databases } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
-  return db.select().from(schema.notes)
+  return databases.notes.db.select().from(databases.notes.schema.notes)
 })
 ```
 
