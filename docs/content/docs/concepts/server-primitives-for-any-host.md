@@ -6,7 +6,7 @@ navigation.order: 2
 icon: i-lucide-server
 ---
 
-A Server Primitive gives application code a server-side feature such as authentication, environment values, storage, queues, workflows, schedules, sandboxes, or file systems. Application code can call a Server Primitive without defining an Agent.
+Server Primitives let application code run trusted, programmatic operations using server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes. The application decides when to call the primitive and what to do with its result.
 
 A Vite Integration connects the primitive to the local runtime and deployment host. Application code calls the package's Runtime Helper while ViteHub handles the host-specific setup.
 
@@ -15,15 +15,16 @@ A Vite Integration connects the primitive to the local runtime and deployment ho
 | You need | Start with |
 | --- | --- |
 | Read configuration or secrets | [Env](/docs/server-primitives/env) |
+| Store application data | [Database](/docs/server-primitives/database) or [KV](/docs/server-primitives/kv) |
 | Persist files or expose read-only origins | [Workspace](/docs/server-primitives/workspace) and [Source](/docs/server-primitives/source) |
 | Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
 | Run isolated commands or code | [Shell](/docs/server-primitives/shell) or [Sandbox](/docs/server-primitives/sandbox) |
 
-## Server Primitives and Agents solve different problems
+## Agent Primitives use LLMs to run actions on demand
 
-Server code calls a Runtime Helper directly. An Agent receives selected abilities through Capabilities and uses them during an Agent Invocation.
+An Agent Primitive is a special kind of primitive that uses an LLM to choose and run tools or actions on demand. An Agent receives selected Capabilities and can decide which of those capabilities to invoke during an Agent Invocation.
 
-Installing a primitive does not expose it to every Agent. Attaching a Capability makes that access explicit and inspectable.
+The application still decides which Capabilities an Agent can access. Attaching a Capability makes that access explicit and inspectable.
 
 ## Inspect the boundary
 
