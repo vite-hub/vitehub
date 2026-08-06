@@ -2936,25 +2936,12 @@ async function parseAgentChannelChatRouteBody(request: Request): Promise<{ body:
   if (!raw.trim()) throw createRouteBodyError("Missing agent chat payload.")
   try {
     const body = JSON.parse(raw) as AgentChannelChatRouteBody
-    if (!isRecord(body)) throw createRouteBodyError("Agent chat payload must be a JSON object.")
+    if (!isRecord(body) || Array.isArray(body)) throw createRouteBodyError("Agent chat payload must be a JSON object.")
     return { body, rawBody: raw }
   }
   catch (error) {
     if (error instanceof Error && "statusCode" in error) throw error
     throw createRouteBodyError("Malformed agent chat payload.")
-  }
-}
-
-async function parseAgentChannelChatRouteAdmissionBody<TBody extends AgentChannelChatRouteBody>(
-  body: AgentChannelChatRouteBody,
-  schema: AgentChannelChatRouteStandardSchemaV1<TBody> | undefined,
-): Promise<TBody> {
-  if (!schema) return body as TBody
-  try {
-    return await parseStandardSchema(schema, body, "agent chat route body")
-  }
-  catch (error) {
-    throw createRouteBodyError(error instanceof Error ? error.message : "Invalid agent chat route body.")
   }
 }
 
@@ -2971,19 +2958,51 @@ function optionalBodyString(value: unknown, label: string): string | undefined {
   return trimmed || undefined
 }
 
+function validateAgentChannelChatRouteBody(body: AgentChannelChatRouteBody): AgentChannelChatRouteBody & { messages: UIMessage[] } {
+  optionalBodyString(body.id, "id")
+  optionalBodyString(body.messageId, "messageId")
+  optionalBodyString(body.trigger, "trigger")
+  if (!Array.isArray(body.messages)) {
+    throw createRouteBodyError("Agent chat payload requires a messages array.")
+  }
+  if (!body.messages.length) {
+    throw createRouteBodyError("Agent chat payload requires at least one message.")
+  }
+  for (const [index, message] of body.messages.entries()) {
+    if (!isRecord(message) || Array.isArray(message)) {
+      throw createRouteBodyError(`Agent chat payload message ${index + 1} must be an object.`)
+    }
+    if (message.role !== "user" && message.role !== "assistant") {
+      throw createRouteBodyError(`Agent chat payload message ${index + 1} role must be "user" or "assistant".`)
+    }
+  }
+  return body as AgentChannelChatRouteBody & { messages: UIMessage[] }
+}
+
+async function parseAgentChannelChatRouteAdmissionBody<TBody extends AgentChannelChatRouteBody>(
+  body: AgentChannelChatRouteBody,
+  schema: AgentChannelChatRouteStandardSchemaV1<TBody> | undefined,
+): Promise<TBody> {
+  const validatedBody = validateAgentChannelChatRouteBody(body)
+  if (!schema) return validatedBody as TBody
+  try {
+    return await parseStandardSchema(schema, validatedBody, "agent chat route body")
+  }
+  catch (error) {
+    throw createRouteBodyError(error instanceof Error ? error.message : "Invalid agent chat route body.")
+  }
+}
+
 function agentChannelChatRouteInput(
   body: AgentChannelChatRouteBody,
   agentName: string,
   allowTrustedInput = false,
   options: Pick<AgentChannelChatRouteHandlerOptions, "channelId" | "origin"> = {},
 ): AgentChatMessageTriggerInput {
-  if (!Array.isArray(body.messages)) {
-    throw createRouteBodyError("Agent chat payload requires a messages array.")
-  }
+  const { messages } = validateAgentChannelChatRouteBody(body)
   if (!allowTrustedInput && ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "session" in body || "timeout" in body || "user" in body)) {
     throw createRouteBodyError("Agent chat route identity must be derived server-side with defineAgent({ invoker }).")
   }
-  const messages = body.messages as UIMessage[]
   return {
     messages,
     run: createHttpChatRunMetadata(agentName, body, messages, options),

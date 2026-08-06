@@ -9,6 +9,8 @@ A Channel names where an Agent Invocation came from and how message-shaped event
 
 Use Channels for reachability and delivery. Use Agent Actors for identity, and use input commands for explicit user-authored command handling.
 
+This page documents Agent Channels. For ordinary named outbound delivery from server code, see [Channels](/docs/reference/channels).
+
 Channel Kind helpers are imported from `@vite-hub/agent/channels`, not the root `@vite-hub/agent` entry.
 
 ```ts [server/agents/support.ts]
@@ -25,6 +27,8 @@ export default defineAgent({
 ```
 
 Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Under a canonical built-in key, pass options directly, such as `channels: { telegram: { messages: { delivery: 'manual' } } }`. A custom Channel id still uses a definition or synchronous factory, so `channels: { portal: webChat }` is equivalent to `channels: { portal: webChat() }`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
+
+Use `webChat()` for a generated AI SDK chat route; it enables `route` by default and records the `web-chat` Channel Kind. Use `http()` for a generic HTTP Channel; it keeps `route` disabled unless you pass `http({ route: true })` or route options explicitly. Both route-enabled forms use the same request and streaming-response contract, while their distinct Channel Kinds keep invocation origin and delivery semantics honest.
 
 Adapter-backed Channels deliver only the completed response by default. Set top-level `defineAgent({ messages: { stream: true } })` to opt every adapter Channel into draft and edit updates, or set `messages.stream` on an individual Channel to control progressive delivery for that destination. Web Chat routes return streaming HTTP responses independently of adapter delivery settings.
 
@@ -276,7 +280,9 @@ export default defineAgent({
 })
 ```
 
-ViteHub reads the raw request body once, parses the JSON object, runs `authenticate` with `rawBody`, then validates `admission.body` when a Standard Schema is provided. `input.trust` lists request body fields that may be copied after authentication. Add `timeout` only when authenticated callers may control Agent Invocation duration; ViteHub forwards positive, finite numeric values and ignores invalid timeouts. Use `admission.context` only when the route needs to derive or validate different `chat.message` input.
+ViteHub reads the raw request body once and runs `authenticate` with `rawBody`. It then requires a non-empty `messages` array containing `user` or `assistant` messages, accepts optional string `id`, `messageId`, and `trigger` fields, and passes additional AI SDK fields unchanged to admission validation. An `admission.body` Standard Schema adds product-specific validation to that shared contract instead of recreating it.
+
+`input.trust` lists request body fields that may be copied after authentication. Add `timeout` only when authenticated callers may control Agent Invocation duration; ViteHub forwards positive, finite numeric values and ignores invalid timeouts. Use `admission.context` only when the route needs to derive or validate different `chat.message` input.
 
 ## Add identity separately
 

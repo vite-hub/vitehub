@@ -10,6 +10,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
   hubBrowser: vi.fn(() => ({ name: "@vite-hub/browser/vite" })),
+  hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
@@ -31,6 +32,7 @@ vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
 vi.mock("@vite-hub/auth/vite", () => ({ hubAuth: integrationMocks.hubAuth }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
+vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
 vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
 vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
@@ -105,6 +107,7 @@ describe("vitehub", () => {
       blob: true,
       database: true,
       email: true,
+      channels: true,
       kv: true,
       preset: "cloudflare",
       rateLimit: true,
@@ -121,6 +124,7 @@ describe("vitehub", () => {
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox/vite",
       "@vite-hub/agent/vite",
+      "@vite-hub/channels/vite",
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
       "@vite-hub/email/vite",
@@ -179,6 +183,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
       provider: "cloudflare",
