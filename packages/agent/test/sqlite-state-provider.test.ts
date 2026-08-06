@@ -125,6 +125,7 @@ describe("SQLite Agent State Provider", () => {
     const client = createClient({ url: ":memory:" })
     let busyCompletion = true
     let busyEnqueue = true
+    let busyRetry = true
     const execute = vi.fn(async (statement: string, args?: unknown[]) => {
       if (busyEnqueue && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
         busyEnqueue = false
@@ -132,6 +133,10 @@ describe("SQLite Agent State Provider", () => {
       }
       if (busyCompletion && statement.includes("SET status = 'completed'")) {
         busyCompletion = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyRetry && statement.includes("SET status = 'queued'")) {
+        busyRetry = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
       }
       return await client.execute({ args: (args || []) as never, sql: statement })
@@ -150,6 +155,10 @@ describe("SQLite Agent State Provider", () => {
     const lease = await contended.claimWebhookDelivery("webhook:review:github:")
     await expect(contended.completeWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken)).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'completed'"))).toHaveLength(2)
+    await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-retry-busy"))).resolves.toBe(true)
+    const retryLease = await contended.claimWebhookDelivery("webhook:review:github:")
+    await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
     client.close()
   })
 
