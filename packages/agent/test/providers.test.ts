@@ -6297,6 +6297,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-ownership-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const getState = vi.spyOn(state, "get")
     const acquireLock = vi.spyOn(state, "acquireLock")
     const extendLock = vi.spyOn(state, "extendLock")
     let releaseFirstRun!: () => void
@@ -6391,6 +6392,7 @@ describe("server helpers", () => {
           stateKeyPrefix: "webhook:review:github:github:",
         },
       })
+      expect(getState).not.toHaveBeenCalledWith("webhook:backend-id")
     }
     finally {
       releaseFirstRun()

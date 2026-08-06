@@ -620,7 +620,7 @@ async function resolveAgentWebhookState(
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
   handlerOptions: AgentChannelWebhookRouteOptions,
-): Promise<{ backendId: string, keyPrefix: string, state: StateAdapter } | undefined> {
+): Promise<{ keyPrefix: string, state: StateAdapter } | undefined> {
   const stateOption = handlerOptions.webhookState
   if (!stateOption) return
   const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
@@ -638,8 +638,7 @@ async function resolveAgentWebhookState(
   } as never)
   if (!state) return
   await state.connect()
-  const backendId = await resolveWebhookStateBackendId(state)
-  return { backendId, keyPrefix, state }
+  return { keyPrefix, state }
 }
 
 function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer" | "steer-lock" | "steer-send-lock", value: string): string {
@@ -3744,6 +3743,7 @@ export function createChannelWebhookRouteHandler(
             if (!hasAgentWebhookQueue(webhookState.state)) {
               return createJsonErrorResponse(503, "Persistent webhook concurrency requires a queue-capable Agent state provider.")
             }
+            const backendId = await resolveWebhookStateBackendId(webhookState.state)
             const persistedInvocation = persistedWebhookInvocation(invocation as unknown as { input: Record<string, unknown>, run?: unknown })
             const delivery = persistedWebhookRequest(
               deliveryId,
@@ -3757,18 +3757,18 @@ export function createChannelWebhookRouteHandler(
             )
             if (invocation.webhook.busy === "steer") {
               const webhookQueueState = webhookState.state
-              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, activeInvocationScope, webhookState.backendId, delivery, invocation.input, waitUntil, async (reserved) => {
+              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, activeInvocationScope, backendId, delivery, invocation.input, waitUntil, async (reserved) => {
                 if (reserved) return Response.json({ accepted: true, duplicate: false, ok: true, queued: true })
                 const queued = await webhookQueueState.enqueueWebhookDelivery(delivery)
                 return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
               })
               if (outcome) {
-                if (outcome.queued) registerQueue(webhookState.backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
+                if (outcome.queued) registerQueue(backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
                 return outcome.response
               }
             }
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
-            await registerQueue(webhookState.backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
+            await registerQueue(backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
             return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
@@ -3969,7 +3969,8 @@ export function createChannelWebhookRouteHandler(
           if (stopped) return
           const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
           if (webhookState && hasAgentWebhookQueue(webhookState.state)) {
-            await registerQueue(webhookState.backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
+            const backendId = await resolveWebhookStateBackendId(webhookState.state)
+            await registerQueue(backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
           }
         }
         await discoverScopes()
