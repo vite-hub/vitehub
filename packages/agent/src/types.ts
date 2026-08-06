@@ -346,13 +346,16 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   webhook?: AgentWebhookInvocationOwnership
 }
 
-export interface AgentWebhookInvocationOwnership {
+interface AgentWebhookInvocationOwnershipBase {
   concurrencyGroup?: string
-  concurrencyKey?: string
-  concurrencyLimit?: number
   concurrencyTtlMs?: number
   deliveryId: string
 }
+
+export type AgentWebhookInvocationOwnership = AgentWebhookInvocationOwnershipBase & (
+  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number }
+  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: number }
+)
 
 export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
   | AgentTriggerRunInvokeResult<CALL_OPTIONS>

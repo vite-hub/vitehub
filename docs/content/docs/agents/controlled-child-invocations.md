@@ -53,7 +53,7 @@ if (child.support.steer) {
 }
 ```
 
-Current built-in runtimes report follow-up and steering as `unsupported`; ViteHub does not reinterpret Harness session reuse or generic Workflow signals as Agent input. A runtime adapter must provide real ordering and lifecycle semantics before either support flag becomes true.
+Inline Harness runtimes report steering support while an active prompt control can accept user input. Support returns to `false` when the turn or session ends; follow-up and Workflow-backed input remain `unsupported` until their runtime adapters provide equivalent ordering and lifecycle semantics.
 
 ## Subagents
 

@@ -25,8 +25,9 @@ import {
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { attachmentStringBytes, isAttachmentData, isAttachmentPart, isTextAttachmentMediaType, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, getMessageText, isAttachmentData, isAttachmentPart, isTextAttachmentMediaType, resolveAttachmentData } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -62,6 +63,20 @@ type HarnessAgentLike = {
 type HarnessAgentSessionLike = {
   destroy: () => MaybePromise<void>
   detach?: () => MaybePromise<unknown>
+}
+
+type HarnessPromptControlLike = {
+  done: PromiseLike<void>
+  submitUserMessage?: (text: string) => PromiseLike<void>
+}
+
+type HarnessSteeringSessionLike = Record<PropertyKey, unknown> & {
+  doContinueTurn?: (...args: unknown[]) => PromiseLike<HarnessPromptControlLike>
+  doDestroy?: (...args: unknown[]) => PromiseLike<unknown>
+  doDetach?: (...args: unknown[]) => PromiseLike<unknown>
+  doPromptTurn?: (...args: unknown[]) => PromiseLike<HarnessPromptControlLike>
+  doStop?: (...args: unknown[]) => PromiseLike<unknown>
+  doSuspendTurn?: (...args: unknown[]) => PromiseLike<unknown>
 }
 
 type HarnessWorkspaceMaterializationContext = AgentAdapterRunContext & {
@@ -135,6 +150,102 @@ interface HarnessSessionIdentity {
 
 function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
+}
+
+function harnessSteeringMessages(value: unknown): Message[] {
+  const values = Array.isArray(value) ? value : [value]
+  return values.filter((message): message is Message => (
+    typeof message === "object"
+    && message !== null
+    && Array.isArray((message as Partial<Message>).parts)
+  ))
+}
+
+function harnessSteeringText(input: { message?: unknown, messages?: unknown, prompt?: unknown }): string | undefined {
+  const messageFields = new Set(["message", "messages", "prompt"])
+  if (Object.entries(input).some(([field, value]) => value !== undefined && !messageFields.has(field))) return
+  const selectedInput = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message ?? input.prompt)
+  if (typeof selectedInput === "string" && selectedInput.trim()) return selectedInput
+  const messages = harnessSteeringMessages(selectedInput)
+  if (!messages.some(message => message.role === "user")) return
+  const selected = latestHarnessUserMessage(messages)
+  if (selected.some(message => message.parts.some(part => part.type !== "text"))) return
+  const text = selected.map(getMessageText).join("\n").trim()
+  return text || undefined
+}
+
+function boundProperty(target: object, property: PropertyKey): unknown {
+  const value = Reflect.get(target, property, target)
+  return typeof value === "function" ? value.bind(target) : value
+}
+
+function withHarnessSteeringSession(session: HarnessSteeringSessionLike, invocationId: string): HarnessSteeringSessionLike {
+  let deactivate: (() => void) | undefined
+  const clear = () => {
+    deactivate?.()
+    deactivate = undefined
+  }
+  const track = (method: (...args: unknown[]) => PromiseLike<HarnessPromptControlLike>) => async (...args: unknown[]) => {
+    clear()
+    const control = await method(...args)
+    if (typeof control.submitUserMessage !== "function") return control
+    const unregister = registerAgentInvocationInputHandler(invocationId, {
+      async sendInput(input, options) {
+        if (options.mode !== "steer") return "unsupported"
+        const text = harnessSteeringText(input)
+        if (!text) return "unsupported"
+        try {
+          await control.submitUserMessage!(text)
+          return "accepted"
+        }
+        catch {
+          return "unavailable"
+        }
+      },
+      support: { steer: true },
+    })
+    const current = () => {
+      unregister()
+      if (deactivate === current) deactivate = undefined
+    }
+    deactivate = current
+    void Promise.resolve(control.done).finally(current).catch(() => {})
+    return control
+  }
+  const end = (method: (...args: unknown[]) => PromiseLike<unknown>) => async (...args: unknown[]) => {
+    try {
+      return await method(...args)
+    }
+    finally {
+      clear()
+    }
+  }
+  return new Proxy(session, {
+    get(target, property) {
+      const value = boundProperty(target, property)
+      if ((property === "doPromptTurn" || property === "doContinueTurn") && typeof value === "function") {
+        return track(value as (...args: unknown[]) => PromiseLike<HarnessPromptControlLike>)
+      }
+      if (["doDestroy", "doDetach", "doStop", "doSuspendTurn"].includes(String(property)) && typeof value === "function") {
+        return end(value as (...args: unknown[]) => PromiseLike<unknown>)
+      }
+      return value
+    },
+  })
+}
+
+export function withHarnessAgentInvocationInput(harness: object, invocationId?: string): object {
+  const doStart = boundProperty(harness, "doStart")
+  if (!invocationId || typeof doStart !== "function") return harness
+  return new Proxy(harness, {
+    get(target, property) {
+      if (property !== "doStart") return boundProperty(target, property)
+      return async (...args: unknown[]) => withHarnessSteeringSession(
+        await (doStart as (...args: unknown[]) => PromiseLike<HarnessSteeringSessionLike>)(...args),
+        invocationId,
+      )
+    },
+  })
 }
 
 function defaultHarnessPermissionMode(harness: unknown): "allow-all" | "allow-edits" {
@@ -891,8 +1002,9 @@ async function createHarnessAgent<
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
   const workDir = await resolveHarnessWorkDir(options.workDir, context) ?? context.harnessWorkDir
   const tools = toHarnessTools(context)
+  const activeHarness = withHarnessAgentInvocationInput(harness, agentInvocationControlId(context.runtime))
   const agent = new HarnessAgent({
-    harness,
+    harness: activeHarness,
     ...(instructions ? { instructions } : {}),
     sandboxConfig: {
       ...(workDir !== undefined ? { workDir } : {}),

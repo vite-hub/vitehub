@@ -139,12 +139,15 @@ invoke(context, event: { deliveryId: string, pullRequest: number, head: string }
       concurrencyGroup: 'pull-requests',
       concurrencyKey: `pull-request:${event.pullRequest}`,
       concurrencyLimit: 2,
+      busy: 'steer',
     },
   }
 }
 ```
 
 Setting `concurrencyLimit` persists each delivery before returning from the webhook route. Eligible deliveries run in FIFO order within their webhook state scope, while the group limit caps total active work and the concurrency key excludes matching work. Group names and limits should remain stable across deliveries. The generated server resumes queued work on startup, so a new webhook is not required after a process restart.
+
+Setting `busy: 'steer'` first offers the full Agent input to an active inline Harness invocation with the same scoped concurrency key in the current server process. An accepted input remains durably reserved by delivery ID until that invocation succeeds. When the active invocation is on another process, or no matching prompt control accepts the input, the delivery follows the same durable queue path.
 
 Queue leases default to 30 seconds and heartbeat while the Agent runs. A dead owner releases its delivery for retry; set `concurrencyTtlMs` when an integration needs a different recovery window. Delivery IDs remain durable after completion, so duplicates do not start another Agent Invocation. Completed delivery records are retained indefinitely: budget database storage for delivery history and use a separate state database when an integration requires its own retention lifecycle.
 

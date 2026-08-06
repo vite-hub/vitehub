@@ -128,7 +128,22 @@ describe("SQLite Agent State Provider", () => {
     let busyCleanup = false
     let busyEnqueue = true
     let busyRetry = true
+    let busyRelease = true
+    let busySteering = true
+    let busyLock = true
     const execute = vi.fn(async (statement: string, args?: unknown[]) => {
+      if (busyLock && statement.includes("INSERT INTO test_agent_state_locks")) {
+        busyLock = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busySteering && statement.includes("INSERT OR IGNORE") && statement.includes("'steering'")) {
+        busySteering = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyRelease && statement.includes("DELETE FROM test_agent_state_locks WHERE thread_id = ? AND token = ?")) {
+        busyRelease = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
       if (busyEnqueue && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
         busyEnqueue = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
@@ -156,6 +171,11 @@ describe("SQLite Agent State Provider", () => {
     })
     await contended.connect()
     expect(execute.mock.calls.some(([statement]) => statement.includes("_active_scope"))).toBe(true)
+    const contendedLock = await contended.acquireLock("contended", 1_000)
+    expect(contendedLock).toMatchObject({ threadId: "contended" })
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT INTO test_agent_state_locks"))).toHaveLength(2)
+    await expect(contended.releaseLock(contendedLock!)).resolves.toBeUndefined()
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks WHERE thread_id = ? AND token = ?"))).toHaveLength(2)
 
     ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
     busyCleanup = true
@@ -172,7 +192,11 @@ describe("SQLite Agent State Provider", () => {
     busyCleanup = true
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
-    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(7)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(11)
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
+    await expect(contended.claimWebhookSteering(webhookDelivery("steering-busy"), "steer-token", Date.now() + 1_000)).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE") && String(statement).includes("'steering'"))).toHaveLength(2)
     client.close()
   })
 
@@ -268,6 +292,55 @@ describe("SQLite Agent State Provider", () => {
     await expect(restored.completeWebhookDelivery(reclaimed!.scope, reclaimed!.deliveryId, reclaimed!.leaseToken)).resolves.toBe(true)
     await expect(restored.enqueueWebhookDelivery(webhookDelivery("delivery-1"))).resolves.toBe(false)
     await restored.disconnect()
+  })
+
+  it("keeps accepted webhook steering durable until its invocation settles", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    const delivery = webhookDelivery("steered-delivery")
+
+    await expect(queue.claimWebhookSteering(delivery, "steer-token", Date.now() + 1_000)).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(delivery)).resolves.toBe(false)
+    await queue.enqueueWebhookDelivery(webhookDelivery("unrelated-1", "pr-1"))
+    await queue.enqueueWebhookDelivery(webhookDelivery("unrelated-2", "pr-2"))
+    const unrelated1 = await queue.claimWebhookDelivery(delivery.scope)
+    const unrelated2 = await queue.claimWebhookDelivery(delivery.scope)
+    expect(unrelated1?.deliveryId).toBe("unrelated-1")
+    expect(unrelated2?.deliveryId).toBe("unrelated-2")
+    await expect(queue.claimWebhookDelivery(delivery.scope)).resolves.toBeNull()
+    await queue.completeWebhookDelivery(unrelated1!.scope, unrelated1!.deliveryId, unrelated1!.leaseToken)
+    await queue.completeWebhookDelivery(unrelated2!.scope, unrelated2!.deliveryId, unrelated2!.leaseToken)
+
+    vi.advanceTimersByTime(1_001)
+    const recovered = await queue.claimWebhookDelivery(delivery.scope)
+    expect(recovered?.deliveryId).toBe(delivery.deliveryId)
+    expect(recovered?.leaseToken).not.toBe("steer-token")
+    await state.disconnect()
+  })
+
+  it("does not steer ahead of older queued work for the same concurrency key", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("queued-first", "pr-1"))
+    vi.advanceTimersByTime(1)
+
+    await expect(queue.claimWebhookSteering(
+      webhookDelivery("steer-second", "pr-1"),
+      "steer-token",
+      Date.now() + 1_000,
+    )).resolves.toBe(false)
+    await expect(queue.claimWebhookSteering(
+      webhookDelivery("other-key", "pr-2"),
+      "other-token",
+      Date.now() + 1_000,
+    )).resolves.toBe(true)
+    await state.disconnect()
   })
 
   it("requires connect before using the state adapter", async () => {

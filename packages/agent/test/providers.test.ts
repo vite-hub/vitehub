@@ -871,7 +871,6 @@ describe("agent Vite plugin", () => {
       })
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(wrapper).toContain("handler.resume({ agentIdentity: agentIdentities[name], runtime: 'vite', webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
@@ -5586,6 +5585,272 @@ describe("server helpers", () => {
     }
   })
 
+  it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const releases: Array<() => void> = []
+    const closeControls: Array<() => void> = []
+    const steeredInputs: unknown[] = []
+    let releaseSteer: () => void = () => undefined
+    const steerAccepted = new Promise<void>(resolve => { releaseSteer = resolve })
+    let rejectSteer = false
+    let failFlush = false
+    let completedRuns = 0
+    const run = vi.fn(async (context: { run?: { runId?: string }, waitUntil: (task: Promise<unknown>) => void }) => {
+      const { run: metadata } = context
+      const controlId = agentInvocationControlId(context)
+      if (!metadata?.runId || !controlId) throw new Error("Expected controlled Agent Invocation identities.")
+      const closeControl = registerAgentInvocationInputHandler(controlId, {
+        async sendInput(input, options) {
+          expect(options).toEqual({ mode: "steer" })
+          if (rejectSteer) throw new Error("closed")
+          steeredInputs.push(input)
+          await steerAccepted
+          return "accepted" as const
+        },
+        support: { steer: true },
+      })
+      closeControls.push(closeControl)
+      try {
+        await new Promise<void>(resolve => releases.push(resolve))
+        if (failFlush) context.waitUntil(Promise.reject(new Error("flush failed")))
+        return "accepted"
+      }
+      finally {
+        closeControl()
+        completedRuns += 1
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
+                return {
+                  input: { prompt: deliveryId },
+                  run: { runId: deliveryId },
+                  webhook: {
+                    busy: "steer",
+                    concurrencyGroup: "reviews",
+                    concurrencyKey: "pr-42",
+                    concurrencyLimit: 1,
+                    concurrencyTtlMs: 1_000,
+                    deliveryId,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (deliveryId: string) => new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ number: 42 }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": deliveryId,
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    const waitUntilTasks: Promise<unknown>[] = []
+    const options = {
+      agentName: "review",
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+      webhookState: state,
+    }
+    let stop: () => void | Promise<void> = () => undefined
+    vi.useFakeTimers()
+
+    try {
+      stop = handler.resume(options)
+      const first = await handler(request("delivery-1"), "github", options)
+      await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
+
+      const waitUntilCount = waitUntilTasks.length
+      const steering = handler(request("delivery-2"), "github", options)
+      await vi.waitFor(() => expect(steeredInputs).toHaveLength(1))
+      await vi.advanceTimersByTimeAsync(1_100)
+      const concurrentDelivery = await handler(request("delivery-6"), "github", options)
+      expect(concurrentDelivery.status).toBe(503)
+      await expect(concurrentDelivery.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      expect(steeredInputs).toHaveLength(1)
+      const inFlightDuplicate = await handler(request("delivery-2"), "github", options)
+      await expect(inFlightDuplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, steered: true })
+      expect(steeredInputs).toHaveLength(1)
+
+      releaseSteer()
+      const steered = await steering
+      await expect(steered.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
+      expect(waitUntilTasks.length).toBeGreaterThan(waitUntilCount)
+      expect(waitUntilTasks.at(-1)).toBeInstanceOf(Promise)
+      expect(steeredInputs).toEqual([expect.objectContaining({ prompt: "delivery-2" })])
+
+      const duplicate = await handler(request("delivery-2"), "github", options)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, steered: true })
+      expect(steeredInputs).toHaveLength(1)
+
+      rejectSteer = true
+      const rejected = await handler(request("delivery-3"), "github", options)
+      await expect(rejected.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      rejectSteer = false
+      const rejectedReplay = await handler(request("delivery-3"), "github", options)
+      await expect(rejectedReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
+      expect(steeredInputs).toHaveLength(1)
+
+      expect(run).toHaveBeenCalledOnce()
+      expect(closeControls).toHaveLength(1)
+      closeControls[0]!()
+      const queued = await handler(request("delivery-4"), "github", options)
+      await expect(queued.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      expect(steeredInputs).toHaveLength(1)
+      expect(run).toHaveBeenCalledOnce()
+
+      stop()
+      failFlush = true
+      releases.shift()!()
+      await vi.waitFor(() => expect(completedRuns).toBe(1))
+      failFlush = false
+      await vi.waitFor(async () => expect(await state.get("webhook:review:github:github:steer:delivery-2")).toBeNull())
+      const absent = await handler(request("delivery-2"), "github", options)
+      await expect(absent.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
+      expect(steeredInputs).toHaveLength(1)
+      expect(run).toHaveBeenCalledOnce()
+      stop = handler.resume(options)
+
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 3_000 })
+      releases.shift()!()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
+      releases.shift()!()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(4))
+      releases.shift()!()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(5))
+      releases.shift()!()
+      await vi.waitFor(() => expect(completedRuns).toBe(5))
+    }
+    finally {
+      const stopping = stop()
+      releaseSteer()
+      releases.splice(0).forEach(release => release())
+      await stopping
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  }, 15_000)
+
+  it("scopes active webhook steering to the resolved state backend", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-backend-"))
+    const stateUrls = {
+      first: `file:${join(stateDir, "first.sqlite")}`,
+      second: `file:${join(stateDir, "second.sqlite")}`,
+    }
+    const states: Array<ReturnType<typeof createLibsqlAgentState>> = []
+    const releases: Array<() => void> = []
+    const steeredInputs: string[] = []
+    const run = vi.fn(async (context: { run?: { runId?: string } }) => {
+      const controlId = agentInvocationControlId(context)
+      if (!controlId) throw new Error("Expected an Agent Invocation control identity.")
+      const unregister = registerAgentInvocationInputHandler(controlId, {
+        sendInput(input) {
+          steeredInputs.push(String(input.prompt))
+          return "accepted"
+        },
+        support: { steer: true },
+      })
+      try {
+        await new Promise<void>(resolve => releases.push(resolve))
+        return "accepted"
+      }
+      finally {
+        unregister()
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
+                return {
+                  input: { prompt: deliveryId },
+                  run: { runId: deliveryId },
+                  webhook: {
+                    busy: "steer",
+                    concurrencyKey: "shared",
+                    concurrencyLimit: 1,
+                    deliveryId,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (deliveryId: string, tenant: keyof typeof stateUrls) => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": deliveryId,
+        "x-github-event": "pull_request",
+        "x-tenant": tenant,
+      },
+      method: "POST",
+    })
+    const options = {
+      agentName: "review",
+      webhookState: (context: { request?: Request }) => {
+        const tenant = context.request?.headers.get("x-tenant") as keyof typeof stateUrls
+        const state = createLibsqlAgentState({ url: stateUrls[tenant] })
+        states.push(state)
+        return state
+      },
+    }
+
+    try {
+      await handler(request("first-run", "first"), "github", options)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await expect(states[0]?.get("webhook:backend-id")).resolves.toEqual(expect.any(String))
+
+      const sameBackend = await handler(request("same-backend-steer", "first"), "github", options)
+      await expect(sameBackend.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
+      expect(steeredInputs).toEqual(["same-backend-steer"])
+
+      const otherBackend = await handler(request("other-backend-run", "second"), "github", options)
+      await expect(otherBackend.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      expect(steeredInputs).toEqual(["same-backend-steer"])
+    }
+    finally {
+      releases.splice(0).forEach(release => release())
+      await vi.waitFor(() => expect(releases).toHaveLength(0)).catch(() => undefined)
+      await Promise.all(states.map(state => state.disconnect().catch(() => undefined)))
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("resumes persisted webhook deliveries after a process restart", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -5817,7 +6082,7 @@ describe("server helpers", () => {
     try {
       stop = handler.resume({ agentName: "review", webhookState: queueState })
       await handler(request("delivery-stop-1"), "github", { agentName: "review", webhookState: queueState })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 3_000 })
       blockClaims = true
       await handler(request("delivery-stop-2"), "github", { agentName: "review", webhookState: queueState })
       await vi.waitFor(() => expect(claimBlocked).toHaveBeenCalled())
@@ -5921,7 +6186,7 @@ describe("server helpers", () => {
     finally {
       releaseRun()
       await stop()
-      await vi.runAllTimersAsync()
+      vi.clearAllTimers()
       vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -6045,12 +6310,50 @@ describe("server helpers", () => {
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(waitUntil.mock.calls.length).toBeGreaterThanOrEqual(3))
+      const settledWaitUntilCount = waitUntil.mock.calls.length
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(waitUntil).toHaveBeenCalledTimes(settledWaitUntilCount)
     }
     finally {
       consoleError.mockRestore()
       vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects webhook steering without keyed concurrency ownership", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "invalid-steer",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+
+    for (const webhook of [
+      { busy: "steer", concurrencyLimit: 1, deliveryId: "invalid-steer" },
+      { busy: "steer", concurrencyKey: "shared", deliveryId: "invalid-steer" },
+    ]) {
+      const handler = createChannelWebhookRouteHandler(defineAgent({
+        channels: {
+          github: github({
+            triggers: { webhook: { invoke: () => ({ input: { prompt: "ignored" }, webhook } as never) } },
+            webhooks: { secretToken: false },
+          }),
+        },
+        driver: { run: vi.fn() },
+      }) as never)
+
+      const response = await handler(request(), "github")
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toMatchObject({ error: true, message: 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.' })
     }
   })
 
@@ -6061,6 +6364,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-ownership-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const getState = vi.spyOn(state, "get")
     const acquireLock = vi.spyOn(state, "acquireLock")
     const extendLock = vi.spyOn(state, "extendLock")
     let releaseFirstRun!: () => void
@@ -6155,6 +6459,7 @@ describe("server helpers", () => {
           stateKeyPrefix: "webhook:review:github:github:",
         },
       })
+      expect(getState).not.toHaveBeenCalledWith("webhook:backend-id")
     }
     finally {
       releaseFirstRun()

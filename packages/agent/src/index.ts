@@ -11,6 +11,7 @@ import {
   createBackedAgentInvocationController,
   startLiveAgentInvocation,
 } from "./agent-invocation.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, withAgentInvocationControlId } from "./internal/agent-invocation-control.ts"
 import {
   createReactionDeliveryEffectIntent,
   createReplyDeliveryEffectIntent,
@@ -3975,12 +3976,14 @@ function createInlineAgentInvocationController<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  runId?: string,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
   return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS>({
     parentAbortSignal: input.abortSignal,
+    sendInput: (id, nextInput, options) => sendAgentInvocationInput(id, nextInput, options),
     start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
-      ...context,
-      run: { ...context.run, runId: id },
+      ...withAgentInvocationControlId(context, id),
+      run: { ...context.run, runId: runId || id },
     }, { ...input, abortSignal }, {
       kind: "run",
       onFinish(outcome) {
@@ -3990,6 +3993,7 @@ function createInlineAgentInvocationController<
       },
       renderOutput: true,
     }),
+    support: id => agentInvocationInputSupport(id),
   })
 }
 
@@ -4001,6 +4005,7 @@ export async function startAgentInvocation<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  options: { runId?: string } = {},
 ): Promise<AgentInvocationController<TOutput | Response, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
@@ -4011,7 +4016,7 @@ export async function startAgentInvocation<
   )
   return workflow
     ? createWorkflowAgentInvocationController(workflow, input.abortSignal)
-    : createInlineAgentInvocationController(agent, invocationContext, input)
+    : createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
 }
 
 export async function runAgent<

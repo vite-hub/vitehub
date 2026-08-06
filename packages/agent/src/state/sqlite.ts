@@ -133,17 +133,19 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
-    await this.cleanupExpiredStateIfDue()
-    return await this.transaction(async (tx) => {
-      const now = Date.now()
-      await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND expires_at <= ?`, [threadId, now])
-      const existing = await execute(tx, `SELECT 1 FROM ${this.tables.locks} WHERE thread_id = ? LIMIT 1`, [threadId])
-      if (existing.length > 0) return null
+    return await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await this.transaction(async (tx) => {
+        const now = Date.now()
+        await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND expires_at <= ?`, [threadId, now])
+        const existing = await execute(tx, `SELECT 1 FROM ${this.tables.locks} WHERE thread_id = ? LIMIT 1`, [threadId])
+        if (existing.length > 0) return null
 
-      const token = randomToken()
-      const expiresAt = now + ttlMs
-      await execute(tx, `INSERT INTO ${this.tables.locks} (thread_id, token, expires_at) VALUES (?, ?, ?)`, [threadId, token, expiresAt])
-      return { expiresAt, threadId, token }
+        const token = randomToken()
+        const expiresAt = now + ttlMs
+        await execute(tx, `INSERT INTO ${this.tables.locks} (thread_id, token, expires_at) VALUES (?, ?, ?)`, [threadId, token, expiresAt])
+        return { expiresAt, threadId, token }
+      })
     })
   }
 
@@ -184,7 +186,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             candidate.concurrency_key, candidate.concurrency_limit, candidate.lease_ttl_ms, candidate.attempts
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
-            AND (candidate.status = 'queued' OR (candidate.status = 'running' AND candidate.lease_expires_at <= ?))
+            AND (candidate.status = 'queued' OR (candidate.status IN ('running', 'steering') AND candidate.lease_expires_at <= ?))
             AND (
               SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
               WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
@@ -209,7 +211,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           `UPDATE ${this.tables.webhookQueue}
             SET status = 'running', lease_token = ?, lease_expires_at = ?
             WHERE scope = ? AND delivery_id = ?
-              AND (status = 'queued' OR (status = 'running' AND lease_expires_at <= ?))
+              AND (status = 'queued' OR (status IN ('running', 'steering') AND lease_expires_at <= ?))
             RETURNING value`,
           [leaseToken, now + leaseTtlMs, scope, candidate.delivery_id, now],
         )
@@ -225,6 +227,40 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
+  async claimWebhookSteering(delivery: AgentWebhookQueueDelivery, leaseToken: string, leaseExpiresAt: number): Promise<boolean> {
+    const inserted = await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await execute(
+        this.driver,
+        `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+          scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
+          lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?
+          WHERE NOT EXISTS (
+            SELECT 1 FROM ${this.tables.webhookQueue}
+            WHERE scope = ? AND concurrency_key = ? AND status = 'queued'
+          )
+          RETURNING delivery_id`,
+        [
+          delivery.scope,
+          delivery.deliveryId,
+          JSON.stringify(delivery),
+          delivery.concurrencyGroup,
+          delivery.concurrencyKey || null,
+          delivery.concurrencyLimit,
+          delivery.leaseTtlMs,
+          delivery.enqueuedAt,
+          delivery.enqueuedAt,
+          leaseToken,
+          leaseExpiresAt,
+          delivery.scope,
+          delivery.concurrencyKey || null,
+        ],
+      )
+    })
+    return inserted.length > 0
+  }
+
   async completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean> {
     const completed = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
@@ -232,7 +268,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         this.driver,
         `UPDATE ${this.tables.webhookQueue}
           SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
-          WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
+          WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
           RETURNING delivery_id`,
         [scope, deliveryId, leaseToken],
       )
@@ -357,7 +393,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const extended = await execute(
       this.driver,
       `UPDATE ${this.tables.webhookQueue} SET lease_expires_at = ?
-        WHERE scope = ? AND delivery_id = ? AND status = 'running'
+        WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering')
           AND lease_token = ? AND lease_expires_at > ? RETURNING delivery_id`,
       [now + ttlMs, scope, deliveryId, leaseToken, now],
     )
@@ -405,8 +441,10 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async releaseLock(lock: Lock): Promise<void> {
-    await this.cleanupExpiredStateIfDue()
-    await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND token = ?`, [lock.threadId, lock.token])
+    await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND token = ?`, [lock.threadId, lock.token])
+    })
   }
 
   async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number): Promise<boolean> {
@@ -417,7 +455,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         `UPDATE ${this.tables.webhookQueue}
         SET status = 'queued', available_at = ?, attempts = attempts + 1,
           lease_token = NULL, lease_expires_at = NULL
-        WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
+        WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
         RETURNING delivery_id`,
         [availableAt, scope, deliveryId, leaseToken],
       )
@@ -439,12 +477,12 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void> {
     await this.cleanupExpiredStateIfDue()
     const expiresAt = ttlMs ? Date.now() + ttlMs : null
-    await execute(this.driver, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
+    await retrySqliteBusy(async () => await execute(this.driver, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt]))
   }
 
   async setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
-    return await this.transaction(async (tx) => {
+    return await retrySqliteBusy(async () => await this.transaction(async (tx) => {
       const now = Date.now()
       const existing = await execute(
         tx,
@@ -457,7 +495,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const expiresAt = ttlMs ? Date.now() + ttlMs : null
       await execute(tx, `INSERT INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
       return true
-    })
+    }))
   }
 
   async subscribe(threadId: string): Promise<void> {
