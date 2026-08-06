@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
 import { createImportPath } from "@vite-hub/internal/build/paths"
-import { dirname } from "pathe"
+import { dirname, join } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
 
@@ -62,7 +62,40 @@ function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseName
   ].join("\n")
 }
 
+function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatabaseDefinition[]) {
+  const imports = definitions.map((definition, index) =>
+    `import type database_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`)
+  const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
+  const schemaDefinition = definitions[schemaDefinitionIndex]!
+  const schemaFields = schemaDefinition.tableNames.map(tableName =>
+    `  ${JSON.stringify(tableName)}: typeof database_${schemaDefinitionIndex}.schema[${JSON.stringify(tableName)}]`)
+  const namedEntries = definitions.flatMap((definition, index) => definition.name === "default" ? [] : [
+    `    ${JSON.stringify(definition.name)}: {`,
+    `      config: import("@vite-hub/database").ResolvedDrizzleDatabaseConfig`,
+    `      schema: typeof database_${index}.schema`,
+    "    },",
+  ])
+
+  return [
+    ...imports,
+    "",
+    'declare module "#vitehub/database/schema" {',
+    ...schemaFields,
+    "}",
+    "",
+    'declare module "#vitehub/database/databases" {',
+    "  interface DatabaseRegistry {",
+    ...namedEntries,
+    "  }",
+    "}",
+    "",
+    "export {}",
+    "",
+  ].join("\n")
+}
+
 export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig) {
+  const generatedTypesFile = join(config.rootDir, ".vitehub/types/database.d.ts")
   await Promise.all(config.definitions.map(async (definition) => {
     const file = config.generatedSchemaFilesByDatabase[definition.name]!
     await mkdir(dirname(file), { recursive: true })
@@ -71,6 +104,8 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config), "utf8")
+  await mkdir(dirname(generatedTypesFile), { recursive: true })
+  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config.definitions), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
