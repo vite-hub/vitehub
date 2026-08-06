@@ -16,18 +16,16 @@ type RuntimeDatabaseRegistry = {
   [Name in keyof typeof databaseEntries]: RuntimeDatabaseEntry<typeof databaseEntries[Name]["schema"]>
 }
 
-type RuntimeDatabaseSurface = RuntimeDatabaseRegistry & {
+type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: RuntimeDatabaseEntry<typeof schema>
-}
-
-type RuntimeDatabaseLookup = RuntimeDatabaseSurface & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
+} & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
 
 export * from "#vitehub/database/schema"
 export { schema }
 
 export declare const databases: RuntimeDatabaseLookup
 
-export declare function useDatabase<Name extends keyof RuntimeDatabaseSurface>(name: Name): RuntimeDatabaseSurface[Name]
+export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
 
 export declare const db: DrizzleRuntimeDatabase<typeof schema>
 

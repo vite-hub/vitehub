@@ -8,12 +8,7 @@ declare module "#vitehub/database/schema" {
 }
 
 declare module "#vitehub/database/databases" {
-  export interface DatabaseRegistry {
-    default: {
-      config: import("./types.ts").ResolvedDrizzleDatabaseConfig
-      schema: import("#vitehub/database/schema").DatabaseSchema
-    }
-  }
+  export interface DatabaseRegistry {}
 
   const databases: DatabaseRegistry
   export { databases }

@@ -16,17 +16,15 @@ type RuntimeDatabaseRegistry = {
   [Name in keyof typeof databaseEntries]: RuntimeDatabaseEntry<typeof databaseEntries[Name]["schema"]>
 }
 
-type RuntimeDatabaseSurface = RuntimeDatabaseRegistry & {
+type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: RuntimeDatabaseEntry<typeof schema>
-}
-
-type RuntimeDatabaseLookup = RuntimeDatabaseSurface & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
+} & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
 
 export const databases = runtimeDatabases as RuntimeDatabaseLookup
 
 export const db = runtimeDb as DrizzleRuntimeDatabase<typeof schema>
 
-export function useDatabase<Name extends keyof RuntimeDatabaseSurface>(name: Name): RuntimeDatabaseSurface[Name] {
+export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {
   return databases[name]
 }
 
