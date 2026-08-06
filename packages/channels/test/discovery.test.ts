@@ -44,12 +44,12 @@ describe("discoverChannelDefinitions", () => {
     expect(() => discoverChannelDefinitions({ rootDir: root })).toThrow("Duplicate channel name \"alerts\"")
   })
 
-  it("treats suffixed files inside server channels as directory definitions", async () => {
+  it("normalizes suffixed files inside server channels to the same channel name", async () => {
     const root = await createTempProject()
     await touch(root, "server/channels/alerts.channel.ts")
 
     expect(discoverChannelDefinitions({ rootDir: root })).toEqual([
-      { handler: join(root, "server/channels/alerts.channel.ts"), name: "alerts.channel", source: "server-channels" },
+      { handler: join(root, "server/channels/alerts.channel.ts"), name: "alerts", source: "server-channels" },
     ])
   })
 })

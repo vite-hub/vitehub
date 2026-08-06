@@ -17,6 +17,10 @@ function normalizeSuffixChannelName(rootDir: string, file: string): string {
   return normalizeSuffixDefinitionName(rootDir, file, channelSuffixPattern, { stripPrefix: "src/" })
 }
 
+function normalizeDirectoryChannelName(directory: string, file: string): string {
+  return normalizePathDefinitionName(directory, file).replace(/\.channel$/i, "")
+}
+
 function createDiscoveredChannelDefinition(source: DiscoveredChannelDefinition["source"]) {
   return (context: { file: string, name: string }): DiscoveredChannelDefinition => ({
     handler: context.file,
@@ -33,14 +37,13 @@ export function discoverChannelDefinitions(options:
     return discoverDefinitions("channel", [
       createDirectoryDefinitionSource("server-channels", options.scanDirs, "channels", {
         createDefinition: createDiscoveredChannelDefinition("server-channels"),
-        normalizeName: normalizePathDefinitionName,
+        normalizeName: normalizeDirectoryChannelName,
       }),
     ])
   }
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
-  const serverRoots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
-  const serverScanDirs = options.serverDirs ?? [...new Set(options.serverRootDirs || serverRoots)].map(root => resolve(root, "server"))
+  const serverScanDirs = options.serverDirs ?? [...new Set(options.serverRootDirs || roots)].map(root => resolve(root, "server"))
   const channelDirectories = serverScanDirs.map(directory => `${resolve(directory, "channels").replace(/\\/g, "/")}/`)
   const suffixDefinitions = discoverDefinitions("channel", [
     createSuffixDefinitionSource("vite-suffix", roots, channelSuffixPattern, normalizeSuffixChannelName, {
@@ -57,7 +60,7 @@ export function discoverChannelDefinitions(options:
     discoverDefinitions("channel", [
       createDirectoryDefinitionSource("server-channels", serverScanDirs, "channels", {
         createDefinition: createDiscoveredChannelDefinition("server-channels"),
-        normalizeName: normalizePathDefinitionName,
+        normalizeName: normalizeDirectoryChannelName,
       }),
     ]),
   )
