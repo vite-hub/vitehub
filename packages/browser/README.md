@@ -68,4 +68,4 @@ finally {
 }
 ```
 
-Live handoff transfers ownership of the exact provider session through an opaque, audience-bound reference. A handed-off session is not automatically closed.
+Live handoff transfers ownership of the exact provider session through an opaque, audience-bound reference. Cloudflare's Kitesurf default is sessionless, so select `engine: "chromium"` when live handoff is required. A handed-off session is not automatically closed.

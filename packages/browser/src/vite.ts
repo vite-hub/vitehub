@@ -39,7 +39,7 @@ function resolveOptions(options: BrowserModuleOptions | false | undefined): Requ
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
     throw new TypeError("[vitehub:browser] Browser binding must be a valid Cloudflare binding name.")
   }
-  const engine = options && options.engine || "kitesurf"
+  const engine = options ? options.engine ?? "kitesurf" : "kitesurf"
   if (engine !== "chromium" && engine !== "kitesurf") {
     throw new TypeError("[vitehub:browser] Browser engine must be chromium or kitesurf.")
   }

@@ -31,7 +31,7 @@ export function cloudflarePlaywright(
       const cloudflare = driver || await loadCloudflare()
       const browser = connection.engine === "kitesurf"
         ? await cloudflare.launch(connection.binding, { browser: "kitesurf" })
-        : await cloudflare.connect(connection.binding, connection.sessionId!)
+        : await cloudflare.connect(connection.binding, connection.sessionId)
       const attached = await attachPlaywrightBrowser(browser, connection)
       let released = false
       return {

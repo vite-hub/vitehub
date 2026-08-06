@@ -1,5 +1,3 @@
-import type { BrowserEngine } from "../types.ts"
-
 export interface CDPBrowserConnection {
   endpoint: string
   headers?: Record<string, string>
@@ -9,13 +7,23 @@ export interface CDPBrowserConnection {
 
 export const cloudflareBrowserTerminated: unique symbol = Symbol("vitehub.browser.cloudflare.terminated")
 
-export interface CloudflareBrowserBindingConnection {
+interface CloudflareBrowserBindingConnectionBase {
   [cloudflareBrowserTerminated]?: boolean
   binding: unknown
-  engine?: BrowserEngine
   kind: "cloudflare-binding"
   preferredTargetId?: string
-  sessionId?: string
 }
+
+export interface CloudflareChromiumConnection extends CloudflareBrowserBindingConnectionBase {
+  engine?: "chromium"
+  sessionId: string
+}
+
+export interface CloudflareKitesurfConnection extends CloudflareBrowserBindingConnectionBase {
+  engine: "kitesurf"
+  sessionId?: never
+}
+
+export type CloudflareBrowserBindingConnection = CloudflareChromiumConnection | CloudflareKitesurfConnection
 
 export type PlaywrightBrowserConnection = CDPBrowserConnection | CloudflareBrowserBindingConnection

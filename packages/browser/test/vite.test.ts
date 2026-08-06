@@ -336,5 +336,6 @@ describe("hubBrowser", () => {
 
   it("validates engine names", () => {
     expect(() => hubBrowser({ engine: "webkit" as never })).toThrow("engine must be chromium or kitesurf")
+    expect(() => hubBrowser({ engine: "" as never })).toThrow("engine must be chromium or kitesurf")
   })
 })

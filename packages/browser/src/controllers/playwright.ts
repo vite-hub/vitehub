@@ -50,7 +50,7 @@ export function playwright(options: PlaywrightControllerOptions = {}): BrowserCo
       const browser = connection.kind === "cloudflare-binding"
         ? connection.engine === "kitesurf"
           ? await (options.cloudflare || await loadCloudflare()).launch(connection.binding, { browser: "kitesurf" })
-          : await (options.cloudflare || await loadCloudflare()).connect(connection.binding, connection.sessionId!)
+          : await (options.cloudflare || await loadCloudflare()).connect(connection.binding, connection.sessionId)
         : await (options.chromium || await loadChromium()).connectOverCDP(connection.endpoint, {
             ...(connection.headers ? { headers: connection.headers } : {}),
           })

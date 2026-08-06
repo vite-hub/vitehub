@@ -148,7 +148,7 @@ Provider and controller subpaths are advanced integration surfaces. Normal ViteH
 
 ## Live handoff
 
-Low-level sessions can transfer ownership of an exact provider session through an opaque, audience-bound reference.
+Low-level sessions can transfer ownership of an exact provider session through an opaque, audience-bound reference. Cloudflare's Kitesurf default is sessionless and does not support live handoff; select `engine: 'chromium'` when persistent-session handoff is required.
 
 ```ts [server/browser-handoff.ts]
 import { cdp } from '@vite-hub/browser/controllers/cdp'

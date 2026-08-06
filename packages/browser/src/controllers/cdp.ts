@@ -26,8 +26,8 @@ async function cloudflareSocket(
     throw browserProviderError("cdp", "connect through the Cloudflare Browser binding")
   }
   const url = new URL("http://fake.host/v1/devtools/browser")
-  if (connection.sessionId) url.pathname += `/${encodeURIComponent(connection.sessionId)}`
   if (connection.engine === "kitesurf") url.searchParams.set("browser", "kitesurf")
+  else url.pathname += `/${encodeURIComponent(connection.sessionId)}`
   const response = await binding.fetch(url, {
     headers: {
       "cf-brapi-client": "@vite-hub/browser",
