@@ -665,6 +665,13 @@ function containsFunction(value: unknown, seen = new Set<object>()): boolean {
   return Object.values(value).some(entry => containsFunction(entry, seen))
 }
 
+function containsBinaryValue(value: unknown, seen = new Set<object>()): boolean {
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value) || (typeof Blob !== "undefined" && value instanceof Blob)) return true
+  if (!value || typeof value !== "object" || seen.has(value)) return false
+  seen.add(value)
+  return Object.values(value).some(entry => containsBinaryValue(entry, seen))
+}
+
 function persistedWebhookInvocation(
   invocation: { input: Record<string, unknown>, run?: unknown },
 ): { input: Record<string, unknown>, run?: unknown } {
@@ -744,6 +751,7 @@ function startWebhookQueueHeartbeat(
   let timer: ReturnType<typeof setTimeout> | undefined
   const extend = async () => {
     if (stopped) return
+    const extensionStartedAt = Date.now()
     try {
       if (!await state.extendWebhookDeliveryLease(
         delivery.scope,
@@ -755,7 +763,7 @@ function startWebhookQueueHeartbeat(
         onLost()
         return
       }
-      knownLeaseExpiresAt = Date.now() + delivery.leaseTtlMs
+      knownLeaseExpiresAt = extensionStartedAt + delivery.leaseTtlMs
     }
     catch {
       const remainingMs = knownLeaseExpiresAt - Date.now()
@@ -767,7 +775,7 @@ function startWebhookQueueHeartbeat(
       timer = setTimeout(extend, Math.min(retryMs, remainingMs))
       return
     }
-    if (!stopped) timer = setTimeout(extend, intervalMs)
+    if (!stopped) timer = setTimeout(extend, Math.max(1, knownLeaseExpiresAt - Date.now() - intervalMs))
   }
   timer = setTimeout(extend, intervalMs)
   return () => {
@@ -3505,6 +3513,7 @@ export function createChannelWebhookRouteHandler(
               webhookState.keyPrefix,
               routeAgentIdentity(handlerOptions)?.name || "agent",
               containsFunction(invocation.input) || containsFunction(invocation.run)
+                || containsBinaryValue(invocation.input) || containsBinaryValue(invocation.run)
                 ? undefined
                 : persistedWebhookInvocation(invocation as unknown as { input: Record<string, unknown>, run?: unknown }),
             )

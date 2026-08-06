@@ -112,7 +112,7 @@ async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
     }
     catch (error) {
       if (!isSqliteBusy(error) || attempt >= 7) throw error
-      await Promise.resolve()
+      await new Promise(resolve => setTimeout(resolve, Math.min(50, 2 ** attempt)))
     }
   }
 }
