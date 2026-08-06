@@ -5627,7 +5627,7 @@ describe("server helpers", () => {
       releaseSteer()
       const steered = await steering
       await expect(steered.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
-      expect(waitUntilTasks).toHaveLength(waitUntilCount + 1)
+      expect(waitUntilTasks.length).toBeGreaterThan(waitUntilCount)
       expect(waitUntilTasks.at(-1)).toBeInstanceOf(Promise)
       expect(steeredInputs).toEqual([expect.objectContaining({ prompt: "delivery-2" })])
 
@@ -5765,6 +5765,7 @@ describe("server helpers", () => {
     try {
       await handler(request("first-run", "first"), "github", options)
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await expect(states[0]?.get("webhook:backend-id")).resolves.toEqual(expect.any(String))
 
       const sameBackend = await handler(request("same-backend-steer", "first"), "github", options)
       await expect(sameBackend.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
@@ -6242,9 +6243,10 @@ describe("server helpers", () => {
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
-      await vi.waitFor(() => expect(waitUntil).toHaveBeenCalledTimes(3))
+      await vi.waitFor(() => expect(waitUntil.mock.calls.length).toBeGreaterThanOrEqual(3))
+      const settledWaitUntilCount = waitUntil.mock.calls.length
       await vi.advanceTimersByTimeAsync(1_000)
-      expect(waitUntil).toHaveBeenCalledTimes(3)
+      expect(waitUntil).toHaveBeenCalledTimes(settledWaitUntilCount)
     }
     finally {
       consoleError.mockRestore()

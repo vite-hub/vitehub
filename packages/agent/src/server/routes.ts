@@ -597,11 +597,11 @@ function webhookScopeComponent(value: string): string {
 
 const webhookStateBackendIds = new WeakMap<StateAdapter, Promise<string>>()
 
-function resolveWebhookStateBackendId(state: StateAdapter, keyPrefix: string): Promise<string> {
+function resolveWebhookStateBackendId(state: StateAdapter): Promise<string> {
   const existing = webhookStateBackendIds.get(state)
   if (existing) return existing
   const resolving = (async () => {
-    const backendIdKey = `${keyPrefix}backend-id`
+    const backendIdKey = "webhook:backend-id"
     const stored = await state.get(backendIdKey)
     if (typeof stored === "string" && stored) return stored
     await state.setIfNotExists(backendIdKey, globalThis.crypto.randomUUID())
@@ -638,7 +638,7 @@ async function resolveAgentWebhookState(
   } as never)
   if (!state) return
   await state.connect()
-  const backendId = await resolveWebhookStateBackendId(state, keyPrefix)
+  const backendId = await resolveWebhookStateBackendId(state)
   return { backendId, keyPrefix, state }
 }
 
@@ -3930,7 +3930,7 @@ export function createChannelWebhookRouteHandler(
             }
           }
           else {
-            const backendId = await resolveWebhookStateBackendId(state, agentScopePrefix)
+            const backendId = await resolveWebhookStateBackendId(state)
             for (const scope of persistedScopes) {
               if (scope.startsWith(agentScopePrefix)) await registerQueue(backendId, scope, state, handlerOptions)
             }
