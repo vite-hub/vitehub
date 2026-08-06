@@ -15,10 +15,16 @@ ViteHub automatically adapts the primitive for local development and for your de
 | You need | Start with |
 | --- | --- |
 | Read configuration or secrets | [Env](/docs/server-primitives/env) |
+| Authenticate users and manage sessions | [Auth](/docs/server-primitives/auth) |
 | Store application data | [Database](/docs/server-primitives/database) or [KV](/docs/server-primitives/kv) |
+| Store uploads or generated artifacts | [Blob](/docs/server-primitives/blob) |
+| Send transactional messages | [Email](/docs/server-primitives/email) |
+| Limit requests before expensive work starts | [Rate Limit](/docs/server-primitives/rate-limit) |
 | Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
 | Persist files or expose read-only origins | [Workspace](/docs/server-primitives/workspace) and [Source](/docs/server-primitives/source) |
+| Automate browser sessions or inspect pages | [Browser](/docs/server-primitives/browser) |
 | Run isolated commands or code | [Shell](/docs/server-primitives/shell) or [Sandbox](/docs/server-primitives/sandbox) |
+| Receive messages or deliver Agent responses | [Channels](/docs/agents/channels) |
 
 ## Agent Primitives use LLMs to run actions on demand
 
