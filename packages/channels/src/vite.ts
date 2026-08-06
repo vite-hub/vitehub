@@ -75,7 +75,7 @@ function isChannelDefinitionFile(file: string, projectRoot: string, serverDirs: 
   return (serverDirs ?? [resolve(projectRoot, "server")]).some((directory) => {
     const channelDirectory = `${resolve(directory, "channels").replace(/\\/g, "/")}/`
     return normalized.startsWith(channelDirectory)
-      && /\.(?:c|m)?[jt]s$/i.test(normalized.slice(channelDirectory.length))
+      && /\.(?:c|m)?[jt]sx?$/i.test(normalized.slice(channelDirectory.length))
   })
 }
 

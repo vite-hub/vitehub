@@ -114,7 +114,7 @@ describe("hubChannels", () => {
     const plugin = hubChannels()
     ;(plugin.config as unknown as (config: Record<PropertyKey, unknown>) => void)({ [VITEHUB_SERVER_DIRS]: [serverDir] })
     await resolvePlugin(plugin, root)
-    const definition = await writeChannel(root, "custom-server/channels/alerts.ts")
+    const definition = await writeChannel(root, "custom-server/channels/alerts.tsx")
 
     await (plugin.handleHotUpdate as (context: unknown) => void)({
       file: definition,

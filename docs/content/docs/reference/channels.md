@@ -88,7 +88,7 @@ The handler returns a result like this:
 {
   "channel": "alerts",
   "connector": "telegram",
-  "id": "build-room:1730000000000"
+  "id": "1730000000000"
 }
 ```
 
