@@ -127,7 +127,7 @@ function resolveConfiguredClient(): BrowserClient {
   if (configuredClient) return configuredClient
   if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
   configuredClient = createBrowser({
-    provider: cloudflareBrowser({ binding: runtimeConfig.binding }),
+    provider: cloudflareBrowser({ binding: runtimeConfig.binding, engine: runtimeConfig.engine }),
   })
   return configuredClient
 }

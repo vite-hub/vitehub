@@ -19,6 +19,22 @@ class FakeSocket extends EventTarget {
 }
 
 describe("cdp controller", () => {
+  it("connects to Kitesurf without a persistent session id", async () => {
+    const socket = new FakeSocket()
+    const fetch = vi.fn(async (_input: unknown) => ({ webSocket: socket }))
+    const attached = await cdp().attach({
+      binding: { fetch },
+      engine: "kitesurf",
+      kind: "cloudflare-binding",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
+      sessionId: "public-id",
+    })
+
+    expect(String(fetch.mock.calls[0]![0])).toBe("http://fake.host/v1/devtools/browser?browser=kitesurf")
+    await attached.release()
+  })
+
   it("runs commands and detaches without terminating the provider session", async () => {
     const socket = new FakeSocket()
     const controller = cdp({ connect: async () => socket })

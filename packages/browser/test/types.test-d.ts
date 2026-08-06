@@ -47,5 +47,6 @@ describe("published Browser types", () => {
     const session = await browser.open()
     expectTypeOf(session.handoff({ audience: "run-1", mode: "live" })).resolves.toEqualTypeOf<BrowserSessionRef>()
     expectTypeOf(hubBrowser()).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
+    expectTypeOf(hubBrowser({ engine: "chromium" })).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
   })
 })

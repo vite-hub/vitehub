@@ -26,6 +26,25 @@ function fakeBrowser(target = "target-1") {
 }
 
 describe("playwright controller", () => {
+  it("launches Kitesurf through Cloudflare Playwright", async () => {
+    const { browser } = fakeBrowser()
+    const binding = { fetch: vi.fn() }
+    const connect = vi.fn()
+    const launch = vi.fn(async () => browser)
+    const attached = await playwright({ cloudflare: { connect, launch } as never }).attach({
+      binding,
+      engine: "kitesurf",
+      kind: "cloudflare-binding",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
+      sessionId: "safe-id",
+    })
+
+    expect(launch).toHaveBeenCalledWith(binding, { browser: "kitesurf" })
+    expect(connect).not.toHaveBeenCalled()
+    await attached.release()
+  })
+
   it("marks standard CDP release as destructive to the provider session", async () => {
     const { browser, context, page } = fakeBrowser()
     const connectOverCDP = vi.fn(async () => browser)

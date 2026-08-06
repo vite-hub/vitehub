@@ -20,6 +20,7 @@ export interface PlaywrightControllerOptions {
   chromium?: Pick<BrowserType, "connectOverCDP">
   cloudflare?: {
     connect(binding: unknown, sessionId: string): Promise<Browser>
+    launch(binding: unknown, options: { browser: "kitesurf" }): Promise<Browser>
   }
 }
 
@@ -47,7 +48,9 @@ export function playwright(options: PlaywrightControllerOptions = {}): BrowserCo
     name: "playwright",
     async attach(connection) {
       const browser = connection.kind === "cloudflare-binding"
-        ? await (options.cloudflare || await loadCloudflare()).connect(connection.binding, connection.sessionId)
+        ? connection.engine === "kitesurf"
+          ? await (options.cloudflare || await loadCloudflare()).launch(connection.binding, { browser: "kitesurf" })
+          : await (options.cloudflare || await loadCloudflare()).connect(connection.binding, connection.sessionId!)
         : await (options.chromium || await loadChromium()).connectOverCDP(connection.endpoint, {
             ...(connection.headers ? { headers: connection.headers } : {}),
           })

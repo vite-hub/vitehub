@@ -9,6 +9,7 @@ import type { BrowserController } from "../types.ts"
 
 interface CloudflarePlaywright {
   connect(binding: unknown, sessionId: string): Promise<Browser>
+  launch(binding: unknown, options: { browser: "kitesurf" }): Promise<Browser>
 }
 
 async function loadCloudflare(): Promise<CloudflarePlaywright> {
@@ -27,7 +28,10 @@ export function cloudflarePlaywright(
     features: { attachExistingSession: true },
     name: "playwright",
     async attach(connection) {
-      const browser = await (driver || await loadCloudflare()).connect(connection.binding, connection.sessionId)
+      const cloudflare = driver || await loadCloudflare()
+      const browser = connection.engine === "kitesurf"
+        ? await cloudflare.launch(connection.binding, { browser: "kitesurf" })
+        : await cloudflare.connect(connection.binding, connection.sessionId!)
       const attached = await attachPlaywrightBrowser(browser, connection)
       let released = false
       return {
