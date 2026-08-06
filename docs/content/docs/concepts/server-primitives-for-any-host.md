@@ -22,9 +22,11 @@ Server Primitives are APIs that application code calls to work with server-side 
 
 Most ViteHub primitives follow the same pattern:
 
-:::steps{level="3"}
+::steps{level="3"}
 
 ### Configure
+
+Enable the primitive in your framework configuration so ViteHub can discover its Definition and prepare the runtime for development and deployment.
 
 ::tabs
   :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="grayscale"}
@@ -75,6 +77,8 @@ Most ViteHub primitives follow the same pattern:
 ::
 
 ### Define the database
+
+Create a Database Definition in the location used by your framework. It declares the tables and gives this database the stable name `notes`.
 
 ::tabs
   :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="grayscale"}
@@ -131,6 +135,8 @@ Most ViteHub primitives follow the same pattern:
 
 ### Use it from server code
 
+Import the generated Runtime Helper in a server route and query the named database. ViteHub connects that call to the provider configured for the current environment.
+
 ```ts [server/api/notes.get.ts]
 import { databases } from '@vite-hub/database/drizzle'
 
@@ -139,7 +145,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-:::
+::
 
 ViteHub discovers the Database Definition, generates the Drizzle Runtime Surface, and adapts the provider output for development and deployment. Other primitives follow the same shape, but their Definition locations and Runtime Helpers differ.
 
