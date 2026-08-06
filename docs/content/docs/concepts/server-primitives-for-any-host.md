@@ -20,12 +20,44 @@ Server Primitives are APIs that application code calls to work with server-side 
 
 ## How a primitive works in your app
 
-Most primitives follow the same setup:
+Database shows the pattern in a small Vite app. Enable the package integration first:
 
-1. **Enable the primitive.** Add it to the framework `vitehub({ ... })` configuration, or register the package integration manually, such as `hubEmail()`.
-2. **Declare it when needed.** Put Definitions in the location documented by the primitive. Many use a `server/<primitive>/` directory, while others use files such as `server/email.ts`, `server.email.ts`, or a package-specific suffix such as `*.browser.ts`; some primitives do not use discovery.
-3. **Call the stable import.** Use the primitive's Runtime Helper from server code. Do not import generated files or provider SDKs directly.
-4. **Let ViteHub adapt it.** During development and build, ViteHub discovers declarations, generates types and registries when needed, and emits host-specific output for deployment.
+```ts [vite.config.ts]
+import { hubDb } from '@vite-hub/database/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubDb()],
+})
+```
+
+Define the schema in the location supported by the Database integration:
+
+```ts [src/database.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export const notes = sqliteTable('notes', {
+  id: integer('id').primaryKey(),
+  title: text('title').notNull(),
+})
+
+export default defineDatabase({
+  schema: { notes },
+})
+```
+
+Then call the generated Runtime Surface from server code:
+
+```ts [server/api/notes.get.ts]
+import { db, schema } from '@vite-hub/database/drizzle'
+
+export default defineEventHandler(() => {
+  return db.select().from(schema.notes)
+})
+```
+
+ViteHub discovers the Database Definition, generates the Drizzle Runtime Surface, and adapts the provider output for development and deployment. Other primitives follow the same shape, but their Definition locations and Runtime Helpers differ.
 
 ## Inspect the boundary
 
