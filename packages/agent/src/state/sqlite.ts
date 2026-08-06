@@ -292,25 +292,27 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean> {
-    await this.cleanupExpiredStateIfDue()
-    const inserted = await retrySqliteBusy(async () => await execute(
-      this.driver,
-      `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+    const inserted = await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await execute(
+        this.driver,
+        `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
         lease_ttl_ms, status, enqueued_at, available_at, attempts
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0) RETURNING delivery_id`,
-      [
-        delivery.scope,
-        delivery.deliveryId,
-        JSON.stringify(delivery),
-        delivery.concurrencyGroup,
-        delivery.concurrencyKey || null,
-        delivery.concurrencyLimit,
-        delivery.leaseTtlMs,
-        delivery.enqueuedAt,
-        delivery.enqueuedAt,
-      ],
-    ))
+        [
+          delivery.scope,
+          delivery.deliveryId,
+          JSON.stringify(delivery),
+          delivery.concurrencyGroup,
+          delivery.concurrencyKey || null,
+          delivery.concurrencyLimit,
+          delivery.leaseTtlMs,
+          delivery.enqueuedAt,
+          delivery.enqueuedAt,
+        ],
+      )
+    })
     return inserted.length > 0
   }
 
@@ -408,16 +410,18 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number): Promise<boolean> {
-    await this.cleanupExpiredStateIfDue()
-    const retried = await retrySqliteBusy(async () => await execute(
-      this.driver,
-      `UPDATE ${this.tables.webhookQueue}
+    const retried = await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await execute(
+        this.driver,
+        `UPDATE ${this.tables.webhookQueue}
         SET status = 'queued', available_at = ?, attempts = attempts + 1,
           lease_token = NULL, lease_expires_at = NULL
         WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
         RETURNING delivery_id`,
-      [availableAt, scope, deliveryId, leaseToken],
-    ))
+        [availableAt, scope, deliveryId, leaseToken],
+      )
+    })
     return retried.length > 0
   }
 

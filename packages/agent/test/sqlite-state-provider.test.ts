@@ -156,6 +156,8 @@ describe("SQLite Agent State Provider", () => {
     })
     await contended.connect()
 
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
     await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-busy"))).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue"))).toHaveLength(2)
     const lease = await contended.claimWebhookDelivery("webhook:review:github:")
@@ -165,9 +167,11 @@ describe("SQLite Agent State Provider", () => {
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'completed'"))).toHaveLength(2)
     await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-retry-busy"))).resolves.toBe(true)
     const retryLease = await contended.claimWebhookDelivery("webhook:review:github:")
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
-    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(3)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(7)
     client.close()
   })
 

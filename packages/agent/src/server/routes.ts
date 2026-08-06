@@ -3705,8 +3705,9 @@ export function createChannelWebhookRouteHandler(
           const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
           if (webhookState && hasAgentWebhookQueue(webhookState.state)) {
             registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+            const agentScopePrefix = `webhook:${routeAgentIdentity(handlerOptions)?.name || "agent"}:`
             for (const scope of await webhookState.state.webhookDeliveryScopes()) {
-              registerQueue(scope, webhookState.state, handlerOptions)
+              if (scope.startsWith(agentScopePrefix)) registerQueue(scope, webhookState.state, handlerOptions)
             }
           }
         }

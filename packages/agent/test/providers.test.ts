@@ -6311,6 +6311,55 @@ describe("server helpers", () => {
     }
   })
 
+  it("only discovers persisted webhook queue scopes owned by the resumed Agent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-agent-scope-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyGroup: "other:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-for-other-agent",
+      enqueuedAt: Date.now(),
+      invocation: { input: { prompt: "persisted" } },
+      leaseTtlMs: 30_000,
+      request: {
+        body: JSON.stringify({ action: "labeled" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      scope: "webhook:other:github:github:",
+      webhookId: "github",
+    })
+    const claim = vi.spyOn(state, "claimWebhookDelivery")
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
+
+    try {
+      await vi.waitFor(() => expect(claim).toHaveBeenCalledWith("webhook:review:github:github:"))
+      expect(claim).not.toHaveBeenCalledWith("webhook:other:github:github:")
+      expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps capability-bound default Workflow webhook runs inline", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
