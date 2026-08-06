@@ -871,6 +871,7 @@ describe("agent Vite plugin", () => {
       })
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      expect(wrapper).toContain("handler.resume({ agentIdentity: agentIdentities[name], runtime: 'vite', webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
@@ -5452,6 +5453,57 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       expect(enqueue.mock.calls[0]?.[0].invocation?.input).not.toHaveProperty("abortSignal")
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("re-resolves webhook invocations that cannot round-trip through JSON", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-json-safety-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
+    const run = vi.fn(() => "accepted")
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    const invoke = vi.fn((_context, input) => ({
+      input: { context: cyclic, options: { sequence: 1n }, prompt: "resolve again" },
+      webhook: {
+        concurrencyLimit: 1,
+        deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+      },
+    }))
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke } },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-json-safety",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", { agentName: "review", webhookState: state })
+
+      expect(response.status).toBe(200)
+      expect(enqueue.mock.calls[0]?.[0].invocation).toBeUndefined()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(invoke).toHaveBeenCalledTimes(2)
     }
     finally {
       await state.disconnect()

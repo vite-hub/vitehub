@@ -990,12 +990,12 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
   ]
 }
 
-function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }, typescript = false): string[] {
+function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }, typescript = false, runtimeRouteOption = ""): string[] {
   return [
     `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}) {`,
     "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
     "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
-    `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name], ${routeCapabilities.requestOption}webhookState: viteHubChatStateResolver, waitUntil })] : [])`,
+    `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}webhookState: viteHubChatStateResolver, waitUntil })] : [])`,
     "  return async () => await Promise.all(stops.map(stop => stop()))",
     "}",
     "",
@@ -1228,7 +1228,7 @@ async function generateAgentWebhookRouteHandler(
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     "",
     ...routeCapabilities.setup,
-    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true) : []),
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     "",
@@ -1306,7 +1306,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     ...generatedNetlifyRuntimeHelpers(),
     "",
     ...routeCapabilities.setup,
-    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities) : []),
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, false, runtimeRouteOption) : []),
     "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,

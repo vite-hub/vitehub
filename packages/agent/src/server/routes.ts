@@ -658,18 +658,15 @@ function persistedWebhookRequest(
   }
 }
 
-function containsFunction(value: unknown, seen = new Set<object>()): boolean {
-  if (typeof value === "function") return true
+function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true
+  if (typeof value === "number") return Number.isFinite(value)
   if (!value || typeof value !== "object" || seen.has(value)) return false
+  if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return false
   seen.add(value)
-  return Object.values(value).some(entry => containsFunction(entry, seen))
-}
-
-function containsBinaryValue(value: unknown, seen = new Set<object>()): boolean {
-  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value) || (typeof Blob !== "undefined" && value instanceof Blob)) return true
-  if (!value || typeof value !== "object" || seen.has(value)) return false
-  seen.add(value)
-  return Object.values(value).some(entry => containsBinaryValue(entry, seen))
+  const safe = Object.values(value).every(entry => isJsonSafe(entry, seen))
+  seen.delete(value)
+  return safe
 }
 
 function persistedWebhookInvocation(
@@ -3504,6 +3501,7 @@ export function createChannelWebhookRouteHandler(
             if (!hasAgentWebhookQueue(webhookState.state)) {
               return createJsonErrorResponse(503, "Persistent webhook concurrency requires a queue-capable Agent state provider.")
             }
+            const persistedInvocation = persistedWebhookInvocation(invocation as unknown as { input: Record<string, unknown>, run?: unknown })
             const delivery = persistedWebhookRequest(
               deliveryId,
               request,
@@ -3512,10 +3510,7 @@ export function createChannelWebhookRouteHandler(
               { ...invocation.webhook, concurrencyLimit },
               webhookState.keyPrefix,
               routeAgentIdentity(handlerOptions)?.name || "agent",
-              containsFunction(invocation.input) || containsFunction(invocation.run)
-                || containsBinaryValue(invocation.input) || containsBinaryValue(invocation.run)
-                ? undefined
-                : persistedWebhookInvocation(invocation as unknown as { input: Record<string, unknown>, run?: unknown }),
+              isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
             )
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
