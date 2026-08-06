@@ -464,7 +464,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void> {
     await this.cleanupExpiredStateIfDue()
     const expiresAt = ttlMs ? Date.now() + ttlMs : null
-    await execute(this.driver, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
+    await retrySqliteBusy(async () => await execute(this.driver, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt]))
   }
 
   async setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean> {

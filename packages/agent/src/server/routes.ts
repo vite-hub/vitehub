@@ -754,7 +754,14 @@ async function steerQueuedWebhookDelivery(
         if (!await state.claimWebhookSteering(delivery, steeringLease.leaseToken, steeringLease.leaseExpiresAt)) {
           return duplicateResponse(await state.get(claimKey) || "steering")
         }
-        await state.set(claimKey, "steering")
+        try {
+          await state.set(claimKey, "steering")
+        }
+        catch {
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.delete(claimKey).catch(() => undefined)
+          return { queued: true, response: await fallback(true) }
+        }
         let steeringLeaseLost = false
         const stopDeliveryHeartbeat = startWebhookQueueHeartbeat(state, steeringLease, () => {
           steeringLeaseLost = true
@@ -841,21 +848,32 @@ async function hasActiveWorkflowRuntime(
 
 function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: number, onLost: () => void): () => void {
   const intervalMs = Math.max(1, Math.floor(ttlMs / 2))
+  const retryMs = Math.max(1, Math.min(250, Math.floor(ttlMs / 4)))
+  let knownLeaseExpiresAt = lock.expiresAt
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const extend = async () => {
     if (stopped) return
+    const extensionStartedAt = Date.now()
     try {
       if (!await state.extendLock(lock, ttlMs)) {
         stopped = true
         onLost()
+        return
       }
+      knownLeaseExpiresAt = extensionStartedAt + ttlMs
     }
     catch {
-      stopped = true
-      onLost()
+      const remainingMs = knownLeaseExpiresAt - Date.now()
+      if (remainingMs <= 0) {
+        stopped = true
+        onLost()
+        return
+      }
+      timer = setTimeout(extend, Math.min(retryMs, remainingMs))
+      return
     }
-    if (!stopped) timer = setTimeout(extend, intervalMs)
+    if (!stopped) timer = setTimeout(extend, Math.max(1, knownLeaseExpiresAt - Date.now() - intervalMs))
   }
   timer = setTimeout(extend, intervalMs)
   return () => {
