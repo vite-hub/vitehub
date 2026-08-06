@@ -6245,6 +6245,9 @@ describe("server helpers", () => {
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(waitUntil).toHaveBeenCalledTimes(3))
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(waitUntil).toHaveBeenCalledTimes(3)
     }
     finally {
       consoleError.mockRestore()

@@ -884,7 +884,9 @@ function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: numbe
     if (stopped) return
     const extensionStartedAt = Date.now()
     try {
-      if (!await state.extendLock(lock, ttlMs)) {
+      const extended = await state.extendLock(lock, ttlMs)
+      if (stopped) return
+      if (!extended) {
         stopped = true
         onLost()
         return
@@ -892,6 +894,7 @@ function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: numbe
       knownLeaseExpiresAt = extensionStartedAt + ttlMs
     }
     catch {
+      if (stopped) return
       const remainingMs = knownLeaseExpiresAt - Date.now()
       if (remainingMs <= 0) {
         stopped = true
@@ -924,12 +927,14 @@ function startWebhookQueueHeartbeat(
     if (stopped) return
     const extensionStartedAt = Date.now()
     try {
-      if (!await state.extendWebhookDeliveryLease(
+      const extended = await state.extendWebhookDeliveryLease(
         delivery.scope,
         delivery.deliveryId,
         delivery.leaseToken,
         delivery.leaseTtlMs,
-      )) {
+      )
+      if (stopped) return
+      if (!extended) {
         stopped = true
         onLost()
         return
@@ -937,6 +942,7 @@ function startWebhookQueueHeartbeat(
       knownLeaseExpiresAt = extensionStartedAt + delivery.leaseTtlMs
     }
     catch {
+      if (stopped) return
       const remainingMs = knownLeaseExpiresAt - Date.now()
       if (remainingMs <= 0) {
         stopped = true
@@ -3590,7 +3596,7 @@ export function createChannelWebhookRouteHandler(
         const delivery = await queue.state.claimWebhookDelivery(queue.scope)
         if (!delivery) {
           if (![...activeDeliveries.values()].some(active => active.scope === queueId)) {
-            scheduleQueueDrain(queueId, Date.now() + defaultWebhookQueueRetryMs, waitUntil)
+            scheduleQueueDrain(queueId, Date.now() + defaultWebhookQueueRetryMs)
           }
           break
         }
