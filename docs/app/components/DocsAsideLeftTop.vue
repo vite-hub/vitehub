@@ -4,6 +4,15 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 
 <template>
   <div class="vh-sidebar-head">
+    <UContentSearchButton
+      :collapsed="false"
+      class="vh-sidebar-search"
+      :ui="{
+        base: 'h-10 rounded-none border-0 border-b border-default bg-muted/20 ps-5 pe-5 text-muted hover:bg-muted/40 hover:text-highlighted',
+        trailing: 'ms-auto flex items-center gap-1',
+      }"
+    />
+
     <nav class="vh-docs-lane-switcher" aria-label="Documentation product">
       <NuxtLink
         v-for="option in laneOptions"
@@ -16,15 +25,6 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
         <span>{{ option.label }}</span>
       </NuxtLink>
     </nav>
-
-    <UContentSearchButton
-      :collapsed="false"
-      class="vh-sidebar-search"
-      :ui="{
-        base: 'h-10 rounded-none border-0 border-b border-default bg-muted/20 ps-5 pe-5 text-muted hover:bg-muted/40 hover:text-highlighted',
-        trailing: 'ms-auto flex items-center gap-1',
-      }"
-    />
   </div>
 </template>
 
@@ -36,8 +36,7 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 .vh-docs-lane-switcher {
   display: grid;
   grid-template-columns: 0.8fr 1.2fr;
-  margin: 0.75rem;
-  border: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--ui-border);
   background: color-mix(in srgb, var(--ui-bg-muted) 40%, transparent);
 }
 

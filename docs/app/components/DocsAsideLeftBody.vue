@@ -11,7 +11,6 @@ type SidebarPageGroup = {
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const rootPage = docsManifest.rootPage;
 const { lane, pageTarget } = useDocsLane();
 
 const sections = computed(() => {
@@ -155,16 +154,6 @@ function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, inde
 
 <template>
   <nav class="vh-docs-sidebar-nav" aria-label="Docs">
-    <NuxtLink
-      v-if="rootPage"
-      :to="pageTarget(rootPage)"
-      :class="['vh-docs-sidebar-root-link', { 'is-active': isActive(rootPage.path) }]"
-      :aria-current="isActive(rootPage.path) ? 'page' : undefined"
-    >
-      <UIcon :name="sidebarIcon(rootPage.icon, 'i-ph-book-open-light')" class="size-4 shrink-0" />
-      <span class="min-w-0 truncate">{{ rootPage.title }}</span>
-    </NuxtLink>
-
     <details
       v-for="section in sections"
       :key="section.id"
@@ -234,17 +223,6 @@ function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, inde
   border-bottom: 1px solid var(--ui-border);
 }
 
-.vh-docs-sidebar-root-link {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  border-bottom: 1px solid var(--ui-border);
-  padding: 0.625rem 1.25rem;
-  color: var(--ui-text);
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
 .vh-docs-sidebar-summary {
   display: flex;
   cursor: pointer;
@@ -262,10 +240,7 @@ function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, inde
 }
 
 .vh-docs-sidebar-summary:hover,
-.vh-docs-sidebar-summary:focus-visible,
-.vh-docs-sidebar-root-link:hover,
-.vh-docs-sidebar-root-link:focus-visible,
-.vh-docs-sidebar-root-link.is-active {
+.vh-docs-sidebar-summary:focus-visible {
   color: var(--ui-text-highlighted);
 }
 
