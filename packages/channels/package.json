@@ -43,11 +43,11 @@
     "test": "vp run -t @vite-hub/channels#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/internal": "workspace:*",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

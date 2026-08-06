@@ -793,9 +793,6 @@ importers:
 
   packages/channels:
     dependencies:
-      '@vite-hub/internal':
-        specifier: workspace:*
-        version: link:../internal
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -806,6 +803,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       publint:
         specifier: catalog:tooling
         version: 0.3.21
