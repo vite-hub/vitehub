@@ -235,7 +235,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       ) SELECT ?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?
         WHERE NOT EXISTS (
           SELECT 1 FROM ${this.tables.webhookQueue}
-          WHERE scope = ? AND concurrency_key = ? AND status = 'queued' AND enqueued_at <= ?
+          WHERE scope = ? AND concurrency_key = ? AND status = 'queued'
         )
         RETURNING delivery_id`,
       [
@@ -252,7 +252,6 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         leaseExpiresAt,
         delivery.scope,
         delivery.concurrencyKey || null,
-        delivery.enqueuedAt,
       ],
     ))
     return inserted.length > 0
