@@ -5948,6 +5948,7 @@ describe("server helpers", () => {
       driver: { run },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntil = vi.fn((_task: Promise<unknown>) => undefined)
 
     try {
       vi.useFakeTimers()
@@ -5960,8 +5961,9 @@ describe("server helpers", () => {
           "x-github-event": "pull_request",
         },
         method: "POST",
-      }), "github", { agentName: "review", webhookState: state })
+      }), "github", { agentName: "review", webhookState: state, waitUntil })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(waitUntil).toHaveBeenCalledTimes(2))
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
