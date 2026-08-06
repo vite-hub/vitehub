@@ -13,6 +13,7 @@ describe("workspace inventory", () => {
       "blob",
       "box",
       "browser",
+      "channels",
       "cli",
       "database",
       "email",

@@ -32,6 +32,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, and named Browser runs. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
+| `vite-hub/channels` and `vite-hub/channels/server` | Channel Definitions and discovered named delivery. |
 | `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, ASCII, Cloudflare Sandbox, Cloudflare Computer, and Vercel Sandbox execution. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
@@ -85,6 +86,8 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser/controllers/cdp` and `@vite-hub/browser/controllers/playwright` | Browser Package | Raw CDP and Playwright Browser Session controllers. |
 | `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
 | `@vite-hub/box` | Box Package | Box Definitions, sessions, and built-in runtime selection. |
+| `@vite-hub/channels` | Channels Package | Channel Definitions, explicit clients, portable types, and normalized delivery results. |
+| `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
 | `@vite-hub/email` | Email Package | Email Definition, explicit clients, portable types, and normalized errors. |
 | `@vite-hub/email/server` | Email Runtime | Server-only discovered `email` Runtime Helper. |
 | `@vite-hub/email/drivers/smtp` | Email Package | Optional Node.js SMTP delivery through Nodemailer. |
@@ -120,6 +123,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |
 | `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
+| `@vite-hub/channels/vite` | Register Channel Definition discovery and generated runtime bindings. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Register singleton Email Definition discovery and runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
