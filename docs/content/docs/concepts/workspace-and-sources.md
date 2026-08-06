@@ -1,52 +1,24 @@
 ---
 title: Workspace and Sources
-description: Understand persistent file-tree state, read-only origins, instruction coverage, and scoped visibility.
-navigation.order: 7
+description: Understand the persistent file tree and the read-only origins that appear inside it.
+navigation.group: Core vocabulary
+navigation.order: 13
 icon: i-lucide-folder-git-2
 ---
 
-A Workspace is a named persistent file tree. A Source is a named origin that exposes read-only addressable files, items, or controlled request access through a Workspace.
+A Workspace is a named persistent file tree. A Source is a named origin that exposes read-only files, items, or controlled requests. A mount places a Source inside the Workspace tree; it does not turn the Source into the tree.
 
-Workspace owns file-tree behavior. Source owns the origin. Mount only says where a Source appears inside the Workspace File Tree.
+Workspace owns file operations and persistence. Source owns where material comes from.
 
-## Why it exists
-
-Agents need inspectable files, but they should not receive the project filesystem by accident. Workspace makes the file boundary explicit, and Sources make external or local read-only origins addressable.
-
-Workspace is also useful outside agents. Server code can read, write, snapshot, diff, and open Workspace sessions through the Workspace Runtime Surface.
-
-## Define a workspace
-
-Declare Sources inside the Workspace that owns their placement and policy.
-
-Register the Workspace Vite Integration from `@vite-hub/workspace/vite` so ViteHub discovers Workspace Definitions.
-
-```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [
-    hubWorkspace(),
-  ],
-})
-```
+## Define the two boundaries
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace, file, glob, markdown } from '@vite-hub/workspace'
+import { defineWorkspace, file, glob } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
-    readme: file({
-      path: 'README.md',
-    }),
-    docs: glob({
-      cwd: '.',
-      include: ['docs/**/*.md'],
-    }),
-    supportPolicy: markdown({
-      path: 'docs/support-policy.md',
-    }),
+    readme: file({ path: 'README.md' }),
+    docs: glob({ cwd: '.', include: ['docs/**/*.md'] }),
   },
   rules: {
     '/**': { write: false },
@@ -55,24 +27,16 @@ export default defineWorkspace({
 })
 ```
 
-Source use guidance for model-backed Agents belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Current Source Instruction metadata does not grant access, change Workspace Scope, or make hidden Sources visible.
+The Workspace owns the rules and tree. The Sources provide the material that the tree exposes.
 
-Agent inspection metadata warns when configured Sources are visible to an Agent but lack explicit instruction coverage.
+## Agent access is another boundary
 
-## Agent access
+An Agent with Workspace context does not automatically receive unrestricted file tools. Attach a Capability such as `workspaceShell()` when the Agent Driver should read or mutate Workspace files.
 
-An Agent with Workspace context does not automatically get unrestricted file tools. Attach a Capability such as `workspaceShell()` when the model should inspect or mutate Workspace files.
+Workspace Scope narrows the visible tree for one Agent Invocation. Trusted host or invocation context selects the scope; the model does not select it.
 
-Workspace Scope narrows the visible Workspace File Tree for one Agent Invocation. Access can select that scope from trusted host, auth, or invocation context, but the model does not choose the scope.
+## Inspect the result
 
-## Inspect it
+Use `useWorkspace()` from server code to inspect the runtime tree. Generated Workspace and Source metadata under `.vitehub` shows the discovered names and request descriptors without exposing provider credentials.
 
-Use `useWorkspace()` from server code to inspect the runtime file tree. Add `.vitehub/types/**/*.d.ts` to `tsconfig.json` when you want generated Workspace names to narrow TypeScript types.
-
-API-backed Sources can expose Source Request Descriptors at `.vitehub/sources/<sourceKey>.json` when they are visible through the selected scope. Those descriptors guide controlled shell requests without exposing credentials.
-
-## Next steps
-
-- Read [Workspace and Sources](/docs/server-primitives/workspace) in Server primitives.
-- Read [Workspace context](/docs/agents/workspace-context) for agent-specific examples.
-- Read [Capabilities API](/docs/concepts/capabilities-api) before exposing Workspace tools to a model.
+Read [Workspace](/docs/server-primitives/workspace), [Source](/docs/server-primitives/source), and [Workspace context](/docs/agents/workspace-context) for the API surfaces.

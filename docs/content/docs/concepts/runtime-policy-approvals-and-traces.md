@@ -1,49 +1,34 @@
 ---
-title: Runtime policy, approvals, and traces
-description: Understand the Runtime Package concepts that make agent and primitive behavior inspectable.
-navigation.order: 11
+title: "Runtime policy, approvals, and traces"
+description: Understand how ViteHub records runtime decisions and keeps approval behavior inspectable.
+navigation.group: Runtime execution
+navigation.order: 22
 icon: i-lucide-shield-alert
 ---
 
-Runtime policy, approvals, and traces belong to the shared Runtime Package language. A Policy Decision can allow, deny, request approval, or retry a runtime operation. An Approval Request asks a human or external authority before the operation continues. A Trace Event records structured runtime behavior across package boundaries.
+Runtime policy decides whether an operation may continue. An Approval Request pauses an operation until a trusted actor responds. A Trace Event records what happened while the runtime prepared, executed, or completed the operation.
 
-## Why it exists
+These records describe one runtime decision. They do not replace application logs, Agent Memory, or the final Agent output.
 
-Agents can call tools, inspect Workspaces, request storage writes, execute sandbox commands, or use provider-backed drivers. Those actions need explicit runtime decisions, not hidden provider behavior or unstructured log lines.
+## The records answer different questions
 
-ViteHub treats policy and tracing as inspectable runtime behavior. The model should not receive secret policy internals, but developers and agents inspecting a run should see the decisions that changed execution.
-
-## Where policy appears
-
-| Surface | Current behavior |
+| Record | Question |
 | --- | --- |
-| Storage Capabilities | Attaching a write-enabled Capability opts into its bounded write tools; developers can add approval or deny policy when the product needs another runtime gate. |
-| Workspace | Workspace Rules enforce path-scoped write policy before writes reach the store. |
-| Workspace Scope | Access can narrow visible files for one Agent Invocation without exposing hidden paths to the model. |
-| Harness-backed Agent Drivers | V1 bypasses adapter-level approval prompts when supported and relies on ViteHub-owned Workspace and runtime boundaries. |
-| Runtime Package | Runtime Capabilities, Policy Decisions, Approval Requests, Trace Events, and Leases stay package-to-package concepts. |
+| Policy Decision | Was this operation allowed, denied, or left for approval? |
+| Approval Request | Which trusted response is required before work can continue? |
+| Trace Event | What runtime action or transition occurred? |
+| Lease or wait state | Which work remains active across a wait or background boundary? |
 
-## Approvals in messages and streams
+The Runtime Package carries these records through Runtime Context so packages can make decisions without hiding them inside provider-specific code.
 
-Agent messages and stream events can carry approval requests and approval decisions. Those parts make approval-gated behavior visible without turning approvals into ordinary text.
+## Approvals belong beside the action
 
-```txt [Stream events]
-approval-request
-approval-decision
-tool-call
-tool-result
-usage
-finish
-```
+Capabilities can request approval for a tool or primitive operation. The invocation stream and runtime events expose the request and its result, so a host can display or handle the decision without parsing model text.
 
-Use these events as run evidence. They are more useful than a generic "tool failed" message because they show whether policy, approval, execution, or provider behavior changed the run.
+An approval requirement does not make every invocation interactive. If the host cannot satisfy the required approval boundary, the operation must remain pending or fail according to the package contract.
 
-## Traces are not console logs
+## Inspect the decision
 
-A Trace Event is structured runtime observability. It can describe policy, approval, capability, lifecycle, error, or run activity. Console logs can still help during local development, but traces are the cross-package surface ViteHub can inspect consistently.
+Inspect the invocation id, policy decision, approval request, trace event, and final result together. The sequence tells you whether a tool was rejected, waited, executed, or failed after execution began.
 
-## Next steps
-
-- Read [Agent Invocations](/docs/agents/invocations) for run lifecycle.
-- Read [Capabilities API](/docs/concepts/capabilities-api) for model-facing ability boundaries.
-- Read [Workspace and Sources](/docs/concepts/workspace-and-sources) for Workspace Rules and Scope.
+Read [Runtime events](/docs/reference/runtime-events) for event fields and [Capabilities](/docs/concepts/capabilities-api) for the model-facing contribution that can trigger policy.

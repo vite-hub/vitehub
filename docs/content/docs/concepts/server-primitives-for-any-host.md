@@ -1,43 +1,34 @@
 ---
-title: Server primitives for any host
-description: Understand the host-independent server layer that ViteHub packages provide.
+title: Server primitives
+description: Understand the ViteHub runtime APIs that application code can use with or without an Agent.
+navigation.group: Start here
 navigation.order: 2
-icon: i-lucide-server-cog
+icon: i-lucide-server
 ---
 
-Server primitives are ViteHub-owned runtime behaviors that application code can use without creating an Agent. They cover authentication, environment values, storage, file trees, background work, schedules, workflows, sandboxes, queues, and related runtime surfaces.
+A Server Primitive gives application code a stable server-side operation such as authentication, environment values, storage, queues, workflows, schedules, sandboxes, or file trees. The application can call a primitive without defining an Agent.
 
-The primitive owns the app-facing contract. A host provider may supply storage, bindings, functions, or runtime execution, but the server route should keep importing the same ViteHub Runtime Helper.
+ViteHub keeps the application-facing import stable while a Vite Integration connects the primitive to the local runtime and the deployment host.
 
-## Why it exists
+## Choose a Server Primitive when application code owns the action
 
-Vite apps often need the same server behavior across local development, Cloudflare, Vercel, Node, and framework-specific hosts. ViteHub keeps the public API at the primitive boundary so application code does not learn every provider's wiring model.
+| You need | Start with |
+| --- | --- |
+| Read configuration or secrets | [Env](/docs/server-primitives/env) |
+| Store relational data | [Database](/docs/server-primitives/database) |
+| Store small key-value records | [KV](/docs/server-primitives/kv) |
+| Persist files or expose read-only origins | [Workspace](/docs/server-primitives/workspace) and [Source](/docs/server-primitives/source) |
+| Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
+| Run isolated commands or code | [Shell](/docs/server-primitives/shell) or [Sandbox](/docs/server-primitives/sandbox) |
 
-This also keeps agents honest. An Agent can use a primitive only when an attached Capability exposes an ability for that primitive.
+## Server Primitives and Agents solve different problems
 
-## What primitives own
+Server code calls a Runtime Helper directly. An Agent receives selected abilities through Capabilities and uses them during an Agent Invocation.
 
-| Primitive family | Owns | Does not own |
-| --- | --- | --- |
-| Storage | KV, Database, Blob, Workspace Stores, and file-tree behavior. | Product-specific data modeling or UI workflows. |
-| Runtime work | Queue, Workflow, Schedule, Sandbox, and Shell execution boundaries. | Every app-level process manager or dashboard. |
-| Identity and configuration | Auth, Env, Server Env, Public Env, and Secret Env handling. | Login UI, route design, or provider dashboards. |
-| Agents | Agent Definitions, Agent Invocations, Agent Drivers, Capabilities, and runtime composition. | Unrestricted access to every primitive. |
+Installing a primitive does not expose it to every Agent. Attaching a Capability makes that access explicit and inspectable.
 
-## How it fits
+## Inspect the boundary
 
-Each primitive package can expose a Vite Integration, Runtime Helper, Definition Boundary Helper, and Provider Output. Small primitives such as KV can often run after configuration. Definition-heavy primitives such as Workflows, Queues, Workspaces, Schedules, and Agents use discovery so named work can be inspected and invoked.
+Look for the package's Vite Integration, Runtime Helper, and generated Provider Output. The primitive page documents the package contract; the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) shows where that contract is currently proven.
 
-## Inspect it
-
-Look for three files or surfaces:
-
-- `vite.config.ts`, where the package's Vite Integration is registered.
-- The primitive page, where package-owned configuration and Provider Output are documented.
-- The server route or worker code that imports the stable Runtime Helper.
-
-## Next steps
-
-- Read [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together).
-- Try [First server primitive](/docs/getting-started/first-server-primitive).
-- Open [Server primitives](/docs/server-primitives) for the package pages.
+Continue with [From Definition to Invocation](/docs/concepts/how-vitehub-fits-together) for the complete flow, or open [First server primitive](/docs/getting-started/first-server-primitive) to build one.

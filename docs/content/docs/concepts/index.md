@@ -1,39 +1,59 @@
 ---
-title: Overview
-description: Learn the ViteHub concepts that connect server primitives, agents, integrations, and runtime inspection.
+title: Concepts
+description: "Learn the small set of ViteHub terms that connect server primitives, Agents, hosts, and runtime execution."
 navigation.title: Overview
 navigation.order: 1
 icon: i-lucide-map
 ---
 
-ViteHub is easiest to understand as a small set of boundaries. Server primitives give application code stable runtime APIs, while Agent Definitions compose Agent Drivers, Capabilities, Workspaces, Sources, Agent Invokers, and Agent Invocations.
+Concepts are ViteHub's shared vocabulary. Each page defines one term or one boundary so you can understand the product before choosing an API.
 
-The concepts in this section explain those boundaries before the package pages add options and examples. Read them when a feature crosses package ownership, host output, Agent access, or runtime inspection.
+These pages stay short and compositional. Use [Server primitives](/docs/server-primitives), [Agents](/docs/agents), [Capabilities](/docs/capabilities), and [Reference](/docs/reference) for complete API options and operational instructions.
 
-## Concept map
+## Start here
 
-| Concept | Use it to understand |
+| Page | Read it when |
 | --- | --- |
-| [Server primitives for any host](/docs/concepts/server-primitives-for-any-host) | Why ViteHub starts from host-independent server behavior. |
-| [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together) | How Vite Integrations, Definitions, Provider Output, Runtime Helpers, and Capabilities connect. |
-| [Definitions and discovery](/docs/concepts/definitions-and-discovery) | How package-owned files become named runtime behavior. |
-| [Agent Invocations](/docs/concepts/agent-invocations) | How one request resolves caller identity, abilities, context, execution, and output. |
-| [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) | What build and dev integrations own. |
-| [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) | Why application code imports stable ViteHub APIs instead of generated internals. |
-| [Runtime Context](/docs/concepts/runtime-context) | How hosts pass execution facts and resources without framework globals. |
-| [Workspace and Sources](/docs/concepts/workspace-and-sources) | How persistent file trees consume read-only origins. |
-| [Capabilities API](/docs/concepts/capabilities-api) | How Agents receive selected abilities. |
-| [Bash](/docs/concepts/bash) | How Capability-owned executables become one constrained Agent tool. |
-| [Channels API](/docs/concepts/channels-api) | How message-shaped Agent Invocations, channel metadata, and host commands stay separate. |
-| [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) | How authenticated app users map into trusted Agent Invocation identity. |
-| [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) | How ViteHub records runtime decisions without making policy invisible. |
+| [Server primitives](/docs/concepts/server-primitives-for-any-host) | You need application infrastructure without creating an Agent. |
+| [From Definition to Invocation](/docs/concepts/how-vitehub-fits-together) | You want to see how ViteHub turns source files into runtime work. |
 
-## Reading order
+## Core vocabulary
 
-Start with the first three pages when you are new to the project. Jump to Workspace, Capabilities, Auth, or runtime policy when you are adding those surfaces to an Agent Definition.
+| Page | Defines |
+| --- | --- |
+| [Definition discovery](/docs/concepts/definitions-and-discovery) | How named ViteHub declarations become inspectable runtime entries. |
+| [Agent Invocations](/docs/concepts/agent-invocations) | One request to one Agent, including its input, identity, abilities, and result. |
+| [Capabilities](/docs/concepts/capabilities-api) | How an Agent receives selected model-facing abilities. |
+| [Workspace and Sources](/docs/concepts/workspace-and-sources) | The difference between a persistent file tree and a read-only origin. |
+| [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) | Application identity versus trusted invocation identity. |
+| [Channels](/docs/concepts/channels-api) | Message origin, delivery facts, and the invocation started by a channel. |
+| [Bash](/docs/concepts/bash) | The single constrained executable surface contributed by Capabilities. |
 
-## Next steps
+## Runtime execution
 
-- Continue with [Server primitives for any host](/docs/concepts/server-primitives-for-any-host).
-- Open [Installation](/docs/getting-started/installation) when you want a runnable setup.
-- Open [Server primitives](/docs/server-primitives) or [Agents](/docs/agents) when you already know the boundary you need.
+| Page | Defines |
+| --- | --- |
+| [Runtime Context](/docs/concepts/runtime-context) | Host-owned execution facts passed into a ViteHub operation. |
+| [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) | The application-facing API boundary for calling ViteHub primitives. |
+| [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) | How runtime decisions become inspectable records. |
+
+## Host and build model
+
+| Page | Defines |
+| --- | --- |
+| [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) | How package declarations become host-specific build output. |
+
+## Choose between
+
+These pages answer the distinctions that otherwise make ViteHub's vocabulary look larger than it is.
+
+- [Server Primitive vs Capability](/docs/concepts/server-primitives-vs-capabilities)
+- [Workspace vs Source](/docs/concepts/workspace-vs-source)
+- [Auth User vs Agent Invoker](/docs/concepts/auth-user-vs-agent-invoker)
+- [Channel vs Agent Invocation](/docs/concepts/channel-vs-agent-invocation)
+
+## Keep the layers separate
+
+Concepts explain the product language. Guides show how to complete a task. Reference pages list exact options and constraints. ADRs record hard-to-reverse decisions. Keeping those jobs separate makes each page easier for people and Agents to use.
+
+Start with [Installation](/docs/getting-started/installation) when you want a runnable project, or jump to [Server primitives](/docs/server-primitives) and [Agents](/docs/agents) when you already know which lane you need.

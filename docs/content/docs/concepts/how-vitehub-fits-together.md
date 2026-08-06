@@ -1,42 +1,42 @@
 ---
-title: How ViteHub fits together
-description: Follow the flow from package setup to runtime helpers and agent capabilities.
+title: From Definition to Invocation
+description: "Follow one ViteHub declaration from source code through discovery, host output, and runtime execution."
+navigation.group: Start here
 navigation.order: 3
 icon: i-lucide-workflow
 ---
 
-ViteHub connects portable declarations to runtime behavior through package-owned integrations. The same flow appears across primitives and Agents: configure the integration, declare named work when needed, inspect generated output, and call a stable Runtime Helper.
+ViteHub separates what you declare from where it runs. A Definition names reusable work, a Vite Integration discovers and prepares it, and a Runtime Helper or Agent Invocation executes it.
 
 ## The flow
 
-| Step | ViteHub term | What happens |
-| --- | --- | --- |
-| 1 | Vite Integration | A package plugs into Vite build and dev behavior. |
-| 2 | Definition | A file declares named work or state when the primitive needs it. |
-| 3 | Discovery Identity | The discovered name comes from file location. |
-| 4 | Runtime Registry | Generated runtime code maps discovered names to lazy-loaded Definitions. |
-| 5 | Provider Output | Host-specific files, bindings, routes, functions, or crons are emitted when needed. |
-| 6 | Runtime Helper | Application code uses the primitive through a stable import. |
-| 7 | Capability | Agents receive selected abilities without gaining every primitive. |
+| Stage | What happens |
+| --- | --- |
+| Definition | You export a package-owned declaration such as an Agent, Workspace, Queue, or Workflow. |
+| Discovery | The package applies its file and naming rules and gives the declaration a stable identity. |
+| Integration | The package Vite Integration registers build and development behavior. |
+| Provider Output | The integration emits host-specific routes, bindings, functions, workers, or other deployment artifacts. |
+| Runtime call | Application code calls a stable Runtime Helper, or an entry surface starts an Agent Invocation. |
+| Inspection | CLI and runtime surfaces show the resolved declaration, generated output, and execution records. |
 
-## Package ownership
+## The two ViteHub lanes
 
-Package pages describe package-owned behavior. Concept pages describe the vocabulary that crosses packages.
+Server Primitives give trusted application code direct runtime APIs. Agents compose an Agent Definition from an Agent Driver, Capabilities, Workspace context, and invocation identity.
 
-For example, Workspace owns the Workspace File Tree and Sources. The Agent Package can compose explicit instruction coverage for visible Sources into model-backed Agent Driver instructions, but it does not make Source retrieval an Agent-owned concept.
+An Agent can use Server Primitives through Capabilities, but application code does not need an Agent to use a Server Primitive. That distinction keeps ordinary server work from inheriting model-facing policy and invocation behavior.
 
-## Agent composition
+## What crosses each boundary
 
-An Agent Definition selects one Agent Driver. It may attach Capabilities, define an Agent Invoker resolver, use Workspace context, and run through [Agent Invocations](/docs/concepts/agent-invocations).
+- A Definition carries portable configuration.
+- Runtime Context carries host facts and trusted resources.
+- Agent Invocation input carries task data for one request.
+- Provider Output carries generated deployment artifacts.
+- Capabilities carry selected model-facing abilities.
 
-Capabilities sit above the Agent Driver. An Agent Definition can attach a static ordered list or resolve its list once from trusted invocation context before Capability setup; the selected list does not change while the invocation runs.
+Keeping these values separate lets a custom host call the same Definition without reading framework globals or importing generated internals.
 
-## Inspect it
+## Inspect the flow
 
-For one feature, trace the path from `vite.config.ts`, to the Definition file, to the Runtime Helper call. When a package emits `.vitehub` files, treat them as proof of generated behavior unless the package documents a stable `#vitehub/...` import.
+Start with the Definition file, then inspect the generated `.vitehub` output and the Runtime Helper or Agent entry point that consumes it. Use [Reference](/docs/reference) when you need an exact generated file or event contract.
 
-## Next steps
-
-- Read [Definitions and discovery](/docs/concepts/definitions-and-discovery).
-- Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports).
-- Continue with [First agent](/docs/getting-started/first-agent) when you want to run the flow.
+Read [Definition discovery](/docs/concepts/definitions-and-discovery) for naming, or [Runtime Context](/docs/concepts/runtime-context) for the host handoff.

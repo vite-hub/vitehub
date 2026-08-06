@@ -1,66 +1,42 @@
 ---
 title: Agent Invocations
-description: Understand the request boundary that resolves identity, abilities, context, execution, and output for an Agent.
-navigation.order: 5
+description: "Understand the one-request record that resolves Agent identity, abilities, context, execution, and output."
+navigation.group: Core vocabulary
+navigation.order: 11
 icon: i-lucide-play-circle
 ---
 
-An Agent Invocation is one runtime request to an Agent. It resolves the reusable Agent Definition into the identity, Capabilities, Workspace context, Agent Driver execution, lifecycle state, and output for that request.
+An Agent Invocation is one runtime request to an Agent. It combines an Agent Definition with one input, one trusted caller identity, the Capabilities selected for that request, the available Workspace context, the Agent Driver, and the result.
 
-The invocation is the composition boundary. An Agent Definition describes what can run, while an Agent Invocation records what actually ran for one input.
+The Agent Definition describes reusable behavior. The Agent Invocation records what ran for one request.
 
-## Why it exists
+## What an invocation resolves
 
-Agents can be reached from server routes, Agent Triggers, schedules, Channels, the CLI Dev Loop, or other Agents. Each entry surface can supply different input, trusted caller identity, run metadata, and context without creating a different Agent Definition.
-
-Keeping that variation inside an invocation makes runtime behavior inspectable. ViteHub can show which Agent Actor, Capabilities, Workspace Scope, Agent Driver, and output belonged to one request instead of treating them as ambient Agent state.
-
-## Invocation lifecycle
-
-| Phase | What resolves |
+| Phase | Result |
 | --- | --- |
-| Entry | A trusted server helper or Agent Trigger prepares prompt, message, or structured input with run metadata. |
-| Identity | ViteHub resolves the Agent Actor from trusted invocation input, a configured profile or resolver, or the fallback identity. |
-| Composition | The Agent Definition and active Channel select the Capabilities that apply to this invocation. |
-| Context | Capabilities can prepare context values, policy, tools, and the visible Workspace Scope before execution. |
-| Execution | The selected Agent Driver processes the prepared input through model-backed, harness-backed, or custom-run-backed execution. |
-| Completion | ViteHub normalizes output and usage, runs finish behavior, records trace state, and returns or streams the result. |
+| Entry | A route, trigger, schedule, Channel, CLI command, or Agent prepares input and run metadata. |
+| Identity | ViteHub resolves the Agent Invoker and Agent Actor for the request. |
+| Composition | The Definition and invocation context select the active Capabilities. |
+| Context | Capabilities prepare tools, policy, context values, and Workspace Scope. |
+| Execution | The Agent Driver processes the prepared input. |
+| Completion | ViteHub returns or streams output and records usage, events, and trace state. |
 
-Capability selection happens once for the invocation. A Capability omitted by an invocation-time resolver contributes no tools, requirements, policy, hooks, or cleanup work to that request.
+Capability selection happens once. A Capability omitted by the resolver contributes no tools, requirements, policy, hooks, or cleanup work to that invocation.
 
-## Keep neighboring concepts separate
+## Keep nearby terms separate
 
-| Concept | Responsibility |
+| Term | Meaning |
 | --- | --- |
-| Agent Definition | Declares the reusable Agent composition and its possible runtime behavior. |
-| Agent Invocation | Resolves and runs that composition once for one input. |
-| Agent Trigger | Maps a product event into Agent Invocation input and run metadata. |
-| Channel | Names reachability, origin, message facts, and delivery behavior around an invocation. |
-| Chat Session | Selects which conversational messages are eligible for one invocation's Chat History Window. |
-| Workflow Run | Provides a durable execution boundary when the Agent Invocation runs through a Workflow. |
+| Agent Definition | Reusable declaration of what an Agent can do. |
+| Agent Invocation | One execution of that declaration for one input. |
+| Channel | Origin and delivery metadata around a message-shaped invocation. |
+| Workflow Run | Durable orchestration that can carry an invocation across waits or process boundaries. |
+| Agent Memory | Persistent context owned by a separate memory boundary, not by the invocation itself. |
 
-A Channel can start many Agent Invocations, and a Chat Session can supply history to many Agent Invocations. Neither becomes the invocation itself. A Workflow Run can carry one hosted Agent Invocation across a durable boundary, but Workflow remains responsible for durability and orchestration.
-
-## Inline and Workflow-backed invocations
-
-Direct calls using the discovery-default Workflow binding run inline without a discovered Agent host identity. An explicit `runtime: workflow('name')` binding still routes direct calls through the named Workflow. Discovered Agent Definitions run through Workflows by default unless the Definition opts out or selects another Workflow binding.
-
-Both paths still create one Agent Invocation. Workflow-backed execution adds a durable serialization boundary, so process-local objects such as an in-memory Trace Event Log do not cross into the Workflow Run.
-
-## Invocation state is not Agent memory
-
-Invocation context, run metadata, tools, and trace state belong to one request. Chat History, Agent Memory, Workspace files, and application stores persist only through the boundaries that own them.
-
-Do not use an Agent Invocation as an implicit conversation or persistence layer. Configure Chat History for prior messages, Memory for durable learned context, and Workspace for file-tree state.
+One Channel can start many invocations, and one Workflow Run can carry an invocation. Neither term replaces the invocation.
 
 ## Inspect an invocation
 
-Inspect the prepared input, Agent Actor, active Channel, resolved Capabilities, visible Workspace Scope, Agent Driver, trace, usage, and final output together. These values explain the runtime request without requiring you to infer behavior from the Agent Definition alone.
+Inspect the input, invoker, active Channel, resolved Capabilities, Workspace Scope, Agent Driver, trace, usage, and final output together. `vitehub agent info` exposes resolved Agent metadata, while `vitehub agent dev` streams a local invocation.
 
-`vitehub agent info` exposes resolved Agent metadata, while `vitehub agent dev` streams a local Agent Invocation. Server code can use invocation hooks, traces, and run events when the application needs programmatic inspection or progress reporting.
-
-## Next steps
-
-- Read [Invocations](/docs/agents/invocations) for `runAgent()`, `streamAgent()`, Agent Triggers, hooks, and run events.
-- Read [Capabilities API](/docs/concepts/capabilities-api) for invocation-resolved abilities.
-- Read [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) for inspectable runtime decisions.
+Read [Invocations](/docs/agents/invocations) for `runAgent()` and `streamAgent()`, or [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) for the records produced while an invocation runs.
