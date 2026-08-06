@@ -20,12 +20,6 @@ ViteHub automatically adapts the primitive for local development and for your de
 | Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
 | Run isolated automation | [Browser](/docs/server-primitives/browser), [Shell](/docs/server-primitives/shell), or [Sandbox](/docs/server-primitives/sandbox) |
 
-## Agent Primitives use LLMs to run actions on demand
-
-An Agent Primitive is a special kind of primitive that uses an LLM to choose and run tools or actions on demand. An Agent receives selected Capabilities and can decide which of those capabilities to invoke during an Agent Invocation.
-
-The application still decides which Capabilities an Agent can access. Attaching a Capability makes that access explicit and inspectable.
-
 ## Inspect the boundary
 
 Look for the package's Vite Integration, Runtime Helper, and generated Provider Output. The primitive page documents the package contract; the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) shows where that contract is currently proven.
