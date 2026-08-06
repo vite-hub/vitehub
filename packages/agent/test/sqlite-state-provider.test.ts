@@ -103,6 +103,7 @@ describe("SQLite Agent State Provider", () => {
     await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-2", "pr-1"))).resolves.toBe(true)
     await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-3", "pr-2"))).resolves.toBe(true)
     await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-4", "pr-3"))).resolves.toBe(true)
+    await expect(queue.webhookDeliveryScopes()).resolves.toEqual(["webhook:review:github:"])
 
     const first = await queue.claimWebhookDelivery("webhook:review:github:")
     const second = await queue.claimWebhookDelivery("webhook:review:github:")

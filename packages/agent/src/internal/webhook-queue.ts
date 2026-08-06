@@ -33,6 +33,7 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number): Promise<boolean>
+  webhookDeliveryScopes(): Promise<string[]>
 }
 
 export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhookQueueStateAdapter {
@@ -42,4 +43,5 @@ export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhook
     && typeof candidate.enqueueWebhookDelivery === "function"
     && typeof candidate.extendWebhookDeliveryLease === "function"
     && typeof candidate.retryWebhookDelivery === "function"
+    && typeof candidate.webhookDeliveryScopes === "function"
 }
