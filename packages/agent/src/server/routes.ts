@@ -1,6 +1,6 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
+import { createRuntimeWaitUntilController, resolveRuntimeContext } from "@vite-hub/runtime"
 import { Chat, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
@@ -19,7 +19,7 @@ import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
-import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
+import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
@@ -827,7 +827,7 @@ async function executeQueuedWebhookDelivery(
       const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
       if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
       const input = await createAgentWebhookTriggerInput(request, match.registration)
-      const resolved = await resolveAgentTriggerInvocation(agent as never, context as never, match.trigger.id, input)
+      const resolved = await resolveAgentTriggerInvocationWithResolvedContext(agent as never, resolveRuntimeContext(context as never) as never, match.trigger.id, input, { verifyWebhook: false })
       if (!isResolvedAgentTriggerHandledInvocation(resolved)) {
         if (!resolved.webhook || resolved.webhook.deliveryId !== delivery.deliveryId) {
           throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
@@ -3444,11 +3444,13 @@ export function createChannelWebhookRouteHandler(
     return task
   }
 
-  const registerQueue = (scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
+  const registerQueue = async (scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
     if (!hasAgentWebhookQueue(state)) return false
     queueStates.add(state)
     queueScopes.set(scope, { options, state })
-    void drainQueue(scope)
+    const task = drainQueue(scope)
+    const waitUntil = await resolveRuntimeWaitUntil(options.waitUntil)
+    waitUntil?.(task)
     return true
   }
 
@@ -3545,7 +3547,7 @@ export function createChannelWebhookRouteHandler(
               isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
             )
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
-            registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+            await registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
             return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
@@ -3701,7 +3703,7 @@ export function createChannelWebhookRouteHandler(
       discoveringScopes = (async () => {
         for (const state of queueStates) {
           for (const scope of await state.webhookDeliveryScopes()) {
-            if (scope.startsWith(agentScopePrefix) && !queueScopes.has(scope)) registerQueue(scope, state, handlerOptions)
+            if (scope.startsWith(agentScopePrefix) && !queueScopes.has(scope)) await registerQueue(scope, state, handlerOptions)
           }
         }
       })()
@@ -3735,7 +3737,7 @@ export function createChannelWebhookRouteHandler(
           if (stopped) return
           const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
           if (webhookState && hasAgentWebhookQueue(webhookState.state)) {
-            registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
+            await registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
           }
         }
         await discoverScopes()

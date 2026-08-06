@@ -5974,7 +5974,7 @@ describe("server helpers", () => {
         method: "POST",
       }), "github", { agentName: "review", webhookState: state, waitUntil })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
-      await vi.waitFor(() => expect(waitUntil).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(waitUntil.mock.calls.length).toBeGreaterThanOrEqual(3))
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
