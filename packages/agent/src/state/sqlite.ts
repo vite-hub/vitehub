@@ -226,15 +226,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean> {
-    await this.cleanupExpiredStateIfDue()
-    const completed = await retrySqliteBusy(async () => await execute(
-      this.driver,
-      `UPDATE ${this.tables.webhookQueue}
-        SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
-        WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
-        RETURNING delivery_id`,
-      [scope, deliveryId, leaseToken],
-    ))
+    const completed = await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await execute(
+        this.driver,
+        `UPDATE ${this.tables.webhookQueue}
+          SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
+          WHERE scope = ? AND delivery_id = ? AND status = 'running' AND lease_token = ?
+          RETURNING delivery_id`,
+        [scope, deliveryId, leaseToken],
+      )
+    })
     return completed.length > 0
   }
 
@@ -424,9 +426,8 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const scopeRows = await execute(
       this.driver,
       `SELECT DISTINCT scope FROM ${this.tables.webhookQueue}
-        WHERE status = 'queued' OR (status = 'running' AND lease_expires_at <= ?)
+        WHERE status != 'completed'
         ORDER BY scope ASC`,
-      [Date.now()],
     )
     return scopeRows.flatMap(row => typeof row.scope === "string" ? [row.scope] : [])
   }

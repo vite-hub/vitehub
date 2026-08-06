@@ -125,11 +125,16 @@ describe("SQLite Agent State Provider", () => {
   it("retries transient SQLite contention while persisting webhook deliveries", async () => {
     const client = createClient({ url: ":memory:" })
     let busyCompletion = true
+    let busyCleanup = false
     let busyEnqueue = true
     let busyRetry = true
     const execute = vi.fn(async (statement: string, args?: unknown[]) => {
       if (busyEnqueue && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
         busyEnqueue = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyCleanup && statement.includes("DELETE FROM test_agent_state_locks")) {
+        busyCleanup = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
       }
       if (busyCompletion && statement.includes("SET status = 'completed'")) {
@@ -154,12 +159,15 @@ describe("SQLite Agent State Provider", () => {
     await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-busy"))).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue"))).toHaveLength(2)
     const lease = await contended.claimWebhookDelivery("webhook:review:github:")
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
     await expect(contended.completeWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken)).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'completed'"))).toHaveLength(2)
     await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-retry-busy"))).resolves.toBe(true)
     const retryLease = await contended.claimWebhookDelivery("webhook:review:github:")
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(3)
     client.close()
   })
 
