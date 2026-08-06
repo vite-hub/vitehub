@@ -7,6 +7,8 @@ import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
 import {
   agentInvocationControlId,
   agentInvocationInputSupport,
+  activeAgentInvocation,
+  registerActiveAgentInvocation,
   sendAgentInvocationInput,
   withAgentInvocationControlId,
 } from "../src/internal/agent-invocation-control.ts"
@@ -23,6 +25,21 @@ function runtime(overrides: Partial<AgentRuntimeContext> = {}): AgentRuntimeCont
 }
 
 describe("Agent Invocation controllers", () => {
+  it("isolates active invocation owners by route state", () => {
+    const firstState = {}
+    const secondState = {}
+    const firstController = { id: "first" } as never
+    const secondController = { id: "second" } as never
+    const unregisterFirst = registerActiveAgentInvocation("shared-key", firstController, Promise.resolve(), firstState)
+    const unregisterSecond = registerActiveAgentInvocation("shared-key", secondController, Promise.resolve(), secondState)
+
+    expect(activeAgentInvocation("shared-key", firstState)?.controller).toBe(firstController)
+    expect(activeAgentInvocation("shared-key", secondState)?.controller).toBe(secondController)
+    expect(activeAgentInvocation("shared-key")).toBeUndefined()
+    unregisterFirst()
+    unregisterSecond()
+  })
+
   it("keeps controller identity separate from provider run metadata", () => {
     const first = withAgentInvocationControlId({ run: { runId: "shared-provider-run" } }, "ainv_first")
     const second = withAgentInvocationControlId({ run: { runId: "shared-provider-run" } }, "ainv_second")
@@ -78,6 +95,10 @@ describe("Agent Invocation controllers", () => {
       ...userMessage,
       parts: [...userMessage.parts, { data: "image", mediaType: "image/png", type: "image" as const }],
     } as never }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
+    await expect(controller.sendInput({
+      messages: [{ ...userMessage, parts: [...userMessage.parts, { data: "image", mediaType: "image/png", type: "image" as const }] } as never],
+      prompt: "must not bypass messages",
+    }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
     expect(firstSubmit.mock.calls.map(([text]) => text)).toEqual([
       "follow up",
       "message input",

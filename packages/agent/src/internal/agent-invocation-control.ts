@@ -36,6 +36,7 @@ interface ActiveAgentInvocation {
 
 const invocationInputHandlersKey = Symbol.for("vitehub.agentInvocationInputHandlers")
 const activeInvocationOwnersKey = Symbol.for("vitehub.activeInvocationOwners")
+const scopedActiveInvocationOwners = new WeakMap<object, Map<string, ActiveAgentInvocation>>()
 
 function globalMap<T>(key: symbol): Map<string, T> {
   const root = globalThis as typeof globalThis & Record<symbol, unknown>
@@ -74,8 +75,13 @@ export function registerActiveAgentInvocation(
   ownerKey: string,
   controller: AgentInvocationController,
   result: Promise<unknown>,
+  scope?: object,
 ): () => void {
-  const owners = globalMap<ActiveAgentInvocation>(activeInvocationOwnersKey)
+  let owners = scope ? scopedActiveInvocationOwners.get(scope) : undefined
+  if (!owners) {
+    owners = scope ? new Map<string, ActiveAgentInvocation>() : globalMap<ActiveAgentInvocation>(activeInvocationOwnersKey)
+    if (scope) scopedActiveInvocationOwners.set(scope, owners)
+  }
   const active = { controller, result }
   owners.set(ownerKey, active)
   return () => {
@@ -83,6 +89,6 @@ export function registerActiveAgentInvocation(
   }
 }
 
-export function activeAgentInvocation(ownerKey: string): ActiveAgentInvocation | undefined {
-  return globalMap<ActiveAgentInvocation>(activeInvocationOwnersKey).get(ownerKey)
+export function activeAgentInvocation(ownerKey: string, scope?: object): ActiveAgentInvocation | undefined {
+  return (scope ? scopedActiveInvocationOwners.get(scope) : globalMap<ActiveAgentInvocation>(activeInvocationOwnersKey))?.get(ownerKey)
 }

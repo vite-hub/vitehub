@@ -728,7 +728,7 @@ async function steerQueuedWebhookDelivery(
     if (claimed) {
       return duplicateResponse(claimed)
     }
-    const active = activeAgentInvocation(delivery.concurrencyKey)
+    const active = activeAgentInvocation(delivery.concurrencyKey, state)
     if (active) {
       const { controller } = active
       const sendLock = await state.acquireLock(
@@ -982,7 +982,7 @@ async function executeQueuedWebhookDelivery(
           return output
         })
         const unregister = delivery.concurrencyKey
-          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller, settlement)
+          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller, settlement, state)
           : () => undefined
         const unregisterOnOwnershipLoss = () => unregister()
         if (ownershipAbort.signal.aborted) unregisterOnOwnershipLoss()
