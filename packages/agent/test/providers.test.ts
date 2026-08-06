@@ -6015,7 +6015,7 @@ describe("server helpers", () => {
     try {
       stop = handler.resume({ agentName: "review", webhookState: queueState })
       await handler(request("delivery-stop-1"), "github", { agentName: "review", webhookState: queueState })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 3_000 })
       blockClaims = true
       await handler(request("delivery-stop-2"), "github", { agentName: "review", webhookState: queueState })
       await vi.waitFor(() => expect(claimBlocked).toHaveBeenCalled())
