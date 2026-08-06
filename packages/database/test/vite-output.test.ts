@@ -63,9 +63,9 @@ async function createDbBuildProject(prefix: string, options: { integrationConnec
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
   await writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n")
   await writeFile(join(rootDir, "src/server.ts"), [
-    "import { databases } from '@vite-hub/database/drizzle'",
+    "import { databases, useDatabase } from '@vite-hub/database/drizzle'",
     "export default {",
-    "  fetch: () => new Response(Object.keys(databases).join(',')),",
+    "  fetch: () => new Response([Object.keys(databases), Object.keys(useDatabase('primary').schema)].join(':')),",
     "}",
     "",
   ].join("\n"))
@@ -435,6 +435,7 @@ describe("Vite db provider outputs", () => {
 
     const cloudflareRuntime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
     expect(cloudflareRuntime).toContain("export const agentDb = createAgentDatabase(databases)")
+    expect(cloudflareRuntime).toContain("export function useDatabase(name) { return databases[name] }")
 
     const vercelServerCode = await readFile(vercelServer, "utf8")
     expect(vercelServerCode).toContain("process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL")

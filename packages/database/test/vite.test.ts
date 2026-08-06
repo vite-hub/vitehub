@@ -334,7 +334,7 @@ describe("hubDb", () => {
     expect(generatedTypes).toContain('declare module "#vitehub/database/schema" {\n  interface DatabaseSchema {')
 
     await configResolved({ database: false, root: rootDir } as never)
-    await expect(readFile(generatedTypesFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(generatedTypesFile, "utf8")).resolves.toBe("export {}\n")
   })
 
   it("refreshes generated artifacts during definition hot updates", async () => {
