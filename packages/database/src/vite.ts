@@ -5,7 +5,7 @@ import { normalize } from "pathe"
 
 import { createDbCliContributor } from "./cli.ts"
 import { resolveDBViteConfig } from "./config.ts"
-import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, generateProviderOutputs, prepareProviderOutputs } from "./internal/vite-build.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
@@ -109,6 +109,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), resolved.root, { serverDirs })
     if (runtimeConfig) {
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
+    } else {
+      await removeGeneratedDatabaseTypes(resolved.root)
     }
     return runtimeConfig
   }

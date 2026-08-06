@@ -195,6 +195,7 @@ body {
   font-size: 0.75rem;
   font-weight: 650;
   line-height: 1;
+  counter-increment: step;
   content: counter(step);
 }
 

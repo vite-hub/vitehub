@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 
 import { createImportPath } from "@vite-hub/internal/build/paths"
 import { dirname, join } from "pathe"
@@ -80,7 +80,9 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
     ...imports,
     "",
     'declare module "#vitehub/database/schema" {',
+    "  interface DatabaseSchema {",
     ...schemaFields,
+    "  }",
     "}",
     "",
     'declare module "#vitehub/database/databases" {',
@@ -92,6 +94,10 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
     "export {}",
     "",
   ].join("\n")
+}
+
+export async function removeGeneratedDatabaseTypes(rootDir: string) {
+  await rm(join(rootDir, ".vitehub/types/database.d.ts"), { force: true })
 }
 
 export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig) {
