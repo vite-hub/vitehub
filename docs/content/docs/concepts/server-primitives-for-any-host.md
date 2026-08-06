@@ -1,12 +1,12 @@
 ---
 title: Server primitives
-description: Build server-backed features with databases, queues, storage, and more while keeping your application portable across hosts.
+description: Choose the server API you need and use it from application code across ViteHub hosts.
 navigation.group: Start here
 navigation.order: 2
 icon: i-lucide-server
 ---
 
-Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
+Server primitives give application code APIs for common server features, including environment values, databases, queues, messages, files, and isolated commands. You call them from routes, handlers, jobs, and workers without writing a separate host-specific implementation for each provider.
 
 ## Choose a primitive for the job
 
@@ -26,7 +26,7 @@ Most ViteHub primitives follow the same pattern:
 
 ### Configure
 
-Add ViteHub to your configuration. ViteHub relies heavily on the [Vite Environment API](https://vite.dev/guide/api-environment), so Vite 7+, Nitro 3+, and Nuxt 5+ are the supported versions for now.
+Add ViteHub to the configuration used by your framework. ViteHub relies on the [Vite Environment API](https://vite.dev/guide/api-environment), so Vite 7+, Nitro 3+, and Nuxt 5+ are supported for now.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
@@ -72,7 +72,7 @@ Add ViteHub to your configuration. ViteHub relies heavily on the [Vite Environme
 
 ### Define the database
 
-Create a Database Definition file that ViteHub discovers automatically. Its file name becomes the database name, and the file defines the schema and options.
+Create a Database Definition file that ViteHub can discover automatically. Its file name becomes the database name, and the file defines the schema and options.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
@@ -126,7 +126,7 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
 
 ### Use it from server code
 
-Import the generated Runtime Helper in a server route and query the named database. ViteHub connects that call to the provider configured for the current environment.
+Import the Runtime Helper in server code and query the named database. `useDatabase('notes')` is fully typed from the discovered database definitions, including the selected schema.
 
 ```ts [server/api/notes.get.ts]
 import { useDatabase } from '@vite-hub/database/drizzle'
@@ -139,8 +139,4 @@ export default defineEventHandler(() => {
 
 ::
 
-## Inspect the boundary
-
-Look for the package's Vite Integration, Runtime Helper, and generated Provider Output. The primitive page documents the package contract; the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) shows where that contract is currently proven.
-
-Read [Definitions and discovery](/docs/concepts/definitions-and-discovery), [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports), or [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) for the details, or open [First server primitive](/docs/getting-started/first-server-primitive) to build one.
+Choose a package page from the table when you know the feature you need. Read [Definitions and discovery](/docs/concepts/definitions-and-discovery) when you need to understand file-based setup, or open [First server primitive](/docs/getting-started/first-server-primitive) for a complete example.
