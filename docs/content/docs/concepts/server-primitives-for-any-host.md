@@ -10,7 +10,7 @@ Server Primitives are APIs that application code calls to work with server-side 
 
 ViteHub automatically adapts the primitive for local development and for your deployment host, whether that's Cloudflare, Vercel, Docker, or another provider.
 
-## Choose a Server Primitive when application code owns the action
+## Choose a primitive for the job
 
 | You need | Start with |
 | --- | --- |
