@@ -15,7 +15,6 @@ These pages stay short and compositional. Use [Server primitives](/docs/server-p
 | Page | Read it when |
 | --- | --- |
 | [Server primitives](/docs/concepts/server-primitives-for-any-host) | You need application infrastructure without creating an Agent. |
-| [From Definition to Invocation](/docs/concepts/how-vitehub-fits-together) | You want to see how ViteHub turns source files into runtime work. |
 
 ## Core vocabulary
 

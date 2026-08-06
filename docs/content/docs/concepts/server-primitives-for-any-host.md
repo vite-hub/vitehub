@@ -8,7 +8,14 @@ icon: i-lucide-server
 
 Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
 
-ViteHub automatically adapts the primitive for local development and for your deployment host, whether that's Cloudflare, Vercel, Docker, or another provider.
+## The common pattern
+
+Most primitives follow the same setup:
+
+1. **Enable the primitive.** Add it to the framework `vitehub({ ... })` configuration, or register the package integration manually, such as `hubEmail()`.
+2. **Declare it when needed.** Put Definitions in the location documented by the primitive. Many use a `server/<primitive>/` directory, while others use files such as `server/email.ts`, `server.email.ts`, or a package-specific suffix such as `*.browser.ts`; some primitives do not use discovery.
+3. **Call the stable import.** Use the primitive's Runtime Helper from server code. Do not import generated files or provider SDKs directly.
+4. **Let ViteHub adapt it.** During development and build, ViteHub discovers declarations, generates types and registries when needed, and emits host-specific output for deployment.
 
 ## Choose a primitive for the job
 
@@ -24,4 +31,4 @@ ViteHub automatically adapts the primitive for local development and for your de
 
 Look for the package's Vite Integration, Runtime Helper, and generated Provider Output. The primitive page documents the package contract; the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) shows where that contract is currently proven.
 
-Continue with [From Definition to Invocation](/docs/concepts/how-vitehub-fits-together) for the complete flow, or open [First server primitive](/docs/getting-started/first-server-primitive) to build one.
+Read [Definitions and discovery](/docs/concepts/definitions-and-discovery), [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports), or [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) for the details, or open [First server primitive](/docs/getting-started/first-server-primitive) to build one.
