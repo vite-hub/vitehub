@@ -14,12 +14,12 @@ interface CloudflareBrowserBindingConnectionBase {
   preferredTargetId?: string
 }
 
-export interface CloudflareChromiumConnection extends CloudflareBrowserBindingConnectionBase {
+interface CloudflareChromiumConnection extends CloudflareBrowserBindingConnectionBase {
   engine?: "chromium"
   sessionId: string
 }
 
-export interface CloudflareKitesurfConnection extends CloudflareBrowserBindingConnectionBase {
+interface CloudflareKitesurfConnection extends CloudflareBrowserBindingConnectionBase {
   engine: "kitesurf"
   sessionId?: never
 }
