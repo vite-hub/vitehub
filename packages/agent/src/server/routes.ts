@@ -745,24 +745,22 @@ async function steerQueuedWebhookDelivery(
         sendLockLost = true
         void controller.cancel(new Error("[vitehub] Webhook steering lost its serialized input lease.")).catch(() => {})
       })
-      const steeringLease: AgentWebhookQueueLease = {
-        ...delivery,
-        attempts: 0,
-        leaseExpiresAt: lock.expiresAt,
-        leaseToken: lock.token,
-      }
-      if (!await state.claimWebhookSteering(delivery, steeringLease.leaseToken, steeringLease.leaseExpiresAt)) {
-        stopSendHeartbeat()
-        await state.releaseLock(sendLock)
-        return duplicateResponse(await state.get(claimKey) || "steering")
-      }
-      await state.set(claimKey, "steering")
-      let steeringLeaseLost = false
-      const stopDeliveryHeartbeat = startWebhookQueueHeartbeat(state, steeringLease, () => {
-        steeringLeaseLost = true
-        void controller.cancel(new Error("[vitehub] Webhook steering lost its durable delivery lease.")).catch(() => {})
-      })
       try {
+        const steeringLease: AgentWebhookQueueLease = {
+          ...delivery,
+          attempts: 0,
+          leaseExpiresAt: lock.expiresAt,
+          leaseToken: lock.token,
+        }
+        if (!await state.claimWebhookSteering(delivery, steeringLease.leaseToken, steeringLease.leaseExpiresAt)) {
+          return duplicateResponse(await state.get(claimKey) || "steering")
+        }
+        await state.set(claimKey, "steering")
+        let steeringLeaseLost = false
+        const stopDeliveryHeartbeat = startWebhookQueueHeartbeat(state, steeringLease, () => {
+          steeringLeaseLost = true
+          void controller.cancel(new Error("[vitehub] Webhook steering lost its durable delivery lease.")).catch(() => {})
+        })
         let accepted = false
         try {
           const result = await controller.sendInput(input, { mode: "steer" })
