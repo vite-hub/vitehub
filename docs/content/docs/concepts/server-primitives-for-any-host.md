@@ -134,14 +134,42 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
 
 Import the generated Runtime Helper in a server route and query the named database. ViteHub connects that call to the provider configured for the current environment.
 
-```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+::tabs{class="framework-tabs"}
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
+    ```ts [server.ts]
+    import { useDatabase } from '@vite-hub/database/drizzle'
 
-export default defineEventHandler(() => {
-  const { db, schema } = useDatabase('notes')
-  return db.select().from(schema.notes)
-})
-```
+    export default {
+      async fetch() {
+        const { db, schema } = useDatabase('notes')
+        return Response.json(await db.select().from(schema.notes))
+      },
+    }
+    ```
+  :::
+
+  :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs"}
+    ```ts [server/api/notes.get.ts]
+    import { useDatabase } from '@vite-hub/database/drizzle'
+
+    export default defineEventHandler(() => {
+      const { db, schema } = useDatabase('notes')
+      return db.select().from(schema.notes)
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
+    ```ts [server/api/notes.get.ts]
+    import { useDatabase } from '@vite-hub/database/drizzle'
+
+    export default defineEventHandler(() => {
+      const { db, schema } = useDatabase('notes')
+      return db.select().from(schema.notes)
+    })
+    ```
+  :::
+::
 
 ::
 

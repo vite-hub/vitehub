@@ -12,10 +12,11 @@ The import hides generated files, not the runtime contract. The package page def
 ## Call the helper from server code
 
 ```ts [server/api/health.ts]
-import { getEnv } from '#vitehub/env/server'
+import { useServerEnv } from '#vitehub/env/server'
 
 export function health() {
-  return { environment: getEnv('APP_ENV') }
+  const env = useServerEnv()
+  return { environment: env.APP_ENV }
 }
 ```
 
