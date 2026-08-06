@@ -639,9 +639,10 @@ function persistedWebhookRequest(
   invocation?: { input: unknown, run?: unknown },
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
+  const concurrencyGroup = `${agentName}:${ownership.concurrencyGroup?.trim() || "default"}`
   return {
-    concurrencyGroup: `${agentName}:${ownership.concurrencyGroup?.trim() || "default"}`,
-    ...(ownership.concurrencyKey ? { concurrencyKey: `${scope}:${ownership.concurrencyKey}` } : {}),
+    concurrencyGroup,
+    ...(ownership.concurrencyKey ? { concurrencyKey: `${concurrencyGroup}:${ownership.concurrencyKey}` } : {}),
     concurrencyLimit: ownership.concurrencyLimit,
     deliveryId,
     enqueuedAt,
@@ -3686,7 +3687,25 @@ export function createChannelWebhookRouteHandler(
     let stopped = false
     let discovered = false
     let discovering: Promise<void> | undefined
+    let discoveringScopes: Promise<void> | undefined
     queueStopped = false
+    const agentScopePrefix = `webhook:${routeAgentIdentity(handlerOptions)?.name || "agent"}:`
+    const discoverScopes = async () => {
+      if (stopped || discoveringScopes) return
+      discoveringScopes = (async () => {
+        const states = new Set([...queueScopes.values()].map(queue => queue.state))
+        for (const state of states) {
+          for (const scope of await state.webhookDeliveryScopes()) {
+            if (scope.startsWith(agentScopePrefix)) registerQueue(scope, state, handlerOptions)
+          }
+        }
+      })()
+        .catch(error => console.error("[vitehub] Webhook queue scope discovery failed and will be retried.", error))
+        .finally(() => {
+          discoveringScopes = undefined
+        })
+      await discoveringScopes
+    }
     const discover = async () => {
       if (stopped || discovered || discovering) return
       discovering = (async () => {
@@ -3705,12 +3724,9 @@ export function createChannelWebhookRouteHandler(
           const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
           if (webhookState && hasAgentWebhookQueue(webhookState.state)) {
             registerQueue(webhookState.keyPrefix, webhookState.state, handlerOptions)
-            const agentScopePrefix = `webhook:${routeAgentIdentity(handlerOptions)?.name || "agent"}:`
-            for (const scope of await webhookState.state.webhookDeliveryScopes()) {
-              if (scope.startsWith(agentScopePrefix)) registerQueue(scope, webhookState.state, handlerOptions)
-            }
           }
         }
+        await discoverScopes()
         discovered = true
       })()
         .catch(error => console.error("[vitehub] Webhook queue startup discovery failed and will be retried.", error))
@@ -3723,6 +3739,7 @@ export function createChannelWebhookRouteHandler(
     const timer = setInterval(() => {
       if (!stopped) {
         void discover()
+        if (discovered) void discoverScopes()
         for (const scope of queueScopes.keys()) void drainQueue(scope)
       }
     }, defaultWebhookQueueRetryMs)

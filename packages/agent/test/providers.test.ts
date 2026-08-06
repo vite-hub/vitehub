@@ -5376,6 +5376,12 @@ describe("server helpers", () => {
       expect(responses.map(response => response.status)).toEqual([200, 200, 200, 200])
       expect(enqueue).toHaveBeenCalledTimes(4)
       expect(enqueue.mock.calls.every(([delivery]) => delivery.invocation === undefined)).toBe(true)
+      expect(enqueue.mock.calls.map(([delivery]) => delivery.concurrencyKey)).toEqual([
+        "review:reviews:pr-1",
+        "review:reviews:pr-2",
+        "review:reviews:pr-3",
+        "review:reviews:pr-4",
+      ])
       await expect(Promise.all(responses.map(response => response.json()))).resolves.toEqual([
         { accepted: true, duplicate: false, ok: true, queued: true },
         { accepted: true, duplicate: false, ok: true, queued: true },
@@ -5524,7 +5530,7 @@ describe("server helpers", () => {
     await firstProcessState.connect()
     await firstProcessState.enqueueWebhookDelivery({
       concurrencyGroup: "review:reviews",
-      concurrencyKey: `${scope}:pr-42`,
+      concurrencyKey: "review:reviews:pr-42",
       concurrencyLimit: 2,
       deliveryId: "delivery-restart",
       enqueuedAt: Date.now(),
@@ -6311,7 +6317,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("only discovers persisted webhook queue scopes owned by the resumed Agent", async () => {
+  it("periodically discovers persisted scopes only for the resumed Agent", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -6351,7 +6357,19 @@ describe("server helpers", () => {
     try {
       await vi.waitFor(() => expect(claim).toHaveBeenCalledWith("webhook:review:github:github:"))
       expect(claim).not.toHaveBeenCalledWith("webhook:other:github:github:")
-      expect(run).not.toHaveBeenCalled()
+      await state.enqueueWebhookDelivery({
+        concurrencyGroup: "review:default",
+        concurrencyLimit: 1,
+        deliveryId: "delivery-created-after-discovery",
+        enqueuedAt: Date.now(),
+        invocation: { input: { prompt: "persisted" } },
+        leaseTtlMs: 30_000,
+        request: { body: "{}", headers: {}, method: "POST", url: "https://example.com" },
+        scope: "webhook:review:github:removed-registration:",
+        webhookId: "removed-registration",
+      })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 2_000 })
+      expect(claim).not.toHaveBeenCalledWith("webhook:other:github:github:")
     }
     finally {
       await stop()
