@@ -3701,7 +3701,7 @@ export function createChannelWebhookRouteHandler(
       discoveringScopes = (async () => {
         for (const state of queueStates) {
           for (const scope of await state.webhookDeliveryScopes()) {
-            if (scope.startsWith(agentScopePrefix)) registerQueue(scope, state, handlerOptions)
+            if (scope.startsWith(agentScopePrefix) && !queueScopes.has(scope)) registerQueue(scope, state, handlerOptions)
           }
         }
       })()
