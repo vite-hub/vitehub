@@ -3,6 +3,12 @@ import discoveredRegistry from "#vitehub/channels/registry"
 import { createChannel } from "../client.ts"
 
 import type { ChannelClient, ChannelConnectorMap, ChannelDefinition, ChannelDefinitionRegistry } from "../types.ts"
+import type {
+  ChannelDefinitionConnectors,
+  ChannelDefinitionDefault,
+  ChannelDefinitionName,
+  ChannelRegistryDefinition,
+} from "../registry-types.ts"
 
 let registryOverride: ChannelDefinitionRegistry | undefined
 
@@ -35,6 +41,14 @@ async function resolveChannel<TConnectors extends ChannelConnectorMap>(name: str
   return createChannel(name, definition as unknown as ChannelDefinition<TConnectors>)
 }
 
+export function useChannel<const TName extends ChannelDefinitionName>(name: TName): ChannelClient<
+  ChannelDefinitionConnectors<ChannelRegistryDefinition<TName>>,
+  ChannelDefinitionDefault<ChannelRegistryDefinition<TName>>
+>
+export function useChannel<
+  TConnectors extends ChannelConnectorMap = ChannelConnectorMap,
+  TDefault extends keyof TConnectors & string = never,
+>(name: string): ChannelClient<TConnectors, TDefault>
 export function useChannel<TConnectors extends ChannelConnectorMap = ChannelConnectorMap>(name: string): ChannelClient<TConnectors> {
   if (typeof name !== "string" || name.trim().length === 0) {
     throw new TypeError("`useChannel()` requires a non-empty channel name.")

@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverChannelDefinitions } from "./discovery.ts"
@@ -35,6 +36,21 @@ function renderRegistry(definitions: DiscoveredChannelDefinition[]): string {
   ].join("\n")
 }
 
+function renderRegistryTypes(definitions: DiscoveredChannelDefinition[]): string {
+  return [
+    "declare global {",
+    "  interface ViteHubChannelDefinitionModules {",
+    ...definitions.map(definition =>
+      `    ${JSON.stringify(definition.name)}: typeof import(${JSON.stringify(definition.handler)})`
+    ),
+    "  }",
+    "}",
+    "",
+    "export {}",
+    "",
+  ].join("\n")
+}
+
 function isChannelDefinitionFile(file: string): boolean {
   const normalized = file.replace(/\\/g, "/")
   return /\/server\/channels\/(?:[^/]+\/)*[^/]+\.(?:c|m)?[jt]s$/i.test(normalized)
@@ -46,12 +62,20 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
   let resolved: ResolvedConfig | undefined
   let definitions: DiscoveredChannelDefinition[] = []
   let serverDirs: string[] | undefined
+  let projectRoot = process.cwd()
 
   function refresh(): DiscoveredChannelDefinition[] {
     const viteRoot = resolve(resolved?.root ?? process.cwd())
-    const projectRoot = resolveViteHubProjectRoot(viteRoot, { projectRoot: options.projectRoot })
+    projectRoot = resolveViteHubProjectRoot(viteRoot, { projectRoot: options.projectRoot })
     definitions = discoverChannelDefinitions({ rootDir: projectRoot, serverDirs })
     return definitions
+  }
+
+  async function refreshRegistryTypes(): Promise<void> {
+    await writeFileIfChanged(
+      resolve(projectRoot, ".vitehub", "types", "channels.d.ts"),
+      renderRegistryTypes(definitions),
+    )
   }
 
   return {
@@ -67,9 +91,10 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }
     },
-    configResolved(config) {
+    async configResolved(config) {
       resolved = config
       refresh()
+      await refreshRegistryTypes()
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
@@ -77,12 +102,13 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    handleHotUpdate(context) {
+    async handleHotUpdate(context) {
       const changed = context.file.replace(/\\/g, "/")
       if (!isChannelDefinitionFile(changed)) return
 
       resolved = context.server.config
       refresh()
+      await refreshRegistryTypes()
       const module = context.server.moduleGraph.getModuleById(resolvedChannelsRegistryId)
       if (module) context.server.moduleGraph.invalidateModule(module)
     },

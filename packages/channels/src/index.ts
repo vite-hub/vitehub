@@ -13,3 +13,4 @@ export type {
   ChannelSendResult,
   DiscoveredChannelDefinition,
 } from "./types.ts"
+export type { ChannelDefinitionName } from "./registry-types.ts"

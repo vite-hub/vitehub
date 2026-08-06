@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -41,6 +41,9 @@ describe("hubChannels", () => {
     expect((plugin.resolveId as (id: string) => string | undefined)(CHANNELS_REGISTRY_ID)).toBe(`\0${CHANNELS_REGISTRY_ID}`)
     expect((plugin.load as (id: string) => string | undefined)(`\0${CHANNELS_REGISTRY_ID}`)).toContain(JSON.stringify(definition))
     expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ name: "alerts" })])
+    await expect(readFile(join(root, ".vitehub/types/channels.d.ts"), "utf8")).resolves.toContain(
+      `"alerts": typeof import(${JSON.stringify(definition)})`,
+    )
   })
 
   it("refreshes and invalidates the virtual registry on definition changes", async () => {
