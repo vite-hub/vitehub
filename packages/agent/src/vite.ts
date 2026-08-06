@@ -39,6 +39,7 @@ const mergeNoExternal = createNoExternalMerger(agentPackageName)
 const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway-route.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
+const generatedAgentWebhookQueuePlugin = ".vitehub/agent/webhook-queue-plugin.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const generatedAgentEmailRuntime = ".vitehub/agent/email-runtime.js"
 const generatedAgentScheduleRegistry = ".vitehub/agent/schedule-registry.js"
@@ -628,6 +629,12 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
   }
 }
 
+function mergeNitroPlugins(nitro: NitroConfig, plugins: string[]): NitroConfig {
+  if (plugins.length === 0) return nitro
+  const existingPlugins = Array.isArray(nitro.plugins) ? nitro.plugins : []
+  return { ...nitro, plugins: [...existingPlugins, ...plugins] }
+}
+
 function normalizeNitroRoute(route: string): string {
   const normalized = route.startsWith("/") ? route : `/${route}`
   return normalized.replace(/\[([^\]]+)\]/g, ":$1")
@@ -921,7 +928,7 @@ function generatedRuntimeHelpers(): string[] {
     "  return value && typeof value === 'object' && typeof candidate?.waitUntil === 'function' ? candidate.waitUntil.bind(value) : undefined",
     "}",
     "",
-    "function waitUntilFromEvent(event: H3Event) {",
+    "export function waitUntilFromEvent(event: H3Event) {",
     "  const runtimeEvent = event as ViteHubGeneratedEvent",
     "  return waitUntilFromValue(runtimeEvent)",
     "    || waitUntilFromValue(runtimeEvent.context)",
@@ -980,6 +987,18 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
     "}",
     "const viteHubChatStateResolver = () => chatStateFromLibsql()",
     "viteHubChatStateResolver.ownsScope = false",
+  ]
+}
+
+function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }, typescript = false, runtimeRouteOption = ""): string[] {
+  return [
+    `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}) {`,
+    "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
+    "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
+    `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}webhookState: viteHubChatStateResolver, waitUntil })] : [])`,
+    "  return async () => await Promise.all(stops.map(stop => stop()))",
+    "}",
+    "",
   ]
 }
 
@@ -1209,6 +1228,7 @@ async function generateAgentWebhookRouteHandler(
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     "",
     ...routeCapabilities.setup,
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     "",
@@ -1286,12 +1306,14 @@ async function generateAgentNetlifyFunctionRouteHandler(
     ...generatedNetlifyRuntimeHelpers(),
     "",
     ...routeCapabilities.setup,
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, false, runtimeRouteOption) : []),
     "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     `const discordGatewayRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.discordGatewayRoute))})`,
+    ...(options.libsqlState ? ["let stopWebhookQueues"] : []),
     "",
     "export default async function viteHubAgentNetlifyFunction(request, context) {",
     "  ensureNetlifyHostingEnv()",
@@ -1306,6 +1328,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "    return Response.json({ message: 'Unknown ViteHub agent.', status: 404 }, { status: 404 })",
     "  }",
     "  const waitUntil = waitUntilFromContext(context)",
+    ...(options.libsqlState ? ["  stopWebhookQueues ||= resumeWebhookQueues(waitUntil)"] : []),
     "  if (isDiscordGatewayRoute) {",
     "    const secret = process.env.VITEHUB_DISCORD_GATEWAY_SECRET",
     "    const localDevelopment = process.env.NODE_ENV === 'development'",
@@ -1341,6 +1364,24 @@ async function writeAgentWebhookRouteHandler(
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
+  const queuePluginPath = join(root, generatedAgentWebhookQueuePlugin)
+  if (options.libsqlState) {
+    await writeFile(queuePluginPath, [
+      `import { resumeWebhookQueues, waitUntilFromEvent } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      "",
+      "export default function viteHubWebhookQueuePlugin(nitroApp) {",
+      "  let stop",
+      "  nitroApp.hooks.hook('request', event => {",
+      "    stop ||= resumeWebhookQueues(waitUntilFromEvent(event))",
+      "  })",
+      "  nitroApp.hooks.hook('close', async () => await stop?.())",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+  }
+  else {
+    await rm(queuePluginPath, { force: true })
+  }
 }
 
 async function generateAgentDiscordGatewayRouteHandler(
@@ -1475,6 +1516,7 @@ async function generateAgentDenoServer(
     ...deploymentCatalog.setup,
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
     ...routeCapabilities.setup,
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true) : []),
     "function jsonError(status, message) {",
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
     "}",
@@ -1522,11 +1564,13 @@ async function generateAgentDenoServer(
     "}",
     "",
     "const serveOptions = resolveDenoServeOptions(Deno.args)",
-    "if (serveOptions) {",
-    "  Deno.serve(serveOptions, handleRequest)",
+    ...(options.libsqlState ? ["const stopWebhookQueues = resumeWebhookQueues()"] : []),
+    "const server = serveOptions ? Deno.serve(serveOptions, handleRequest) : Deno.serve(handleRequest)",
+    "try {",
+    "  if (server?.finished) await server.finished",
     "}",
-    "else {",
-    "  Deno.serve(handleRequest)",
+    "finally {",
+    ...(options.libsqlState ? ["  await stopWebhookQueues()"] : []),
     "}",
     "",
   ].join("\n")
@@ -1822,6 +1866,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
+      const stateProvider = resolved && resolved.providers.state.provider
+      const installWebhookQueue = Boolean(
+        resolved
+        && hasHostedAgents
+        && !denoOutput
+        && !installCloudflareState
+        && (stateProvider === "auto" || stateProvider === "sqlite" || stateProvider === "libsql"),
+      )
       const nitroHandlers = [
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{
@@ -1848,7 +1900,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             getCloudflareStateImport(agent, frameworkOptions),
           )
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
-      const mergedNitro = mergeNitroHandlers(nitro, nitroHandlers)
+      const mergedNitro = mergeNitroPlugins(
+        mergeNitroHandlers(nitro, nitroHandlers),
+        installWebhookQueue ? [join(root, generatedAgentWebhookQueuePlugin)] : [],
+      )
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
         ...(nitroHandlers.length

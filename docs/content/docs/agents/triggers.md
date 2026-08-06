@@ -136,13 +136,19 @@ invoke(context, event: { deliveryId: string, pullRequest: number, head: string }
     input: { prompt: `Review pull request #${event.pullRequest}` },
     webhook: {
       deliveryId: event.deliveryId,
-      concurrencyKey: `pull-request:${event.pullRequest}:${event.head}`,
+      concurrencyGroup: 'pull-requests',
+      concurrencyKey: `pull-request:${event.pullRequest}`,
+      concurrencyLimit: 2,
     },
   }
 }
 ```
 
-Delivery claims are durable and do not expire. A duplicate delivery does not start another Agent Invocation. Concurrency leases default to 30 seconds and heartbeat for the lifetime of inline execution, so a dead owner releases work promptly; set `concurrencyTtlMs` when an integration needs a different recovery window. A busy delivery remains unclaimed so the provider can retry it. Webhook ownership requires durable Agent State, and concurrency ownership rejects execution that would be queued to a Workflow because the route cannot retain that lease across the Workflow boundary.
+Setting `concurrencyLimit` persists each delivery before returning from the webhook route. Eligible deliveries run in FIFO order within their webhook state scope, while the group limit caps total active work and the concurrency key excludes matching work. Group names and limits should remain stable across deliveries. The generated server resumes queued work on startup, so a new webhook is not required after a process restart.
+
+Queue leases default to 30 seconds and heartbeat while the Agent runs. A dead owner releases its delivery for retry; set `concurrencyTtlMs` when an integration needs a different recovery window. Delivery IDs remain durable after completion, so duplicates do not start another Agent Invocation. Completed delivery records are retained indefinitely: budget database storage for delivery history and use a separate state database when an integration requires its own retention lifecycle.
+
+Without `concurrencyLimit`, the route keeps the inline ownership path: `concurrencyKey` prevents matching work from running concurrently, and a busy delivery remains unclaimed so the provider can retry it. Both paths require durable Agent State and reject execution that would be queued to a Workflow because the route cannot retain ownership across that boundary. Persistent concurrency additionally requires a queue-capable SQLite or libSQL Agent State provider.
 
 ## Next steps
 

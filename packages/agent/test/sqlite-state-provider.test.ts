@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createLibsqlAgentState, createSqliteAgentState, type SqliteAgentStateDriver, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
 
 import type { QueueEntry, StateAdapter } from "chat"
+import type { AgentWebhookQueueDelivery } from "../src/internal/webhook-queue.ts"
 
 const tempDirs: string[] = []
 
@@ -26,6 +27,25 @@ function queueEntry(text = "hello"): QueueEntry {
     enqueuedAt: Date.now(),
     expiresAt: Date.now() + 60_000,
     message: { author: { fullName: "User", isBot: false, isMe: false, userId: "u", userName: "user" }, formatted: { children: [], type: "root" }, id: "m", raw: {}, text, threadId: "thread" } as never,
+  }
+}
+
+function webhookDelivery(deliveryId: string, concurrencyKey?: string): AgentWebhookQueueDelivery {
+  return {
+    concurrencyGroup: "review",
+    ...(concurrencyKey ? { concurrencyKey } : {}),
+    concurrencyLimit: 2,
+    deliveryId,
+    enqueuedAt: Date.now(),
+    leaseTtlMs: 1_000,
+    request: {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      url: "https://example.com/api/github",
+    },
+    scope: "webhook:review:github:",
+    webhookId: "github",
   }
 }
 
@@ -73,9 +93,198 @@ describe("SQLite Agent State Provider", () => {
     await restored.disconnect()
   })
 
+  it("leases webhook deliveries under global and per-key concurrency", async () => {
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-1", "pr-1"))).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-1", "pr-1"))).resolves.toBe(false)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-2", "pr-1"))).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-3", "pr-2"))).resolves.toBe(true)
+    await expect(queue.enqueueWebhookDelivery(webhookDelivery("delivery-4", "pr-3"))).resolves.toBe(true)
+    await expect(queue.webhookDeliveryScopes()).resolves.toEqual(["webhook:review:github:"])
+
+    const first = await queue.claimWebhookDelivery("webhook:review:github:")
+    const second = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(first?.deliveryId).toBe("delivery-1")
+    expect(second?.deliveryId).toBe("delivery-3")
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
+
+    await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
+    await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
+    const third = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(third?.deliveryId).toBe("delivery-2")
+
+    await queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)
+    await queue.completeWebhookDelivery(third!.scope, third!.deliveryId, third!.leaseToken)
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "delivery-4" })
+    await state.disconnect()
+  })
+
+  it("retries transient SQLite contention while persisting webhook deliveries", async () => {
+    const client = createClient({ url: ":memory:" })
+    let busyCompletion = true
+    let busyCleanup = false
+    let busyEnqueue = true
+    let busyRetry = true
+    const execute = vi.fn(async (statement: string, args?: unknown[]) => {
+      if (busyEnqueue && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
+        busyEnqueue = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyCleanup && statement.includes("DELETE FROM test_agent_state_locks")) {
+        busyCleanup = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyCompletion && statement.includes("SET status = 'completed'")) {
+        busyCompletion = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      if (busyRetry && statement.includes("SET status = 'queued'")) {
+        busyRetry = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
+      return await client.execute({ args: (args || []) as never, sql: statement })
+    })
+    const contended = createSqliteAgentState({
+      driver: {
+        connect: async () => undefined,
+        execute,
+      },
+      tablePrefix: "test_agent_state_",
+    })
+    await contended.connect()
+    expect(execute.mock.calls.some(([statement]) => statement.includes("_active_scope"))).toBe(true)
+
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
+    await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-busy"))).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue"))).toHaveLength(2)
+    const lease = await contended.claimWebhookDelivery("webhook:review:github:")
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
+    await expect(contended.completeWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken)).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'completed'"))).toHaveLength(2)
+    await expect(contended.enqueueWebhookDelivery(webhookDelivery("delivery-retry-busy"))).resolves.toBe(true)
+    const retryLease = await contended.claimWebhookDelivery("webhook:review:github:")
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
+    await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(7)
+    client.close()
+  })
+
+  it("finds eligible webhook work beyond blocked keys in database order", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T09:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+
+    await queue.enqueueWebhookDelivery(webhookDelivery("blocker", "shared"))
+    const blocker = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(blocker?.deliveryId).toBe("blocker")
+    for (let index = 0; index < 101; index += 1) {
+      await queue.enqueueWebhookDelivery(webhookDelivery(`blocked-${index}`, "shared"))
+    }
+    await queue.enqueueWebhookDelivery(webhookDelivery("eligible", "other"))
+
+    const eligible = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(eligible?.deliveryId).toBe("eligible")
+    await queue.completeWebhookDelivery(blocker!.scope, blocker!.deliveryId, blocker!.leaseToken)
+    await queue.completeWebhookDelivery(eligible!.scope, eligible!.deliveryId, eligible!.leaseToken)
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "blocked-0" })
+    await state.disconnect()
+  })
+
+  it("migrates the production-patched webhook queue to database ordering", async () => {
+    const { state, url } = await createState()
+    await state.connect()
+    await state.disconnect()
+    const client = createClient({ url })
+    const delivery = webhookDelivery("patched-delivery")
+    await client.execute("DELETE FROM test_agent_state_schema_version WHERE version >= 4")
+    await client.execute("DROP TABLE test_agent_state_webhook_queue")
+    await client.execute(`CREATE TABLE test_agent_state_webhook_queue (
+      scope TEXT NOT NULL,
+      delivery_id TEXT NOT NULL,
+      value TEXT NOT NULL,
+      concurrency_group TEXT NOT NULL,
+      concurrency_key TEXT,
+      concurrency_limit INTEGER NOT NULL,
+      lease_ttl_ms INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      enqueued_at INTEGER NOT NULL,
+      available_at INTEGER NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at INTEGER,
+      PRIMARY KEY (scope, delivery_id)
+    )`)
+    await client.execute({
+      args: [
+        delivery.scope,
+        delivery.deliveryId,
+        JSON.stringify(delivery),
+        delivery.concurrencyGroup,
+        delivery.concurrencyKey || null,
+        delivery.concurrencyLimit,
+        delivery.leaseTtlMs,
+        delivery.enqueuedAt,
+        delivery.enqueuedAt,
+      ],
+      sql: `INSERT INTO test_agent_state_webhook_queue (
+        scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
+        lease_ttl_ms, status, enqueued_at, available_at, attempts
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0)`,
+    })
+    client.close()
+
+    const restored = createLibsqlAgentState({ tablePrefix: "test_agent_state_", url })
+    await restored.connect()
+    await expect(restored.claimWebhookDelivery(delivery.scope)).resolves.toMatchObject({ deliveryId: "patched-delivery" })
+    await restored.disconnect()
+  })
+
+  it("reclaims expired webhook leases after reconnect and fences stale workers", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state, url } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("delivery-1"))
+    const abandoned = await queue.claimWebhookDelivery("webhook:review:github:")
+    await state.disconnect()
+
+    vi.advanceTimersByTime(1_001)
+    const restored = createLibsqlAgentState({ tablePrefix: "test_agent_state_", url })
+    await restored.connect()
+    const reclaimed = await restored.claimWebhookDelivery("webhook:review:github:")
+    expect(reclaimed?.deliveryId).toBe("delivery-1")
+    expect(reclaimed?.leaseToken).not.toBe(abandoned?.leaseToken)
+    await expect(restored.completeWebhookDelivery(reclaimed!.scope, reclaimed!.deliveryId, abandoned!.leaseToken)).resolves.toBe(false)
+    await expect(restored.completeWebhookDelivery(reclaimed!.scope, reclaimed!.deliveryId, reclaimed!.leaseToken)).resolves.toBe(true)
+    await expect(restored.enqueueWebhookDelivery(webhookDelivery("delivery-1"))).resolves.toBe(false)
+    await restored.disconnect()
+  })
+
   it("requires connect before using the state adapter", async () => {
     const { state } = await createState()
     await expect(state.get("seen")).rejects.toThrow("not connected")
+  })
+
+  it("requires custom libSQL clients to support transactions", async () => {
+    const state = createLibsqlAgentState({
+      client: {
+        async execute() {
+          return { rows: [] }
+        },
+      } as never,
+    })
+
+    await expect(state.connect()).rejects.toThrow("libSQL Agent State clients must support transactions")
   })
 
   it("can reconnect an owned libSQL client after disconnect", async () => {

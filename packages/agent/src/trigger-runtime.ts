@@ -412,13 +412,14 @@ export async function resolveAgentTriggerInvocation<
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
+  options?: { verifyWebhook?: boolean },
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   const triggers = await resolveAgentTriggers(agent, context)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
     throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
   }
-  if (trigger.webhooks?.length && context.request) {
+  if (options?.verifyWebhook !== false && trigger.webhooks?.length && context.request) {
     await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context), {
       requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
     })
