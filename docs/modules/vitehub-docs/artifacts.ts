@@ -8,6 +8,8 @@ type DocsArtifactOptions = {
   outputDir: string;
 };
 
+const docsManifestVersion = 1;
+
 function parseFrontmatter(source: string) {
   if (!source.startsWith("---\n")) {
     return {};
@@ -178,6 +180,7 @@ export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions)
   const sections = collectSections(localDocsRoot);
 
   const manifest = {
+    version: docsManifestVersion,
     rootPage,
     sections,
   };
@@ -207,5 +210,8 @@ export function readDocsArtifactsManifest(outputDir: string) {
     return null;
   }
 
-  return JSON.parse(source.slice(prefix.length, -suffix.length)) as ReturnType<typeof writeDocsArtifacts>;
+  const manifest = JSON.parse(source.slice(prefix.length, -suffix.length)) as Partial<ReturnType<typeof writeDocsArtifacts>>;
+  return manifest.version === docsManifestVersion
+    ? manifest as ReturnType<typeof writeDocsArtifacts>
+    : null;
 }

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
+import { readDocsArtifactsManifest, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
 
 function writeText(filePath: string, contents: string) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -65,6 +65,7 @@ describe("writeDocsArtifacts", () => {
 
       const manifest = writeDocsArtifacts({ docsRoot, outputDir });
 
+      expect(manifest.version).toBe(1);
       expect(manifest.rootPage?.path).toBe("/docs");
       expect(manifest.sections.map(section => section.id)).toEqual(["server-primitives"]);
       expect(manifest.sections[0]?.title).toBe("Server primitives");
@@ -80,6 +81,24 @@ describe("writeDocsArtifacts", () => {
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.group).toBe("Storage");
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.lanes).toEqual(["agents", "server-primitives"]);
       expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")?.navigation).toBe(false);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects cached manifests from before the current schema", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
+    const outputDir = resolve(rootDir, ".generated");
+
+    try {
+      writeText(resolve(outputDir, "docs-manifest.mjs"), [
+        "export const docsManifest = {\"rootPage\":null,\"sections\":[]};",
+        "",
+        "export default docsManifest;",
+        "",
+      ].join("\n"));
+
+      expect(readDocsArtifactsManifest(outputDir)).toBeNull();
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
     }
