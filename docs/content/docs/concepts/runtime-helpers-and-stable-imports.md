@@ -1,16 +1,16 @@
 ---
 title: Runtime Helpers and stable imports
-description: Understand the application-facing imports that hide generated host details while keeping runtime behavior inspectable.
+description: Understand which imports application code uses to call ViteHub.
 navigation.group: Runtime execution
 navigation.order: 21
 icon: i-lucide-code-2
 ---
 
-A Runtime Helper is the stable server API that application code uses to call or inspect a ViteHub primitive. It keeps generated registries, provider bindings, and framework adapters behind the package boundary.
+A Runtime Helper is the server API that application code uses to call or inspect a ViteHub primitive. The helper keeps generated registries, provider bindings, and framework adapters behind a documented import.
 
-Stable imports hide implementation details without hiding the runtime contract. The package page documents what the helper returns, which host resources it needs, and which outputs it can produce.
+The import hides generated files, not the runtime contract. The package page defines what the helper returns and which host resources it needs.
 
-## Use the helper from server code
+## Call the helper from server code
 
 ```ts [server/api/health.ts]
 import { getEnv } from '#vitehub/env/server'
@@ -20,19 +20,19 @@ export function health() {
 }
 ```
 
-Use the documented package import or generated `#vitehub/...` path. Do not import `.vitehub` registry files directly; those files are Provider Output and can change when the integration changes.
+Use the package import or generated `#vitehub/...` path documented for the primitive. Do not import `.vitehub` registry files directly; the integration can change those files when it changes the build output.
 
-## Runtime Helper, Definition, and Provider Output
+## Keep the four roles distinct
 
-| Surface | Carries |
+| Surface | What it contains |
 | --- | --- |
 | Runtime Helper | The application call or inspection API. |
-| Definition | Portable named configuration and behavior. |
-| Runtime Context | Host-owned execution facts and resources. |
+| Definition | Named configuration and behavior in application code. |
+| Runtime Context | Host resources needed during execution. |
 | Provider Output | Generated routes, bindings, functions, workers, or other host artifacts. |
 
-The helper can require Runtime Context even though application code does not construct the provider-specific pieces itself.
+The helper can use Runtime Context without making application code construct provider-specific objects.
 
-## Inspect the import boundary
+## Check an import failure
 
-When an import fails, check the package's documented path, the registered Vite Integration, and the generated type files. Open [Import paths](/docs/reference/import-paths) for exact path rules and [Provider Output](/docs/reference/provider-output) for generated artifact ownership.
+Check the package's documented import, the registered Vite Integration, and the generated type files. Read [Import paths](/docs/reference/import-paths) for exact path rules and [Provider Output](/docs/reference/provider-output) for generated file ownership.

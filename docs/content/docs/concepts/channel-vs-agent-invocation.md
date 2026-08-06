@@ -1,22 +1,22 @@
 ---
 title: Channel vs Agent Invocation
-description: Understand the difference between where a message came from and the Agent request it starts.
+description: Choose between message transport and Agent execution.
 navigation.group: Choose between
 navigation.order: 43
 icon: i-lucide-message-circle-code
 ---
 
-Use a Channel to describe message origin, delivery facts, and host commands. Use an Agent Invocation to describe the resolved execution of an Agent Definition for one input.
+Use a Channel to describe where a message came from and how it was delivered. Use an Agent Invocation to describe the request that runs an Agent Definition for one input.
 
-## The distinction
+## The records have different jobs
 
 | | Channel | Agent Invocation |
 | --- | --- | --- |
-| Describes | Transport and message context | Identity, Capabilities, context, execution, and output |
+| Describes | Transport and message context | Identity, Capabilities, context, execution, and result |
 | Lifetime | Can surround many messages and invocations | One request |
-| Owns | Delivery metadata and channel commands | Agent execution state and result |
-| Can exist without the other | Yes, a channel can receive messages without invoking an Agent | Yes, a route or schedule can start an invocation without a message Channel |
+| Contains | Delivery metadata and host commands | Agent execution state and output |
+| Can exist alone | Yes, a Channel can receive a message without starting an Agent | Yes, a route or schedule can start an Invocation without a message Channel |
 
-A Channel can start many Agent Invocations. The invocation should retain the trusted channel facts it needs, but it should not become the transport adapter.
+A Channel can start many Agent Invocations. The Invocation keeps the trusted Channel facts it needs, but it does not become the transport adapter.
 
 Read [Channels](/docs/concepts/channels-api) for the vocabulary and [Agent Invocations](/docs/concepts/agent-invocations) for the execution lifecycle.

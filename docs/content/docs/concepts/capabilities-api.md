@@ -1,16 +1,16 @@
 ---
 title: Capabilities
-description: "Understand how an Agent receives selected, inspectable abilities through Capabilities."
+description: Understand how an Agent receives a selected ability.
 navigation.group: Core vocabulary
 navigation.order: 12
 icon: i-lucide-blocks
 ---
 
-A Capability is a shareable bundle of Agent behavior. It can add tools, requirements, policy, trigger behavior, metadata, or invocation context to the Agent that attaches it.
+A Capability is a reusable bundle of Agent behavior. It can add tools, requirements, policy, trigger behavior, metadata, or invocation context to the Agent that selects it.
 
-Capabilities make model-facing access explicit. Installing KV or Workspace does not expose those primitives to every Agent; attaching a Capability chooses the ability for one Agent Definition.
+Installing a Server Primitive does not give every Agent access to it. Attach a Capability when the Agent should use that operation.
 
-## Capabilities compose an Agent
+## Select the abilities an Agent can use
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -27,23 +27,23 @@ export default defineAgent({
 })
 ```
 
-The Agent Driver sees only the abilities contributed by the resolved Capabilities. Application code can still call Server Primitives directly through Runtime Helpers.
+The Agent Driver receives only what the selected Capabilities contribute. Application code can still call Server Primitives directly through their Runtime Helpers.
 
-## Static and invocation-resolved composition
+## Use a fixed or resolved list
 
-Use an array when every invocation has the same Capabilities. Use a resolver when trusted invocation context decides which Capabilities apply.
+Use an array when every invocation needs the same abilities. Use a resolver when trusted invocation data changes the list:
 
 ```ts
 capabilities: ({ actor }) => [
   customerRecords,
   ...(actor.meta?.support === true ? [internalDiagnostics] : []),
-]
+],
 ```
 
-ViteHub resolves the Agent Invoker before it calls the resolver. The returned array is the complete composition for that request, and its order remains stable during execution.
+ViteHub resolves the Agent Invoker before it calls the resolver. The returned array is the complete Capability list for that request.
 
-## What a Capability does not do
+## Keep access explicit
 
-A Capability does not give the model the full Runtime Context, unrestricted host access, or every installed primitive. Its requirements, tools, policy, and metadata define the access that the Agent can inspect and use.
+A Capability does not expose the full Runtime Context or unrestricted host access to the model. Its tools, requirements, policy, and metadata define what the Agent can inspect and use.
 
 Read the [Capabilities](/docs/capabilities) section for implementation details and [First agent](/docs/getting-started/first-agent) for a runnable Definition.

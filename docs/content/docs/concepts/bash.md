@@ -1,21 +1,19 @@
 ---
 title: Bash
-description: Understand how Capability-owned executables become one constrained Agent tool.
+description: Understand how Capability commands become one constrained Agent tool.
 navigation.group: Core vocabulary
 navigation.order: 16
 icon: i-lucide-terminal
 ---
 
-Bash is ViteHub's single model-facing execution surface for executables contributed by Capabilities. It looks like a shell to the Agent, but each call selects a registered executable and passes structured arguments through a Workspace Session.
+Bash is ViteHub's model-facing tool for running executables contributed by Capabilities. Each call selects a registered executable and passes structured arguments through a Workspace Session.
 
-Bash is not an unrestricted host shell. Only attached Capabilities can contribute commands, and the resolved Agent Definition controls which commands exist for the invocation.
+Bash is not an unrestricted host shell. The Agent Definition and its selected Capabilities determine which commands exist for the invocation.
 
-## One tool, many Capability contributions
+## Many commands share one tool
 
-A browser Capability can contribute a browser executable, while a deployment Capability can contribute its own CLI. ViteHub combines those commands behind one `bash` tool so the Agent sees a stable interface while each Capability keeps its executable contract.
+A browser Capability and a deployment Capability can each contribute an executable. ViteHub exposes those commands through one `bash` tool while each Capability keeps its own command contract.
 
-## Choose the execution surface
-
-Use Bash when the Agent benefits from composing a small set of commands. Use structured tools when the operation needs a narrow schema, clear per-action policy, or direct result typing. An Agent Definition can use both.
+Use Bash when an Agent needs to combine a small set of commands. Use a structured tool when an operation needs a narrow input schema, direct result typing, or separate policy for each action.
 
 Read [Workspace Shell](/docs/capabilities/workspace-shell) for the Capability API and [Shell](/docs/server-primitives/shell) for the application-facing execution primitive.

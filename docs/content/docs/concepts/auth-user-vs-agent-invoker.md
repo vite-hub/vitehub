@@ -1,22 +1,22 @@
 ---
 title: Auth User vs Agent Invoker
-description: Choose the right identity when an application user starts an Agent Invocation.
+description: Choose the identity for application access and Agent execution.
 navigation.group: Choose between
 navigation.order: 42
 icon: i-lucide-user-check
 ---
 
-Use an Auth User to represent application identity and session state. Use an Agent Invoker to represent the trusted caller of one Agent Invocation, whether that caller is a user, chat adapter, schedule, webhook, service account, or local fallback.
+Use an Auth User for application identity and session state. Use an Agent Invoker for the trusted caller of one Agent Invocation, whether that caller is a user, Channel, schedule, webhook, service account, or local fallback.
 
-## The distinction
+## The same caller can have both identities
 
 | | Auth User | Agent Invoker |
 | --- | --- | --- |
-| Scope | Application authentication | One Agent Invocation |
+| Scope | The application | One Agent Invocation |
 | Source | Auth provider and session | Trusted entry surface or Auth bridge |
 | Used by | Routes and application authorization | Agent and Capability code |
-| Required for every Agent | No | Every invocation has an invoker identity, including anonymous identities |
+| Required | Only where application auth is needed | Every invocation has an invoker identity, including anonymous identities |
 
-`authenticated()` is the explicit bridge when an Agent should require a verified Auth session. Defining Auth alone does not impose that requirement on every Agent.
+Use `authenticated()` when an Agent must require a verified Auth session. Defining Auth alone does not impose that requirement on every Agent.
 
-Read [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) for the full identity model and [Auth](/docs/server-primitives/auth) for setup.
+Read [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) for the identity model and [Auth](/docs/server-primitives/auth) for setup.

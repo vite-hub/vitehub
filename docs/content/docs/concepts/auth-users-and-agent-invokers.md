@@ -1,18 +1,18 @@
 ---
 title: Auth Users and Agent Invokers
-description: Keep application authentication separate from trusted Agent Invocation identity.
+description: Understand how application identity becomes trusted invocation identity.
 navigation.group: Core vocabulary
 navigation.order: 14
 icon: i-lucide-user-check
 ---
 
-An Auth User is the application user identified by Auth. An Agent Invoker is the trusted caller identity for one Agent Invocation, exposed as `context.invoker`.
+An Auth User is the application user identified by Auth. An Agent Invoker is the trusted caller of one Agent Invocation, exposed to Agent and Capability code as `context.invoker`.
 
-Auth proves application identity and session state. Agent Invoker gives Agent and Capability code a stable caller identity for the current invocation.
+Auth answers “who is signed in?” Agent Invoker answers “who or what started this invocation?”
 
-## Auth is one source of invocation identity
+## Auth can provide the invoker
 
-Agents can also be invoked by chat adapters, schedules, webhooks, service accounts, the CLI Dev Loop, or local development. Auth must stay optional for those entry points.
+Agents can also start from a Channel, schedule, webhook, service account, CLI command, or local development. Auth is optional for those entry points.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -26,17 +26,17 @@ export default defineAgent({
 })
 ```
 
-`authenticated()` makes the Auth-to-Invoker mapping explicit. Defining Auth in an application does not make every Agent require a session.
+`authenticated()` makes the Auth-to-Invoker mapping explicit. Defining Auth does not make every Agent require a user session.
 
-## What the Agent Invoker carries
+## The invoker carries trusted caller data
 
 | Field | Meaning |
 | --- | --- |
-| `id` | Stable trusted caller id for the invocation. |
-| `kind` | Caller type such as `authUser`, `chat`, `anonymous`, or an app-specific value. |
-| `label` | Optional display label for inspection. |
-| `meta` | Structured application metadata used by Capabilities and callbacks. |
+| `id` | Stable caller id for the invocation. |
+| `kind` | Caller type such as `authUser`, `chat`, or `anonymous`. |
+| `label` | Optional label for inspection. |
+| `meta` | Structured application data used by Capabilities and callbacks. |
 
-Do not put secrets or raw session payloads in `meta`.
+Keep secrets and raw session payloads out of `meta`.
 
-Read [Auth](/docs/server-primitives/auth) for session setup and [Access](/docs/capabilities/access) for Capability decisions based on invoker identity.
+Read [Auth](/docs/server-primitives/auth) for session setup and [Access](/docs/capabilities/access) for decisions based on invoker identity.
