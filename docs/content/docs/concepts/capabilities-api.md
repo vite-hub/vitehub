@@ -17,6 +17,7 @@ import { defineAgent } from '@vite-hub/agent'
 import { kv, workspaceShell } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
+  workspace: { mode: 'read' },
   capabilities: [
     workspaceShell({ mode: 'read' }),
     kv({ mode: 'read' }),

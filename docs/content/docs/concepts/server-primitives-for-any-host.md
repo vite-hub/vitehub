@@ -84,6 +84,7 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
     export default defineDatabase({
+      name: 'notes',
       schema: {
         notes: sqliteTable('notes', {
           id: integer('id').primaryKey(),
@@ -100,6 +101,7 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
     export default defineDatabase({
+      name: 'notes',
       schema: {
         notes: sqliteTable('notes', {
           id: integer('id').primaryKey(),
@@ -116,6 +118,7 @@ Create a Database Definition file that ViteHub discovers automatically. Its file
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
     export default defineDatabase({
+      name: 'notes',
       schema: {
         notes: sqliteTable('notes', {
           id: integer('id').primaryKey(),
