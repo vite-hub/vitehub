@@ -45,11 +45,20 @@ async function configureNitroChannels(
   await writeFileIfChanged(registryFile, renderRegistry(definitions))
   const nitro = config.nitro && typeof config.nitro === "object" ? config.nitro as Record<string, unknown> : {}
   const alias = nitro.alias && typeof nitro.alias === "object" ? nitro.alias as Record<string, unknown> : {}
+  const externals = nitro.externals && typeof nitro.externals === "object" ? nitro.externals as Record<string, unknown> : {}
+  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
+  const inline = externals.inline === true
+    ? true
+    : existingInline.includes("@vite-hub/channels") ? existingInline : [...existingInline, "@vite-hub/channels"]
   return {
     ...nitro,
     alias: {
       ...alias,
       [CHANNELS_REGISTRY_ID]: registryFile,
+    },
+    externals: {
+      ...externals,
+      inline,
     },
   }
 }

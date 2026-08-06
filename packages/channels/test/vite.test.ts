@@ -38,11 +38,14 @@ describe("hubChannels", () => {
     const plugin = hubChannels()
     const result = await (plugin.config as unknown as (config: Record<PropertyKey, unknown>) => Promise<Record<string, unknown>>)({
       root,
+      nitro: { externals: { inline: ["existing-package"], trace: false } },
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
     })
     const alias = (result.nitro as { alias: Record<string, string> }).alias
+    const externals = (result.nitro as { externals: { inline: string[], trace: boolean } }).externals
     const registryFile = alias["#vitehub/channels/registry"]!
 
+    expect(externals).toEqual({ inline: ["existing-package", "@vite-hub/channels"], trace: false })
     await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(definition))
 
     await resolvePlugin(plugin, root)
