@@ -26,7 +26,7 @@ Most ViteHub primitives follow the same pattern:
 
 ### Configure
 
-Enable the primitive in the build configuration used by your framework. ViteHub uses its Vite integration for Vite and Nitro 3, and its Nuxt module for Nuxt 5.
+Add ViteHub to your configuration. ViteHub relies heavily on the [Vite Environment API](https://vite.dev/guide/api-environment), so Vite 7+, Nitro 3+, and Nuxt 5+ are the supported versions for now.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
