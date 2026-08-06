@@ -3704,6 +3704,9 @@ export function createChannelWebhookRouteHandler(
             await context.flushWaitUntil?.()
             return invocation.response
           }
+          if (invocation.webhook?.busy === "steer" && (invocation.webhook.concurrencyKey === undefined || invocation.webhook.concurrencyLimit === undefined)) {
+            return createJsonErrorResponse(500, 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.')
+          }
           if ((invocation.webhook?.concurrencyKey !== undefined || invocation.webhook?.concurrencyLimit !== undefined) && await hasActiveWorkflowRuntime(agent, context)) {
             return createJsonErrorResponse(503, "Webhook concurrency ownership requires inline Agent execution.")
           }

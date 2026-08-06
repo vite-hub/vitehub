@@ -6254,6 +6254,40 @@ describe("server helpers", () => {
     }
   })
 
+  it("rejects webhook steering without keyed concurrency ownership", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "invalid-steer",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+
+    for (const webhook of [
+      { busy: "steer", concurrencyLimit: 1, deliveryId: "invalid-steer" },
+      { busy: "steer", concurrencyKey: "shared", deliveryId: "invalid-steer" },
+    ]) {
+      const handler = createChannelWebhookRouteHandler(defineAgent({
+        channels: {
+          github: github({
+            triggers: { webhook: { invoke: () => ({ input: { prompt: "ignored" }, webhook } as never) } },
+            webhooks: { secretToken: false },
+          }),
+        },
+        driver: { run: vi.fn() },
+      }) as never)
+
+      const response = await handler(request(), "github")
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toMatchObject({ error: true, message: 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.' })
+    }
+  })
+
   it("claims webhook deliveries and exact-context concurrency before running the agent", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
