@@ -1,9 +1,8 @@
 import discoveredRegistry from "#vitehub/channels/registry"
-import { resolveChannelRuntimeEnv } from "#vitehub/channels/runtime"
 
 import { createChannel } from "../client.ts"
 
-import type { ChannelClient, ChannelConnectorMap, ChannelDefinitionInput, ChannelDefinitionRegistry } from "../types.ts"
+import type { ChannelClient, ChannelConnectorMap, ChannelDefinition, ChannelDefinitionRegistry } from "../types.ts"
 import type {
   ChannelDefinitionConnectors,
   ChannelDefinitionDefault,
@@ -21,11 +20,11 @@ function getRegistry(): ChannelDefinitionRegistry {
   return registryOverride || discoveredRegistry
 }
 
-function isChannelDefinition(value: unknown): value is ChannelDefinitionInput {
-  return typeof value === "function" || Boolean(value && typeof value === "object" && (value as { connectors?: unknown }).connectors)
+function isChannelDefinition(value: unknown): value is ChannelDefinition {
+  return Boolean(value) && typeof value === "object" && Boolean((value as ChannelDefinition).connectors)
 }
 
-async function loadChannelDefinition(name: string): Promise<ChannelDefinitionInput | undefined> {
+async function loadChannelDefinition(name: string): Promise<ChannelDefinition | undefined> {
   const entry = getRegistry()[name]
   if (!entry) return undefined
   const loaded = await entry()
@@ -39,7 +38,7 @@ async function resolveChannel<TConnectors extends ChannelConnectorMap>(name: str
   if (!definition) {
     throw new Error(`[vitehub] No Channel Definition was discovered for "${name}".`)
   }
-  return createChannel(name, definition as unknown as ChannelDefinitionInput<TConnectors>, resolveChannelRuntimeEnv)
+  return createChannel(name, definition as unknown as ChannelDefinition<TConnectors>)
 }
 
 export function useChannel<const TName extends ChannelDefinitionName>(name: TName): ChannelClient<

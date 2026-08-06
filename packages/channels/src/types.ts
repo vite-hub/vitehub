@@ -1,9 +1,3 @@
-declare global {
-  namespace ViteHub {
-    interface ChannelRuntimeEnv extends Record<string, unknown> {}
-  }
-}
-
 export interface ChannelConnectorResult {
   id?: string
   raw?: unknown
@@ -28,26 +22,8 @@ export interface ChannelDefinition<
   defaultConnector?: TDefault
 }
 
-export interface ChannelRuntimeEnv extends ViteHub.ChannelRuntimeEnv {}
-
-export interface ChannelRuntimeContext<TEnv extends Record<string, unknown> = ChannelRuntimeEnv> {
-  env: TEnv
-}
-
-export type ChannelDefinitionResolver<
-  TConnectors extends ChannelConnectorMap = ChannelConnectorMap,
-  TDefault extends keyof TConnectors & string = never,
-  TEnv extends Record<string, unknown> = ChannelRuntimeEnv,
-> = (context: ChannelRuntimeContext<TEnv>) => ChannelDefinition<TConnectors, TDefault>
-
-export type ChannelDefinitionInput<
-  TConnectors extends ChannelConnectorMap = ChannelConnectorMap,
-  TDefault extends keyof TConnectors & string = never,
-  TEnv extends Record<string, unknown> = ChannelRuntimeEnv,
-> = ChannelDefinition<TConnectors, TDefault> | ChannelDefinitionResolver<TConnectors, TDefault, TEnv>
-
 export interface ChannelDefinitionRegistry {
-  [name: string]: () => Promise<{ default?: ChannelDefinitionInput } | ChannelDefinitionInput>
+  [name: string]: () => Promise<{ default?: ChannelDefinition } | ChannelDefinition>
 }
 
 export interface DiscoveredChannelDefinition {

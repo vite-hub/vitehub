@@ -33,20 +33,22 @@ export default defineConfig({
 
 ## Define a named Channel
 
-Create `server/channels/alerts.ts`. The resolver receives typed Server Env, and ViteHub evaluates it for each send so request or host runtime values are not captured when the module loads. Unseal a secret only when the provider call needs the raw value.
+Create `server/channels/alerts.ts`. Read typed Server Env inside the connector's `send()` method so the value is resolved when the message is delivered. Unseal a secret only when the provider call needs the raw value.
 
 ```ts [server/channels/alerts.ts]
 import { defineChannel } from 'vite-hub/channels'
+import { useServerEnv } from '#vitehub/env/server'
 
 type TelegramOptions = {
   chatId: string
 }
 
-export default defineChannel(({ env }) => ({
+export default defineChannel({
   connectors: {
     telegram: {
       async send(text: string, { chatId }: TelegramOptions) {
-        const response = await fetch(`https://api.telegram.org/bot${env.telegram.botToken.unseal()}/sendMessage`, {
+        const { telegram } = useServerEnv()
+        const response = await fetch(`https://api.telegram.org/bot${telegram.botToken.unseal()}/sendMessage`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text }),
@@ -57,10 +59,10 @@ export default defineChannel(({ env }) => ({
       },
     },
   },
-}))
+})
 ```
 
-This example calls Telegram directly to keep the connector contract visible; use a provider client when your application already has one. Channels does not bundle provider adapters. For a connector that does not need credentials, keep the object form and omit the resolver.
+This example calls Telegram directly to keep the connector contract visible; use a provider client when your application already has one. Channels does not bundle provider adapters. For a connector that does not need credentials, omit the `useServerEnv()` call.
 
 The file name becomes the Channel name. For a Vite suffix definition, use `src/alerts.channel.ts` instead; both forms discover the same `alerts` Channel.
 

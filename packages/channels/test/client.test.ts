@@ -28,27 +28,6 @@ describe("createChannel", () => {
     })
   })
 
-  it("resolves Env-backed definitions for every send", async () => {
-    let token = "first-token"
-    const resolve = vi.fn(() => token)
-    const channel = createChannel("alerts", defineChannel(({ env }) => ({
-      connectors: {
-        fixture: {
-          send: async (_text: string, options: { recipient: string }) => ({ id: `${env.token}:${options.recipient}` }),
-        },
-      },
-    })), () => ({ token: resolve() }))
-
-    await expect(channel.send("Build finished.", { connector: "fixture", recipient: "one" })).resolves.toMatchObject({
-      id: "first-token:one",
-    })
-    token = "second-token"
-    await expect(channel.send("Build finished.", { connector: "fixture", recipient: "two" })).resolves.toMatchObject({
-      id: "second-token:two",
-    })
-    expect(resolve).toHaveBeenCalledTimes(2)
-  })
-
   it.each([
     ["", "non-empty"],
     ["Build finished.", "requires a connector"],

@@ -32,7 +32,7 @@ afterEach(async () => {
 })
 
 describe("hubChannels", () => {
-  it("aliases generated Channel runtime modules into Nitro builds", async () => {
+  it("aliases the discovered Channel registry into Nitro builds", async () => {
     const root = await createTempProject()
     const definition = await writeChannel(root, "server/channels/alerts.ts")
     const plugin = hubChannels()
@@ -43,7 +43,6 @@ describe("hubChannels", () => {
     const alias = (result.nitro as { alias: Record<string, string> }).alias
 
     await expect(readFile(alias["#vitehub/channels/registry"]!, "utf8")).resolves.toContain(JSON.stringify(definition))
-    await expect(readFile(alias["#vitehub/channels/runtime"]!, "utf8")).resolves.toContain("#vitehub/env/server")
   })
 
   it("serves a discovered registry through a stable virtual module", async () => {
@@ -59,20 +58,6 @@ describe("hubChannels", () => {
     await expect(readFile(join(root, ".vitehub/types/channels.d.ts"), "utf8")).resolves.toContain(
       `"alerts": typeof import(${JSON.stringify(definition)})`,
     )
-  })
-
-  it("bridges typed Server Env into resolver definitions when Env is enabled", async () => {
-    const root = await createTempProject()
-    const plugin = hubChannels()
-    await (plugin.configResolved as unknown as (config: { root: string, plugins: Array<{ name: string }> }) => Promise<void>)({
-      root,
-      plugins: [{ name: "@vite-hub/env/vite" }],
-    })
-
-    const runtimeId = (plugin.resolveId as (id: string) => string | undefined)("#vitehub/channels/runtime")
-    expect(runtimeId).toBe("\0#vitehub/channels/runtime")
-    expect((plugin.load as (id: string) => string | undefined)(runtimeId!)).toContain("#vitehub/env/server")
-    await expect(readFile(join(root, ".vitehub/types/channels.d.ts"), "utf8")).resolves.toContain("ChannelRuntimeEnv extends ServerEnv")
   })
 
   it("refreshes and invalidates the virtual registry on definition changes", async () => {

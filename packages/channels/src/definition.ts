@@ -1,10 +1,4 @@
-import type {
-  ChannelConnectorMap,
-  ChannelDefinition,
-  ChannelDefinitionInput,
-  ChannelDefinitionResolver,
-  ChannelRuntimeEnv,
-} from "./types.ts"
+import type { ChannelConnectorMap, ChannelDefinition } from "./types.ts"
 
 function isConnector(value: unknown): value is { send: unknown } {
   return Boolean(value) && typeof value === "object" && typeof (value as { send?: unknown }).send === "function"
@@ -41,33 +35,7 @@ export function defineChannel<
   TDefault extends keyof TConnectors & string = never,
 >(
   definition: ChannelDefinition<TConnectors, TDefault>,
-): ChannelDefinition<TConnectors, TDefault>
-
-export function defineChannel<
-  TConnectors extends ChannelConnectorMap,
-  TDefault extends keyof TConnectors & string = never,
-  TEnv extends Record<string, unknown> = ChannelRuntimeEnv,
->(
-  resolver: ChannelDefinitionResolver<TConnectors, TDefault, TEnv>,
-): ChannelDefinitionResolver<TConnectors, TDefault, TEnv>
-
-export function defineChannel(
-  definition: ChannelDefinitionInput<any, any, any>,
-): ChannelDefinitionInput<any, any, any> {
-  if (typeof definition === "function") return definition
+): ChannelDefinition<TConnectors, TDefault> {
   validateChannelDefinition(definition)
   return definition
-}
-
-export function resolveChannelDefinition<
-  TConnectors extends ChannelConnectorMap,
-  TDefault extends keyof TConnectors & string = never,
-  TEnv extends Record<string, unknown> = ChannelRuntimeEnv,
->(
-  input: ChannelDefinitionInput<TConnectors, TDefault, TEnv>,
-  env: TEnv,
-): ChannelDefinition<TConnectors, TDefault> {
-  const definition = typeof input === "function" ? input({ env }) : input
-  validateChannelDefinition(definition)
-  return definition as ChannelDefinition<TConnectors, TDefault>
 }

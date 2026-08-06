@@ -28,10 +28,6 @@
     "#vitehub/channels/registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "default": "./dist/runtime/empty-registry.js"
-    },
-    "#vitehub/channels/runtime": {
-      "types": "./dist/runtime/empty-runtime.d.ts",
-      "default": "./dist/runtime/empty-runtime.js"
     }
   },
   "exports": {

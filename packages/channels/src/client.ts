@@ -1,13 +1,6 @@
-import { defineChannel, resolveChannelDefinition } from "./definition.ts"
+import { defineChannel } from "./definition.ts"
 
-import type {
-  ChannelClient,
-  ChannelConnectorMap,
-  ChannelDefinitionInput,
-  ChannelRuntimeEnv,
-  ChannelSendOptions,
-  ChannelSendResult,
-} from "./types.ts"
+import type { ChannelClient, ChannelConnectorMap, ChannelDefinition, ChannelSendOptions, ChannelSendResult } from "./types.ts"
 
 function channelError(message: string): Error {
   return new Error(`[vitehub] ${message}`)
@@ -18,10 +11,9 @@ export function createChannel<
   TDefault extends keyof TConnectors & string = never,
 >(
   name: string,
-  definition: ChannelDefinitionInput<TConnectors, TDefault>,
-  resolveEnv: () => ChannelRuntimeEnv = () => ({}),
+  definition: ChannelDefinition<TConnectors, TDefault>,
 ): ChannelClient<TConnectors, TDefault> {
-  if (typeof definition !== "function") defineChannel(definition)
+  defineChannel(definition)
 
   return {
     name,
@@ -34,13 +26,12 @@ export function createChannel<
         throw channelError(`Channel "${name}" send options must select a connector.`)
       }
 
-      const resolvedDefinition = resolveChannelDefinition(definition, resolveEnv())
-      const connectorName = (options as { connector?: string }).connector || resolvedDefinition.defaultConnector
+      const connectorName = (options as { connector?: string }).connector || definition.defaultConnector
       if (!connectorName) {
         throw channelError(`Channel "${name}" requires a connector in send options.`)
       }
 
-      const connector = resolvedDefinition.connectors[connectorName]
+      const connector = definition.connectors[connectorName]
       if (!connector) {
         throw channelError(`Channel "${name}" does not define connector "${connectorName}".`)
       }
