@@ -29,15 +29,9 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 </template>
 
 <style scoped>
-.vh-sidebar-head {
-  border-bottom: 1px solid var(--ui-border);
-}
-
 .vh-docs-lane-switcher {
   display: grid;
   grid-template-columns: 0.8fr 1.2fr;
-  border-bottom: 1px solid var(--ui-border);
-  background: color-mix(in srgb, var(--ui-bg-muted) 40%, transparent);
 }
 
 .vh-docs-lane-option {
@@ -48,16 +42,14 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   justify-content: center;
   gap: 0.375rem;
   padding: 0.5rem;
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-bg-elevated);
   color: var(--ui-text-muted);
   font-size: 0.75rem;
   font-weight: 550;
   line-height: 1rem;
   text-align: center;
-  transition: background-color 150ms ease, color 150ms ease;
-}
-
-.vh-docs-lane-option + .vh-docs-lane-option {
-  border-left: 1px solid var(--ui-border);
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
 .vh-docs-lane-option:hover,
@@ -66,8 +58,15 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 }
 
 .vh-docs-lane-option.is-active {
+  border-bottom: 0;
+  padding-bottom: 0.5625rem;
   background: var(--ui-bg-inverted);
   color: var(--ui-text-inverted);
+  font-weight: 650;
+}
+
+.vh-docs-lane-option:active {
+  transform: scale(0.98);
 }
 
 .vh-sidebar-search {
