@@ -85,6 +85,7 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
   let definitions: DiscoveredChannelDefinition[] = []
   let serverDirs: string[] | undefined
   let projectRoot = process.cwd()
+  let nitroRegistryFile: string | undefined
 
   function refresh(): DiscoveredChannelDefinition[] {
     const viteRoot = resolve(resolved?.root ?? process.cwd())
@@ -93,11 +94,14 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
     return definitions
   }
 
-  async function refreshGeneratedTypes(): Promise<void> {
-    await writeFileIfChanged(
-      resolve(projectRoot, ".vitehub", "types", "channels.d.ts"),
-      renderRegistryTypes(definitions),
-    )
+  async function refreshGeneratedFiles(): Promise<void> {
+    await Promise.all([
+      writeFileIfChanged(
+        resolve(projectRoot, ".vitehub", "types", "channels.d.ts"),
+        renderRegistryTypes(definitions),
+      ),
+      ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions))] : []),
+    ])
   }
 
   return {
@@ -116,13 +120,14 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
         const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
         const nitroDefinitions = discoverChannelDefinitions({ rootDir: root, serverDirs })
         nextConfig.nitro = await configureNitroChannels(config as Record<string, unknown>, root, nitroDefinitions)
+        nitroRegistryFile = resolve(root, ".vitehub", "nitro", "channels", "registry.ts")
       }
       return nextConfig
     },
     async configResolved(config) {
       resolved = config
       refresh()
-      await refreshGeneratedTypes()
+      await refreshGeneratedFiles()
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
@@ -136,7 +141,7 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
 
       resolved = context.server.config
       refresh()
-      await refreshGeneratedTypes()
+      await refreshGeneratedFiles()
       const module = context.server.moduleGraph.getModuleById(resolvedChannelsRegistryId)
       if (module) context.server.moduleGraph.invalidateModule(module)
     },

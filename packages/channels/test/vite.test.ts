@@ -41,8 +41,21 @@ describe("hubChannels", () => {
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
     })
     const alias = (result.nitro as { alias: Record<string, string> }).alias
+    const registryFile = alias["#vitehub/channels/registry"]!
 
-    await expect(readFile(alias["#vitehub/channels/registry"]!, "utf8")).resolves.toContain(JSON.stringify(definition))
+    await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(definition))
+
+    await resolvePlugin(plugin, root)
+    const addedDefinition = await writeChannel(root, "server/channels/incidents.ts")
+    await (plugin.handleHotUpdate as (context: unknown) => void)({
+      file: addedDefinition,
+      server: {
+        config: { root },
+        moduleGraph: { getModuleById: vi.fn() },
+      },
+    })
+
+    await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(addedDefinition))
   })
 
   it("serves a discovered registry through a stable virtual module", async () => {
