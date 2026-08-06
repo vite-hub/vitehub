@@ -136,7 +136,7 @@ Import the generated Runtime Helper in a server route and query the named databa
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
-    ```ts [server.ts]
+    ```ts [src/server.ts]
     import { useDatabase } from '@vite-hub/database/drizzle'
 
     export default {
