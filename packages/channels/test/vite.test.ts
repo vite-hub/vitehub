@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { CHANNELS_REGISTRY_ID, hubChannels } from "../src/vite.ts"
@@ -67,5 +68,24 @@ describe("hubChannels", () => {
 
     expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ name: "alerts" })])
     expect(invalidateModule).toHaveBeenCalledWith(virtualModule)
+  })
+
+  it("refreshes directory definitions from configured server directories", async () => {
+    const root = await createTempProject()
+    const serverDir = join(root, "custom-server")
+    const plugin = hubChannels()
+    ;(plugin.config as unknown as (config: Record<PropertyKey, unknown>) => void)({ [VITEHUB_SERVER_DIRS]: [serverDir] })
+    await resolvePlugin(plugin, root)
+    const definition = await writeChannel(root, "custom-server/channels/alerts.ts")
+
+    await (plugin.handleHotUpdate as (context: unknown) => void)({
+      file: definition,
+      server: {
+        config: { root },
+        moduleGraph: { getModuleById: vi.fn() },
+      },
+    })
+
+    expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ name: "alerts" })])
   })
 })

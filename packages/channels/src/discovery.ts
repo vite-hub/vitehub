@@ -41,14 +41,19 @@ export function discoverChannelDefinitions(options:
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverRoots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverScanDirs = options.serverDirs ?? [...new Set(options.serverRootDirs || serverRoots)].map(root => resolve(root, "server"))
+  const channelDirectories = serverScanDirs.map(directory => `${resolve(directory, "channels").replace(/\\/g, "/")}/`)
+  const suffixDefinitions = discoverDefinitions("channel", [
+    createSuffixDefinitionSource("vite-suffix", roots, channelSuffixPattern, normalizeSuffixChannelName, {
+      createDefinition: createDiscoveredChannelDefinition("vite-suffix"),
+    }),
+  ]).filter((definition) => {
+    const handler = resolve(definition.handler).replace(/\\/g, "/")
+    return !channelDirectories.some(directory => handler.startsWith(directory))
+  })
 
   return mergeDefinitions(
     "channel",
-    discoverDefinitions("channel", [
-      createSuffixDefinitionSource("vite-suffix", roots, channelSuffixPattern, normalizeSuffixChannelName, {
-        createDefinition: createDiscoveredChannelDefinition("vite-suffix"),
-      }),
-    ]),
+    suffixDefinitions,
     discoverDefinitions("channel", [
       createDirectoryDefinitionSource("server-channels", serverScanDirs, "channels", {
         createDefinition: createDiscoveredChannelDefinition("server-channels"),

@@ -51,11 +51,14 @@ function renderRegistryTypes(definitions: DiscoveredChannelDefinition[]): string
   ].join("\n")
 }
 
-function isChannelDefinitionFile(file: string): boolean {
-  const normalized = file.replace(/\\/g, "/")
-  return /\/server\/channels\/(?:[^/]+\/)*[^/]+\.(?:c|m)?[jt]s$/i.test(normalized)
-    || /(?:^|\/)src\/.*\.channel\.(?:c|m)?[jt]s$/i.test(normalized)
-    || /(?:^|\/)\.?[^/]*\.channel\.(?:c|m)?[jt]s$/i.test(normalized)
+function isChannelDefinitionFile(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
+  const normalized = resolve(file).replace(/\\/g, "/")
+  if (/\.channel\.(?:c|m)?[jt]s$/i.test(normalized)) return true
+  return (serverDirs ?? [resolve(projectRoot, "server")]).some((directory) => {
+    const channelDirectory = `${resolve(directory, "channels").replace(/\\/g, "/")}/`
+    return normalized.startsWith(channelDirectory)
+      && /\.(?:c|m)?[jt]s$/i.test(normalized.slice(channelDirectory.length))
+  })
 }
 
 export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVitePlugin {
@@ -104,7 +107,7 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
     },
     async handleHotUpdate(context) {
       const changed = context.file.replace(/\\/g, "/")
-      if (!isChannelDefinitionFile(changed)) return
+      if (!isChannelDefinitionFile(changed, projectRoot, serverDirs)) return
 
       resolved = context.server.config
       refresh()
