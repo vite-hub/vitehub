@@ -1,6 +1,6 @@
 ---
 title: Agents
-description: Build server-side Agents with any Model or Harness, a selected list of Capabilities, Workspace context, and tools to inspect each invocation.
+description: Build and deploy server-side Agents anywhere, using any Model or Harness, selected Capabilities, Workspace context, and tools to inspect each invocation.
 navigation.title: Overview
 navigation.order: 20
 icon: i-lucide-bot
