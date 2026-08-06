@@ -1,6 +1,6 @@
 ---
 title: Agents
-description: Build server-side Agents with Agent Definitions, Agent Drivers, Capabilities, Workspace context, and inspection.
+description: Build server-side Agents with any LLM or Harness, a selected list of Capabilities, Workspace context, and runtime inspection.
 navigation.title: Overview
 navigation.order: 20
 icon: i-lucide-bot
