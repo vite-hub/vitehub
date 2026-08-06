@@ -28,8 +28,8 @@ Most ViteHub primitives follow the same pattern:
 
 Enable the primitive in the build configuration used by your framework. ViteHub uses its Vite integration for Vite and Nitro 3, and its Nuxt module for Nuxt 5.
 
-::tabs
-  :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="vite-logo"}
+::tabs{class="framework-tabs"}
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
     import { vitehub } from 'vite-hub'
@@ -54,7 +54,7 @@ Enable the primitive in the build configuration used by your framework. ViteHub 
     ```
   :::
 
-  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro" class="nitro-logo"}
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
     import { nitro } from 'nitro/vite'
@@ -74,8 +74,8 @@ Enable the primitive in the build configuration used by your framework. ViteHub 
 
 Create a Database Definition in the location used by your framework. It declares the tables and gives this database the stable name `notes`.
 
-::tabs
-  :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="vite-logo"}
+::tabs{class="framework-tabs"}
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
     ```ts [src/notes.database.ts]
     import { defineDatabase } from '@vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -109,7 +109,7 @@ Create a Database Definition in the location used by your framework. It declares
     ```
   :::
 
-  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro" class="nitro-logo"}
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
     ```ts [server/databases/notes/config.ts]
     import { defineDatabase } from '@vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
