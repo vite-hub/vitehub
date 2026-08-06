@@ -8,7 +8,7 @@ icon: i-lucide-server
 
 Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
 
-A Vite Integration connects the primitive to the local runtime and deployment host. Application code calls the package's Runtime Helper while ViteHub handles the host-specific setup.
+ViteHub automatically adapts the primitive for local development and for your deployment host, whether that's Cloudflare, Vercel, Docker, or another provider.
 
 ## Choose a Server Primitive when application code owns the action
 
