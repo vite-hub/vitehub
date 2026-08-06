@@ -1,6 +1,6 @@
 ---
 title: Agents
-description: Build server-side Agents with Agent Definitions, Agent Drivers, Capabilities, Workspace context, and inspection.
+description: Build and deploy server-side Agents anywhere, using any Model or Harness, selected Capabilities, Workspace context, and tools to inspect each invocation.
 navigation.title: Overview
 navigation.order: 20
 icon: i-lucide-bot
@@ -17,7 +17,7 @@ Start here:
 - [Use server primitives without an Agent](/docs/server-primitives)
 
 :::note
-**Server code gets Runtime Helpers. Agents get Capabilities.** App routes can call stable imports directly, while an Agent Driver receives only the named abilities that Capabilities expose. Read [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together) and [Capabilities API](/docs/concepts/capabilities-api) for the shared model.
+**Server code gets Runtime Helpers. Agents get Capabilities.** App routes can call stable imports directly, while an Agent Driver receives only the named abilities that Capabilities expose. Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) and [Capabilities API](/docs/concepts/capabilities-api) for the two application-facing boundaries.
 :::
 
 ## Define the Agent
@@ -125,4 +125,4 @@ Agent behavior should be inspectable without guessing which hook, Capability, Ch
 
 - [Run the first Agent](/docs/getting-started/first-agent)
 - [Need app infrastructure first?](/docs/server-primitives)
-- [Read the shared model](/docs/concepts/how-vitehub-fits-together)
+- [Read the Agent model](/docs/concepts/agent-invocations)

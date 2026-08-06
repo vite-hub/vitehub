@@ -1,43 +1,176 @@
 ---
-title: Server primitives for any host
-description: Understand the host-independent server layer that ViteHub packages provide.
-navigation.order: 2
-icon: i-lucide-server-cog
+title: Server primitives
+description: Build server-backed features with databases, queues, storage, and more while keeping your application portable across hosts.
+navigation.title: Overview
+navigation.order: 1
+navigation.lanes: [server-primitives]
+icon: i-lucide-server
 ---
 
-Server primitives are ViteHub-owned runtime behaviors that application code can use without creating an Agent. They cover authentication, environment values, storage, file trees, background work, schedules, workflows, sandboxes, queues, and related runtime surfaces.
+Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
 
-The primitive owns the app-facing contract. A host provider may supply storage, bindings, functions, or runtime execution, but the server route should keep importing the same ViteHub Runtime Helper.
+ViteHub connects each primitive to the implementation supported by the current development or deployment host, so application code keeps the same API across Cloudflare, Vercel, Docker, and other platforms.
 
-## Why it exists
+## Choose a primitive for the job
 
-Vite apps often need the same server behavior across local development, Cloudflare, Vercel, Node, and framework-specific hosts. ViteHub keeps the public API at the primitive boundary so application code does not learn every provider's wiring model.
+| You need | Start with |
+| --- | --- |
+| Configure the app | [Env](/docs/server-primitives/env), [Auth](/docs/server-primitives/auth), or [Rate Limit](/docs/server-primitives/rate-limit) |
+| Store data and files | [Database](/docs/server-primitives/database), [KV](/docs/server-primitives/kv), [Blob](/docs/server-primitives/blob), [Workspace](/docs/server-primitives/workspace), or [Source](/docs/server-primitives/source) |
+| Send or receive messages | [Email](/docs/server-primitives/email) or [Channels](/docs/agents/channels) |
+| Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
+| Run isolated automation | [Browser](/docs/server-primitives/browser), [Shell](/docs/server-primitives/shell), or [Sandbox](/docs/server-primitives/sandbox) |
 
-This also keeps agents honest. An Agent can use a primitive only when an attached Capability exposes an ability for that primitive.
+## How a primitive works in your app
 
-## What primitives own
+Most ViteHub primitives follow the same pattern:
 
-| Primitive family | Owns | Does not own |
-| --- | --- | --- |
-| Storage | KV, Database, Blob, Workspace Stores, and file-tree behavior. | Product-specific data modeling or UI workflows. |
-| Runtime work | Queue, Workflow, Schedule, Sandbox, and Shell execution boundaries. | Every app-level process manager or dashboard. |
-| Identity and configuration | Auth, Env, Server Env, Public Env, and Secret Env handling. | Login UI, route design, or provider dashboards. |
-| Agents | Agent Definitions, Agent Invocations, Agent Drivers, Capabilities, and runtime composition. | Unrestricted access to every primitive. |
+::steps{level="3"}
 
-## How it fits
+### Configure
 
-Each primitive package can expose a Vite Integration, Runtime Helper, Definition Boundary Helper, and Provider Output. Small primitives such as KV can often run after configuration. Definition-heavy primitives such as Workflows, Queues, Workspaces, Schedules, and Agents use discovery so named work can be inspected and invoked.
+Add ViteHub to your configuration. ViteHub relies heavily on the [Vite Environment API](https://vite.dev/guide/api-environment), so Vite 8+, Nitro 3+, and Nuxt 5+ are the supported versions for now.
 
-## Inspect it
+::tabs{class="framework-tabs"}
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
+    ```ts [vite.config.ts]
+    import { defineConfig } from 'vite'
+    import { vitehub } from 'vite-hub'
 
-Look for three files or surfaces:
+    export default defineConfig({
+      plugins: [
+        vitehub({ preset: 'node', database: true }),
+      ],
+    })
+    ```
+  :::
 
-- `vite.config.ts`, where the package's Vite Integration is registered.
-- The primitive page, where package-owned configuration and Provider Output are documented.
-- The server route or worker code that imports the stable Runtime Helper.
+  :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs"}
+    ```ts [nuxt.config.ts]
+    import viteHubNuxt from 'vite-hub/nuxt'
 
-## Next steps
+    export default defineNuxtConfig({
+      modules: [
+        [viteHubNuxt, { preset: 'node', database: true }],
+      ],
+    })
+    ```
+  :::
 
-- Read [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together).
-- Try [First server primitive](/docs/getting-started/first-server-primitive).
-- Open [Server primitives](/docs/server-primitives) for the package pages.
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
+    ```ts [vite.config.ts]
+    import { defineConfig } from 'vite'
+    import { nitro } from 'nitro/vite'
+    import { vitehub } from 'vite-hub'
+
+    export default defineConfig({
+      plugins: [
+        vitehub({ preset: 'node', database: true }),
+        nitro(),
+      ],
+    })
+    ```
+  :::
+::
+
+### Define the database
+
+Create a Database Definition file that ViteHub discovers automatically. Its file name becomes the database name, and the file defines the schema and options.
+
+::tabs{class="framework-tabs"}
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
+    ```ts [src/notes.database.ts]
+    import { defineDatabase } from '@vite-hub/database'
+    import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+    export default defineDatabase({
+      name: 'notes',
+      schema: {
+        notes: sqliteTable('notes', {
+          id: integer('id').primaryKey(),
+          title: text('title').notNull(),
+        }),
+      },
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs"}
+    ```ts [server/databases/notes/config.ts]
+    import { defineDatabase } from '@vite-hub/database'
+    import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+    export default defineDatabase({
+      name: 'notes',
+      schema: {
+        notes: sqliteTable('notes', {
+          id: integer('id').primaryKey(),
+          title: text('title').notNull(),
+        }),
+      },
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
+    ```ts [server/databases/notes/config.ts]
+    import { defineDatabase } from '@vite-hub/database'
+    import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+    export default defineDatabase({
+      name: 'notes',
+      schema: {
+        notes: sqliteTable('notes', {
+          id: integer('id').primaryKey(),
+          title: text('title').notNull(),
+        }),
+      },
+    })
+    ```
+  :::
+::
+
+### Use it from server code
+
+Import the generated Runtime Helper in a server route and query the named database. ViteHub connects that call to the provider configured for the current environment.
+
+::tabs{class="framework-tabs"}
+  :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
+    ```ts [src/server.ts]
+    import { useDatabase } from '@vite-hub/database/drizzle'
+
+    export default {
+      async fetch() {
+        const { db, schema } = useDatabase('notes')
+        return Response.json(await db.select().from(schema.notes))
+      },
+    }
+    ```
+  :::
+
+  :::tabs-item{label="Nuxt 5" icon="i-simple-icons-nuxtdotjs"}
+    ```ts [server/api/notes.get.ts]
+    import { useDatabase } from '@vite-hub/database/drizzle'
+
+    export default defineEventHandler(() => {
+      const { db, schema } = useDatabase('notes')
+      return db.select().from(schema.notes)
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nitro 3" icon="i-unjs-nitro"}
+    ```ts [server/api/notes.get.ts]
+    import { useDatabase } from '@vite-hub/database/drizzle'
+
+    export default defineEventHandler(() => {
+      const { db, schema } = useDatabase('notes')
+      return db.select().from(schema.notes)
+    })
+    ```
+  :::
+::
+
+::
+
+That is the complete path: configure ViteHub, define the primitive when it needs a name or schema, and call its Runtime Helper from server code. Your application keeps the same API while ViteHub connects it to the current development or deployment host.

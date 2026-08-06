@@ -239,9 +239,10 @@ describe("drizzle runtime", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
 
-    const { databases, db } = await import("../src/drizzle.ts")
+    const { databases, db, useDatabase } = await import("../src/drizzle.ts")
 
     expect(db).toBe(databases.default.db)
+    expect((useDatabase as (name: string) => unknown)("analytics")).toBe(databases.analytics)
 
     await databases.default.db.run(sql`
       create table if not exists notes (

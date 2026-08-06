@@ -1,11 +1,14 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
+import { docsLanes, parseDocsLanes } from "./docs-lanes";
 
 type DocsArtifactOptions = {
   docsRoot: string;
   outputDir: string;
 };
+
+const docsManifestVersion = 1;
 
 function parseFrontmatter(source: string) {
   if (!source.startsWith("---\n")) {
@@ -95,6 +98,7 @@ function collectPages(rootDir: string, sectionId: string) {
       description: typeof meta.description === "string" ? meta.description : null,
       icon: typeof meta.icon === "string" ? meta.icon : null,
       group: typeof meta["navigation.group"] === "string" ? meta["navigation.group"] : null,
+      lanes: parseDocsLanes(meta["navigation.lanes"]),
       navigation: meta.navigation !== false,
       order: pageOrderFromMeta(meta),
     };
@@ -129,15 +133,20 @@ function collectRootPage(localDocsRoot: string) {
     sourceTitle: typeof meta.title === "string" ? meta.title : null,
     description: typeof meta.description === "string" ? meta.description : null,
     icon: typeof meta.icon === "string" ? meta.icon : null,
+    lanes: docsLanes,
     navigation: meta.navigation !== false,
     order: pageOrderFromMeta(meta),
   };
 }
 
 function createDocsSection(sectionId: string, rootDir: string, order: number) {
-  const pages = collectPages(rootDir, sectionId);
-  const overview = pages.find(page => page.id === "index");
   const navigation = parseNavigationFile(rootDir);
+  const lanes = parseDocsLanes(navigation.lanes) || [...docsLanes];
+  const pages = collectPages(rootDir, sectionId).map(page => ({
+    ...page,
+    lanes: page.lanes || lanes,
+  }));
+  const overview = pages.find(page => page.id === "index");
 
   return {
     id: sectionId,
@@ -145,6 +154,7 @@ function createDocsSection(sectionId: string, rootDir: string, order: number) {
     title: typeof navigation.title === "string" ? navigation.title : overview?.sourceTitle || titleCase(sectionId),
     description: overview?.description || null,
     icon: typeof navigation.icon === "string" ? navigation.icon : overview?.icon || null,
+    lanes,
     order: typeof navigation.order === "number" ? navigation.order : order,
     pages,
   };
@@ -170,6 +180,7 @@ export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions)
   const sections = collectSections(localDocsRoot);
 
   const manifest = {
+    version: docsManifestVersion,
     rootPage,
     sections,
   };
@@ -199,5 +210,8 @@ export function readDocsArtifactsManifest(outputDir: string) {
     return null;
   }
 
-  return JSON.parse(source.slice(prefix.length, -suffix.length)) as ReturnType<typeof writeDocsArtifacts>;
+  const manifest = JSON.parse(source.slice(prefix.length, -suffix.length)) as Partial<ReturnType<typeof writeDocsArtifacts>>;
+  return manifest.version === docsManifestVersion
+    ? manifest as ReturnType<typeof writeDocsArtifacts>
+    : null;
 }

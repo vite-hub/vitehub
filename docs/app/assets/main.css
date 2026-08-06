@@ -151,6 +151,15 @@ body {
   margin: 0;
 }
 
+.docs-content [data-slot="root"].framework-tabs > [data-slot="list"] > [data-slot="trigger"]:first-of-type [data-slot="leadingIcon"] {
+  transform: scale(0.75);
+}
+
+.docs-content [data-slot="root"].framework-tabs > [data-slot="list"] > [data-slot="trigger"]:nth-of-type(3) [data-slot="leadingIcon"] {
+  transform: scale(0.85);
+  filter: grayscale(1);
+}
+
 .docs-content [data-reka-tabs-content] pre {
   border-width: 0 !important;
 }

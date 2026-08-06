@@ -1,13 +1,17 @@
 declare module "#vitehub/database/schema" {
-  const schema: Record<string, unknown>
+  export interface DatabaseSchema {
+    [name: string]: unknown
+  }
+
+  const schema: DatabaseSchema
   export default schema
 }
 
 declare module "#vitehub/database/databases" {
-  const databases: Record<string, {
-    config: import("./types.ts").ResolvedDrizzleDatabaseConfig
-    schema: Record<string, unknown>
-  }>
+  export interface DatabaseRegistry {}
+
+  const databases: DatabaseRegistry
+  export { databases }
   export default databases
 }
 

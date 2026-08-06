@@ -328,6 +328,14 @@ describe("hubDb", () => {
     expect(databasesCode).toContain(definition)
     expect(databasesCode).toContain("\"default\"")
     expect(databasesCode).toContain("\"server/databases/migrations\"")
+    const generatedTypesFile = join(rootDir, ".vitehub/types/database.d.ts")
+    const generatedTypes = await readFile(generatedTypesFile, "utf8")
+    expect(generatedTypes).toContain('declare module "#vitehub/database/databases"')
+    expect(generatedTypes).toContain("type DefaultDatabaseSchema = typeof database_0.schema")
+    expect(generatedTypes).toContain('declare module "#vitehub/database/schema" {\n  interface DatabaseSchema extends DefaultDatabaseSchema {}')
+
+    await configResolved({ database: false, root: rootDir } as never)
+    await expect(readFile(generatedTypesFile, "utf8")).resolves.toBe("export {}\n")
   })
 
   it("refreshes generated artifacts during definition hot updates", async () => {

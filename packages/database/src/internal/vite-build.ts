@@ -82,6 +82,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     "export const databases = {",
     ...databaseEntries,
     "}",
+    "export function useDatabase(name) { return databases[name] }",
     "export const agentDb = createAgentDatabase(databases)",
     "",
     ...(runtimeConfig.databaseNames.includes("default")

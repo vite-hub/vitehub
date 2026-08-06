@@ -48,7 +48,7 @@ Start with the first primitive when you want a runnable path, use Concepts when 
 ::
 
 :::note
-**Server code gets Runtime Helpers. Agents get Capabilities.** App routes can call stable imports directly, while an Agent Driver receives only the named abilities that Capabilities expose. Read [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together) and [Capabilities API](/docs/concepts/capabilities-api) for the shared model.
+**Server code gets Runtime Helpers. Agents get Capabilities.** App routes can call stable imports directly, while an Agent Driver receives only the named abilities that Capabilities expose. Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) and [Capabilities API](/docs/concepts/capabilities-api) for the two application-facing boundaries.
 :::
 
 ## Pick the right primitive
@@ -130,4 +130,4 @@ Do not expose a primitive to a model just because the app uses it. Attach the re
 
 - [Build the first primitive](/docs/getting-started/first-server-primitive)
 - [Build the first Agent](/docs/getting-started/first-agent)
-- [Read the shared model](/docs/concepts/how-vitehub-fits-together)
+- [Read the shared primitive pattern](/docs/concepts/server-primitives-for-any-host)

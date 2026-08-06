@@ -1,3 +1,4 @@
 title: Development
 icon: i-lucide-terminal
 order: 40
+lanes: [agents, server-primitives]

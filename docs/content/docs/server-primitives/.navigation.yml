@@ -1,3 +1,4 @@
 title: Server primitives
 icon: i-lucide-server-cog
-order: 30
+order: 10
+lanes: [server-primitives]

@@ -1,69 +1,38 @@
 ---
 title: Runtime Helpers and stable imports
-description: Learn how application code calls ViteHub primitives without importing generated internals.
-navigation.order: 6
+description: Understand which imports application code uses to call ViteHub.
+navigation.order: 21
 icon: i-lucide-code-2
 ---
 
-A Runtime Helper is a runtime API used by application code to call, inspect, or use a configured ViteHub primitive. Stable ViteHub import paths keep application code independent from Provider Output, virtual modules, and generated file locations.
+A Runtime Helper is the server API that application code uses to call or inspect a ViteHub primitive. The helper keeps generated registries, provider bindings, and framework adapters behind a documented import.
 
-## Why it exists
+The import hides generated files, not the runtime contract. The package page defines what the helper returns and which host resources it needs.
 
-Generated output changes with provider, host, package options, and deployment target. Server code should not need those details to call KV, read a Workspace, run an Agent, or access Server Env.
+## Call the helper from server code
 
-Stable imports also make docs and agent instructions actionable. An agent can search for one documented import instead of guessing provider-specific modules.
-
-## Examples
-
-Use a package Runtime Helper from server code.
-
-```ts [server/api/settings.get.ts]
-import { kv } from '@vite-hub/kv'
-
-export default defineEventHandler(async () => {
-  const [error, settings] = await kv.get('settings')
-  if (error) throw error
-  return { settings }
-})
-```
-
-Use a generated stable import only when the package documents it.
-
-```ts [server/secrets.ts]
+```ts [server/api/health.ts]
 import { useServerEnv } from '#vitehub/env/server'
 
-export function getGithubToken() {
-  return useServerEnv().github.token.unseal()
+export function health() {
+  const env = useServerEnv()
+  return { environment: env.APP_ENV }
 }
 ```
 
-Run an Agent through the Agent Package instead of calling generated route code.
+Use the package import or generated `#vitehub/...` path documented for the primitive. Do not import `.vitehub` registry files directly; the integration can change those files when it changes the build output.
 
-```ts [server/api/support.post.ts]
-import { runAgent } from '@vite-hub/agent'
-import support from '../agents/support'
+## Keep the four roles distinct
 
-export default defineEventHandler(async (event) => {
-  return runAgent(support, { runtime: 'vite' }, await readBody(event))
-})
-```
+| Surface | What it contains |
+| --- | --- |
+| Runtime Helper | The application call or inspection API. |
+| Definition | Named configuration and behavior in application code. |
+| Runtime Context | Host resources needed during execution. |
+| Provider Output | Generated routes, bindings, functions, workers, or other host artifacts. |
 
-## When to use what
+The helper can use Runtime Context without making application code construct provider-specific objects.
 
-| Surface | Use it from app code? | Why |
-| --- | --- | --- |
-| Package Runtime Helper | Yes | It is the stable public runtime API. |
-| `#vitehub/...` stable generated import | Yes, when documented | It hides generated file paths behind a ViteHub-owned import. |
-| Framework virtual module | No, unless documented | It exposes integration detail. |
-| Raw `.vitehub` file path | No | It is Provider Output or generated backing state. |
-| Provider SDK or binding | Only inside provider-specific code | It bypasses the ViteHub primitive boundary. |
+## Check an import failure
 
-## Inspect it
-
-Search for imports from `@vite-hub/*`, `@vite-hub/*/vite`, and documented `#vitehub/...` paths. Those imports show where the public boundary is.
-
-## Next steps
-
-- Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output).
-- Try [First server primitive](/docs/getting-started/first-server-primitive).
-- Open [Env](/docs/server-primitives/env) for a generated stable import example.
+Check the package's documented import, the registered Vite Integration, and the generated type files. Read [Import paths](/docs/reference/import-paths) for exact path rules and [Provider Output](/docs/reference/provider-output) for generated file ownership.

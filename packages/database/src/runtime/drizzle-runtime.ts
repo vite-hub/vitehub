@@ -60,7 +60,7 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
   })
 }
 
-const runtimeEntries = databaseEntries as Record<string, RuntimeDatabaseModule>
+const runtimeEntries = databaseEntries as unknown as Record<string, RuntimeDatabaseModule>
 
 const resolvedDatabases = Object.fromEntries(
   Object.entries(runtimeEntries).map(([name, entry]) => [
