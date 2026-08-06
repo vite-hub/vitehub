@@ -69,6 +69,7 @@ describe("writeDocsArtifacts", () => {
       expect(manifest.sections.map(section => section.id)).toEqual(["server-primitives"]);
       expect(manifest.sections[0]?.title).toBe("Server primitives");
       expect(manifest.sections[0]?.icon).toBe("i-lucide-server-cog");
+      expect(manifest.sections[0]?.lanes).toEqual(["agents", "server-primitives"]);
       expect(manifest.sections[0]?.order).toBe(30);
       expect(manifest.sections[0]?.pages.map(page => page.path)).toEqual([
         "/docs/server-primitives",
@@ -77,6 +78,7 @@ describe("writeDocsArtifacts", () => {
         "/docs/server-primitives/hidden",
       ]);
       expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.group).toBe("Storage");
+      expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.lanes).toEqual(["agents", "server-primitives"]);
       expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")?.navigation).toBe(false);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });

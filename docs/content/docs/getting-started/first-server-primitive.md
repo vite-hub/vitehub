@@ -2,6 +2,7 @@
 title: First Server Primitive
 description: Add local KV to a small Vite server and return one stored value.
 navigation.order: 3
+navigation.lanes: [server-primitives]
 icon: i-lucide-server-cog
 ---
 

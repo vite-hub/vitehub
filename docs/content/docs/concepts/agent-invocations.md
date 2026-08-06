@@ -3,6 +3,7 @@ title: Agent Invocations
 description: Understand what ViteHub resolves and records for one Agent request.
 navigation.group: Core vocabulary
 navigation.order: 11
+navigation.lanes: [agents]
 icon: i-lucide-play-circle
 ---
 

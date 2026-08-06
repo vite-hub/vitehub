@@ -3,6 +3,7 @@ title: Channel vs Agent Invocation
 description: Choose between message transport and Agent execution.
 navigation.group: Choose between
 navigation.order: 43
+navigation.lanes: [agents]
 icon: i-lucide-message-circle-code
 ---
 

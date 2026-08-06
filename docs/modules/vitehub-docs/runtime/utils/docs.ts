@@ -1,4 +1,5 @@
 import docsManifestRaw from "#vitehub-docs-manifest";
+import type { DocsLane } from "../../docs-lanes";
 
 export type DocsPage = {
   id: string;
@@ -8,16 +9,18 @@ export type DocsPage = {
   description: string | null;
   icon: string | null;
   group?: string | null;
+  lanes: DocsLane[];
   navigation: boolean;
   order: number;
 };
 
-type DocsSection = {
+export type DocsSection = {
   id: string;
   path: string;
   title: string;
   description: string | null;
   icon: string | null;
+  lanes: DocsLane[];
   order: number;
   pages: DocsPage[];
 };

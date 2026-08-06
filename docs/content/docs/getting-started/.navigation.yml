@@ -1,3 +1,4 @@
 title: Start
 icon: i-lucide-rocket
 order: 1
+lanes: [agents, server-primitives]

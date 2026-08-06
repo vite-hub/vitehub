@@ -3,6 +3,7 @@ title: Capabilities
 description: Understand how an Agent receives a selected ability.
 navigation.group: Core vocabulary
 navigation.order: 12
+navigation.lanes: [agents]
 icon: i-lucide-blocks
 ---
 

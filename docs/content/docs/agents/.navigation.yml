@@ -1,3 +1,4 @@
 title: Agents
 icon: i-lucide-bot
 order: 10
+lanes: [agents]

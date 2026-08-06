@@ -3,6 +3,7 @@ title: Server primitives
 description: Choose the server API you need and use it from application code across ViteHub hosts.
 navigation.group: Start here
 navigation.order: 2
+navigation.lanes: [server-primitives]
 icon: i-lucide-server
 ---
 
