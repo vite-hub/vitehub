@@ -970,6 +970,8 @@ async function executeQueuedWebhookDelivery(
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
+  let resolveActiveCompletion: (() => void) | undefined
+  let rejectActiveCompletion: ((reason?: unknown) => void) | undefined
   const request = requestFromPersistedWebhook(delivery)
   const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
   const context = createRuntimeContext(
@@ -1034,8 +1036,13 @@ async function executeQueuedWebhookDelivery(
           if (!isWorkflowRun(output) || output.status !== "queued") await runContext.flushWaitUntil?.()
           return output
         })
+        const activeCompletion = new Promise<void>((resolve, reject) => {
+          resolveActiveCompletion = resolve
+          rejectActiveCompletion = reject
+        })
+        void activeCompletion.catch(() => undefined)
         const unregister = delivery.concurrencyKey
-          ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, settlement, activeInvocationScope)
+          ? registerActiveAgentInvocation(`${backendId}:${delivery.concurrencyKey}`, controller, activeCompletion, activeInvocationScope)
           : () => undefined
         const unregisterOnOwnershipLoss = () => unregister()
         if (ownershipAbort.signal.aborted) unregisterOnOwnershipLoss()
@@ -1050,10 +1057,12 @@ async function executeQueuedWebhookDelivery(
       })
     }
     if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
-      ownershipAbort.abort(new Error("[vitehub] Webhook queue completion lost its lease."))
+      throw new Error("[vitehub] Webhook queue completion lost its lease.")
     }
+    resolveActiveCompletion?.()
   }
   catch (error) {
+    rejectActiveCompletion?.(error)
     const retryDelay = lifecycleSignal.aborted
       ? 0
       : Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
