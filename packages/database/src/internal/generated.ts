@@ -66,9 +66,6 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
   const imports = definitions.map((definition, index) =>
     `import type database_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`)
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
-  const schemaDefinition = definitions[schemaDefinitionIndex]!
-  const schemaFields = schemaDefinition.tableNames.map(tableName =>
-    `  ${JSON.stringify(tableName)}: typeof database_${schemaDefinitionIndex}.schema[${JSON.stringify(tableName)}]`)
   const namedEntries = definitions.flatMap((definition, index) => definition.name === "default" ? [] : [
     `    ${JSON.stringify(definition.name)}: {`,
     `      config: import("@vite-hub/database").ResolvedDrizzleDatabaseConfig`,
@@ -79,10 +76,10 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
   return [
     ...imports,
     "",
+    `type DefaultDatabaseSchema = typeof database_${schemaDefinitionIndex}.schema`,
+    "",
     'declare module "#vitehub/database/schema" {',
-    "  interface DatabaseSchema {",
-    ...schemaFields,
-    "  }",
+    "  interface DatabaseSchema extends DefaultDatabaseSchema {}",
     "}",
     "",
     'declare module "#vitehub/database/databases" {',
