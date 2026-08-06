@@ -5470,7 +5470,7 @@ describe("server helpers", () => {
   it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
-    const { activeAgentInvocation, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { activeAgentInvocation, agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
@@ -5485,9 +5485,9 @@ describe("server helpers", () => {
     let completedRuns = 0
     const run = vi.fn(async (context: { run?: { runId?: string }, waitUntil: (task: Promise<unknown>) => void }) => {
       const { run: metadata } = context
-      const runId = metadata?.runId
-      if (!runId) throw new Error("Expected a controlled Agent Invocation id.")
-      const closeControl = registerAgentInvocationInputHandler(runId, {
+      const controlId = agentInvocationControlId(context)
+      if (!metadata?.runId || !controlId) throw new Error("Expected controlled Agent Invocation identities.")
+      const closeControl = registerAgentInvocationInputHandler(controlId, {
         async sendInput(input, options) {
           expect(options).toEqual({ mode: "steer" })
           if (rejectSteer) throw new Error("closed")

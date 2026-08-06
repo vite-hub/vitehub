@@ -27,7 +27,7 @@ import {
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { attachmentStringBytes, getMessageText, isAttachmentData, isAttachmentPart, isTextAttachmentMediaType, resolveAttachmentData } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
-import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
+import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -1000,7 +1000,7 @@ async function createHarnessAgent<
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
   const workDir = await resolveHarnessWorkDir(options.workDir, context) ?? context.harnessWorkDir
   const tools = toHarnessTools(context)
-  const activeHarness = withHarnessAgentInvocationInput(harness, context.runtime.run?.runId)
+  const activeHarness = withHarnessAgentInvocationInput(harness, agentInvocationControlId(context.runtime))
   const agent = new HarnessAgent({
     harness: activeHarness,
     ...(instructions ? { instructions } : {}),

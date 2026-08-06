@@ -4,7 +4,12 @@ import { createBackedAgentInvocationController, startLiveAgentInvocation } from 
 import { subagents } from "../src/capabilities.ts"
 import { withHarnessAgentInvocationInput } from "../src/harness-agent.ts"
 import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import {
+  agentInvocationControlId,
+  agentInvocationInputSupport,
+  sendAgentInvocationInput,
+  withAgentInvocationControlId,
+} from "../src/internal/agent-invocation-control.ts"
 
 import type { AgentRuntimeContext, AgentToolDefinition } from "../src/index.ts"
 
@@ -18,6 +23,16 @@ function runtime(overrides: Partial<AgentRuntimeContext> = {}): AgentRuntimeCont
 }
 
 describe("Agent Invocation controllers", () => {
+  it("keeps controller identity separate from provider run metadata", () => {
+    const first = withAgentInvocationControlId({ run: { runId: "shared-provider-run" } }, "ainv_first")
+    const second = withAgentInvocationControlId({ run: { runId: "shared-provider-run" } }, "ainv_second")
+
+    expect(agentInvocationControlId(first)).toBe("ainv_first")
+    expect(agentInvocationControlId(second)).toBe("ainv_second")
+    expect(first.run.runId).toBe(second.run.runId)
+    expect(agentInvocationControlId({ run: { runId: "legacy-run" } })).toBe("legacy-run")
+  })
+
   it("steers through an active Harness turn and removes stale controls", async () => {
     let finishFirst!: () => void
     let finishSecond!: () => void
