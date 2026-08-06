@@ -42,27 +42,35 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   justify-content: center;
   gap: 0.375rem;
   padding: 0.5rem;
-  border-bottom: 1px solid var(--ui-border);
-  background: var(--ui-bg-elevated);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-bg-muted);
   color: var(--ui-text-muted);
   font-size: 0.75rem;
   font-weight: 550;
   line-height: 1rem;
+  opacity: 0.68;
   text-align: center;
-  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
+  transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease, transform 150ms ease;
 }
 
 .vh-docs-lane-option:hover,
 .vh-docs-lane-option:focus-visible {
+  opacity: 1;
   color: var(--ui-text-highlighted);
 }
 
 .vh-docs-lane-option.is-active {
-  border-bottom: 0;
-  padding-bottom: 0.5625rem;
+  border: 0;
   background: var(--ui-bg-inverted);
   color: var(--ui-text-inverted);
   font-weight: 650;
+  opacity: 0.82;
+}
+
+.vh-docs-lane-option.is-active:hover,
+.vh-docs-lane-option.is-active:focus-visible {
+  opacity: 1;
 }
 
 .vh-docs-lane-option:active {
