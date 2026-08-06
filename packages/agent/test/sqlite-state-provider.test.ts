@@ -304,6 +304,28 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("does not steer ahead of older queued work for the same concurrency key", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("queued-first", "pr-1"))
+    vi.advanceTimersByTime(1)
+
+    await expect(queue.claimWebhookSteering(
+      webhookDelivery("steer-second", "pr-1"),
+      "steer-token",
+      Date.now() + 1_000,
+    )).resolves.toBe(false)
+    await expect(queue.claimWebhookSteering(
+      webhookDelivery("other-key", "pr-2"),
+      "other-token",
+      Date.now() + 1_000,
+    )).resolves.toBe(true)
+    await state.disconnect()
+  })
+
   it("requires connect before using the state adapter", async () => {
     const { state } = await createState()
     await expect(state.get("seen")).rejects.toThrow("not connected")

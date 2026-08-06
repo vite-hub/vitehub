@@ -232,7 +232,12 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
         lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?) RETURNING delivery_id`,
+      ) SELECT ?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${this.tables.webhookQueue}
+          WHERE scope = ? AND concurrency_key = ? AND status = 'queued' AND enqueued_at <= ?
+        )
+        RETURNING delivery_id`,
       [
         delivery.scope,
         delivery.deliveryId,
@@ -245,6 +250,9 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         delivery.enqueuedAt,
         leaseToken,
         leaseExpiresAt,
+        delivery.scope,
+        delivery.concurrencyKey || null,
+        delivery.enqueuedAt,
       ],
     ))
     return inserted.length > 0

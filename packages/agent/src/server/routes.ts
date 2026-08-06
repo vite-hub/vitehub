@@ -755,7 +755,9 @@ async function steerQueuedWebhookDelivery(
           leaseToken: lock.token,
         }
         if (!await state.claimWebhookSteering(delivery, steeringLease.leaseToken, steeringLease.leaseExpiresAt)) {
-          return duplicateResponse(await state.get(claimKey) || "steering")
+          const response = await fallback(false)
+          await state.set(claimKey, "queued")
+          return { queued: true, response }
         }
         try {
           await state.set(claimKey, "steering")
