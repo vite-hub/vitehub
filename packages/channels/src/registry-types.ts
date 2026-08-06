@@ -11,11 +11,13 @@ export type ChannelRegistryDefinition<TName extends ChannelDefinitionName>
     ? NonNullable<TDefinition>
     : never
 
+type ResolvedChannelDefinition<TDefinition>
+  = TDefinition extends (...args: any[]) => infer TResolved ? TResolved : TDefinition
+
 export type ChannelDefinitionConnectors<TDefinition>
-  = TDefinition extends ChannelDefinition<infer TConnectors, any> ? TConnectors : ChannelConnectorMap
+  = ResolvedChannelDefinition<TDefinition> extends ChannelDefinition<infer TConnectors, any> ? TConnectors : ChannelConnectorMap
 
 export type ChannelDefinitionDefault<TDefinition>
-  = TDefinition extends ChannelDefinition<infer TConnectors, infer TDefault>
+  = ResolvedChannelDefinition<TDefinition> extends ChannelDefinition<infer TConnectors, infer TDefault>
     ? TDefault & keyof TConnectors & string
     : never
-

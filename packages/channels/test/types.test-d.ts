@@ -3,6 +3,7 @@ import { createChannel, defineChannel, useChannel } from "../src/index.ts"
 declare global {
   interface ViteHubChannelDefinitionModules {
     alerts: { default: typeof definition }
+    envAlerts: { default: typeof envDefinition }
   }
 }
 
@@ -31,6 +32,11 @@ const envDefinition = defineChannel(({ env }) => ({
 }))
 
 createChannel("alerts", envDefinition).send("Build finished.", { connector: "telegram", chatId: "chat-1" })
+
+useChannel("envAlerts").send("Build finished.", { connector: "telegram", chatId: "chat-1" })
+
+// @ts-expect-error Resolver-backed discovered Channels retain connector-specific options.
+useChannel("envAlerts").send("Build finished.", { connector: "telegram", channelId: "channel-1" })
 
 // @ts-expect-error Connector options remain specific to the selected connector.
 channel.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
