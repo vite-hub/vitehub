@@ -5679,6 +5679,26 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-stop-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    let blockClaims = false
+    let releaseClaim: () => void = () => undefined
+    const claimBlocked = vi.fn()
+    const queueState = new Proxy(state, {
+      get(target, property) {
+        if (property === "claimWebhookDelivery") {
+          return async (...args: Parameters<typeof state.claimWebhookDelivery>) => {
+            if (blockClaims) {
+              claimBlocked()
+              await new Promise<void>(resolve => {
+                releaseClaim = resolve
+              })
+            }
+            return await state.claimWebhookDelivery(...args)
+          }
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
     let activeSignal: AbortSignal | undefined
     const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
       const abortSignal = input.abortSignal
@@ -5717,15 +5737,24 @@ describe("server helpers", () => {
       },
       method: "POST",
     })
-    let stop: () => void = () => undefined
+    let stop: () => void | Promise<void> = () => undefined
 
     try {
-      stop = handler.resume({ agentName: "review", webhookState: state })
-      await handler(request("delivery-stop-1"), "github", { agentName: "review", webhookState: state })
+      stop = handler.resume({ agentName: "review", webhookState: queueState })
+      await handler(request("delivery-stop-1"), "github", { agentName: "review", webhookState: queueState })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
-      await handler(request("delivery-stop-2"), "github", { agentName: "review", webhookState: state })
+      blockClaims = true
+      await handler(request("delivery-stop-2"), "github", { agentName: "review", webhookState: queueState })
+      await vi.waitFor(() => expect(claimBlocked).toHaveBeenCalled())
 
-      await stop()
+      let stopped = false
+      const stopping = Promise.resolve(stop()).then(() => {
+        stopped = true
+      })
+      await Promise.resolve()
+      expect(stopped).toBe(false)
+      releaseClaim()
+      await stopping
       expect(activeSignal?.aborted).toBe(true)
       expect(run).toHaveBeenCalledOnce()
 

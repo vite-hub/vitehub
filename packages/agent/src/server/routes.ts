@@ -3354,7 +3354,9 @@ export function createChannelWebhookRouteHandler(
   const pendingDrainScopes = new Set<string>()
   const retryTimers = new Map<string, { at: number, timer: ReturnType<typeof setTimeout> }>()
   const activeDeliveries = new Map<Promise<number | undefined>, AbortController>()
+  const inFlightDrains = new Set<Promise<void>>()
   let queueStopped = false
+  let drainQueue: (scope: string) => Promise<void>
 
   const scheduleQueueDrain = (scope: string, at: number) => {
     const existing = retryTimers.get(scope)
@@ -3368,7 +3370,7 @@ export function createChannelWebhookRouteHandler(
     retryTimers.set(scope, { at, timer })
   }
 
-  const drainQueue = async (scope: string) => {
+  const drainQueueOnce = async (scope: string) => {
     const queue = queueScopes.get(scope)
     if (queueStopped || !queue) return
     if (drainingScopes.has(scope)) {
@@ -3411,6 +3413,13 @@ export function createChannelWebhookRouteHandler(
       drainingScopes.delete(scope)
       if (pendingDrainScopes.delete(scope)) void drainQueue(scope)
     }
+  }
+
+  drainQueue = (scope) => {
+    const task = drainQueueOnce(scope)
+    inFlightDrains.add(task)
+    void task.finally(() => inFlightDrains.delete(task))
+    return task
   }
 
   const registerQueue = (scope: string, state: StateAdapter, options: AgentChannelWebhookRouteOptions) => {
@@ -3706,6 +3715,7 @@ export function createChannelWebhookRouteHandler(
       for (const controller of activeDeliveries.values()) {
         controller.abort(new Error("[vitehub] Webhook queue stopped during Agent execution."))
       }
+      await Promise.allSettled(inFlightDrains)
       await Promise.allSettled(activeDeliveries.keys())
     }
   }
