@@ -1,6 +1,6 @@
 ---
 title: Server primitives
-description: Understand the ViteHub runtime APIs that application code can use with or without an Agent.
+description: Understand the ViteHub runtime APIs that application code can use.
 navigation.group: Start here
 navigation.order: 2
 icon: i-lucide-server
