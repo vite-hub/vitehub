@@ -80,10 +80,7 @@ Create a Database Definition in the location used by your framework. It declares
     import { defineDatabase } from '@vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-    const notes = sqliteTable('notes', {
-      id: integer('id').primaryKey(),
-      title: text('title').notNull(),
-    })
+    const notes = sqliteTable('notes', { id: integer('id').primaryKey(), title: text('title').notNull() })
 
     export default defineDatabase({
       name: 'notes',
@@ -97,10 +94,7 @@ Create a Database Definition in the location used by your framework. It declares
     import { defineDatabase } from '@vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-    const notes = sqliteTable('notes', {
-      id: integer('id').primaryKey(),
-      title: text('title').notNull(),
-    })
+    const notes = sqliteTable('notes', { id: integer('id').primaryKey(), title: text('title').notNull() })
 
     export default defineDatabase({
       name: 'notes',
@@ -114,10 +108,7 @@ Create a Database Definition in the location used by your framework. It declares
     import { defineDatabase } from '@vite-hub/database'
     import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-    const notes = sqliteTable('notes', {
-      id: integer('id').primaryKey(),
-      title: text('title').notNull(),
-    })
+    const notes = sqliteTable('notes', { id: integer('id').primaryKey(), title: text('title').notNull() })
 
     export default defineDatabase({
       name: 'notes',
