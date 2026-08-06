@@ -5817,10 +5817,12 @@ describe("server helpers", () => {
       driver: { run },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    let stop: () => void | Promise<void> = () => undefined
 
     try {
       vi.useFakeTimers()
       vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"))
+      stop = handler.resume({ agentName: "review", webhookState: busyState })
       const response = await handler(new Request("https://example.com/api/github/webhook", {
         body: "{}",
         headers: {
@@ -5843,6 +5845,7 @@ describe("server helpers", () => {
     }
     finally {
       releaseRun()
+      await stop()
       await vi.runAllTimersAsync()
       vi.useRealTimers()
       await state.disconnect()
