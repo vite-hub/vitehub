@@ -751,7 +751,7 @@ async function steerQueuedWebhookDelivery(
         const steeringLease: AgentWebhookQueueLease = {
           ...delivery,
           attempts: 0,
-          leaseExpiresAt: lock.expiresAt,
+          leaseExpiresAt: Date.now() + delivery.leaseTtlMs,
           leaseToken: lock.token,
         }
         if (!await state.claimWebhookSteering(delivery, steeringLease.leaseToken, steeringLease.leaseExpiresAt)) {
