@@ -15,6 +15,7 @@ Use the [Server primitives](/docs/server-primitives), [Agents](/docs/agents), [C
 | Page | Read it when |
 | --- | --- |
 | [Server primitives](/docs/concepts/server-primitives-for-any-host) | You need a database, message channel, background job, storage layer, or another server feature. |
+| [Agents](/docs/agents) | You need model execution, Agent Definitions, Capabilities, or Agent Invocations. |
 
 ## Core vocabulary
 
