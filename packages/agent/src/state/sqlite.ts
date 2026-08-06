@@ -228,34 +228,36 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async claimWebhookSteering(delivery: AgentWebhookQueueDelivery, leaseToken: string, leaseExpiresAt: number): Promise<boolean> {
-    await this.cleanupExpiredStateIfDue()
-    const inserted = await retrySqliteBusy(async () => await execute(
-      this.driver,
-      `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
-        scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
-        lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
-      ) SELECT ?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?
-        WHERE NOT EXISTS (
-          SELECT 1 FROM ${this.tables.webhookQueue}
-          WHERE scope = ? AND concurrency_key = ? AND status = 'queued'
-        )
-        RETURNING delivery_id`,
-      [
-        delivery.scope,
-        delivery.deliveryId,
-        JSON.stringify(delivery),
-        delivery.concurrencyGroup,
-        delivery.concurrencyKey || null,
-        delivery.concurrencyLimit,
-        delivery.leaseTtlMs,
-        delivery.enqueuedAt,
-        delivery.enqueuedAt,
-        leaseToken,
-        leaseExpiresAt,
-        delivery.scope,
-        delivery.concurrencyKey || null,
-      ],
-    ))
+    const inserted = await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await execute(
+        this.driver,
+        `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+          scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
+          lease_ttl_ms, status, enqueued_at, available_at, attempts, lease_token, lease_expires_at
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, 'steering', ?, ?, 0, ?, ?
+          WHERE NOT EXISTS (
+            SELECT 1 FROM ${this.tables.webhookQueue}
+            WHERE scope = ? AND concurrency_key = ? AND status = 'queued'
+          )
+          RETURNING delivery_id`,
+        [
+          delivery.scope,
+          delivery.deliveryId,
+          JSON.stringify(delivery),
+          delivery.concurrencyGroup,
+          delivery.concurrencyKey || null,
+          delivery.concurrencyLimit,
+          delivery.leaseTtlMs,
+          delivery.enqueuedAt,
+          delivery.enqueuedAt,
+          leaseToken,
+          leaseExpiresAt,
+          delivery.scope,
+          delivery.concurrencyKey || null,
+        ],
+      )
+    })
     return inserted.length > 0
   }
 

@@ -185,6 +185,8 @@ describe("SQLite Agent State Provider", () => {
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(9)
+    ;(contended as unknown as { nextCleanupAt: number }).nextCleanupAt = 0
+    busyCleanup = true
     await expect(contended.claimWebhookSteering(webhookDelivery("steering-busy"), "steer-token", Date.now() + 1_000)).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE") && String(statement).includes("'steering'"))).toHaveLength(2)
     client.close()
