@@ -9,6 +9,8 @@ icon: i-lucide-server
 
 Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
 
+ViteHub connects each primitive to the implementation supported by the current development or deployment host, so application code keeps the same API across Cloudflare, Vercel, Docker, and other platforms.
+
 ## Choose a primitive for the job
 
 | You need | Start with |
