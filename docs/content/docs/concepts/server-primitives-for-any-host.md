@@ -29,7 +29,7 @@ Most ViteHub primitives follow the same pattern:
 
 ### Configure
 
-Add ViteHub to your configuration. ViteHub relies heavily on the [Vite Environment API](https://vite.dev/guide/api-environment), so Vite 7+, Nitro 3+, and Nuxt 5+ are the supported versions for now.
+Add ViteHub to your configuration. ViteHub relies heavily on the [Vite Environment API](https://vite.dev/guide/api-environment), so Vite 8+, Nitro 3+, and Nuxt 5+ are the supported versions for now.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
