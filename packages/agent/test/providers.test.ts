@@ -6255,6 +6255,59 @@ describe("server helpers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("retries persisted webhook concurrency after an Agent changes to a Workflow runtime", async () => {
+    const { defineAgent, workflow } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-workflow-transition-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+      runtime: workflow("review"),
+    })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-before-workflow",
+      enqueuedAt: Date.now(),
+      invocation: { input: { prompt: "persisted" } },
+      leaseTtlMs: 30_000,
+      request: {
+        body: JSON.stringify({ action: "labeled" }),
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-before-workflow",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      scope: "webhook:review:github:github:",
+      webhookId: "github",
+    })
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
+
+    try {
+      await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
+      expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps capability-bound default Workflow webhook runs inline", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")

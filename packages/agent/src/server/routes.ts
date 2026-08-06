@@ -810,6 +810,9 @@ async function executeQueuedWebhookDelivery(
   if (lifecycleSignal.aborted) stopForLifecycle()
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
   try {
+    if (await hasActiveWorkflowRuntime(agent, context)) {
+      throw new Error("[vitehub] Persisted webhook concurrency requires inline Agent execution.")
+    }
     type PersistedInvocation = {
       input: Record<string, unknown> & { abortSignal?: AbortSignal }
       run?: Parameters<typeof createRuntimeContext>[1]
