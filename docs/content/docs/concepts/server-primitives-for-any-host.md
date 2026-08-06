@@ -1,6 +1,6 @@
 ---
 title: Server primitives
-description: Understand the ViteHub runtime APIs that application code can use.
+description: Learn how ViteHub gives application code access to databases, queues, storage, and other server-side capabilities.
 navigation.group: Start here
 navigation.order: 2
 icon: i-lucide-server
