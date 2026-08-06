@@ -22,6 +22,10 @@ Server Primitives are APIs that application code calls to work with server-side 
 
 Database shows the pattern in a small Vite app. Enable the package integration first:
 
+:::steps{level="3"}
+
+### Configure
+
 ```ts [vite.config.ts]
 import { hubDb } from '@vite-hub/database/vite'
 import { defineConfig } from 'vite'
@@ -31,7 +35,7 @@ export default defineConfig({
 })
 ```
 
-Define the schema in the location supported by the Database integration:
+### Define the database
 
 ```ts [src/database.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -47,7 +51,7 @@ export default defineDatabase({
 })
 ```
 
-Then call the generated Runtime Surface from server code:
+### Use it from server code
 
 ```ts [server/api/notes.get.ts]
 import { db, schema } from '@vite-hub/database/drizzle'
@@ -56,6 +60,8 @@ export default defineEventHandler(() => {
   return db.select().from(schema.notes)
 })
 ```
+
+:::
 
 ViteHub discovers the Database Definition, generates the Drizzle Runtime Surface, and adapts the provider output for development and deployment. Other primitives follow the same shape, but their Definition locations and Runtime Helpers differ.
 
