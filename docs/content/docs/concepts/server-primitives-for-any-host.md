@@ -72,7 +72,7 @@ Enable the primitive in the build configuration used by your framework. ViteHub 
 
 ### Define the database
 
-Create a Database Definition in the location used by your framework. It declares the tables and gives this database the stable name `notes`.
+Create a Database Definition that ViteHub discovers automatically. Its file or directory name becomes the database name, and the Definition declares its schema.
 
 ::tabs{class="framework-tabs"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite"}
