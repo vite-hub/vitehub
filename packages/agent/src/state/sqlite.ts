@@ -133,17 +133,19 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
-    await this.cleanupExpiredStateIfDue()
-    return await this.transaction(async (tx) => {
-      const now = Date.now()
-      await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND expires_at <= ?`, [threadId, now])
-      const existing = await execute(tx, `SELECT 1 FROM ${this.tables.locks} WHERE thread_id = ? LIMIT 1`, [threadId])
-      if (existing.length > 0) return null
+    return await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await this.transaction(async (tx) => {
+        const now = Date.now()
+        await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND expires_at <= ?`, [threadId, now])
+        const existing = await execute(tx, `SELECT 1 FROM ${this.tables.locks} WHERE thread_id = ? LIMIT 1`, [threadId])
+        if (existing.length > 0) return null
 
-      const token = randomToken()
-      const expiresAt = now + ttlMs
-      await execute(tx, `INSERT INTO ${this.tables.locks} (thread_id, token, expires_at) VALUES (?, ?, ?)`, [threadId, token, expiresAt])
-      return { expiresAt, threadId, token }
+        const token = randomToken()
+        const expiresAt = now + ttlMs
+        await execute(tx, `INSERT INTO ${this.tables.locks} (thread_id, token, expires_at) VALUES (?, ?, ?)`, [threadId, token, expiresAt])
+        return { expiresAt, threadId, token }
+      })
     })
   }
 
