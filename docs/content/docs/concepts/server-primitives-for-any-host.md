@@ -8,15 +8,6 @@ icon: i-lucide-server
 
 Server Primitives are APIs that application code calls to work with server-side artifacts such as environment values, databases, queues, workflows, files, and sandboxes.
 
-## The common pattern
-
-Most primitives follow the same setup:
-
-1. **Enable the primitive.** Add it to the framework `vitehub({ ... })` configuration, or register the package integration manually, such as `hubEmail()`.
-2. **Declare it when needed.** Put Definitions in the location documented by the primitive. Many use a `server/<primitive>/` directory, while others use files such as `server/email.ts`, `server.email.ts`, or a package-specific suffix such as `*.browser.ts`; some primitives do not use discovery.
-3. **Call the stable import.** Use the primitive's Runtime Helper from server code. Do not import generated files or provider SDKs directly.
-4. **Let ViteHub adapt it.** During development and build, ViteHub discovers declarations, generates types and registries when needed, and emits host-specific output for deployment.
-
 ## Choose a primitive for the job
 
 | You need | Start with |
@@ -26,6 +17,15 @@ Most primitives follow the same setup:
 | Send or receive messages | [Email](/docs/server-primitives/email) or [Channels](/docs/agents/channels) |
 | Run work later | [Queue](/docs/server-primitives/queue), [Schedule](/docs/server-primitives/schedule), or [Workflow](/docs/server-primitives/workflows) |
 | Run isolated automation | [Browser](/docs/server-primitives/browser), [Shell](/docs/server-primitives/shell), or [Sandbox](/docs/server-primitives/sandbox) |
+
+## The common pattern
+
+Most primitives follow the same setup:
+
+1. **Enable the primitive.** Add it to the framework `vitehub({ ... })` configuration, or register the package integration manually, such as `hubEmail()`.
+2. **Declare it when needed.** Put Definitions in the location documented by the primitive. Many use a `server/<primitive>/` directory, while others use files such as `server/email.ts`, `server.email.ts`, or a package-specific suffix such as `*.browser.ts`; some primitives do not use discovery.
+3. **Call the stable import.** Use the primitive's Runtime Helper from server code. Do not import generated files or provider SDKs directly.
+4. **Let ViteHub adapt it.** During development and build, ViteHub discovers declarations, generates types and registries when needed, and emits host-specific output for deployment.
 
 ## Inspect the boundary
 
