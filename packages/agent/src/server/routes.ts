@@ -730,7 +730,6 @@ async function steerQueuedWebhookDelivery(
       return duplicateResponse(claimed)
     }
     const active = activeAgentInvocation(delivery.concurrencyKey, activeInvocationScope)
-      ?? activeAgentInvocation(delivery.concurrencyKey)
     if (active) {
       const { controller } = active
       const sendLock = await state.acquireLock(
