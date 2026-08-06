@@ -643,10 +643,10 @@ function persistedWebhookRequest(
   invocation?: { input: unknown, run?: unknown },
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
-  const concurrencyGroup = `${agentName}:${ownership.concurrencyGroup?.trim() || "default"}`
+  const concurrencyGroup = `${encodeURIComponent(agentName)}:${encodeURIComponent(ownership.concurrencyGroup?.trim() || "default")}`
   return {
     concurrencyGroup,
-    ...(ownership.concurrencyKey ? { concurrencyKey: `${concurrencyGroup}:${ownership.concurrencyKey}` } : {}),
+    ...(ownership.concurrencyKey ? { concurrencyKey: `${concurrencyGroup}:${encodeURIComponent(ownership.concurrencyKey)}` } : {}),
     concurrencyLimit: ownership.concurrencyLimit,
     deliveryId,
     enqueuedAt,

@@ -5334,8 +5334,8 @@ describe("server helpers", () => {
         delivery: { finishEffects: () => undefined },
         input: { prompt: deliveryId },
         webhook: {
-          concurrencyGroup: "reviews",
-          concurrencyKey: `pr-${number}`,
+          concurrencyGroup: "reviews:priority",
+          concurrencyKey: `pr:${number}`,
           concurrencyLimit: 2,
           deliveryId,
         },
@@ -5377,10 +5377,10 @@ describe("server helpers", () => {
       expect(enqueue).toHaveBeenCalledTimes(4)
       expect(enqueue.mock.calls.every(([delivery]) => delivery.invocation === undefined)).toBe(true)
       expect(enqueue.mock.calls.map(([delivery]) => delivery.concurrencyKey)).toEqual([
-        "review:reviews:pr-1",
-        "review:reviews:pr-2",
-        "review:reviews:pr-3",
-        "review:reviews:pr-4",
+        "review:reviews%3Apriority:pr%3A1",
+        "review:reviews%3Apriority:pr%3A2",
+        "review:reviews%3Apriority:pr%3A3",
+        "review:reviews%3Apriority:pr%3A4",
       ])
       await expect(Promise.all(responses.map(response => response.json()))).resolves.toEqual([
         { accepted: true, duplicate: false, ok: true, queued: true },
