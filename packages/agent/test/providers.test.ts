@@ -5567,7 +5567,7 @@ describe("server helpers", () => {
               invoke: (_context, input) => {
                 const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
                 return {
-                  input: { context: { deliveryId }, prompt: deliveryId },
+                  input: { prompt: deliveryId },
                   run: { runId: deliveryId },
                   webhook: {
                     busy: "steer",
@@ -5629,10 +5629,7 @@ describe("server helpers", () => {
       await expect(steered.json()).resolves.toEqual({ accepted: true, ok: true, steered: true })
       expect(waitUntilTasks).toHaveLength(waitUntilCount + 1)
       expect(waitUntilTasks.at(-1)).toBeInstanceOf(Promise)
-      expect(steeredInputs).toEqual([expect.objectContaining({
-        context: expect.objectContaining({ deliveryId: "delivery-2" }),
-        prompt: "delivery-2",
-      })])
+      expect(steeredInputs).toEqual([expect.objectContaining({ prompt: "delivery-2" })])
 
       const duplicate = await handler(request("delivery-2"), "github", options)
       await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, steered: true })

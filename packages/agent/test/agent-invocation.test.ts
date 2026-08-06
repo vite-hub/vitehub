@@ -82,9 +82,9 @@ describe("Agent Invocation controllers", () => {
 
     await session.doPromptTurn()
     expect(controller.support.steer).toBe(true)
-    await expect(controller.sendInput({ context: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({
-      outcome: "accepted",
-    })
+    await expect(controller.sendInput({ context: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
+    await expect(controller.sendInput({ options: { delivery: "kept" }, prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "unsupported" })
+    await expect(controller.sendInput({ prompt: "follow up" }, { mode: "steer" })).resolves.toMatchObject({ outcome: "accepted" })
     expect(firstSubmit).toHaveBeenCalledWith("follow up")
     const userMessage = { id: "user", parts: [{ text: "message input", type: "text" as const }], role: "user" as const }
     const assistantMessage = { id: "assistant", parts: [{ text: "ignored", type: "text" as const }], role: "assistant" as const }
