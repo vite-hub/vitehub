@@ -696,6 +696,7 @@ function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Reque
 
 async function steerQueuedWebhookDelivery(
   state: AgentWebhookQueueStateAdapter,
+  activeInvocationScope: object,
   delivery: AgentWebhookQueueDelivery,
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
@@ -728,7 +729,8 @@ async function steerQueuedWebhookDelivery(
     if (claimed) {
       return duplicateResponse(claimed)
     }
-    const active = activeAgentInvocation(delivery.concurrencyKey, state)
+    const active = activeAgentInvocation(delivery.concurrencyKey, activeInvocationScope)
+      ?? activeAgentInvocation(delivery.concurrencyKey)
     if (active) {
       const { controller } = active
       const sendLock = await state.acquireLock(
@@ -913,6 +915,7 @@ function startWebhookQueueHeartbeat(
 async function executeQueuedWebhookDelivery(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   state: AgentWebhookQueueStateAdapter,
+  activeInvocationScope: object,
   delivery: AgentWebhookQueueLease,
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
@@ -982,7 +985,7 @@ async function executeQueuedWebhookDelivery(
           return output
         })
         const unregister = delivery.concurrencyKey
-          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller, settlement, state)
+          ? registerActiveAgentInvocation(delivery.concurrencyKey, controller, settlement, activeInvocationScope)
           : () => undefined
         const unregisterOnOwnershipLoss = () => unregister()
         if (ownershipAbort.signal.aborted) unregisterOnOwnershipLoss()
@@ -3505,6 +3508,7 @@ export function createChannelWebhookRouteHandler(
   const retryTimers = new Map<string, { at: number, resolve: () => void, timer: ReturnType<typeof setTimeout> }>()
   const activeDeliveries = new Map<Promise<number | undefined>, { controller: AbortController, scope: string }>()
   const inFlightDrains = new Set<Promise<void>>()
+  const activeInvocationScope = {}
   let queueStopped = false
   let drainQueue: (scope: string) => Promise<void>
 
@@ -3551,7 +3555,7 @@ export function createChannelWebhookRouteHandler(
           break
         }
         const controller = new AbortController()
-        const task = executeQueuedWebhookDelivery(agent, queue.state, delivery, queue.options, controller.signal)
+        const task = executeQueuedWebhookDelivery(agent, queue.state, activeInvocationScope, delivery, queue.options, controller.signal)
         activeDeliveries.set(task, { controller, scope })
         waitUntil?.(task)
         void task.then((retryAt) => {
@@ -3689,7 +3693,7 @@ export function createChannelWebhookRouteHandler(
             )
             if (invocation.webhook.busy === "steer") {
               const webhookQueueState = webhookState.state
-              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, delivery, invocation.input, waitUntil, async (reserved) => {
+              const outcome = await steerQueuedWebhookDelivery(webhookQueueState, activeInvocationScope, delivery, invocation.input, waitUntil, async (reserved) => {
                 if (reserved) return Response.json({ accepted: true, duplicate: false, ok: true, queued: true })
                 const queued = await webhookQueueState.enqueueWebhookDelivery(delivery)
                 return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })

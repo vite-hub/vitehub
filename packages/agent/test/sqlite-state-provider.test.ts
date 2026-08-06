@@ -128,7 +128,12 @@ describe("SQLite Agent State Provider", () => {
     let busyCleanup = false
     let busyEnqueue = true
     let busyRetry = true
+    let busySteering = true
     const execute = vi.fn(async (statement: string, args?: unknown[]) => {
+      if (busySteering && statement.includes("INSERT OR IGNORE") && statement.includes("'steering'")) {
+        busySteering = false
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
+      }
       if (busyEnqueue && statement.includes("INSERT OR IGNORE INTO test_agent_state_webhook_queue")) {
         busyEnqueue = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
@@ -173,6 +178,8 @@ describe("SQLite Agent State Provider", () => {
     await expect(contended.retryWebhookDelivery(retryLease!.scope, retryLease!.deliveryId, retryLease!.leaseToken, Date.now())).resolves.toBe(true)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("SET status = 'queued'"))).toHaveLength(2)
     expect(execute.mock.calls.filter(([statement]) => String(statement).includes("DELETE FROM test_agent_state_locks"))).toHaveLength(7)
+    await expect(contended.claimWebhookSteering(webhookDelivery("steering-busy"), "steer-token", Date.now() + 1_000)).resolves.toBe(true)
+    expect(execute.mock.calls.filter(([statement]) => String(statement).includes("INSERT OR IGNORE") && String(statement).includes("'steering'"))).toHaveLength(2)
     client.close()
   })
 

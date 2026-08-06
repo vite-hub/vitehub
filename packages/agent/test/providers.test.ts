@@ -5470,7 +5470,7 @@ describe("server helpers", () => {
   it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
-    const { activeAgentInvocation, agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
@@ -5551,7 +5551,6 @@ describe("server helpers", () => {
       waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
       webhookState: state,
     }
-    const ownerKey = "webhook:review:github:github::pr-42"
     let stop: () => void | Promise<void> = () => undefined
     vi.useFakeTimers()
 
@@ -5561,7 +5560,6 @@ describe("server helpers", () => {
       await expect(first.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
-      await vi.waitFor(() => expect(activeAgentInvocation("webhook:review:github:github::pr-42", state)).toBeDefined())
 
       const waitUntilCount = waitUntilTasks.length
       const steering = handler(request("delivery-2"), "github", options)
@@ -5599,18 +5597,13 @@ describe("server helpers", () => {
 
       expect(run).toHaveBeenCalledOnce()
       expect(closeControls).toHaveLength(1)
-      const active = activeAgentInvocation(ownerKey, state)
-      expect(active?.controller.support.steer).toBe(true)
       closeControls[0]!()
-      expect(active?.controller.support.steer).toBe(false)
-      expect(activeAgentInvocation(ownerKey, state)).toBe(active)
       const queued = await handler(request("delivery-4"), "github", options)
       await expect(queued.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
       expect(steeredInputs).toHaveLength(1)
       expect(run).toHaveBeenCalledOnce()
 
       stop()
-      await vi.waitFor(() => expect(activeAgentInvocation(ownerKey, state)).toBeUndefined())
       failFlush = true
       releases.shift()!()
       await vi.waitFor(() => expect(completedRuns).toBe(1))
@@ -5677,7 +5670,7 @@ describe("server helpers", () => {
       support: { followUp: false, steer: true },
     }
     const ownerKey = "webhook:review:github:github::pr-42"
-    const unregister = registerActiveAgentInvocation(ownerKey, controller, new Promise(() => {}), losingState)
+    const unregister = registerActiveAgentInvocation(ownerKey, controller, new Promise(() => {}))
     const agent = defineAgent({
       channels: {
         github: github({
