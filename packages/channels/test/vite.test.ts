@@ -45,7 +45,7 @@ describe("hubChannels", () => {
     const externals = (result.nitro as { externals: { inline: string[], trace: boolean } }).externals
     const registryFile = alias["#vitehub/channels/registry"]!
 
-    expect(externals).toEqual({ inline: ["existing-package", "@vite-hub/channels"], trace: false })
+    expect(externals).toEqual({ inline: ["existing-package", "vite-hub", "@vite-hub/channels"], trace: false })
     await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(definition))
 
     await resolvePlugin(plugin, root)

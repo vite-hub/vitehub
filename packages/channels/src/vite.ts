@@ -49,7 +49,7 @@ async function configureNitroChannels(
   const existingInline = Array.isArray(externals.inline) ? externals.inline : []
   const inline = externals.inline === true
     ? true
-    : existingInline.includes("@vite-hub/channels") ? existingInline : [...existingInline, "@vite-hub/channels"]
+    : [...new Set([...existingInline, "vite-hub", "@vite-hub/channels"])]
   return {
     ...nitro,
     alias: {
