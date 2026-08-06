@@ -141,3 +141,5 @@ export default defineEventHandler(() => {
 ```
 
 ::
+
+That is the complete path: configure ViteHub, define the primitive when it needs a name or schema, and call its Runtime Helper from server code. Your application keeps the same API while ViteHub connects it to the current development or deployment host.
