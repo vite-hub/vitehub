@@ -51,7 +51,7 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   background: var(--ui-bg-muted);
   color: var(--ui-text-muted);
   font-size: 0.75rem;
-  font-weight: 550;
+  font-weight: 400;
   line-height: 1rem;
   opacity: 0.68;
   text-align: center;
