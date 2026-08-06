@@ -2660,7 +2660,7 @@ describe("server helpers", () => {
     }))
   })
 
-  it("returns a validation error for malformed AI SDK chat requests", async () => {
+  it("validates the standard AI SDK chat request envelope", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -2669,15 +2669,82 @@ describe("server helpers", () => {
       driver: { run: () => "unused" },
     }) as never)
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify({ text: "hello" }),
-      method: "POST",
-    }))
+    const invalidBodies = [
+      [[], "Agent chat payload must be a JSON object."],
+      [{ text: "hello" }, "Agent chat payload requires a messages array."],
+      [{ messages: [] }, "Agent chat payload requires at least one message."],
+      [{ messages: [null] }, "Agent chat payload message 1 must be an object."],
+      [{ messages: [{ role: "system" }] }, 'Agent chat payload message 1 role must be "user" or "assistant".'],
+      [{ id: 1, messages: [{ role: "user" }] }, "id must be a string when provided."],
+      [{ messageId: 1, messages: [{ role: "user" }] }, "messageId must be a string when provided."],
+      [{ messages: [{ role: "user" }], trigger: 1 }, "trigger must be a string when provided."],
+    ] as const
 
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({
-      error: "Agent chat payload requires a messages array.",
+    for (const [body, error] of invalidBodies) {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify(body),
+        method: "POST",
+      }))
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toMatchObject({ error })
+    }
+  })
+
+  it("serves explicit HTTP chat routes and preserves request extensions for admission", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const message = {
+      custom: { source: "portal" },
+      id: "user-1",
+      metadata: { customer: "acme" },
+      parts: [{ text: "hello", type: "text" }],
+      role: "user",
+    }
+    const authenticate = vi.fn(({ body, rawBody }) => {
+      expect(body).toMatchObject({ extension: { requestId: "request-1" }, messages: [message] })
+      expect(rawBody).toContain('"requestId":"request-1"')
+      return true
     })
+    const validate = vi.fn((input: unknown) => {
+      expect(input).toMatchObject({ extension: { requestId: "request-1" }, messages: [message] })
+      return { value: input as { messages: unknown[] } }
+    })
+    const run = vi.fn(({ messages, run }) => `${run.messageId} ${run.threadId} ${JSON.stringify(messages)}`)
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: http({
+          route: {
+            admission: {
+              authenticate,
+              body: { "~standard": { validate } },
+            },
+          },
+        }),
+      },
+      driver: { run },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        extension: { requestId: "request-1" },
+        id: "portal-thread",
+        messageId: "request-message",
+        messages: [message],
+        trigger: "submit-message",
+      }),
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain("request-message portal:portal-thread")
+    expect(authenticate).toHaveBeenCalledOnce()
+    expect(validate).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({ id: "user-1", metadata: { customer: "acme" }, role: "user" })],
+      run: expect.objectContaining({ messageId: "request-message", origin: "http", threadId: "portal:portal-thread" }),
+    }))
   })
 
   it("rejects client-provided protected input on generated AI SDK chat routes", async () => {

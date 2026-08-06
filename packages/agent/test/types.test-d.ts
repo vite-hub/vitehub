@@ -1218,6 +1218,24 @@ describe("agent public types", () => {
         }),
         portal: http({
           adapter: () => ({}) as never,
+          route: {
+            admission: {
+              body: {
+                "~standard": {
+                  validate: (input: unknown) => ({
+                    value: input as { messages: unknown[], tenant: string },
+                  }),
+                },
+              },
+              authenticate() {
+                return { subject: "customer:acme" }
+              },
+              context({ auth, body }) {
+                expectTypeOf(auth.subject).toEqualTypeOf<string>()
+                expectTypeOf(body.tenant).toEqualTypeOf<string>()
+              },
+            },
+          },
           webhooks: { path: "/api/support/chat" },
         }),
         teams: teams({
