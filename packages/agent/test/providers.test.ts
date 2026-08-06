@@ -6118,7 +6118,7 @@ describe("server helpers", () => {
     finally {
       releaseRun()
       await stop()
-      await vi.runAllTimersAsync()
+      vi.clearAllTimers()
       vi.useRealTimers()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
