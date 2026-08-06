@@ -39,7 +39,7 @@ Most ViteHub primitives follow the same pattern:
     ```
   :::
 
-  :::tabs-item{label="Nitro" icon="i-simple-icons-unjs"}
+  :::tabs-item{label="Nitro" icon="i-unjs-nitro"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
     import { vitehub } from 'vite-hub'
