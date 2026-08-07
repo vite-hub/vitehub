@@ -148,5 +148,3 @@ packageExtensions:
   "@nuxt/content@3":
     dependencies:
       h3: ^1.15.11
-patchedDependencies:
-  '@ai-sdk/harness-codex@1.0.41': patches/@ai-sdk__harness-codex@1.0.41.patch
