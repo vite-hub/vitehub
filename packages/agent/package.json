@@ -131,6 +131,7 @@
     "@ai-sdk/harness-codex": "catalog:ai",
     "@chat-adapter/telegram": "catalog:chat",
     "@libsql/client": "catalog:database",
+    "@openai/codex-sdk": "0.144.5",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
     "@vercel/nft": "catalog:vercel",
@@ -143,7 +144,8 @@
     "chat": "catalog:chat",
     "comark": "catalog:ui",
     "esbuild": "catalog:esbuild-v27",
-    "effect": "catalog:effect"
+    "effect": "catalog:effect",
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
