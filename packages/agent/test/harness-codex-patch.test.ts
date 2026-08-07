@@ -93,10 +93,17 @@ describe("ViteHub Codex harness", () => {
   it("loads bridge assets after the adapter is bundled into another directory", async () => {
     const fixture = await mkdtemp(join(tmpdir(), "vitehub-codex-bundle-"))
     const output = join(fixture, "server", "_libs", "adapter.mjs")
+    const sourceHarness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+    const sourceBootstrap = await sourceHarness.getBootstrap!()
+    const embeddedAssets = Object.fromEntries(sourceBootstrap.files.map(file => [
+      file.path.endsWith("/bridge.mjs") ? "index.mjs" : file.path.split("/").at(-1)!,
+      file.content,
+    ]))
 
     try {
       await build({
         bundle: true,
+        define: { __VITEHUB_CODEX_BRIDGE_ASSETS__: JSON.stringify(embeddedAssets) },
         format: "esm",
         outfile: output,
         platform: "node",
