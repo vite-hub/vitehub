@@ -4,7 +4,6 @@ import type { Box, BoxDefinition, BoxRequirement } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
-import type { MountedExtension } from "eve/extension"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -874,10 +873,13 @@ export type AgentCapabilitiesList<
   Name extends WorkspaceName = WorkspaceName,
 > = readonly AgentCapabilityInput<TRuntimeConfig, Name>[]
 
+/** Opaque mounted extension value recognized and lowered by the Vite plugin. */
+export type AgentMountedExtension = object
+
 export type AgentStaticCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | MountedExtension)[]
+> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentMountedExtension)[]
 
 export interface AgentCapabilitiesResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

@@ -178,7 +178,6 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
-    "eve": "^0.31.0",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling"
   },
@@ -205,9 +204,6 @@
       "optional": true
     },
     "@vite-hub/workflow": {
-      "optional": true
-    },
-    "eve": {
       "optional": true
     },
     "askweb": {
