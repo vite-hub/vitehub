@@ -137,7 +137,6 @@
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
-    "@vercel/connect": "^0.6.1",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -148,8 +147,7 @@
     "chat": "catalog:chat",
     "comark": "catalog:ui",
     "esbuild": "catalog:esbuild-v27",
-    "effect": "catalog:effect",
-    "eve": "^0.31.0"
+    "effect": "catalog:effect"
   },
   "devDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
@@ -163,6 +161,7 @@
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
     "evalite": "catalog:ai",
+    "eve": "^0.31.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -179,6 +178,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
+    "eve": "^0.31.0",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling"
   },
@@ -205,6 +205,9 @@
       "optional": true
     },
     "@vite-hub/workflow": {
+      "optional": true
+    },
+    "eve": {
       "optional": true
     },
     "askweb": {
