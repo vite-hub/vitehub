@@ -958,6 +958,7 @@ export async function transformEveExtensionCapabilities(
 
   const imports = new Map<string, { declaration: PositionedNode, source: string }>()
   const staticArrays = new Map<string, PositionedNode>()
+  const staticObjects = new Map<string, PositionedNode>()
   const references = new Map<string, number>()
   const functionRanges: Array<{ end: number, start: number }> = []
   for (const statement of Array.isArray(program.body) ? program.body : []) {
@@ -971,8 +972,9 @@ export async function transformEveExtensionCapabilities(
       const identifier = declaration.id
       const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
       if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
-      if (!isPositionedNode(initializer) || initializer.type !== "ArrayExpression") continue
-      staticArrays.set(identifier.name, initializer)
+      if (!isPositionedNode(initializer)) continue
+      if (initializer.type === "ArrayExpression") staticArrays.set(identifier.name, initializer)
+      if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
     }
   }
   visitNodes(program, (node, parent) => {
@@ -991,8 +993,9 @@ export async function transformEveExtensionCapabilities(
     const source = node.source
     const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
     if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") return
-    if (specifiers.length !== 1 || !isPositionedNode(specifiers[0]) || specifiers[0].type !== "ImportDefaultSpecifier") return
-    const local = specifiers[0].local
+    const defaultSpecifier = specifiers.find(specifier => isPositionedNode(specifier) && specifier.type === "ImportDefaultSpecifier")
+    if (!isPositionedNode(defaultSpecifier)) return
+    const local = defaultSpecifier.local
     if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") return
     imports.set(local.name, { declaration: node, source: source.value })
   })
@@ -1038,8 +1041,15 @@ export async function transformEveExtensionCapabilities(
         )
       )
     if (!isDefineAgentCall) return
-    const options = Array.isArray(node.arguments) ? node.arguments[0] : undefined
-    if (!isPositionedNode(options) || options.type !== "ObjectExpression") return
+    const rawOptions = Array.isArray(node.arguments) ? node.arguments[0] : undefined
+    if (!isPositionedNode(rawOptions)) return
+    const unwrappedOptions = unwrapTypeScriptExpression(rawOptions)
+    const options = unwrappedOptions.type === "ObjectExpression"
+      ? unwrappedOptions
+      : unwrappedOptions.type === "Identifier" && typeof unwrappedOptions.name === "string"
+        ? staticObjects.get(unwrappedOptions.name)
+        : undefined
+    if (!options) return
     const capabilities = (Array.isArray(options.properties) ? options.properties : []).find(property =>
       isPositionedNode(property)
       && property.type === "Property"
@@ -1099,6 +1109,8 @@ export async function transformEveExtensionCapabilities(
       value: [
         ...(extension === firstImport ? [`import { eveExtensionCapability as ${helper} } from "@vite-hub/agent/eve"`] : []),
         ...((references.get(extension.local) ?? 0) === 2
+          && Array.isArray(extension.declaration.specifiers)
+          && extension.declaration.specifiers.length === 1
           ? []
           : [code.slice(extension.declaration.start, extension.declaration.end)]),
       ].join("\n"),
