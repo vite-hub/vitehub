@@ -962,7 +962,10 @@ export async function transformEveExtensionCapabilities(
       && parent.computed !== true
       && parent.shorthand !== true
       && parent.key === node
-    if (node.type === "Identifier" && typeof node.name === "string" && !nonComputedPropertyKey) {
+    const nonComputedMemberProperty = parent?.type === "MemberExpression"
+      && parent.computed !== true
+      && parent.property === node
+    if (node.type === "Identifier" && typeof node.name === "string" && !nonComputedPropertyKey && !nonComputedMemberProperty) {
       references.set(node.name, (references.get(node.name) ?? 0) + 1)
     }
     if (node.type.includes("Function")) functionRanges.push({ end: node.end, start: node.start })

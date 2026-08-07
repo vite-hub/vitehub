@@ -239,6 +239,36 @@ describe("chat message trigger input", () => {
     ])
   })
 
+  it("retains approval decisions outside the model history window", () => {
+    const result = createChatMessageTriggerInput({
+      triggerHistory: { maxMessages: 1, source: "thread" },
+    }, {
+      messages: [
+        {
+          id: "approved-tool",
+          parts: [{
+            approval: { approved: true, id: "approval-1" },
+            input: { command: "write" },
+            state: "output-available",
+            toolCallId: "tool-1",
+            toolName: "shell",
+            type: "dynamic-tool",
+          }],
+          role: "assistant",
+        },
+        { id: "latest", parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+    })
+
+    expect(result.input.messages).toHaveLength(2)
+    expect(result.input.messages?.[0]?.parts).toEqual([
+      { id: "tool-1", input: { command: "write" }, name: "shell", state: "proposed", type: "tool-call" },
+      { id: "approval-1", input: { command: "write" }, name: "shell", toolCallId: "tool-1", type: "approval-request" },
+      { approved: true, id: "approval-1", type: "approval-decision" },
+    ])
+    expect(result.input.messages?.[1]?.id).toBe("latest")
+  })
+
   it("preserves UI data parts in follow-up history", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [{

@@ -39,7 +39,6 @@ interface ToolExecutionOptions {
 }
 
 let extensionLoad = Promise.resolve()
-const approvedToolsBySession = new Map<string, Set<string>>()
 
 function packageNamespace(packageName: string): string {
   return packageName
@@ -118,7 +117,6 @@ function toViteHubTool(
   context: AgentCapabilityContext,
 ): AgentToolDefinition & Record<string, unknown> {
   const sessionId = eveSessionId(context)
-  const approvalSessionId = `${context.actor.id}\0${sessionId}`
   const execute = tool.execute
   const approval = tool.approval
   return {
@@ -149,15 +147,8 @@ function toViteHubTool(
       ? {
           async needsApproval(input: unknown, options: ToolExecutionOptions = {}) {
             const callId = options.toolCallId ?? `${name}-${Date.now()}`
-            const messageApprovals = approvedToolNames(options.messages ?? [])
-            let sessionApprovals = approvedToolsBySession.get(approvalSessionId)
-            if (messageApprovals.size) {
-              sessionApprovals ??= new Set()
-              for (const approvedTool of messageApprovals) sessionApprovals.add(approvedTool)
-              approvedToolsBySession.set(approvalSessionId, sessionApprovals)
-            }
             const status = await approval({
-              approvedTools: sessionApprovals ?? messageApprovals,
+              approvedTools: approvedToolNames(options.messages ?? []),
               callId,
               getSandbox: async () => unsupportedEveRuntimeFeature("approval ctx.getSandbox()"),
               getSkill: () => unsupportedEveRuntimeFeature("approval ctx.getSkill()"),
