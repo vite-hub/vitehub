@@ -71,7 +71,8 @@ const codexBridgeDefaultNodeModules = packageNodeModules([
 ]) ?? ""
 const codexBridgeDependencyMissing = codexBridgeDependencyMarkers.map(marker => `[ ! -r \"$codex_bridge_node_modules/${marker}\" ]`).join(" || ")
 const codexBridgePrepareDependenciesCommand = [
-  `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-${codexBridgeDefaultNodeModules}}"`,
+  `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-}"`,
+  `if [ -z "$codex_bridge_node_modules" ]; then codex_bridge_node_modules=${shellQuote(codexBridgeDefaultNodeModules)}; fi`,
   `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
   `elif ${codexBridgeDependencyMissing}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
@@ -82,6 +83,10 @@ const codexBridgePrepareDependenciesCommand = [
   `else ln -s "$codex_bridge_node_modules" "${codexBridgeNodeModules}"`,
   "fi",
 ].join("; ")
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
 
 function packageNodeModules(entries: string[]): string | undefined {
   for (const entry of entries) {

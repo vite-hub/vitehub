@@ -16,7 +16,7 @@ const exec = promisify(execFile)
 const codexBridgeInstallCommand = "if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; then :; else pnpm --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; fi"
 
 function withoutPreinstalledDependencies(command: string, path: string): string {
-  return command.replace(/(?<=\$\{VITEHUB_CODEX_BRIDGE_NODE_MODULES:-)[^}]*/, path)
+  return command.replace(/(?<=then codex_bridge_node_modules=)'(?:[^']|'\\'')*'/, `'${path.replace(/'/g, "'\\''")}'`)
 }
 
 describe("ViteHub Codex harness", () => {
@@ -28,7 +28,7 @@ describe("ViteHub Codex harness", () => {
 
     expect(bootstrap.bootstrapDir).toBe("/tmp/harness/codex")
     expect(bootstrap.commands[1]!.command).toContain(codexBridgeInstallCommand)
-    const defaultNodeModules = bootstrap.commands[1]!.command.match(/^codex_bridge_node_modules="\$\{VITEHUB_CODEX_BRIDGE_NODE_MODULES:-([^}]+)\}"/)?.[1]
+    const defaultNodeModules = bootstrap.commands[1]!.command.match(/then codex_bridge_node_modules='([^']+)'/)?.[1]
     expect(defaultNodeModules).toBeDefined()
     await expect(Promise.all([
       readFile(join(defaultNodeModules!, "@openai/codex-sdk/package.json")),
