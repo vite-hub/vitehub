@@ -77,6 +77,10 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/workflow/runtime/vercel-vite",
 ])
 
+const bundledFrameworkForwarders = new Map([
+  ["./_internal/database/runtime/state", "@vite-hub/internal/runtime/cloudflare-env"],
+])
+
 function sourceForwarderTargets(source: string): string[] | undefined {
   const lines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
   if (!lines.length) return
@@ -156,6 +160,11 @@ describe("framework package contract", () => {
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
+      const bundledTarget = bundledFrameworkForwarders.get(subpath)
+      if (bundledTarget) {
+        expect([...new Set(targets)], subpath).toEqual([bundledTarget])
+        continue
+      }
       const ownerPackage = ownerSpecifier.split("/").slice(0, 2).join("/")
       expect([...new Set(targets)], subpath).toEqual([ownerSpecifier])
       expect(manifest.dependencies[ownerPackage], subpath).toBeDefined()
