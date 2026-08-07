@@ -90,7 +90,7 @@ const codexBridgePrepareDependenciesCommand = [
   ...codexBridgePackageRootVariables,
   `if [ -z "$codex_bridge_node_modules" ]; then codex_bridge_node_modules=${shellQuote(codexBridgeDefaultNodeModules)}; fi`,
   `if [ -z "$codex_bridge_node_modules" ] && ${codexBridgePackageRootsReadable}; then ${codexBridgeComposePackageTreeCommand}; codex_bridge_node_modules=${shellQuote(codexBridgeComposedNodeModules)}; fi`,
-  `if [ -z "$codex_bridge_node_modules" ]; then codex_bridge_node_modules="${codexBridgeNodeModules}"; if [ ! -d "$codex_bridge_node_modules" ] || [ -L "$codex_bridge_node_modules" ] || ! ${codexBridgeDependencyValidation}; then if [ -L "$codex_bridge_node_modules" ]; then rm -f "$codex_bridge_node_modules"; fi; ${codexBridgeInstallCommand} || exit $?; fi`,
+  `if [ -z "$codex_bridge_node_modules" ]; then codex_bridge_node_modules="${codexBridgeNodeModules}"; if [ ! -d "$codex_bridge_node_modules" ] || ! ${codexBridgeDependencyValidation}; then if [ -L "$codex_bridge_node_modules" ]; then rm -f "$codex_bridge_node_modules"; fi; ${codexBridgeInstallCommand} || exit $?; fi`,
   `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
   `elif ! ${codexBridgeDependencyValidation}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the exact Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   "fi",

@@ -460,6 +460,45 @@ describe("ViteHub Codex harness", () => {
     }
   })
 
+  it("reuses a valid managed bridge dependency symlink without an installer", async () => {
+    const fixture = await mkdtemp(join(import.meta.dirname, ".codex-installed-symlink-"))
+    const bootstrapDir = join(fixture, "bootstrap")
+    const dependencies = join(fixture, "dependencies")
+    const bin = join(fixture, "bin")
+    const installerMarker = join(fixture, "installer.txt")
+
+    try {
+      await Promise.all([
+        mkdir(join(dependencies, "@openai", "codex-sdk"), { recursive: true }),
+        mkdir(join(dependencies, "ws"), { recursive: true }),
+        mkdir(bootstrapDir),
+        mkdir(bin),
+      ])
+      await writeFile(join(dependencies, "@openai", "codex-sdk", "package.json"), JSON.stringify({ version: "0.144.5" }))
+      await writeFile(join(dependencies, "ws", "package.json"), JSON.stringify({ version: "8.21.0" }))
+      await symlink(dependencies, join(bootstrapDir, "node_modules"))
+      await writeFile(join(bin, "corepack"), "#!/bin/sh\nprintf corepack > \"$INSTALLER_MARKER\"\nexit 1\n")
+      await writeFile(join(bin, "pnpm"), "#!/bin/sh\nprintf pnpm > \"$INSTALLER_MARKER\"\nexit 1\n")
+      await Promise.all([chmod(join(bin, "corepack"), 0o755), chmod(join(bin, "pnpm"), 0o755)])
+
+      const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+      const bootstrap = await harness.getBootstrap!()
+      const command = withPackageRoot(withPackageRoot(
+        withoutPreinstalledDependencies(bootstrap.commands[1]!.command, ""),
+        "@openai/codex-sdk",
+        "",
+      ), "ws", "").replaceAll("/tmp/harness/codex", bootstrapDir)
+
+      await exec("/bin/sh", ["-c", command], { env: { INSTALLER_MARKER: installerMarker, PATH: [bin, process.env.PATH].filter(Boolean).join(":") } })
+
+      await expect(readlink(join(bootstrapDir, "node_modules"))).resolves.toBe(dependencies)
+      await expect(readFile(installerMarker, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(fixture, { force: true, recursive: true })
+    }
+  })
+
   it("refreshes a stale installer-managed bridge dependency directory", async () => {
     const fixture = await mkdtemp(join(import.meta.dirname, ".codex-stale-installed-preinstalled-"))
     const bootstrapDir = join(fixture, "bootstrap")
