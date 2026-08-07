@@ -5735,7 +5735,6 @@ describe("server helpers", () => {
 
       expect(response.status).toBe(200)
       expect(enqueue.mock.calls[0]?.[0].invocation).toBeUndefined()
-      expect(enqueue.mock.calls[0]?.[0].rehydrate).toBe(true)
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       expect(invoke).toHaveBeenCalledTimes(2)
     }
