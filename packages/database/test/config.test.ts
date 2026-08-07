@@ -151,6 +151,92 @@ describe("resolveDBViteConfig", () => {
     expect(resolved?.generatedDrizzleConfigFilesByDatabase.default).toBe(join(rootDir, ".vitehub/database/drizzle/default.config.ts"))
     expect(resolved?.generatedSchemaFilesByDatabase.default).toBe(join(rootDir, ".vitehub/database/schema/default.ts"))
     expect(resolved?.generatedDrizzleConfigFile).toBe(join(rootDir, ".vitehub/database/drizzle.config.ts"))
+    expect(resolved?.definitionCloudflareConfigured).toEqual({ default: false })
+  })
+
+  it("records dynamic Definition Cloudflare configuration that cannot be resolved statically", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "const cloudflare = { binding: 'APP_DB' }",
+      "export default defineDatabase({ cloudflare, schema: {} })",
+      "",
+    ].join("\n"))
+
+    const resolved = resolveDBViteConfig(undefined, rootDir)
+
+    expect(resolved?.databases.default.cloudflare).toBeUndefined()
+    expect(resolved?.definitionCloudflareConfigured).toEqual({ default: true })
+  })
+
+  it("does not treat an empty parsed Definition object as unresolvable Cloudflare configuration", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({})",
+      "",
+    ].join("\n"))
+
+    expect(resolveDBViteConfig(undefined, rootDir)?.definitionCloudflareConfigured).toEqual({ default: false })
+  })
+
+  it("treats a literal undefined Definition Cloudflare value as omitted", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ cloudflare: undefined, schema: {} })",
+      "",
+    ].join("\n"))
+
+    expect(resolveDBViteConfig(undefined, rootDir)?.definitionCloudflareConfigured).toEqual({ default: false })
+  })
+
+  it("recognizes a static computed Definition Cloudflare property", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "const cloudflare = { binding: 'APP_DB' }",
+      "export default defineDatabase({ ['cloudflare']: cloudflare, schema: {} })",
+      "",
+    ].join("\n"))
+
+    expect(resolveDBViteConfig(undefined, rootDir)?.definitionCloudflareConfigured).toEqual({ default: true })
+  })
+
+  it("recognizes a configured Definition Cloudflare property after an undefined one", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "const cloudflare = { binding: 'APP_DB' }",
+      "export default defineDatabase({ cloudflare: undefined, cloudflare, schema: {} })",
+      "",
+    ].join("\n"))
+
+    expect(resolveDBViteConfig(undefined, rootDir)?.definitionCloudflareConfigured).toEqual({ default: true })
+  })
+
+  it("treats a final undefined Definition Cloudflare property as omitted", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "const cloudflare = { binding: 'APP_DB' }",
+      "export default defineDatabase({ cloudflare, cloudflare: undefined, schema: {} })",
+      "",
+    ].join("\n"))
+
+    expect(resolveDBViteConfig(undefined, rootDir)?.definitionCloudflareConfigured).toEqual({ default: false })
   })
 
   it("resolves named database defaults from definition locations", async () => {

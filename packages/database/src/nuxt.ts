@@ -87,7 +87,18 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     }
     installVitePlugin(viteConfig, { ...resolvedOptions, projectRoot: root })
 
-    const d1 = resolveDatabaseNuxtD1Options(resolvedOptions, nuxtOptions)
+    const serverDirs = nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined
+    const databaseConfig = resolvedOptions.driver === "d1"
+      ? resolveDBViteConfig(resolvedOptions, root, { serverDirs })
+      : undefined
+    const migrationsDir = databaseConfig && !databaseConfig.definitionCloudflareConfigured.default
+      ? databaseConfig.databases.default?.migrationsDir
+      : undefined
+    const d1 = resolveDatabaseNuxtD1Options(
+      resolvedOptions,
+      nuxtOptions,
+      migrationsDir ? resolve(root, migrationsDir) : undefined,
+    )
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
       hook("nitro:config", async (config) => {
@@ -99,7 +110,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             root,
             generatedRoot,
             resolvedOptions,
-            nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined,
+            serverDirs,
           )
         }
         if (!nuxtOptions.dev) {
@@ -238,6 +249,7 @@ function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOpti
 function resolveDatabaseNuxtD1Options(
   options: ResolvedDatabaseNuxtIntegrationOptions,
   nuxtOptions: NuxtLike["options"],
+  migrationsDir?: string,
 ): ResolvedDatabaseNuxtD1Options | undefined {
   if (options.driver !== "d1") return
 
@@ -246,6 +258,7 @@ function resolveDatabaseNuxtD1Options(
     database: "default",
     databaseId: options.databaseId,
     databaseName: options.databaseName,
+    migrationsDir,
     migrationsTable: options.migrationsTable,
     previewDatabaseId: options.previewDatabaseId,
   })
