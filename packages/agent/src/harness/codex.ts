@@ -68,12 +68,14 @@ const codexBridgeDefaultNodeModules = packageNodeModules([
   fileURLToPath(import.meta.url),
   fileURLToPath(import.meta.resolve("@openai/codex-sdk")),
   fileURLToPath(import.meta.resolve("ws")),
-])
+]) ?? ""
 const codexBridgeDependencyMissing = codexBridgeDependencyMarkers.map(marker => `[ ! -r \"$codex_bridge_node_modules/${marker}\" ]`).join(" || ")
 const codexBridgePrepareDependenciesCommand = [
   `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-${codexBridgeDefaultNodeModules}}"`,
-  `if [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1; fi`,
-  `if ${codexBridgeDependencyMissing}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"; fi`,
+  `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
+  `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
+  `elif ${codexBridgeDependencyMissing}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
+  "fi",
   `if [ "$codex_bridge_node_modules" = "${codexBridgeNodeModules}" ]; then :`,
   `elif [ -L "${codexBridgeNodeModules}" ]; then if [ "$(readlink "${codexBridgeNodeModules}")" != "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already links to a different dependency tree" >&2; exit 1; fi`,
   `elif [ -e "${codexBridgeNodeModules}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already exists and conflicts with ${codexBridgeNodeModulesEnv}" >&2; exit 1`,
@@ -81,7 +83,7 @@ const codexBridgePrepareDependenciesCommand = [
   "fi",
 ].join("; ")
 
-function packageNodeModules(entries: string[]): string {
+function packageNodeModules(entries: string[]): string | undefined {
   for (const entry of entries) {
     let directory = dirname(entry)
     while (true) {
@@ -98,7 +100,6 @@ function packageNodeModules(entries: string[]): string {
   }
   const workingDirectoryNodeModules = join(process.cwd(), "node_modules")
   if (codexBridgeDependencyMarkers.every(marker => existsSync(join(workingDirectoryNodeModules, marker)))) return workingDirectoryNodeModules
-  throw new Error("[vitehub] Could not resolve the Codex bridge dependency tree.")
 }
 
 function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {

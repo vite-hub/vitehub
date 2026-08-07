@@ -121,7 +121,7 @@ describe("ViteHub Codex harness", () => {
 
       const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
       const bootstrap = await harness.getBootstrap!()
-      const command = withoutPreinstalledDependencies(bootstrap.commands[1]!.command, join(fixture, "missing-node_modules"))
+      const command = withoutPreinstalledDependencies(bootstrap.commands[1]!.command, "")
       await exec("/bin/sh", ["-c", command], {
         cwd: fixture,
         env: { INSTALLER_MARKER: marker, PATH: bin },
