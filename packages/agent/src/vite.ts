@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { markdownTemplateMaterializationPath } from "@vite-hub/markdown-template/vite"
 
@@ -56,6 +56,7 @@ const optionalMessageAdapterRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
+const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp"]
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/harness",
   "@ai-sdk/harness/*",
@@ -618,6 +619,17 @@ function mergeCloudflareAgentStateNitroConfig(value: unknown, stateImport: strin
   installCloudflareAgentStateEntrypoint(nitro, { stateImport } as never)
   nitro.rollupConfig ||= {}
   nitro.rollupConfig.external = mergeCloudflareWorkersExternal(nitro.rollupConfig.external as RollupExternalOption | undefined)
+  return nitro
+}
+
+function mergeAgentNitroExternals(value: unknown): NitroConfig {
+  const nitro = cloneNitroConfig(value)
+  const externals = isRecord(nitro.externals) ? { ...nitro.externals } : {}
+  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
+  externals.inline = externals.inline === true
+    ? true
+    : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
+  nitro.externals = externals
   return nitro
 }
 
@@ -1876,6 +1888,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
       const generatedRoot = resolveViteHubGeneratedRoot(config)
+      const nitroContext = hasNitroConfigContext(config)
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
@@ -1913,10 +1926,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             getCloudflareStateImport(agent, frameworkOptions),
           )
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
-      const mergedNitro = mergeNitroPlugins(
+      const mergedNitro = (nitroContext ? mergeAgentNitroExternals : cloneNitroConfig)(mergeNitroPlugins(
         mergeNitroHandlers(nitro, nitroHandlers),
         installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : [],
-      )
+      ))
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
         ...(nitroHandlers.length
@@ -1924,7 +1937,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               build: mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals),
             }
           : {}),
-        ...(nitroHandlers.length || installCloudflareState
+        ...(nitroContext || nitroHandlers.length || installCloudflareState
           ? {
               nitro: mergedNitro,
             }
