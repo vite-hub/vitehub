@@ -13,6 +13,8 @@ import type {
 
 export type BrowserDownload = PlaywrightDownload
 
+export type BrowserEngine = "chromium" | "kitesurf"
+
 export interface BrowserFeatures {
   liveHandoff: boolean
 }
@@ -156,5 +158,6 @@ export type BrowserDefinitionRegistry = Record<
 
 export interface BrowserRuntimeConfig {
   binding: string
+  engine?: BrowserEngine
   provider?: "cloudflare"
 }

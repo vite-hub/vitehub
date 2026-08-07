@@ -1,7 +1,7 @@
 import { browserProviderError } from "../errors.ts"
 import { cloudflareBrowserTerminated } from "../internal/connections.ts"
 
-import type { BrowserProvider } from "../types.ts"
+import type { BrowserEngine, BrowserProvider } from "../types.ts"
 import type { CloudflareBrowserBindingConnection } from "../internal/connections.ts"
 
 interface CloudflareBrowserHandle {
@@ -20,6 +20,7 @@ export interface CloudflarePlaywrightDriver {
 export interface CloudflareBrowserOptions {
   binding?: string | unknown
   driver?: CloudflarePlaywrightDriver
+  engine?: BrowserEngine
   resolveBinding?: (name: string) => unknown | Promise<unknown>
 }
 
@@ -46,9 +47,10 @@ async function runtimeBinding(name: string): Promise<unknown> {
 
 export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): BrowserProvider<CloudflareBrowserBindingConnection> {
   const bindingOption = options.binding ?? "BROWSER"
+  const engine = options.engine ?? "kitesurf"
   return {
     features: {
-      liveHandoff: true,
+      liveHandoff: engine === "chromium",
     },
     isolation: "provider",
     name: "cloudflare",
@@ -58,6 +60,21 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
         : bindingOption
       if (!binding) {
         throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)
+      }
+      if (engine === "kitesurf") {
+        if (openOptions.idleTimeoutMs !== undefined) {
+          throw browserProviderError("cloudflare", "configure an idle timeout for Kitesurf")
+        }
+        return {
+          close() {},
+          connection: {
+            binding,
+            engine,
+            kind: "cloudflare-binding",
+          },
+          features: { liveHandoff: false },
+          id: crypto.randomUUID(),
+        }
       }
       const driver = options.driver || await loadDriver()
       let acquired: { sessionId: string }

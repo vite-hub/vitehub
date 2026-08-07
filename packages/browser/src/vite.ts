@@ -14,9 +14,11 @@ import {
 import { discoverBrowserDefinitions } from "./discovery.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
+import type { BrowserEngine } from "./types.ts"
 
 export interface BrowserModuleOptions {
   binding?: string
+  engine?: BrowserEngine
   remote?: boolean
 }
 
@@ -37,7 +39,11 @@ function resolveOptions(options: BrowserModuleOptions | false | undefined): Requ
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
     throw new TypeError("[vitehub:browser] Browser binding must be a valid Cloudflare binding name.")
   }
-  return { binding, remote: Boolean(options && options.remote) }
+  const engine = options ? options.engine ?? "kitesurf" : "kitesurf"
+  if (engine !== "chromium" && engine !== "kitesurf") {
+    throw new TypeError("[vitehub:browser] Browser engine must be chromium or kitesurf.")
+  }
+  return { binding, engine, remote: Boolean(options && options.remote) }
 }
 
 function browserBinding(options: Required<BrowserModuleOptions>) {
@@ -143,7 +149,11 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
 
   function runtimeContents() {
     return [
-      `export default ${JSON.stringify(enabled ? { binding: resolvedOptions.binding, provider: "cloudflare" } : {}, null, 2)}`,
+      `export default ${JSON.stringify(enabled ? {
+        binding: resolvedOptions.binding,
+        engine: resolvedOptions.engine,
+        provider: "cloudflare",
+      } : {}, null, 2)}`,
       "",
     ].join("\n")
   }

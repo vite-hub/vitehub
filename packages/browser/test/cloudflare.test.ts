@@ -4,6 +4,30 @@ import { cloudflareBrowserTerminated } from "../src/internal/connections.ts"
 import { cloudflareBrowser } from "../src/providers/cloudflare.ts"
 
 describe("cloudflareBrowser", () => {
+  it("opens Kitesurf without acquiring a persistent Browser Run session", async () => {
+    const binding = { fetch: vi.fn() }
+    const driver = {
+      acquire: vi.fn(),
+      connect: vi.fn(),
+    }
+    const provider = cloudflareBrowser({ binding, driver })
+
+    expect(provider.features.liveHandoff).toBe(false)
+    const session = await provider.open()
+
+    expect(session.connection).toMatchObject({ binding, engine: "kitesurf", kind: "cloudflare-binding" })
+    expect(session.connection.sessionId).toBeUndefined()
+    expect(session.features?.liveHandoff).toBe(false)
+    expect(driver.acquire).not.toHaveBeenCalled()
+    await session.close()
+  })
+
+  it("rejects idle timeouts that sessionless Kitesurf cannot honor", async () => {
+    const provider = cloudflareBrowser({ binding: { fetch: vi.fn() } })
+
+    await expect(provider.open({ idleTimeoutMs: 120_000 })).rejects.toThrow("configure an idle timeout for Kitesurf")
+  })
+
   it("acquires without attaching and terminates independently", async () => {
     const send = vi.fn()
     const detach = vi.fn()
@@ -16,7 +40,7 @@ describe("cloudflareBrowser", () => {
         newBrowserCDPSession: async () => ({ detach, send }),
       })),
     }
-    const provider = cloudflareBrowser({ binding, driver })
+    const provider = cloudflareBrowser({ binding, driver, engine: "chromium" })
 
     const session = await provider.open()
     expect(session.connection).toEqual({ binding, kind: "cloudflare-binding", sessionId: "cf-session" })
@@ -42,6 +66,7 @@ describe("cloudflareBrowser", () => {
     const provider = cloudflareBrowser({
       binding: "CUSTOM_BROWSER",
       driver,
+      engine: "chromium",
       resolveBinding: async name => name === "CUSTOM_BROWSER" ? binding : undefined,
     })
 
@@ -56,7 +81,7 @@ describe("cloudflareBrowser", () => {
       acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
       connect: vi.fn(),
     }
-    const session = await cloudflareBrowser({ binding, driver }).open()
+    const session = await cloudflareBrowser({ binding, driver, engine: "chromium" }).open()
     session.connection[cloudflareBrowserTerminated] = true
 
     await session.close()
@@ -70,7 +95,7 @@ describe("cloudflareBrowser", () => {
       acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
       connect: vi.fn(),
     }
-    const provider = cloudflareBrowser({ binding, driver })
+    const provider = cloudflareBrowser({ binding, driver, engine: "chromium" })
 
     await provider.open({ idleTimeoutMs: 120_000 })
 
@@ -88,7 +113,7 @@ describe("cloudflareBrowser", () => {
           newBrowserCDPSession: async () => ({ detach: vi.fn(), send }),
         }),
     }
-    const session = await cloudflareBrowser({ binding: { fetch: vi.fn() }, driver }).open()
+    const session = await cloudflareBrowser({ binding: { fetch: vi.fn() }, driver, engine: "chromium" }).open()
 
     await expect(session.close()).rejects.toThrow("terminate a Browser Run session")
     await session.close()
@@ -108,7 +133,7 @@ describe("cloudflareBrowser", () => {
         newBrowserCDPSession: async () => ({ detach: vi.fn(), send }),
       })),
     }
-    const session = await cloudflareBrowser({ binding: { fetch: vi.fn() }, driver }).open()
+    const session = await cloudflareBrowser({ binding: { fetch: vi.fn() }, driver, engine: "chromium" }).open()
 
     await expect(session.close()).rejects.toThrow("terminate a Browser Run session")
     await session.close()

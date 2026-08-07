@@ -88,7 +88,7 @@ The generated Browser registry infers each definition's input and result types. 
 
 ## Configuration
 
-`browser: true` enables Browser with the deployment preset's defaults. Use an object only when the host binding name must change.
+`browser: true` enables Cloudflare Browser with Kitesurf. Use an object only to change the host binding, connect local development to the hosted service, or explicitly select Chromium for compatibility.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -97,6 +97,7 @@ export default defineConfig({
       preset: 'cloudflare',
       browser: {
         binding: 'RENDER_BROWSER',
+        engine: 'chromium',
         remote: true,
       },
     }),
@@ -106,11 +107,13 @@ export default defineConfig({
 
 | Shape | Description |
 | --- | --- |
-| `browser: true` | Enables Browser with the `BROWSER` binding. |
-| `browser: { binding, remote? }` | Enables Browser with a custom Cloudflare binding name; `remote: true` connects local Wrangler development to Cloudflare Browser Run. |
+| `browser: true` | Enables Kitesurf with the `BROWSER` binding. |
+| `browser: { binding?, engine?, remote? }` | Customizes the Cloudflare binding; `engine: 'chromium'` opts out of the Kitesurf default, and `remote: true` connects local Wrangler development to Cloudflare Browser Run. |
 | `browser: false` | Disables Browser Provider Output. |
 
 The Cloudflare preset writes the Browser Run binding plus the `nodejs_compat` and `no_websocket_standard_binary_type` flags to Nitro's generated Provider Output. The second flag preserves `ArrayBuffer` delivery for the Playwright WebSocket connection.
+
+Kitesurf uses Cloudflare's service-defined session timeout and does not accept `idleTimeoutMs`. Select `engine: 'chromium'` when an invocation must configure a persistent session's idle timeout.
 
 Cloudflare can run a local browser during `wrangler dev`. Set `remote: true` only when a local proof must connect to Cloudflare's Browser Run service. Both the root integration and direct `hubBrowser()` output write the Browser binding and required compatibility flags while preserving unrelated Wrangler fields.
 
@@ -147,7 +150,7 @@ Provider and controller subpaths are advanced integration surfaces. Normal ViteH
 
 ## Live handoff
 
-Low-level sessions can transfer ownership of an exact provider session through an opaque, audience-bound reference.
+Low-level sessions can transfer ownership of an exact provider session through an opaque, audience-bound reference. Cloudflare's Kitesurf default is sessionless and does not support live handoff; select `engine: 'chromium'` when persistent-session handoff is required.
 
 ```ts [server/browser-handoff.ts]
 import { cdp } from '@vite-hub/browser/controllers/cdp'
