@@ -176,6 +176,30 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
   })
 
+  it("detects Eve extensions in spread-composed Agent Definition options", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const source = [
+      `import github from "@github-tools/eve-extension"`,
+      `const base = { capabilities: [github()] }`,
+      `export default defineAgent({ ...base, driver: { run: () => "ok" } })`,
+    ].join("\n")
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+  })
+
   it("detects Eve extensions through an aliased defineAgent import", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
@@ -198,6 +222,30 @@ describe("Eve extension capabilities", () => {
     )
 
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+  })
+
+  it("derives the Eve namespace from the package instead of its local alias", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const source = [
+      `import $github from "@github-tools/eve-extension"`,
+      `export default defineAgent({ capabilities: [$github()] })`,
+    ].join("\n")
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toContain(`"@github-tools/eve-extension", "github"`)
+    expect(transformed).not.toContain(`"$github"`)
   })
 
   it("detects a default Eve factory imported with named imports", async () => {

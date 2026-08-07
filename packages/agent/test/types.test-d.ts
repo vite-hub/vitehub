@@ -28,6 +28,21 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("preserves native Capability context inference beside Eve mounts", () => {
+    const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
+      AgentRuntimeConfig,
+      any,
+      { invocationContext: { native: string } }
+    >
+    defineAgent({
+      capabilities: [native, githubExtension({ preset: "code-review" })],
+      driver: { run({ context }) {
+        expectTypeOf(context.get("native")).toEqualTypeOf<string | undefined>()
+        return "ok"
+      } },
+    })
+  })
+
   it("types Eve extensions in static capabilities", () => {
     defineAgent({
       capabilities: [githubExtension({ preset: "code-review" })],

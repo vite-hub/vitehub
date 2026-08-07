@@ -948,6 +948,41 @@ function unwrapTypeScriptExpression(node: PositionedNode): PositionedNode {
   return expression
 }
 
+function staticObjectProperty(
+  object: PositionedNode,
+  name: string,
+  objects: Map<string, PositionedNode>,
+  seen = new Set<PositionedNode>(),
+): PositionedNode | undefined {
+  if (seen.has(object)) return
+  seen.add(object)
+  const properties = Array.isArray(object.properties) ? object.properties : []
+  for (let index = properties.length - 1; index >= 0; index--) {
+    const property = properties[index]
+    if (!isPositionedNode(property)) continue
+    if (property.type === "Property" && property.computed !== true && nodePropertyName(property) === name) return property
+    if (property.type !== "SpreadElement") continue
+    const argument = property.argument
+    if (!isPositionedNode(argument) || argument.type !== "Identifier" || typeof argument.name !== "string") continue
+    const spread = objects.get(argument.name)
+    if (spread) {
+      const found = staticObjectProperty(spread, name, objects, seen)
+      if (found) return found
+    }
+  }
+}
+
+function eveExtensionNamespace(specifier: string): string {
+  const parts = specifier.split("/")
+  const packageName = parts.at(-1) ?? specifier
+  const scope = parts[0]?.startsWith("@") ? parts[0].slice(1) : undefined
+  const candidate = packageName === "eve-extension"
+    ? scope?.replace(/-tools$/, "") ?? "extension"
+    : packageName.replace(/(?:-eve)?-extension$/, "")
+  const namespace = candidate.replace(/[^a-z0-9-_]/gi, "-").replace(/^[^a-z]+/i, "").replace(/-+$/g, "")
+  return namespace || "extension"
+}
+
 export async function transformEveExtensionCapabilities(
   code: string,
   parse: (code: string) => unknown,
@@ -1066,12 +1101,7 @@ export async function transformEveExtensionCapabilities(
         ? staticObjects.get(unwrappedOptions.name)
         : undefined
     if (!options) return
-    const capabilities = (Array.isArray(options.properties) ? options.properties : []).find(property =>
-      isPositionedNode(property)
-      && property.type === "Property"
-      && property.computed !== true
-      && nodePropertyName(property) === "capabilities",
-    )
+    const capabilities = staticObjectProperty(options, "capabilities", staticObjects)
     if (!isPositionedNode(capabilities)) return
     const rawValue = capabilities.value
     if (!isPositionedNode(rawValue)) return
@@ -1117,7 +1147,7 @@ export async function transformEveExtensionCapabilities(
     replacements.push({
       end: extension.call.end,
       start: extension.call.start,
-      value: `await ${helper}(${JSON.stringify(extension.source)}, ${JSON.stringify(extension.local)}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
+      value: `await ${helper}(${JSON.stringify(extension.source)}, ${JSON.stringify(eveExtensionNamespace(extension.source))}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
     })
     replacements.push({
       end: extension.declaration.end,

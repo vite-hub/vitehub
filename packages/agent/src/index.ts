@@ -585,9 +585,9 @@ type CapabilityInvocationContextValues<TCapability> =
     ? TTypeContract extends AgentCapabilityTypeContract
       ? TTypeContract["invocationContext"] extends object
         ? TTypeContract["invocationContext"]
-        : unknown
-      : unknown
-    : unknown
+        : never
+      : never
+    : never
 type AgentCapabilitiesInvocationContextValues<TCapabilities> =
   AgentInvocationContextValues & UnionToIntersection<
     ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly [unknown, ...unknown[]] | readonly []
