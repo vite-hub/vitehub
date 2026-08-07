@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { basename, dirname, join } from "node:path"
@@ -63,7 +63,11 @@ export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(opt
 const codexBootstrapDir = "/tmp/harness/codex"
 const codexBridgeInstallCommand = `if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; then :; else pnpm --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; fi`
 const codexBridgeNodeModules = `${codexBootstrapDir}/node_modules`
-const codexBridgeDependencyMarkers = ["@openai/codex-sdk/package.json", "ws/package.json"]
+const codexBridgeDependencyVersions = {
+  "@openai/codex-sdk/package.json": "0.144.5",
+  "ws/package.json": "8.21.0",
+}
+const codexBridgeDependencyMarkers = Object.keys(codexBridgeDependencyVersions)
 const codexBridgeDefaultNodeModules = packageNodeModules([
   fileURLToPath(import.meta.url),
   fileURLToPath(import.meta.resolve("@openai/codex-sdk")),
@@ -96,7 +100,7 @@ function packageNodeModules(entries: string[]): string | undefined {
         ...(basename(directory) === "node_modules" ? [directory] : []),
         join(directory, "node_modules"),
       ]
-      const nodeModules = candidates.find(candidate => codexBridgeDependencyMarkers.every(marker => existsSync(join(candidate, marker))))
+      const nodeModules = candidates.find(hasCodexBridgeDependencies)
       if (nodeModules) return nodeModules
       const parent = dirname(directory)
       if (parent === directory) break
@@ -104,7 +108,18 @@ function packageNodeModules(entries: string[]): string | undefined {
     }
   }
   const workingDirectoryNodeModules = join(process.cwd(), "node_modules")
-  if (codexBridgeDependencyMarkers.every(marker => existsSync(join(workingDirectoryNodeModules, marker)))) return workingDirectoryNodeModules
+  if (hasCodexBridgeDependencies(workingDirectoryNodeModules)) return workingDirectoryNodeModules
+}
+
+function hasCodexBridgeDependencies(nodeModules: string): boolean {
+  return Object.entries(codexBridgeDependencyVersions).every(([marker, version]) => {
+    try {
+      return JSON.parse(readFileSync(join(nodeModules, marker), "utf8")).version === version
+    }
+    catch {
+      return false
+    }
+  })
 }
 
 function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {

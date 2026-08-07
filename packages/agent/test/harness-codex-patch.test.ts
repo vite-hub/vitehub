@@ -30,10 +30,11 @@ describe("ViteHub Codex harness", () => {
     expect(bootstrap.commands[1]!.command).toContain(codexBridgeInstallCommand)
     const defaultNodeModules = bootstrap.commands[1]!.command.match(/then codex_bridge_node_modules='([^']+)'/)?.[1]
     expect(defaultNodeModules).toBeDefined()
-    await expect(Promise.all([
-      readFile(join(defaultNodeModules!, "@openai/codex-sdk/package.json")),
-      readFile(join(defaultNodeModules!, "ws/package.json")),
-    ])).resolves.toHaveLength(2)
+    const [sdkPackage, wsPackage] = await Promise.all([
+      readFile(join(defaultNodeModules!, "@openai/codex-sdk/package.json"), "utf8"),
+      readFile(join(defaultNodeModules!, "ws/package.json"), "utf8"),
+    ])
+    expect([JSON.parse(sdkPackage).version, JSON.parse(wsPackage).version]).toEqual(["0.144.5", "8.21.0"])
     expect(bootstrap.commands[1]!.command).toContain("VITEHUB_CODEX_BRIDGE_NODE_MODULES")
     expect(JSON.parse(bridgePackage!.content)).toMatchObject({
       dependencies: { "@openai/codex-sdk": "0.144.5" },
