@@ -353,7 +353,7 @@ interface AgentWebhookInvocationOwnershipBase {
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
-  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
+  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: never }
   | { busy?: undefined, concurrencyKey?: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
   | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: undefined, rehydrate?: never }
 )

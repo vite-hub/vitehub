@@ -45,6 +45,22 @@ describe("agent public types", () => {
     }
     expectTypeOf(queuedInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
 
+    const steeringInvocation: AgentTriggerRunInvokeResult<Options> = {
+      input: { prompt: "stale", options: { mode: "fresh" } },
+      webhook: {
+        busy: "steer",
+        concurrencyKey: "pull-request:1",
+        concurrencyLimit: 1,
+        deliveryId: "delivery-steer",
+        // @ts-expect-error Successful busy steering bypasses queue-time rehydration.
+        rehydrate: () => ({
+          input: { prompt: "fresh", options: { mode: "fresh" } },
+          webhook: { concurrencyLimit: 1, deliveryId: "delivery-steer" },
+        }),
+      },
+    }
+    expectTypeOf(steeringInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
+
     const inlineInvocation: AgentTriggerRunInvokeResult<Options> = {
       input: { prompt: "stale", options: { mode: "fresh" } },
       // @ts-expect-error Rehydration runs only for invocations persisted with concurrencyLimit.
