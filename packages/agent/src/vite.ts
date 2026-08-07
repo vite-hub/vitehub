@@ -934,6 +934,20 @@ function nodePropertyName(node: PositionedNode): unknown {
       : undefined
 }
 
+function unwrapTypeScriptExpression(node: PositionedNode): PositionedNode {
+  let expression = node
+  while (
+    expression.type === "TSAsExpression"
+    || expression.type === "TSSatisfiesExpression"
+    || expression.type === "TSNonNullExpression"
+  ) {
+    const inner = expression.expression
+    if (!isPositionedNode(inner)) break
+    expression = inner
+  }
+  return expression
+}
+
 export async function transformEveExtensionCapabilities(
   code: string,
   parse: (code: string) => unknown,
@@ -951,7 +965,7 @@ export async function transformEveExtensionCapabilities(
     for (const declaration of Array.isArray(statement.declarations) ? statement.declarations : []) {
       if (!isPositionedNode(declaration) || declaration.type !== "VariableDeclarator") continue
       const identifier = declaration.id
-      const initializer = declaration.init
+      const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
       if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
       if (!isPositionedNode(initializer) || initializer.type !== "ArrayExpression") continue
       staticArrays.set(identifier.name, initializer)
@@ -1007,8 +1021,9 @@ export async function transformEveExtensionCapabilities(
   }
   visitNodes(program, (node) => {
     if (node.type !== "Property" || node.computed === true || nodePropertyName(node) !== "capabilities") return
-    const value = node.value
-    if (!isPositionedNode(value)) return
+    const rawValue = node.value
+    if (!isPositionedNode(rawValue)) return
+    const value = unwrapTypeScriptExpression(rawValue)
     const array = value.type === "ArrayExpression"
       ? value
       : value.type === "Identifier" && typeof value.name === "string"

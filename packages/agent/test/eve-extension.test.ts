@@ -225,6 +225,64 @@ describe("Eve extension capabilities", () => {
     expect(transformed).not.toContain(`import github from`)
   })
 
+  it("detects Eve extensions in typed static capabilities arrays", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const inline = [
+      `import github from "@github-tools/eve-extension"`,
+      `export default defineAgent({ capabilities: [github()] })`,
+    ].join("\n")
+    const parseWithWrapper = (code: string, wrapper: "TSAsExpression" | "TSSatisfiesExpression", target: "property" | "variable") => {
+      const ast = parseAst(code) as unknown as Record<string, unknown>
+      const visit = (value: unknown): boolean => {
+        if (!value || typeof value !== "object") return false
+        const node = value as Record<string, unknown>
+        const expression = target === "property" && node.type === "Property" && (node.key as { name?: unknown })?.name === "capabilities"
+          ? node.value
+          : target === "variable" && node.type === "VariableDeclarator" && (node.id as { name?: unknown })?.name === "capabilities"
+            ? node.init
+            : undefined
+        if (expression && typeof expression === "object") {
+          const positioned = expression as { end: number, start: number }
+          const wrapped = { end: positioned.end, expression, start: positioned.start, type: wrapper }
+          if (target === "property") node.value = wrapped
+          else node.init = wrapped
+          return true
+        }
+        return Object.values(node).some(child => Array.isArray(child) ? child.some(visit) : visit(child))
+      }
+      visit(ast)
+      return ast
+    }
+    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: (code: string) => parseWithWrapper(code, "TSAsExpression", "property") },
+      inline,
+      join(root, "server", "agents", "inline.ts"),
+    )).resolves.toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+
+    await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
+      file: join(root, "server", "agents", "inline.ts"),
+      server: { config: { root }, moduleGraph: { getModuleById: () => undefined } },
+    })
+    const factored = [
+      `import github from "@github-tools/eve-extension"`,
+      `const capabilities = [github()]`,
+      `export default defineAgent({ capabilities })`,
+    ].join("\n")
+    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: (code: string) => parseWithWrapper(code, "TSSatisfiesExpression", "variable") },
+      factored,
+      join(root, "server", "agents", "factored.ts"),
+    )).resolves.toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+  })
+
   it("loads GitHub tools and preserves once-per-session approval", async () => {
     const capability = await eveExtensionCapability(
       "@github-tools/eve-extension",
