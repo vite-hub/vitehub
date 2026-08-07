@@ -1491,6 +1491,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const webhookRoutePattern")
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
       expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
+      expect(webhookRoute).toContain("return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, runtime: 'vite', event, waitUntil: waitUntilFromEvent(event) })")
       expect(webhookRoute).not.toContain("@vite-hub/schedule/runtime")
     }
     finally {
@@ -2376,6 +2377,59 @@ describe("server helpers", () => {
     await expect(response.text()).resolves.toBe("event: custom\ndata: ok\n\n")
   })
 
+  it("accepts UI message streams and Responses from another runtime realm", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ textDelta: "hello", type: "text-delta" })
+        controller.close()
+      },
+    })
+    const foreignStream = {
+      getReader: stream.getReader.bind(stream),
+      pipeThrough: stream.pipeThrough.bind(stream),
+      [Symbol.asyncIterator]: stream[Symbol.asyncIterator].bind(stream),
+    }
+    const responseHeaders = new Headers({
+      "content-type": "text/event-stream",
+      "x-vercel-ai-ui-message-stream": "v1",
+    })
+    const foreignResponse = {
+      body: new Response("data: {\"type\":\"finish\"}\n\n").body,
+      headers: {
+        entries: responseHeaders.entries.bind(responseHeaders),
+        get: responseHeaders.get.bind(responseHeaders),
+      },
+      status: 202,
+      statusText: "Accepted",
+    }
+    expect(foreignStream).not.toBeInstanceOf(ReadableStream)
+    expect(foreignResponse).not.toBeInstanceOf(Response)
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger")
+      .mockResolvedValueOnce(foreignStream as never)
+      .mockResolvedValueOnce(foreignResponse as never)
+    const handler = createChannelChatRouteHandler(defineAgent({
+      capabilities: [defineChatCapability()],
+      driver: { run: () => "unused" },
+    }) as never)
+    const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({ messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }] }),
+      method: "POST",
+    })
+
+    const streamResponse = await handler(request(), { agentName: "support" })
+    expect(streamResponse.status).toBe(200)
+    await expect(streamResponse.text()).resolves.toContain('"textDelta":"hello"')
+
+    const response = await handler(request(), { agentName: "support" })
+    expect(response.status).toBe(202)
+    await expect(response.text()).resolves.toBe("data: {\"type\":\"finish\"}\n\ndata: [DONE]\n\n")
+    streamAgentTrigger.mockRestore()
+  })
+
   it("appends DONE to UI message chat Response bodies and drops stale body headers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -2563,7 +2617,9 @@ describe("server helpers", () => {
         },
       },
     }
-    const authenticate = vi.fn(({ rawBody, request }) => {
+    const hostEvent = { context: { tenant: "acme" } }
+    const authenticate = vi.fn(({ event, rawBody, request }) => {
+      expect(event).toBe(hostEvent)
       expect(rawBody.length).toBeGreaterThan(0)
       return request.headers.get("x-quiver-chat-token") === "trusted"
         ? { invokerProfileId: "customer:acme" }
@@ -2580,7 +2636,8 @@ describe("server helpers", () => {
             admission: {
               body: bodySchema,
               authenticate,
-              context({ auth, body }) {
+              context({ auth, body, event }) {
+                expect(event).toBe(hostEvent)
                 return {
                   invokerProfileId: auth.invokerProfileId,
                   meta: body.meta,
@@ -2588,6 +2645,9 @@ describe("server helpers", () => {
                   user: body.user,
                 }
               },
+            },
+            mapInput({ event }) {
+              expect(event).toBe(hostEvent)
             },
           },
         }),
@@ -2620,7 +2680,7 @@ describe("server helpers", () => {
         "x-quiver-chat-token": "trusted",
       },
       method: "POST",
-    }), { agentName: "support" })
+    }), { agentName: "support", event: hostEvent })
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
@@ -2642,7 +2702,7 @@ describe("server helpers", () => {
         "x-quiver-chat-token": "trusted",
       },
       method: "POST",
-    }), { agentName: "support" })
+    }), { agentName: "support", event: hostEvent })
 
     expect(malformedResponse.status).toBe(400)
     expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({
@@ -2662,7 +2722,7 @@ describe("server helpers", () => {
       }),
       headers: { "x-quiver-chat-token": "nope" },
       method: "POST",
-    }), { agentName: "support" })
+    }), { agentName: "support", event: hostEvent })
 
     expect(rejectedResponse.status).toBe(401)
     await expect(rejectedResponse.json()).resolves.toMatchObject({
