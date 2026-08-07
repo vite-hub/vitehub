@@ -61,6 +61,7 @@ Application code should import Runtime Helpers and stable handlers.
 Generated Provider Output may import generated files, virtual modules, or provider runtime packages internally.
 
 Netlify Agent output is Provider Output, not an app import: there is no stable `@vite-hub/agent/netlify` import. Inspect `.netlify/v1/functions/vitehub-agent.mjs` and `.vitehub/agent/netlify-function.mjs` during deployment debugging instead of importing them from application code.
+Nuxt keeps generated Agent source artifacts under `<buildDir>/vitehub/agent` (normally `.nuxt/vitehub/agent`), so inspect the Netlify wrapper or Deno entrypoint there. Provider-owned `.netlify/v1` output and project-owned non-Agent `.vitehub` output do not move.
 
 | Do | Avoid |
 | --- | --- |
