@@ -73,9 +73,9 @@ const codexBridgeDependencyMissing = codexBridgeDependencyMarkers.map(marker => 
 const codexBridgePrepareDependenciesCommand = [
   `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-}"`,
   `if [ -z "$codex_bridge_node_modules" ]; then codex_bridge_node_modules=${shellQuote(codexBridgeDefaultNodeModules)}; fi`,
-  `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
+  `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
-  `elif ${codexBridgeDependencyMissing}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
+  `elif ${codexBridgeDependencyMissing}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   "fi",
   `if [ "$codex_bridge_node_modules" = "${codexBridgeNodeModules}" ]; then :`,
   `elif [ -L "${codexBridgeNodeModules}" ]; then if [ "$(readlink "${codexBridgeNodeModules}")" != "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already links to a different dependency tree" >&2; exit 1; fi`,

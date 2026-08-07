@@ -134,6 +134,29 @@ describe("ViteHub Codex harness", () => {
     }
   })
 
+  it("propagates a failed bridge dependency install", async () => {
+    const fixture = await mkdtemp(join(import.meta.dirname, ".codex-install-failure-"))
+    const bin = join(fixture, "bin")
+
+    try {
+      await mkdir(bin)
+      await writeFile(join(bin, "corepack"), "#!/bin/sh\nexit 1\n")
+      await writeFile(join(bin, "pnpm"), "#!/bin/sh\nexit 23\n")
+      await Promise.all([chmod(join(bin, "corepack"), 0o755), chmod(join(bin, "pnpm"), 0o755)])
+
+      const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+      const bootstrap = await harness.getBootstrap!()
+      const command = withoutPreinstalledDependencies(bootstrap.commands[1]!.command, "")
+      await expect(exec("/bin/sh", ["-c", command], {
+        cwd: fixture,
+        env: { PATH: bin },
+      })).rejects.toMatchObject({ code: 23 })
+    }
+    finally {
+      await rm(fixture, { force: true, recursive: true })
+    }
+  })
+
   it("reuses preinstalled bridge dependencies without invoking an installer", async () => {
     const fixture = await mkdtemp(join(import.meta.dirname, ".codex-preinstalled-"))
     const bootstrapDir = join(fixture, "bootstrap")
