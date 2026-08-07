@@ -9,6 +9,7 @@ import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
+import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
 import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
@@ -73,26 +74,15 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     "  },",
   ].join("\n"))
 
-  return [
-    `import { createAgentDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/agent")))}`,
-    `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
-    "",
-    ...imports,
-    "",
-    "export const databases = {",
-    ...databaseEntries,
-    "}",
-    "export function useDatabase(name) { return databases[name] }",
-    "export const agentDb = createAgentDatabase(databases)",
-    "",
-    ...(runtimeConfig.databaseNames.includes("default")
-      ? [
-          "export const db = databases.default.db",
-          "export const schema = databases.default.schema",
-        ]
-      : []),
-    "",
-  ].join("\n")
+  return renderDatabaseRuntimeModule({
+    createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
+    databaseEntries,
+    imports: [
+      `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
+      "",
+      ...imports,
+    ],
+  })
 }
 
 function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, userAppEntry: string | undefined) {
