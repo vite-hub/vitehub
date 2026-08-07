@@ -145,6 +145,30 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
     }
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
       const state = typeof record.state === "string" ? record.state : undefined
+      const approval = typeof record.approval === "object" && record.approval !== null
+        ? record.approval as Record<string, unknown>
+        : undefined
+      if ((state === "approval-requested" || state === "approval-responded") && typeof approval?.id === "string") {
+        const name = uiToolName(record)
+        const request = {
+          id: approval.id,
+          input: record.input,
+          name,
+          toolCallId: uiToolId(record, name, index),
+          type: "approval-request",
+        } satisfies MessagePart
+        if (state === "approval-requested") return [request]
+        if (typeof approval.approved !== "boolean") return []
+        return [
+          request,
+          {
+            approved: approval.approved,
+            id: approval.id,
+            ...(typeof approval.reason === "string" ? { reason: approval.reason } : {}),
+            type: "approval-decision",
+          },
+        ]
+      }
       const errorText = typeof record.errorText === "string" ? record.errorText : undefined
       const hasToolError = errorText !== undefined
       const hasToolOutput = state === "output-available" || state === "output-denied" || state === "output-error" || record.output !== undefined || hasToolError

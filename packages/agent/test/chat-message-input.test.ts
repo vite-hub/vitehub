@@ -197,6 +197,50 @@ describe("chat message trigger input", () => {
     ])
   })
 
+  it("preserves requested UI tool approvals", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [{
+        parts: [{
+          approval: { id: "approval-1" },
+          input: { command: "write" },
+          state: "approval-requested",
+          toolCallId: "tool-1",
+          toolName: "shell",
+          type: "dynamic-tool",
+        }],
+        role: "assistant",
+      }],
+    })
+
+    expect(result.input.messages?.[0]?.parts).toEqual([{
+      id: "approval-1",
+      input: { command: "write" },
+      name: "shell",
+      toolCallId: "tool-1",
+      type: "approval-request",
+    }])
+  })
+
+  it("preserves responded UI tool approvals", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [{
+        parts: [{
+          approval: { approved: false, id: "approval-1", reason: "Use read-only mode." },
+          input: { command: "write" },
+          state: "approval-responded",
+          toolCallId: "tool-1",
+          type: "tool-shell",
+        }],
+        role: "assistant",
+      }],
+    })
+
+    expect(result.input.messages?.[0]?.parts).toEqual([
+      { id: "approval-1", input: { command: "write" }, name: "shell", toolCallId: "tool-1", type: "approval-request" },
+      { approved: false, id: "approval-1", reason: "Use read-only mode.", type: "approval-decision" },
+    ])
+  })
+
   it("preserves UI data parts in follow-up history", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [{
