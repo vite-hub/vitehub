@@ -72,10 +72,24 @@ const codexBridgeDefaultNodeModules = packageNodeModules([
   resolvePackageEntry("@openai/codex-sdk"),
   resolvePackageEntry("ws"),
 ]) ?? ""
+const codexBridgeDefaultPackageRoots = {
+  "@openai/codex-sdk": resolvePackageRoot(resolvePackageEntry("@openai/codex-sdk"), "@openai/codex-sdk", "0.144.5") ?? "",
+  "ws": resolvePackageRoot(resolvePackageEntry("ws"), "ws", "8.21.0") ?? "",
+}
+const codexBridgeComposedNodeModules = `${codexBootstrapDir}/package-node_modules`
+const codexBridgePackageRootVariables = Object.entries(codexBridgeDefaultPackageRoots).map(([name, root]) => `codex_bridge_package_${name.replace(/\W/g, "_")}=${shellQuote(root)}`)
+const codexBridgePackageRootsReadable = Object.keys(codexBridgeDefaultPackageRoots).map(name => `[ -r "$codex_bridge_package_${name.replace(/\W/g, "_")}/package.json" ]`).join(" && ")
+const codexBridgeComposePackageTreeCommand = Object.keys(codexBridgeDefaultPackageRoots).flatMap((name) => {
+  const variable = `codex_bridge_package_${name.replace(/\W/g, "_")}`
+  const target = `${codexBridgeComposedNodeModules}/${name}`
+  return [`mkdir -p ${shellQuote(dirname(target))}`, `rm -f ${shellQuote(target)}`, `ln -s "$${variable}" ${shellQuote(target)}`]
+}).join("; ")
 const codexBridgeDependencyValidation = `node -e ${shellQuote("const { readFileSync } = require('node:fs'); const { join } = require('node:path'); const [root, versionsJson] = process.argv.slice(1); for (const [marker, version] of Object.entries(JSON.parse(versionsJson))) { if (JSON.parse(readFileSync(join(root, marker), 'utf8')).version !== version) process.exit(1) }")} \"$codex_bridge_node_modules\" ${shellQuote(JSON.stringify(codexBridgeDependencyVersions))}`
 const codexBridgePrepareDependenciesCommand = [
   `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-}"`,
+  ...codexBridgePackageRootVariables,
   `if [ -z "$codex_bridge_node_modules" ]; then codex_bridge_node_modules=${shellQuote(codexBridgeDefaultNodeModules)}; fi`,
+  `if [ -z "$codex_bridge_node_modules" ] && ${codexBridgePackageRootsReadable}; then ${codexBridgeComposePackageTreeCommand}; codex_bridge_node_modules=${shellQuote(codexBridgeComposedNodeModules)}; fi`,
   `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
   `elif ! ${codexBridgeDependencyValidation}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the exact Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
@@ -98,6 +112,21 @@ function resolvePackageEntry(specifier: string): string | undefined {
   }
   catch {
     return undefined
+  }
+}
+
+function resolvePackageRoot(entry: string | undefined, name: string, version: string): string | undefined {
+  if (!entry) return undefined
+  let directory = dirname(entry)
+  while (true) {
+    try {
+      const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"))
+      if (manifest.name === name && manifest.version === version) return directory
+    }
+    catch {}
+    const parent = dirname(directory)
+    if (parent === directory) return undefined
+    directory = parent
   }
 }
 

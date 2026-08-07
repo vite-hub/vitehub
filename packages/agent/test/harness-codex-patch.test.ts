@@ -20,6 +20,10 @@ function withoutPreinstalledDependencies(command: string, path: string): string 
   return command.replace(/(?<=then codex_bridge_node_modules=)'(?:[^']|'\\'')*'/, `'${path.replace(/'/g, "'\\''")}'`)
 }
 
+function withPackageRoot(command: string, name: string, path: string): string {
+  return command.replace(new RegExp(`(?<=codex_bridge_package_${name.replace(/\W/g, "_")}=)'(?:[^']|'\\\\'')*'`), `'${path.replace(/'/g, "'\\''")}'`)
+}
+
 describe("ViteHub Codex harness", () => {
   it("preserves ordered text and sandbox-local images in Codex prompts", async () => {
     const fixture = await mkdtemp(join(import.meta.dirname, ".codex-input-"))
@@ -196,6 +200,55 @@ describe("ViteHub Codex harness", () => {
         cwd: fixture,
         env: { PATH: bin },
       })).rejects.toMatchObject({ code: 23 })
+    }
+    finally {
+      await rm(fixture, { force: true, recursive: true })
+    }
+  })
+
+  it("composes split package-owned bridge dependencies without invoking an installer", async () => {
+    const fixture = await mkdtemp(join(import.meta.dirname, ".codex-split-preinstalled-"))
+    const bootstrapDir = join(fixture, "bootstrap")
+    const sdk = join(fixture, "nested", "@openai", "codex-sdk")
+    const ws = join(fixture, "hoisted", "ws")
+    const bin = join(fixture, "bin")
+    const installerMarker = join(fixture, "installer.txt")
+
+    try {
+      await Promise.all([mkdir(sdk, { recursive: true }), mkdir(ws, { recursive: true }), mkdir(bin), mkdir(bootstrapDir)])
+      await writeFile(join(sdk, "package.json"), JSON.stringify({ exports: "./index.mjs", name: "@openai/codex-sdk", type: "module", version: "0.144.5" }))
+      await writeFile(join(sdk, "index.mjs"), "export default 'sdk'")
+      await writeFile(join(ws, "package.json"), JSON.stringify({ exports: "./index.mjs", name: "ws", type: "module", version: "8.21.0" }))
+      await writeFile(join(ws, "index.mjs"), "export default 'ws'")
+      await writeFile(join(bootstrapDir, "bridge-test.mjs"), "const [{ default: sdk }, { default: ws }] = await Promise.all([import('@openai/codex-sdk'), import('ws')]); process.stdout.write(`${sdk}:${ws}`)")
+      await writeFile(join(bin, "corepack"), "#!/bin/sh\nprintf corepack > \"$INSTALLER_MARKER\"\nexit 1\n")
+      await writeFile(join(bin, "pnpm"), "#!/bin/sh\nprintf pnpm > \"$INSTALLER_MARKER\"\nexit 1\n")
+      await Promise.all([chmod(join(bin, "corepack"), 0o755), chmod(join(bin, "pnpm"), 0o755)])
+
+      const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+      const bootstrap = await harness.getBootstrap!()
+      const command = withPackageRoot(
+        withPackageRoot(
+          withoutPreinstalledDependencies(bootstrap.commands[1]!.command, ""),
+          "@openai/codex-sdk",
+          sdk,
+        ),
+        "ws",
+        ws,
+      ).replaceAll("/tmp/harness/codex", bootstrapDir)
+
+      await exec("/bin/sh", ["-c", command], {
+        env: {
+          INSTALLER_MARKER: installerMarker,
+          PATH: [bin, process.env.PATH].filter(Boolean).join(":"),
+        },
+      })
+
+      await expect(readlink(join(bootstrapDir, "package-node_modules", "@openai", "codex-sdk"))).resolves.toBe(sdk)
+      await expect(readlink(join(bootstrapDir, "package-node_modules", "ws"))).resolves.toBe(ws)
+      await expect(readlink(join(bootstrapDir, "node_modules"))).resolves.toBe(join(bootstrapDir, "package-node_modules"))
+      await expect(readFile(installerMarker, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(exec(process.execPath, [join(bootstrapDir, "bridge-test.mjs")])).resolves.toMatchObject({ stdout: "sdk:ws" })
     }
     finally {
       await rm(fixture, { force: true, recursive: true })
