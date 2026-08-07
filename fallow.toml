@@ -117,6 +117,9 @@ ignoreDependencies = [
   "chat-state-cloudflare-do",
   # Installed only inside the packed Agent Chat Platform Adapter consumer fixture.
   "@chat-adapter/telegram",
+  # Resolved by the packaged Codex bridge at runtime.
+  "@openai/codex-sdk",
+  "ws",
   # Package builds and generated provider output reference these without source imports.
   "@aws-sdk/client-s3",
   "@aws-sdk/lib-storage",
