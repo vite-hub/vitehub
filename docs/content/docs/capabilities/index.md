@@ -74,6 +74,8 @@ export default defineAgent({
 
 The Vite plugin reads the package's Eve manifest and fails the build when its contract version or runtime features are unsupported. The first bridge supports one mount per extension package, direct default-import factory calls, static and `session.started` tools, tool schemas and output conversion, and Eve's `always`, `never`, and `once` approval modes.
 
+This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getSkill()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Session authentication is unavailable and turn sequence metadata is not preserved, so extensions that depend on those values are not production-ready on ViteHub yet.
+
 ## What Capabilities can contribute
 
 | Contribution | What it changes |

@@ -86,6 +86,21 @@ describe("Eve extension capabilities", () => {
       source,
       join(root, "server", "agents", "other.ts"),
     )).resolves.toContain(`from "@vite-hub/agent/eve"`)
+
+    const watcherHandlers = new Map<string, (file: string) => void>()
+    ;(plugin.config as unknown as (config: { agent: boolean }) => void)({ agent: false })
+    await (plugin.configureServer as (server: unknown) => Promise<void>)({
+      middlewares: { use: () => {} },
+      watcher: { on: (event: string, handler: (file: string) => void) => watcherHandlers.set(event, handler) },
+    })
+    ;(plugin.config as unknown as (config: { agent: Record<string, never> }) => void)({ agent: {} })
+    const otherId = join(root, "server", "agents", "other.ts")
+    watcherHandlers.get("unlink")?.(otherId)
+    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      id,
+    )).resolves.toContain(`from "@vite-hub/agent/eve"`)
   })
 
   it("detects Eve extensions in a factored static capabilities array", async () => {
@@ -102,6 +117,31 @@ describe("Eve extension capabilities", () => {
       `import github from "@github-tools/eve-extension"`,
       `const capabilities = [github({ preset: "code-review" })]`,
       `export default defineAgent({ capabilities })`,
+    ].join("\n")
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).not.toContain(`import github from`)
+  })
+
+  it("detects Eve extensions in a spread static capabilities array", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const source = [
+      `import github from "@github-tools/eve-extension"`,
+      `const base = [github({ preset: "code-review" })]`,
+      `export default defineAgent({ capabilities: [...base] })`,
     ].join("\n")
     const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
       { parse: parseAst },
@@ -152,5 +192,6 @@ describe("Eve extension capabilities", () => {
       },
     ]) as ModelMessage[]
     expect(await write.needsApproval({}, { messages, toolCallId: "call-2" })).toBe(false)
+    expect(await write.needsApproval({}, { messages: [], toolCallId: "call-3" })).toBe(false)
   })
 })

@@ -150,16 +150,25 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
         : undefined
       if ((state === "approval-requested" || state === "approval-responded") && typeof approval?.id === "string") {
         const name = uiToolName(record)
+        const toolCallId = uiToolId(record, name, index)
+        const call = {
+          id: toolCallId,
+          input: record.input,
+          name,
+          state: "proposed",
+          type: "tool-call",
+        } satisfies MessagePart
         const request = {
           id: approval.id,
           input: record.input,
           name,
-          toolCallId: uiToolId(record, name, index),
+          toolCallId,
           type: "approval-request",
         } satisfies MessagePart
-        if (state === "approval-requested") return [request]
+        if (state === "approval-requested") return [call, request]
         if (typeof approval.approved !== "boolean") return []
         return [
+          call,
           request,
           {
             approved: approval.approved,

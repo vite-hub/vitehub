@@ -974,6 +974,30 @@ export async function transformEveExtensionCapabilities(
   if (!imports.size) return
 
   const calls: EveExtensionImport[] = []
+  function collectExtensionCalls(array: PositionedNode, seen = new Set<PositionedNode>()): void {
+    if (seen.has(array)) return
+    seen.add(array)
+    for (const element of Array.isArray(array.elements) ? array.elements : []) {
+      if (!isPositionedNode(element)) continue
+      if (element.type === "SpreadElement") {
+        const argument = element.argument
+        if (isPositionedNode(argument) && argument.type === "Identifier" && typeof argument.name === "string") {
+          const spreadArray = staticArrays.get(argument.name)
+          if (spreadArray) collectExtensionCalls(spreadArray, seen)
+        }
+        continue
+      }
+      if (element.type !== "CallExpression") continue
+      const callee = element.callee
+      if (!isPositionedNode(callee) || callee.type !== "Identifier" || typeof callee.name !== "string") continue
+      const imported = imports.get(callee.name)
+      if (!imported) continue
+      if (functionRanges.some(range => element.start > range.start && element.end < range.end)) {
+        throw new Error(`[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.`)
+      }
+      calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
+    }
+  }
   visitNodes(program, (node) => {
     if (node.type !== "Property" || node.computed === true || nodePropertyName(node) !== "capabilities") return
     const value = node.value
@@ -984,17 +1008,7 @@ export async function transformEveExtensionCapabilities(
         ? staticArrays.get(value.name)
         : undefined
     if (!array) return
-    for (const element of Array.isArray(array.elements) ? array.elements : []) {
-      if (!isPositionedNode(element) || element.type !== "CallExpression") continue
-      const callee = element.callee
-      if (!isPositionedNode(callee) || callee.type !== "Identifier" || typeof callee.name !== "string") continue
-      const imported = imports.get(callee.name)
-      if (!imported) continue
-      if (functionRanges.some(range => element.start > range.start && element.end < range.end)) {
-        throw new Error(`[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.`)
-      }
-      calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
-    }
+    collectExtensionCalls(array)
   })
   if (!calls.length) return
 
@@ -1969,6 +1983,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   return {
     name: "@vite-hub/agent/vite",
     async configureServer(server) {
+      const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))
+      server.watcher?.on("add", clearUnlinkedEveExtensionOwnership)
+      server.watcher?.on("unlink", clearUnlinkedEveExtensionOwnership)
       if (agent !== false) {
         await registerAgentInvocationStreamEndpoint(server)
       }

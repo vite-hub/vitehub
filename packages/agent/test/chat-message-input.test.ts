@@ -212,13 +212,10 @@ describe("chat message trigger input", () => {
       }],
     })
 
-    expect(result.input.messages?.[0]?.parts).toEqual([{
-      id: "approval-1",
-      input: { command: "write" },
-      name: "shell",
-      toolCallId: "tool-1",
-      type: "approval-request",
-    }])
+    expect(result.input.messages?.[0]?.parts).toEqual([
+      { id: "tool-1", input: { command: "write" }, name: "shell", state: "proposed", type: "tool-call" },
+      { id: "approval-1", input: { command: "write" }, name: "shell", toolCallId: "tool-1", type: "approval-request" },
+    ])
   })
 
   it("preserves responded UI tool approvals", () => {
@@ -236,6 +233,7 @@ describe("chat message trigger input", () => {
     })
 
     expect(result.input.messages?.[0]?.parts).toEqual([
+      { id: "tool-1", input: { command: "write" }, name: "shell", state: "proposed", type: "tool-call" },
       { id: "approval-1", input: { command: "write" }, name: "shell", toolCallId: "tool-1", type: "approval-request" },
       { approved: false, id: "approval-1", reason: "Use read-only mode.", type: "approval-decision" },
     ])
