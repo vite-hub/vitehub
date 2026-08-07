@@ -77,32 +77,6 @@ async function loadMountedExtension(
   }
 }
 
-function approvedToolNames(messages: ModelMessage[]): Set<string> {
-  const calls = new Map<string, string>()
-  const requests = new Map<string, string>()
-  const approved = new Set<string>()
-
-  for (const message of messages) {
-    if (!Array.isArray(message.content)) continue
-    for (const part of message.content) {
-      if (!part || typeof part !== "object" || !("type" in part)) continue
-      if (part.type === "tool-call" && "toolCallId" in part && "toolName" in part) {
-        calls.set(String(part.toolCallId), String(part.toolName))
-      }
-      if (part.type === "tool-approval-request" && "approvalId" in part && "toolCallId" in part) {
-        const name = calls.get(String(part.toolCallId))
-        if (name) requests.set(String(part.approvalId), name)
-      }
-      if (part.type === "tool-approval-response" && "approvalId" in part && "approved" in part && part.approved === true) {
-        const name = requests.get(String(part.approvalId))
-        if (name) approved.add(name)
-      }
-    }
-  }
-
-  return approved
-}
-
 function approvedToolNamesFromContext(context: AgentCapabilityContext): Set<string> {
   const approved = context.invocation?.input.get().context?.["vitehub.eve.approvedTools"]
   return new Set(Array.isArray(approved) ? approved.filter((name): name is string => typeof name === "string") : [])
@@ -153,7 +127,6 @@ function toViteHubTool(
           async needsApproval(input: unknown, options: ToolExecutionOptions = {}) {
             const callId = options.toolCallId ?? `${name}-${Date.now()}`
             const approvedTools = approvedToolNamesFromContext(context)
-            for (const approvedTool of approvedToolNames(options.messages ?? [])) approvedTools.add(approvedTool)
             const status = await approval({
               approvedTools,
               callId,

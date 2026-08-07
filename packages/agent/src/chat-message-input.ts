@@ -326,21 +326,6 @@ function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatT
   return sessionMessages.slice(-20)
 }
 
-function approvedUiToolNames(messages: UIMessageLike[]): string[] {
-  const approved = new Set<string>()
-  for (const message of messages) {
-    for (const part of Array.isArray(message.parts) ? message.parts : []) {
-      if (!part || typeof part !== "object") continue
-      const record = part as Record<string, unknown>
-      const approval = typeof record.approval === "object" && record.approval !== null
-        ? record.approval as Record<string, unknown>
-        : undefined
-      if (approval?.approved === true) approved.add(uiToolName(record))
-    }
-  }
-  return [...approved]
-}
-
 function createChatTriggerHookArgs<TRuntimeConfig extends AgentRuntimeConfig>(
   messages: UIMessageLike[],
   run: AgentRunMetadata | undefined,
@@ -373,7 +358,6 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
-  const approvedTools = approvedUiToolNames(selectChatSession(messages, options.sessions, triggerInput?.session))
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
   return {
@@ -381,7 +365,6 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     input: {
       abortSignal: triggerInput?.abortSignal,
       context: {
-        ...(approvedTools.length ? { "vitehub.eve.approvedTools": approvedTools } : {}),
         ...(invoker ? { invoker } : {}),
         ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
         channel: {

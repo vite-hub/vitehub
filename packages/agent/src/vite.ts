@@ -995,7 +995,8 @@ export async function transformEveExtensionCapabilities(
   if (!isPositionedNode(program)) return
 
   const imports = new Map<string, { declaration: PositionedNode, source: string }>()
-  const defineAgentImports = new Set(["defineAgent"])
+  const defineAgentImports = new Set<string>()
+  const defineAgentNamespaces = new Set<string>()
   const staticArrays = new Map<string, PositionedNode>()
   const staticObjects = new Map<string, PositionedNode>()
   const exportedStaticArrays = new Set<PositionedNode>()
@@ -1038,7 +1039,15 @@ export async function transformEveExtensionCapabilities(
     if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") return
     if (source.value === "@vite-hub/agent" || source.value === "vite-hub/agent") {
       for (const specifier of specifiers) {
-        if (!isPositionedNode(specifier) || specifier.type !== "ImportSpecifier") continue
+        if (!isPositionedNode(specifier)) continue
+        if (specifier.type === "ImportNamespaceSpecifier") {
+          const local = specifier.local
+          if (isPositionedNode(local) && local.type === "Identifier" && typeof local.name === "string") {
+            defineAgentNamespaces.add(local.name)
+          }
+          continue
+        }
+        if (specifier.type !== "ImportSpecifier") continue
         const imported = specifier.imported
         const local = specifier.local
         if (
@@ -1094,6 +1103,10 @@ export async function transformEveExtensionCapabilities(
         || (
           callee.type === "MemberExpression"
           && callee.computed !== true
+          && isPositionedNode(callee.object)
+          && callee.object.type === "Identifier"
+          && typeof callee.object.name === "string"
+          && defineAgentNamespaces.has(callee.object.name)
           && isPositionedNode(callee.property)
           && callee.property.type === "Identifier"
           && callee.property.name === "defineAgent"

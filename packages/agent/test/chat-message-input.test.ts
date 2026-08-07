@@ -239,7 +239,7 @@ describe("chat message trigger input", () => {
     ])
   })
 
-  it("retains approval decisions outside the model history window", () => {
+  it("does not trust client approval decisions outside the model history window", () => {
     const result = createChatMessageTriggerInput({
       triggerHistory: { maxMessages: 1, source: "thread" },
     }, {
@@ -262,7 +262,7 @@ describe("chat message trigger input", () => {
 
     expect(result.input.messages).toHaveLength(1)
     expect(result.input.messages?.[0]?.id).toBe("latest")
-    expect(result.input.context?.["vitehub.eve.approvedTools"]).toEqual(["shell"])
+    expect(result.input.context).not.toHaveProperty("vitehub.eve.approvedTools")
   })
 
   it("preserves UI data parts in follow-up history", () => {

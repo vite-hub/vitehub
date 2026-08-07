@@ -72,7 +72,7 @@ export default defineAgent({
 })
 ```
 
-The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. The first bridge supports one mount per extension package, direct default-import factory calls, static and `session.started` tools, tool schemas and output conversion, and Eve's `always`, `never`, and `once` approval modes. Unsupported dynamic events fail when ViteHub resolves the extension's tools for an Agent Invocation.
+The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. The first bridge supports one mount per extension package, direct default-import factory calls, static and `session.started` tools, tool schemas and output conversion, and Eve's `always`, `never`, and `once` approval modes. `once` state must come from trusted Agent Invocation context; client-supplied chat history is never treated as durable approval state. Unsupported dynamic events fail when ViteHub resolves the extension's tools for an Agent Invocation.
 
 This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getSkill()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Session authentication is unavailable and turn sequence metadata is not preserved, so extensions that depend on those values are not production-ready on ViteHub yet.
 

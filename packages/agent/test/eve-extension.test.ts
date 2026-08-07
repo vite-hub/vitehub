@@ -54,6 +54,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `export default defineAgent({ capabilities: [github({ preset: "code-review" })] })`,
     ].join("\n")
@@ -114,6 +115,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `const capabilities = [github({ preset: "code-review" })]`,
       `export default defineAgent({ capabilities })`,
@@ -139,6 +141,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `const provider = { capabilities: [github()] }`,
       `export default defineAgent({ capabilities: [], metadata: { provider } })`,
@@ -147,6 +150,20 @@ describe("Eve extension capabilities", () => {
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
+  it("does not lower calls to an unrelated defineAgent binding", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import github from "@github-tools/eve-extension"
+        function defineAgent(options) { return options }
+        export default defineAgent({ capabilities: [github()] })
+      `,
+      parseAst,
+      async () => true,
     )
 
     expect(transformed).toBeUndefined()
@@ -163,6 +180,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `const options = { capabilities: [github()] }`,
       `export default defineAgent(options)`,
@@ -187,6 +205,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `const base = { capabilities: [github()] }`,
       `export default defineAgent({ ...base, driver: { run: () => "ok" } })`,
@@ -235,6 +254,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import $github from "@github-tools/eve-extension"`,
       `export default defineAgent({ capabilities: [$github()] })`,
     ].join("\n")
@@ -275,6 +295,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github, { defineConfig } from "@github-tools/eve-extension"`,
       `const config = defineConfig({})`,
       `export default defineAgent({ capabilities: [github(config)] })`,
@@ -300,6 +321,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `export const capabilities = [github()]`,
       `export default defineAgent({ capabilities })`,
@@ -347,6 +369,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `export default defineAgent({ capabilities: [github()], metadata: { github: true } })`,
     ].join("\n")
@@ -370,6 +393,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `const provider = integrations.github`,
       `export default defineAgent({ capabilities: [github()], metadata: { provider } })`,
@@ -394,6 +418,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `function inspect(github) { return github }`,
       `export default defineAgent({ capabilities: [github()], metadata: { inspect } })`,
@@ -419,6 +444,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `const base = [github({ preset: "code-review" })]`,
       `export default defineAgent({ capabilities: [...base] })`,
@@ -444,6 +470,7 @@ describe("Eve extension capabilities", () => {
       root,
     })
     const inline = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `export default defineAgent({ capabilities: [github()] })`,
     ].join("\n")
@@ -480,6 +507,7 @@ describe("Eve extension capabilities", () => {
       server: { config: { root }, moduleGraph: { getModuleById: () => undefined } },
     })
     const factored = [
+      `import { defineAgent } from "@vite-hub/agent"`,
       `import github from "@github-tools/eve-extension"`,
       `const capabilities = [github()]`,
       `export default defineAgent({ capabilities })`,
@@ -529,7 +557,7 @@ describe("Eve extension capabilities", () => {
         role: "assistant",
       },
     ]) as ModelMessage[]
-    expect(await write.needsApproval({}, { messages, toolCallId: "call-2" })).toBe(false)
+    expect(await write.needsApproval({}, { messages, toolCallId: "call-2" })).toBe(true)
 
     const persistedContext = capabilityContext()
     persistedContext.invocation!.input.get = () => ({ context: { "vitehub.eve.approvedTools": ["github__createOrUpdateFile"] } })
