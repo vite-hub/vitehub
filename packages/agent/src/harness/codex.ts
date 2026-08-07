@@ -67,19 +67,18 @@ const codexBridgeDependencyVersions = {
   "@openai/codex-sdk/package.json": "0.144.5",
   "ws/package.json": "8.21.0",
 }
-const codexBridgeDependencyMarkers = Object.keys(codexBridgeDependencyVersions)
 const codexBridgeDefaultNodeModules = packageNodeModules([
   fileURLToPath(import.meta.url),
   resolvePackageEntry("@openai/codex-sdk"),
   resolvePackageEntry("ws"),
 ]) ?? ""
-const codexBridgeDependencyMissing = codexBridgeDependencyMarkers.map(marker => `[ ! -r \"$codex_bridge_node_modules/${marker}\" ]`).join(" || ")
+const codexBridgeDependencyValidation = `node -e ${shellQuote("const { readFileSync } = require('node:fs'); const { join } = require('node:path'); const [root, versionsJson] = process.argv.slice(1); for (const [marker, version] of Object.entries(JSON.parse(versionsJson))) { if (JSON.parse(readFileSync(join(root, marker), 'utf8')).version !== version) process.exit(1) }")} \"$codex_bridge_node_modules\" ${shellQuote(JSON.stringify(codexBridgeDependencyVersions))}`
 const codexBridgePrepareDependenciesCommand = [
   `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-}"`,
   `if [ -z "$codex_bridge_node_modules" ]; then codex_bridge_node_modules=${shellQuote(codexBridgeDefaultNodeModules)}; fi`,
   `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
-  `elif ${codexBridgeDependencyMissing}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
+  `elif ! ${codexBridgeDependencyValidation}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the exact Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   "fi",
   `if [ "$codex_bridge_node_modules" = "${codexBridgeNodeModules}" ]; then :`,
   `elif [ -L "${codexBridgeNodeModules}" ]; then if [ "$(readlink "${codexBridgeNodeModules}")" != "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already links to a different dependency tree" >&2; exit 1; fi`,
