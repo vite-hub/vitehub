@@ -82,8 +82,6 @@ const codexBridgePrepareDependenciesCommand = [
 ].join("; ")
 
 function packageNodeModules(entries: string[]): string {
-  const workingDirectoryNodeModules = join(process.cwd(), "node_modules")
-  if (codexBridgeDependencyMarkers.every(marker => existsSync(join(workingDirectoryNodeModules, marker)))) return workingDirectoryNodeModules
   for (const entry of entries) {
     let directory = dirname(entry)
     while (true) {
@@ -98,6 +96,8 @@ function packageNodeModules(entries: string[]): string {
       directory = parent
     }
   }
+  const workingDirectoryNodeModules = join(process.cwd(), "node_modules")
+  if (codexBridgeDependencyMarkers.every(marker => existsSync(join(workingDirectoryNodeModules, marker)))) return workingDirectoryNodeModules
   throw new Error("[vitehub] Could not resolve the Codex bridge dependency tree.")
 }
 
