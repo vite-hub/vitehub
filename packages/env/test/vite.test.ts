@@ -22,6 +22,10 @@ import { booleanSchema, stringSchema } from "./helpers.ts"
 afterEach(() => vi.unstubAllEnvs())
 
 describe("Vite plugin", () => {
+  it("exposes its resolved project root", () => {
+    expect(hubEnv({ projectRoot: "../shared" }).api.resolveProjectRoot("/tmp/workspace/apps/site")).toBe("/tmp/workspace/apps/shared")
+  })
+
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {
     vi.stubEnv("GITHUB_REF_TYPE", "")
 

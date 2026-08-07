@@ -6,14 +6,19 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import ownerAuthHandler from "@vite-hub/auth/server"
+import * as ownerAuthVue from "@vite-hub/auth/vue"
 import * as ownerBlobContentType from "@vite-hub/blob/content-type"
+import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env"
+import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state"
 import * as ownerRateLimit from "@vite-hub/rate-limit"
 import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
 import frameworkAuthHandler from "vite-hub/auth/server"
+import * as frameworkAuthVue from "vite-hub/auth/vue"
 import * as frameworkBlobContentType from "vite-hub/blob/content-type"
 import * as frameworkRateLimit from "vite-hub/rate-limit"
+import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state"
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -54,6 +59,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/blob/runtime/state",
   "@vite-hub/blob/runtime/vercel-vite",
   "@vite-hub/database/runtime/agent",
+  "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/cloudflare-vite",
   "@vite-hub/database/runtime/hosted",
   "@vite-hub/database/runtime/state",
@@ -76,6 +82,10 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
   "@vite-hub/workflow/runtime/vercel-vite",
+])
+
+const frameworkForwarderTargets = new Map([
+  ["./_internal/database/runtime/state", "@vite-hub/database/runtime/cloudflare-env"],
 ])
 
 function sourceForwarderTargets(source: string): string[] | undefined {
@@ -129,9 +139,16 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
+    expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient)
+    expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession)
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType)
     expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit)
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter)
+  })
+
+  it("keeps the Database environment setter on its owner runtime instance", () => {
+    expect(ownerCloudflareEnvSetter).toBe(ownerDatabaseStateSetter)
+    expect(frameworkDatabaseStateSetter).toBe(ownerDatabaseStateSetter)
   })
 
   it("keeps every source forwarder owned by its matching package export", () => {
@@ -157,8 +174,9 @@ describe("framework package contract", () => {
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
-      const ownerPackage = ownerSpecifier.split("/").slice(0, 2).join("/")
-      expect([...new Set(targets)], subpath).toEqual([ownerSpecifier])
+      const expectedTarget = frameworkForwarderTargets.get(subpath) || ownerSpecifier
+      const ownerPackage = expectedTarget.split("/").slice(0, 2).join("/")
+      expect([...new Set(targets)], subpath).toEqual([expectedTarget])
       expect(manifest.dependencies[ownerPackage], subpath).toBeDefined()
     }
   })

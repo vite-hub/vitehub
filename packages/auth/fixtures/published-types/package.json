@@ -5,7 +5,8 @@
   "dependencies": {
     "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz",
     "@vite-hub/auth": "file:./vite-hub-auth-0.0.1.tgz",
-    "@vite-hub/runtime": "file:./vite-hub-runtime-0.0.1.tgz"
+    "@vite-hub/runtime": "file:./vite-hub-runtime-0.0.1.tgz",
+    "vue": "^3.5.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3"

@@ -188,8 +188,8 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
   return specs
 }
 
-function workspaceConfig(specs: Record<string, string>) {
-  const overrides = Object.entries(specs)
+function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
+  const overrides = Object.entries({ ...specs, ...additionalOverrides })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
 
@@ -392,6 +392,57 @@ async function assertVercelRuntimeImportsResolveInside(
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("builds Nuxt database middleware without exposing owner packages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        mkdir(appDir, { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "app.vue"), "<template><main>ViteHub</main></template>\n", "utf8"),
+        writeFile(join(appDir, "nuxt.config.ts"), `
+          export default defineNuxtConfig({
+            modules: ["vite-hub/nuxt"],
+            nitro: { preset: "cloudflare_module" },
+            vitehub: { database: true, preset: "cloudflare" },
+          })
+        `, "utf8"),
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            nuxt: "4.4.8",
+            vite: "8.0.8",
+            "vite-hub": specs["vite-hub"],
+          },
+          packageManager: "pnpm@10.33.0",
+          private: true,
+          scripts: { build: "nuxt build" },
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
+          "oxc-parser": "0.140.0",
+          rolldown: "1.1.5",
+        }), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+
+      await assertOnlyViteHubDependencies(appDir, ["vite-hub"])
+      expect(existsSync(join(appDir, "node_modules/@vite-hub")), "owner packages must not be visible at the consumer root").toBe(false)
+      await run("pnpm", ["run", "build"], appDir)
+
+      const middleware = await readFile(join(appDir, ".vitehub/nitro/database/middleware.ts"), "utf8")
+      expect(middleware).toContain("from '@vite-hub/database/runtime/state'")
+      expect(middleware).not.toContain("from 'nitro'")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 300_000)
+
   it("publishes Browser types and Cloudflare adapter without consumer-owned Playwright", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))
     const appDir = join(root, "app")

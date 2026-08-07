@@ -34,8 +34,10 @@
   "exports": {
     ".": "./dist/index.js",
     "./agent": "./dist/agent.js",
+    "./nuxt": "./dist/nuxt.js",
     "./server": "./dist/server.js",
     "./vite": "./dist/vite.js",
+    "./vue": "./dist/vue.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -45,6 +47,7 @@
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth"
   },
@@ -56,17 +59,22 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
     "@vite-hub/agent": "workspace:*",
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@vite-hub/agent": {
       "optional": true
     },
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

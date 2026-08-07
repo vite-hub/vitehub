@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Message } from "chat"
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
@@ -259,6 +259,79 @@ describe("agent Vite plugin", () => {
     finally {
       await rm(root, { force: true, recursive: true })
       await rm(serverDir, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps Agent generation and cleanup under a configured root", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-generated-root-"))
+    const generatedRoot = join(root, ".nuxt", "vitehub")
+    const generatedRoute = join(generatedRoot, "agent", "chat-webhook-route.ts")
+    const generatedQueue = join(generatedRoot, "agent", "webhook-queue-plugin.ts")
+    const generatedEvalConfig = join(generatedRoot, "agent", "evalite.config.ts")
+    const evalFile = join(root, "support.eval.ts")
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      await writeFile(evalFile, "export default defineEval({})", "utf8")
+      const plugin = hubAgent({ providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } } })
+      const config = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: "build", mode: "production" }) => Record<string, unknown>
+      const configResolved = plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>
+      const privateConfig = {
+        [VITEHUB_GENERATED_ROOT]: generatedRoot,
+        command: "build",
+        plugins: [],
+        root,
+      }
+
+      expect(await config(privateConfig, { command: "build", mode: "production" })).toMatchObject({
+        nitro: {
+          handlers: [{ handler: generatedRoute, route: "/api/_vitehub/agents/:agent/webhooks/:webhook" }],
+          plugins: [generatedQueue],
+        },
+      })
+      await configResolved(privateConfig)
+
+      await expect(readFile(generatedRoute, "utf8")).resolves.toContain("server/agents/support.ts")
+      await expect(readFile(generatedQueue, "utf8")).resolves.toContain("resumeWebhookQueues")
+      await expect(readFile(generatedEvalConfig, "utf8")).resolves.toContain("forceRerunTriggers")
+      await expect(readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
+      await rm(evalFile)
+      await configResolved({
+        ...privateConfig,
+        agent: { providers: { state: { provider: "memory" } } },
+      })
+      await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps the Deno cron import pointed at project-owned Schedule output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-generated-root-"))
+    const generatedRoot = join(root, ".nuxt", "vitehub")
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ runtime: "deno" })
+      const configResolved = plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>
+
+      await configResolved({
+        [VITEHUB_GENERATED_ROOT]: generatedRoot,
+        command: "build",
+        plugins: [],
+        root,
+      })
+
+      const denoServer = await readFile(join(generatedRoot, "agent", "deno-server.ts"), "utf8")
+      expect(denoServer).toContain('await import("../../../.vitehub/schedule/deno-cron.mjs").catch')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
     }
   })
 
@@ -646,6 +719,7 @@ describe("agent Vite plugin", () => {
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-routes-"))
+    const generatedRoot = join(root, ".nuxt", "vitehub")
     const previousHosting = process.env.VITEHUB_HOSTING
     const previousNetlify = process.env.NETLIFY
     try {
@@ -675,11 +749,12 @@ describe("agent Vite plugin", () => {
         workspaceImportBase: "vite-hub/_internal/workspace",
       }
       const plugin = hubAgent(agentOptions as never)
-      const configResolved = plugin.configResolved as (config: { agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: { [VITEHUB_GENERATED_ROOT]?: string, agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
       await configResolved({
+        [VITEHUB_GENERATED_ROOT]: generatedRoot,
         agent: agentOptions,
         build: { outDir: "dist/client" },
         command: "build",
@@ -688,8 +763,9 @@ describe("agent Vite plugin", () => {
       })
       await closeBundle.handler()
 
-      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      await execFileAsync(process.execPath, ["--check", join(root, ".vitehub/agent/netlify-function.mjs")])
+      const wrapper = await readFile(join(generatedRoot, "agent/netlify-function.mjs"), "utf8")
+      await execFileAsync(process.execPath, ["--check", join(generatedRoot, "agent/netlify-function.mjs")])
+      expect(wrapper).toContain("server/agents/support.ts")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
       expect(wrapper).toContain("import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from \"@vite-hub/agent/server/internal\"")
       expect(wrapper).toContain("state: () => import(\"vite-hub/_internal/workflow/runtime/state\")")
@@ -724,7 +800,7 @@ describe("agent Vite plugin", () => {
         clientOutDir: "dist/client",
         netlify: {
           functions: [{
-            bundleEntry: join(root, ".vitehub/agent/netlify-function.mjs"),
+            bundleEntry: join(generatedRoot, "agent/netlify-function.mjs"),
             bundleOptions: {
               alias: {
                 "#support": join(root, "support.ts"),
@@ -1491,6 +1567,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const webhookRoutePattern")
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
       expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
+      expect(webhookRoute).toContain("return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, runtime: 'vite', event, waitUntil: waitUntilFromEvent(event) })")
       expect(webhookRoute).not.toContain("@vite-hub/schedule/runtime")
     }
     finally {
@@ -1880,7 +1957,7 @@ export default defineAgent({
 
       expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from \"@vite-hub/agent/server/internal\"")
       expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
-      expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
+      expect(denoServer).toContain('await import("../schedule/deno-cron.mjs").catch')
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
       expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
       expect(denoServer).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
@@ -2449,6 +2526,59 @@ describe("server helpers", () => {
     await expect(response.text()).resolves.toBe("event: custom\ndata: ok\n\n")
   })
 
+  it("accepts UI message streams and Responses from another runtime realm", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ textDelta: "hello", type: "text-delta" })
+        controller.close()
+      },
+    })
+    const foreignStream = {
+      getReader: stream.getReader.bind(stream),
+      pipeThrough: stream.pipeThrough.bind(stream),
+      [Symbol.asyncIterator]: stream[Symbol.asyncIterator].bind(stream),
+    }
+    const responseHeaders = new Headers({
+      "content-type": "text/event-stream",
+      "x-vercel-ai-ui-message-stream": "v1",
+    })
+    const foreignResponse = {
+      body: new Response("data: {\"type\":\"finish\"}\n\n").body,
+      headers: {
+        entries: responseHeaders.entries.bind(responseHeaders),
+        get: responseHeaders.get.bind(responseHeaders),
+      },
+      status: 202,
+      statusText: "Accepted",
+    }
+    expect(foreignStream).not.toBeInstanceOf(ReadableStream)
+    expect(foreignResponse).not.toBeInstanceOf(Response)
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger")
+      .mockResolvedValueOnce(foreignStream as never)
+      .mockResolvedValueOnce(foreignResponse as never)
+    const handler = createChannelChatRouteHandler(defineAgent({
+      capabilities: [defineChatCapability()],
+      driver: { run: () => "unused" },
+    }) as never)
+    const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({ messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }] }),
+      method: "POST",
+    })
+
+    const streamResponse = await handler(request(), { agentName: "support" })
+    expect(streamResponse.status).toBe(200)
+    await expect(streamResponse.text()).resolves.toContain('"textDelta":"hello"')
+
+    const response = await handler(request(), { agentName: "support" })
+    expect(response.status).toBe(202)
+    await expect(response.text()).resolves.toBe("data: {\"type\":\"finish\"}\n\ndata: [DONE]\n\n")
+    streamAgentTrigger.mockRestore()
+  })
+
   it("appends DONE to UI message chat Response bodies and drops stale body headers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -2636,7 +2766,9 @@ describe("server helpers", () => {
         },
       },
     }
-    const authenticate = vi.fn(({ rawBody, request }) => {
+    const hostEvent = { context: { tenant: "acme" } }
+    const authenticate = vi.fn(({ event, rawBody, request }) => {
+      expect(event).toBe(hostEvent)
       expect(rawBody.length).toBeGreaterThan(0)
       return request.headers.get("x-quiver-chat-token") === "trusted"
         ? { invokerProfileId: "customer:acme" }
@@ -2653,7 +2785,8 @@ describe("server helpers", () => {
             admission: {
               body: bodySchema,
               authenticate,
-              context({ auth, body }) {
+              context({ auth, body, event }) {
+                expect(event).toBe(hostEvent)
                 return {
                   invokerProfileId: auth.invokerProfileId,
                   meta: body.meta,
@@ -2661,6 +2794,9 @@ describe("server helpers", () => {
                   user: body.user,
                 }
               },
+            },
+            mapInput({ event }) {
+              expect(event).toBe(hostEvent)
             },
           },
         }),
@@ -2693,7 +2829,7 @@ describe("server helpers", () => {
         "x-quiver-chat-token": "trusted",
       },
       method: "POST",
-    }), { agentName: "support" })
+    }), { agentName: "support", event: hostEvent })
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
@@ -2715,7 +2851,7 @@ describe("server helpers", () => {
         "x-quiver-chat-token": "trusted",
       },
       method: "POST",
-    }), { agentName: "support" })
+    }), { agentName: "support", event: hostEvent })
 
     expect(malformedResponse.status).toBe(400)
     expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({
@@ -2735,7 +2871,7 @@ describe("server helpers", () => {
       }),
       headers: { "x-quiver-chat-token": "nope" },
       method: "POST",
-    }), { agentName: "support" })
+    }), { agentName: "support", event: hostEvent })
 
     expect(rejectedResponse.status).toBe(401)
     await expect(rejectedResponse.json()).resolves.toMatchObject({

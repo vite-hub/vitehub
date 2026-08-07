@@ -122,13 +122,13 @@ export default defineAuth({
 
 ## Client-side Auth
 
-Use Better Auth's client libraries from application code. ViteHub exposes the Auth route in local Vite development and provides the handler for hosts that mount it manually; Better Auth owns framework clients, hooks, client plugins, sign-in actions, and session state.
+Vue apps can use ViteHub's Better Auth client and normalized session composable directly. `useUserSession()` exposes the current `user` and `session`, sign-in and sign-out actions, and `loggedIn`, `pending`, and `ready` computed refs.
 
 ```ts
 // lib/auth-client.ts
-import { createAuthClient } from "better-auth/client"
+import { useUserSession } from "@vite-hub/auth/vue"
 
-export const authClient = createAuthClient()
+export const session = useUserSession()
 ```
 
 That default talks to `/api/auth` on the same origin. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client.
@@ -145,14 +145,15 @@ export default defineAuth({
 
 ```ts
 // lib/auth-client.ts
-import { createAuthClient } from "better-auth/client"
+import { createAuthClient, useUserSession } from "@vite-hub/auth/vue"
 
 export const authClient = createAuthClient({
   basePath: "/auth",
 })
+export const userSession = useUserSession(authClient)
 ```
 
-Use Better Auth's framework entrypoints when you want React, Vue, Svelte, Solid, or other framework-specific client behavior. ViteHub does not provide `@vite-hub/auth/client` or a separate Auth Client Definition.
+The exported `createAuthClient` keeps Better Auth's option and plugin inference for custom base paths and client plugins. The zero-config composables use ViteHub's shared default client. React, Svelte, Solid, and other framework clients remain available from Better Auth's framework entrypoints.
 
 Read [Better Auth's client docs](https://www.better-auth.com/docs/concepts/client) for framework entrypoints and session helpers.
 

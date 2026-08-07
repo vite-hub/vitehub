@@ -9,7 +9,7 @@ import { getAuthForDefinition, handleAuthRequest, resetAuth } from "./server.ts"
 import { isAuthRequestPath } from "./shared.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type {
   AuthDefinition,
   AuthModuleOptions,
@@ -38,6 +38,23 @@ export interface AuthVitePluginAPI {
 }
 
 export type AuthVitePlugin = Plugin & { api: AuthVitePluginAPI }
+
+export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
+  nitro: Record<string, unknown>
+  projectRoot: string
+  serverDirs?: string[]
+  viteAuth?: AuthModuleOptions
+}): Record<string, unknown> {
+  const viteConfigResult = plugin.config && typeof plugin.config === "function"
+    ? plugin.config.call({} as never, {
+        root: options.projectRoot,
+        nitro: options.nitro,
+        auth: options.viteAuth,
+        ...(options.serverDirs ? { [VITEHUB_SERVER_DIRS]: options.serverDirs } : {}),
+      } as UserConfig & { nitro: Record<string, unknown> }, { command: "build", isPreview: false, isSsrBuild: true, mode: "production" })
+    : undefined
+  return (viteConfigResult && typeof viteConfigResult === "object" && "nitro" in viteConfigResult ? viteConfigResult.nitro : options.nitro) as Record<string, unknown>
+}
 
 type InternalAuthModuleOptions = AuthModuleOptions & {
   importBase?: string
@@ -170,12 +187,12 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
     ...(config.route === false
       ? []
       : [{
-          handler: generatedAuthRouteHandler,
+          handler: resolve(config.rootDir, generatedAuthRouteHandler),
           route: authRoutePattern(config.route),
         }]),
     ...(config.access.routes.length > 0
       ? [{
-          handler: generatedAuthAccessMiddlewareHandler,
+          handler: resolve(config.rootDir, generatedAuthAccessMiddlewareHandler),
           middleware: true,
           route: "/**",
         }]

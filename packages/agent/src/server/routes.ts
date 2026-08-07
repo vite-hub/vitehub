@@ -106,6 +106,7 @@ export interface AgentTelegramPollingRouteOptions extends AgentRouteRuntimeOptio
 export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
+  event?: unknown
 }
 
 export interface AgentChannelChatRouteStandardSchemaResultSuccess<T = unknown> {
@@ -126,6 +127,7 @@ export interface AgentChannelChatRouteStandardSchemaV1<T = unknown> {
 export interface AgentChannelChatRouteAdmissionContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody> {
   agentName: string
   body: TBody
+  event?: unknown
   rawBody: string
   request: Request
 }
@@ -202,9 +204,30 @@ function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
+function isReadableStreamLike(value: unknown): value is ReadableStream<unknown> {
+  return isRecord(value)
+    && typeof value.getReader === "function"
+    && typeof value.pipeThrough === "function"
+}
+
+function isHeadersLike(value: unknown): value is Headers {
+  return isRecord(value)
+    && typeof value.entries === "function"
+    && typeof value.get === "function"
+}
+
+function isResponseLike(value: unknown): value is Response & { body: ReadableStream<unknown> } {
+  return isRecord(value)
+    && isReadableStreamLike(value.body)
+    && isHeadersLike(value.headers)
+    && typeof value.status === "number"
+    && typeof value.statusText === "string"
+}
+
 function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
-  if (value instanceof ReadableStream) return value
+  if (value instanceof ReadableStream || isReadableStreamLike(value)) return value
   if (value instanceof Response && value.body) return value.body
+  if (isResponseLike(value)) return value.body
   throw new Error("[vitehub] Agent chat trigger expected a UI message stream.")
 }
 
@@ -219,7 +242,7 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
   const decoder = new TextDecoder()
   const reader = response.body.getReader()
   let tail = ""
-  const headers = new Headers(response.headers)
+  const headers = new Headers([...response.headers.entries()])
   headers.delete("content-encoding")
   headers.delete("content-length")
 
@@ -3514,7 +3537,9 @@ function mergeAgentChannelChatRouteInput(
 }
 
 async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
-  if (result instanceof Response) return withCleanUiMessageStreamResponse(result)
+  if (result instanceof Response || isResponseLike(result)) {
+    return withCleanUiMessageStreamResponse(result)
+  }
   return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
 }
 
@@ -3673,7 +3698,7 @@ export function createChannelChatRouteHandler(
       const parsed = await parseAgentChannelChatRouteBody(request)
       const agentIdentity = routeAgentIdentity(handlerOptions)
       const agentName = agentIdentity?.name || "agent"
-      const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, rawBody: parsed.rawBody, request })
+      const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, event: handlerOptions.event, rawBody: parsed.rawBody, request })
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
       const context = createRuntimeContext(
@@ -3691,7 +3716,7 @@ export function createChannelChatRouteHandler(
         baseInput,
         trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined,
       )
-      const inputContext = { agentName, auth: auth as never, body, input: trustedInput, rawBody: parsed.rawBody, request }
+      const inputContext = { agentName, auth: auth as never, body, event: handlerOptions.event, input: trustedInput, rawBody: parsed.rawBody, request }
       const admittedInput = mergeAgentChannelChatRouteInput(
         trustedInput,
         await routeOptions.admission?.context?.(inputContext),

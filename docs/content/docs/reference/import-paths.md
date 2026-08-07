@@ -27,6 +27,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
+| `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
 | `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
 | `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
 | `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, and named Browser runs. |
@@ -149,6 +150,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
 
 The Agent Package does not expose an `@vite-hub/agent/netlify` application import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
+With Nuxt, that source wrapper is generated under `<buildDir>/vitehub/agent/netlify-function.mjs` (normally `.nuxt/vitehub/agent/netlify-function.mjs`).
 
 The framework distribution does not introduce public `vite-hub/*/vite` or
 provider-specific application aliases. Use root `vitehub()` for framework

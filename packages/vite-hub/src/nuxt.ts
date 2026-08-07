@@ -1,4 +1,7 @@
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { join } from "node:path"
+
+import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { mergeConfig } from "vite"
 
@@ -10,6 +13,7 @@ type NuxtLike = {
   hook?: (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) => void
   options: {
     alias?: Record<string, string>
+    buildDir: string
     dev?: boolean
     rootDir?: string
     serverDir?: string
@@ -69,16 +73,19 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
     mode: nuxt.options.dev ? "development" : "production",
   } as const
   const serverDirs = nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined
+  const generatedRoot = join(nuxt.options.buildDir, "vitehub")
   let config = mergeConfig({
     resolve: {
       alias: nuxt.options.alias,
     },
     root: nuxt.options.rootDir || process.cwd(),
   }, nuxt.options.vite ?? {}) as UserConfig & {
+    [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
   }
+  config[VITEHUB_GENERATED_ROOT] = generatedRoot
   config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
   config.build ??= {}
@@ -93,6 +100,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
         const { nitro, ...viteConfig } = result as UserConfig & { nitro?: Record<string, unknown> }
         config = mergeConfig(config, viteConfig)
         if (nitro) config.nitro = nitro as Record<string, unknown>
+        config[VITEHUB_GENERATED_ROOT] = generatedRoot
         config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
         if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
       }
@@ -155,9 +163,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & {
+    [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_SERVER_DIRS]?: string[]
   }
+  viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
   nuxt.options.vite.plugins = [
@@ -165,8 +175,26 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...existing,
   ] as PluginOption[]
   nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
+  if (options.auth) {
+    const envOptions = options.env || {}
+    hubAuthNuxt({
+      auth: options.auth === true ? undefined : options.auth,
+      env: options.env === false
+        ? false
+        : { projectRoot: envOptions.projectRoot },
+      importsFrom: "vite-hub/auth/vue",
+      nitro: false,
+    }, nuxt)
+  }
   if (options.database) {
     await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
+    if (!nuxt.options.dev) {
+      nuxt.hook?.("nitro:config", async (config) => {
+        const alias = (config.alias ??= {}) as Record<string, string>
+        alias["@vite-hub/database/runtime/state"]
+          ??= "vite-hub/_internal/database/runtime/state"
+      })
+    }
   }
 }
 

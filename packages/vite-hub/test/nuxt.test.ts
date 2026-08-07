@@ -1,6 +1,8 @@
+import { resolve } from "node:path"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { PluginOption } from "vite"
 
@@ -59,6 +61,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       alias: {
         "~": "/tmp/vitehub-nuxt/app",
       },
+      buildDir: "/tmp/vitehub-nuxt/.nuxt",
       dev,
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
@@ -67,6 +70,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     },
   }
   return {
+    nitroConfigHooks,
     nuxt,
     async runNitroConfigHook(config: Record<string, unknown>) {
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
@@ -169,6 +173,9 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
     expect((nuxt.options.vite as typeof nuxt.options.vite & {
+      [VITEHUB_GENERATED_ROOT]?: string
+    })[VITEHUB_GENERATED_ROOT]).toBe("/tmp/vitehub-nuxt/.nuxt/vitehub")
+    expect((nuxt.options.vite as typeof nuxt.options.vite & {
       [VITEHUB_SERVER_DIRS]?: string[]
     })[VITEHUB_SERVER_DIRS]).toEqual(["/tmp/vitehub-nuxt/custom-server"])
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
@@ -212,6 +219,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.existingOwnerConfig).toHaveBeenCalledOnce()
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
+        [VITEHUB_GENERATED_ROOT]: "/tmp/vitehub-nuxt/.nuxt/vitehub",
         [VITEHUB_SERVER_DIRS]: ["/tmp/vitehub-nuxt/custom-server"],
       }),
       expect.anything(),
@@ -294,8 +302,77 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroConfig).toMatchObject({
       alias: {
         "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/custom-vite-root/.vitehub/database/cloudflare-runtime.mjs",
+        "@vite-hub/database/runtime/state": "vite-hub/_internal/database/runtime/state",
       },
     })
+  })
+
+  it("keeps the Database Nuxt runtime alias out of development", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+
+    await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
+    const nitroConfig = {}
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig).not.toHaveProperty("alias.@vite-hub/database/runtime/state")
+  })
+
+  it("preserves an explicitly configured Database runtime alias", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
+    const nitroConfig = {
+      alias: {
+        "@vite-hub/database/runtime/state": "./custom-database-state.ts",
+      },
+    }
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.alias["@vite-hub/database/runtime/state"]).toBe("./custom-database-state.ts")
+  })
+
+  it("installs the Auth Vue and server runtime integration through the framework module", async () => {
+    const { nitroConfigHooks, nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ auth: true, preset: "cloudflare" }, nuxt)
+
+    const options = nuxt.options as typeof nuxt.options & {
+      imports: { imports: Array<{ from: string, name: string }> }
+      nitro: { alias: Record<string, string>, plugins: string[] }
+    }
+    expect(options.imports.imports).toEqual([
+      { from: "vite-hub/auth/vue", name: "useAuthClient" },
+      { from: "vite-hub/auth/vue", name: "useSession" },
+      { from: "vite-hub/auth/vue", name: "useSignIn" },
+      { from: "vite-hub/auth/vue", name: "useSignUp" },
+      { from: "vite-hub/auth/vue", name: "useUserSession" },
+    ])
+    expect(options.nitro.alias["#vitehub/env/server"]).toBe("/tmp/vitehub-nuxt/.vitehub/env/server.mjs")
+    expect(options.nitro.plugins).toHaveLength(1)
+    expect(options.nitro.plugins[0]).toMatch(/\/runtime\/nuxt\.js$/)
+    expect(nitroConfigHooks).toHaveLength(1)
+  })
+
+  it("does not resolve a relative Vite root twice for Auth Env imports", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options.vite, { root: "app" })
+
+    await viteHubNuxtModule({ auth: true, preset: "cloudflare" }, nuxt)
+
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe(resolve(".vitehub/env/server.mjs"))
+  })
+
+  it("keeps Auth composables without Env runtime wiring", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ auth: true, env: false, preset: "cloudflare" }, nuxt)
+
+    const options = nuxt.options as typeof nuxt.options & {
+      imports: { imports: Array<{ from: string, name: string }> }
+    }
+    expect(options.imports.imports).toHaveLength(5)
+    expect(options.alias).not.toHaveProperty("#vitehub/env/server")
+    expect(options).not.toHaveProperty("nitro")
   })
 
   it("does not concatenate complete Nitro arrays returned by config hooks", async () => {

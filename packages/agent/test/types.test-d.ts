@@ -1272,8 +1272,9 @@ describe("agent public types", () => {
         }),
         portalWeb: webChat({
           route: {
-            mapInput({ body, request }) {
+            mapInput({ body, event, request }) {
               expectTypeOf(body.messages).toEqualTypeOf<unknown>()
+              expectTypeOf(event).toEqualTypeOf<unknown>()
               expectTypeOf(request).toEqualTypeOf<Request>()
               return { meta: body.meta as Record<string, unknown> }
             },
@@ -1289,16 +1290,18 @@ describe("agent public types", () => {
                   }),
                 },
               },
-              authenticate({ body, rawBody, request }) {
+              authenticate({ body, event, rawBody, request }) {
                 expectTypeOf(body.messages).toEqualTypeOf<unknown>()
+                expectTypeOf(event).toEqualTypeOf<unknown>()
                 expectTypeOf(rawBody).toEqualTypeOf<string>()
                 expectTypeOf(request).toEqualTypeOf<Request>()
                 return { invokerProfileId: "customer:acme" }
               },
-              context({ auth, body, rawBody }) {
+              context({ auth, body, event, rawBody }) {
                 expectTypeOf(auth.invokerProfileId).toEqualTypeOf<string>()
                 expectTypeOf(body.meta.customer).toEqualTypeOf<string>()
                 expectTypeOf(body.user.email).toEqualTypeOf<string>()
+                expectTypeOf(event).toEqualTypeOf<unknown>()
                 expectTypeOf(rawBody).toEqualTypeOf<string>()
                 return {
                   invokerProfileId: auth.invokerProfileId,

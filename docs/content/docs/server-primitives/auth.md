@@ -7,7 +7,7 @@ icon: i-lucide-shield-check
 
 Auth is the server primitive for application user identity and sessions. ViteHub owns the Auth Definition, Auth Route Exposure, storage placement metadata, and server runtime helpers. Storage placement metadata is inspectable configuration; it does not create Better Auth storage adapters.
 
-Better Auth owns client packages, sign-in UI, session hooks, client plugins, and provider-specific client behavior. Use ViteHub to expose and configure the server route, then use Better Auth clients in the browser.
+Better Auth owns sign-in UI, client plugins, and provider-specific client behavior. ViteHub exposes its Vue client and normalized session composables; other framework clients remain available from Better Auth.
 
 ## Quick start
 
@@ -91,13 +91,15 @@ Better Auth-compatible options stay top-level. ViteHub reserves Auth fields such
 
 The Canonical Auth Route Path is `/api/auth/**`. Auth Route Exposure is enabled by default, so apps do not need to create a manual route file for the common same-origin case.
 
-Use Better Auth's client package from browser code.
+Vue apps can use the same-origin ViteHub Auth client and normalized session state directly.
 
 ```ts [lib/auth-client.ts]
-import { createAuthClient } from 'better-auth/client'
+import { useUserSession } from '@vite-hub/auth/vue'
 
-export const authClient = createAuthClient()
+export const userSession = useUserSession()
 ```
+
+Import `createAuthClient` from the same entry when a custom base path or Better Auth client plugins are required.
 
 Server code can read the discovered Auth instance or require a session for a request.
 
