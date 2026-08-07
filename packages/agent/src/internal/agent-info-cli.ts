@@ -1,3 +1,5 @@
+import { isAbsolute, relative, resolve, sep } from "node:path"
+
 import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
@@ -22,6 +24,11 @@ interface ParsedInfoArgs {
   help: boolean
   json: boolean
   url: string
+}
+
+export function isCompatibleAgentDevServerRoot(rootDir: string, serverRoot: string): boolean {
+  const nestedPath = relative(resolve(rootDir), resolve(serverRoot))
+  return nestedPath === "" || (nestedPath !== ".." && !nestedPath.startsWith(`..${sep}`) && !isAbsolute(nestedPath))
 }
 
 function writeInfoUsage(context: AgentInfoCliContext): void {
@@ -245,7 +252,7 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
     context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
     return 1
   }
-  if (typeof result.root === "string" && result.root !== context.rootDir) {
+  if (typeof result.root === "string" && !isCompatibleAgentDevServerRoot(context.rootDir, result.root)) {
     context.stderr.write(`Compatible Vite Development Server root mismatch: ${result.root}\n`)
     return 1
   }

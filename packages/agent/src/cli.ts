@@ -5,7 +5,7 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 
 import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
-import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
+import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
@@ -102,6 +102,7 @@ interface AgentDevCliOptions {
 
 interface AgentDevTarget {
   agent: string
+  root: string
   tokenOptions: WorkspaceDevTokenOptions
   url: string
 }
@@ -791,11 +792,12 @@ async function readDiscovery(
   }
 
   const discovery = await response.json().catch(() => ({})) as Partial<AgentDevLoopDiscoveryResponse>
-  if (typeof discovery.root === "string" && discovery.root !== context.rootDir) {
+  if (typeof discovery.root === "string" && !isCompatibleAgentDevServerRoot(context.rootDir, discovery.root)) {
     context.stderr.write(`Compatible Vite Development Server root mismatch: ${discovery.root}\n`)
     return
   }
   const tokenOptions = typeof discovery.workspaceDevTokenServerId === "string" ? { serverId: discovery.workspaceDevTokenServerId } : {}
+  const root = typeof discovery.root === "string" ? discovery.root : context.rootDir
   const agents = (discovery.agents || []).flatMap(agent => typeof agent.name === "string" ? [agent.name] : [])
   const agentTargets = new Map<string, string>()
   for (const agent of discovery.agents || []) {
@@ -813,10 +815,10 @@ async function readDiscovery(
       context.stderr.write(`Unknown Agent Dev Loop Target: ${parsed.agent}\n`)
       return
     }
-    return { agent: target, tokenOptions, url }
+    return { agent: target, root, tokenOptions, url }
   }
   if (agents.length === 1) {
-    return { agent: agents[0]!, tokenOptions, url }
+    return { agent: agents[0]!, root, tokenOptions, url }
   }
   if (!agents.length) {
     context.stderr.write("No Agents discovered.\n")
@@ -1090,10 +1092,11 @@ async function sendDevWorkspaceCommand(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
+  root: string,
   tokenOptions: WorkspaceDevTokenOptions,
   signal?: AbortSignal,
 ): Promise<number> {
-  const token = await readWorkspaceDevToken(context.rootDir, tokenOptions)
+  const token = await readWorkspaceDevToken(root, tokenOptions)
   if (!token) {
     context.stderr.write("No private Agent Dev Loop command token found. Start the Compatible Vite Development Server first.\n")
     return 1
@@ -1196,7 +1199,7 @@ async function runInteractiveDevLoop(
       if (command) {
         activeRequest = new AbortController()
         try {
-          const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, { command }, parsed, context, fetchImpl, target.tokenOptions, activeRequest.signal)
+          const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, { command }, parsed, context, fetchImpl, target.root, target.tokenOptions, activeRequest.signal)
           if (exitCode !== 0) return exitCode
           continue
         }
@@ -1261,7 +1264,7 @@ export async function runAgentDevCli(
     return await sendDevCliCommand(target.url, target.agent, parsed, context, fetchImpl)
   }
   if (workspaceCommand) {
-    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl, target.tokenOptions)
+    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl, target.root, target.tokenOptions)
   }
 
   const payloadStartsInvocation = parsed.payload && (
