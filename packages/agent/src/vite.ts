@@ -482,6 +482,7 @@ function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "verce
 function shouldInstallCloudflareAgentState(
   options: false | ResolvedAgentModuleOptions,
   config: unknown,
+  command?: "build" | "serve",
 ): options is ResolvedAgentModuleOptions {
   if (!options) return false
   const { provider, url } = options.providers.state
@@ -489,6 +490,7 @@ function shouldInstallCloudflareAgentState(
   if (provider !== "auto") return false
   if (url) return false
   if (options.runtime === "cloudflare-agents") return true
+  if (command === "serve" || (isRecord(config) && config.command === "serve")) return false
   if (options.runtime === "vercel" || options.runtime === "deno") return false
   return resolveAgentHosting(config) === "cloudflare"
 }
@@ -1882,7 +1884,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         })
       },
     },
-    config(config) {
+    config(config, environment) {
       agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
@@ -1891,7 +1893,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const nitroContext = hasNitroConfigContext(config)
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
-      const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
+      const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       const stateProvider = resolved && resolved.providers.state.provider
       const installWebhookQueue = Boolean(
         resolved

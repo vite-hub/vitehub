@@ -1679,7 +1679,7 @@ export default defineAgent({
     }
   })
 
-  it("writes local SQLite state when automatic state runs in Vite development", async () => {
+  it("writes local SQLite state in Vite development with a Cloudflare production preset", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-local-state-routes-"))
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -1688,12 +1688,16 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
+      const result = typeof plugin.config === "function"
+        ? await plugin.config.call({} as never, { preset: "cloudflare", root } as never, { command: "serve", mode: "development" })
+        : undefined
       if (typeof plugin.configResolved === "function") {
-        await plugin.configResolved.call({} as never, { command: "serve", root } as never)
+        await plugin.configResolved.call({} as never, { command: "serve", preset: "cloudflare", root } as never)
       }
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
+      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeUndefined()
       expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
       expect(webhookRoute).toContain(`const viteHubChatStateOptions = {"url":${JSON.stringify(pathToFileURL(join(root, ".data/vitehub-agent-state.sqlite")).href)}}`)
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
