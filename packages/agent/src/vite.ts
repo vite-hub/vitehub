@@ -957,6 +957,7 @@ export async function transformEveExtensionCapabilities(
   if (!isPositionedNode(program)) return
 
   const imports = new Map<string, { declaration: PositionedNode, source: string }>()
+  const defineAgentImports = new Set(["defineAgent"])
   const staticArrays = new Map<string, PositionedNode>()
   const staticObjects = new Map<string, PositionedNode>()
   const references = new Map<string, number>()
@@ -993,6 +994,21 @@ export async function transformEveExtensionCapabilities(
     const source = node.source
     const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
     if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") return
+    if (source.value === "@vite-hub/agent" || source.value === "vite-hub/agent") {
+      for (const specifier of specifiers) {
+        if (!isPositionedNode(specifier) || specifier.type !== "ImportSpecifier") continue
+        const imported = specifier.imported
+        const local = specifier.local
+        if (
+          isPositionedNode(imported)
+          && imported.type === "Identifier"
+          && imported.name === "defineAgent"
+          && isPositionedNode(local)
+          && local.type === "Identifier"
+          && typeof local.name === "string"
+        ) defineAgentImports.add(local.name)
+      }
+    }
     const defaultSpecifier = specifiers.find(specifier => isPositionedNode(specifier) && specifier.type === "ImportDefaultSpecifier")
     if (!isPositionedNode(defaultSpecifier)) return
     const local = defaultSpecifier.local
@@ -1031,7 +1047,7 @@ export async function transformEveExtensionCapabilities(
     const callee = node.callee
     const isDefineAgentCall = isPositionedNode(callee)
       && (
-        (callee.type === "Identifier" && callee.name === "defineAgent")
+        (callee.type === "Identifier" && typeof callee.name === "string" && defineAgentImports.has(callee.name))
         || (
           callee.type === "MemberExpression"
           && callee.computed !== true
