@@ -18,6 +18,7 @@ import type {
   AgentRunResult,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentTriggerInvokeResult,
   AgentTriggerRunInvokeResult,
   AgentWebhookInvocationOwnership,
   AgentWebhookRegistrationDefinition,
@@ -198,7 +199,7 @@ export interface ResolvedAgentTriggerInvocation<
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
-  webhook?: AgentWebhookInvocationOwnership
+  webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
 }
 
 export interface ResolvedAgentTriggerHandledInvocation<
@@ -424,20 +425,29 @@ export async function resolveAgentTriggerInvocation<
       requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
     })
   }
-  const invocation = await trigger.invoke(input)
+  return resolveAgentTriggerInvocationResult(await trigger.invoke(input), trigger)
+}
+
+export function resolveAgentTriggerInvocationResult<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+>(
+  invocation: AgentTriggerInvokeResult<CALL_OPTIONS>,
+  trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS>,
+): ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS> {
   if (invocation instanceof Response) {
     return {
       response: invocation,
       trigger: trigger as never,
     }
   }
-  const runInvocation = invocation as AgentTriggerRunInvokeResult<CALL_OPTIONS>
   return {
-    input: withAgentTriggerContext(runInvocation.input, trigger, runInvocation.delivery),
-    metadata: runInvocation.metadata,
-    run: runInvocation.run,
+    input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery),
+    metadata: invocation.metadata,
+    run: invocation.run,
     trigger: trigger as never,
-    webhook: runInvocation.webhook,
+    webhook: invocation.webhook,
   }
 }
 

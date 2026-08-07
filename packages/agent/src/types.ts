@@ -343,16 +343,17 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
-  webhook?: AgentWebhookInvocationOwnership
+  webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
 }
 
-interface AgentWebhookInvocationOwnershipBase {
+interface AgentWebhookInvocationOwnershipBase<CALL_OPTIONS = unknown> {
   concurrencyGroup?: string
   concurrencyTtlMs?: number
   deliveryId: string
+  rehydrate?: () => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
 }
 
-export type AgentWebhookInvocationOwnership = AgentWebhookInvocationOwnershipBase & (
+export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase<CALL_OPTIONS> & (
   | { busy: "steer", concurrencyKey: string, concurrencyLimit: number }
   | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: number }
 )

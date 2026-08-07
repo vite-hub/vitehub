@@ -5744,6 +5744,69 @@ describe("server helpers", () => {
     }
   })
 
+  it("rehydrates queued webhook invocations before running the agent", async () => {
+    const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
+    const run = vi.fn(() => "accepted")
+    const rehydrate = vi.fn(() => {
+      expect(getActiveCloudflareEnv()?.SOURCE_TOKEN).toBe("fresh-token")
+      return {
+        input: { prompt: "fresh source data" },
+        webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate" },
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "stale source data" },
+                webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate", rehydrate },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-rehydrate",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", {
+        agentName: "review",
+        cloudflare: { env: { SOURCE_TOKEN: "fresh-token" } },
+        webhookState: state,
+      })
+
+      expect(response.status).toBe(200)
+      expect(enqueue.mock.calls[0]?.[0].invocation).toBeUndefined()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(rehydrate).toHaveBeenCalledOnce()
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        input: expect.objectContaining({ prompt: "fresh source data" }),
+      }))
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
