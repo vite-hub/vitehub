@@ -260,13 +260,9 @@ describe("chat message trigger input", () => {
       ],
     })
 
-    expect(result.input.messages).toHaveLength(2)
-    expect(result.input.messages?.[0]?.parts).toEqual([
-      { id: "tool-1", input: { command: "write" }, name: "shell", state: "proposed", type: "tool-call" },
-      { id: "approval-1", input: { command: "write" }, name: "shell", toolCallId: "tool-1", type: "approval-request" },
-      { approved: true, id: "approval-1", type: "approval-decision" },
-    ])
-    expect(result.input.messages?.[1]?.id).toBe("latest")
+    expect(result.input.messages).toHaveLength(1)
+    expect(result.input.messages?.[0]?.id).toBe("latest")
+    expect(result.input.context?.["vitehub.eve.approvedTools"]).toEqual(["shell"])
   })
 
   it("preserves UI data parts in follow-up history", () => {

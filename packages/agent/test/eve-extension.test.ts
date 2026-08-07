@@ -175,6 +175,31 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
   })
 
+  it("retains an Eve import used by a shadowed binding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const source = [
+      `import github from "@github-tools/eve-extension"`,
+      `function inspect(github) { return github }`,
+      `export default defineAgent({ capabilities: [github()], metadata: { inspect } })`,
+    ].join("\n")
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`import github from "@github-tools/eve-extension"`)
+  })
+
   it("detects Eve extensions in a spread static capabilities array", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
@@ -239,5 +264,13 @@ describe("Eve extension capabilities", () => {
       },
     ]) as ModelMessage[]
     expect(await write.needsApproval({}, { messages, toolCallId: "call-2" })).toBe(false)
+
+    const persistedContext = capabilityContext()
+    persistedContext.invocation!.input.get = () => ({ context: { "vitehub.eve.approvedTools": ["github__createOrUpdateFile"] } })
+    const persistedTools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(persistedContext)
+    const persistedWrite = persistedTools.github__createOrUpdateFile as AgentToolDefinition & {
+      needsApproval: (input: unknown, options: { messages: ModelMessage[], toolCallId: string }) => Promise<boolean>
+    }
+    expect(await persistedWrite.needsApproval({}, { messages: [], toolCallId: "call-3" })).toBe(false)
   })
 })

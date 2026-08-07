@@ -1022,9 +1022,6 @@ export async function transformEveExtensionCapabilities(
   const extensions: EveExtensionImport[] = []
   for (const call of calls) {
     if (!await resolveExtension(call.source)) continue
-    if ((references.get(call.local) ?? 0) !== 2) {
-      throw new Error(`[vitehub] Eve extension import ${JSON.stringify(call.local)} must only be used once in the capabilities array.`)
-    }
     const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
     if (args.length > 1 || args.some(argument => isPositionedNode(argument) && argument.type === "SpreadElement")) {
       throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.`)
@@ -1058,9 +1055,12 @@ export async function transformEveExtensionCapabilities(
     replacements.push({
       end: extension.declaration.end,
       start: extension.declaration.start,
-      value: extension === firstImport
-        ? `import { eveExtensionCapability as ${helper} } from "@vite-hub/agent/eve"`
-        : "",
+      value: [
+        ...(extension === firstImport ? [`import { eveExtensionCapability as ${helper} } from "@vite-hub/agent/eve"`] : []),
+        ...((references.get(extension.local) ?? 0) === 2
+          ? []
+          : [code.slice(extension.declaration.start, extension.declaration.end)]),
+      ].join("\n"),
     })
   }
   return applyCodeReplacements(code, replacements)

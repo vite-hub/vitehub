@@ -103,6 +103,11 @@ function approvedToolNames(messages: ModelMessage[]): Set<string> {
   return approved
 }
 
+function approvedToolNamesFromContext(context: AgentCapabilityContext): Set<string> {
+  const approved = context.invocation?.input.get().context?.["vitehub.eve.approvedTools"]
+  return new Set(Array.isArray(approved) ? approved.filter((name): name is string => typeof name === "string") : [])
+}
+
 function eveSessionId(context: AgentCapabilityContext): string {
   return context.run?.threadId ?? context.run?.runId ?? context.invoker.id
 }
@@ -147,8 +152,10 @@ function toViteHubTool(
       ? {
           async needsApproval(input: unknown, options: ToolExecutionOptions = {}) {
             const callId = options.toolCallId ?? `${name}-${Date.now()}`
+            const approvedTools = approvedToolNamesFromContext(context)
+            for (const approvedTool of approvedToolNames(options.messages ?? [])) approvedTools.add(approvedTool)
             const status = await approval({
-              approvedTools: approvedToolNames(options.messages ?? []),
+              approvedTools,
               callId,
               getSandbox: async () => unsupportedEveRuntimeFeature("approval ctx.getSandbox()"),
               getSkill: () => unsupportedEveRuntimeFeature("approval ctx.getSkill()"),
