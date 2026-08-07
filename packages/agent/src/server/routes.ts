@@ -1033,7 +1033,7 @@ async function executeQueuedWebhookDelivery(
         if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.webhook?.rehydrate) {
           resolved = resolveAgentTriggerInvocationResult(await resolved.webhook.rehydrate(), resolved.trigger)
         }
-        if (isResolvedAgentTriggerHandledInvocation(resolved)) await context.flushWaitUntil?.()
+        await context.flushWaitUntil?.()
         return resolved
       })
       if (!isResolvedAgentTriggerHandledInvocation(resolved)) {

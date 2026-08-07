@@ -5753,9 +5753,15 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
-    const run = vi.fn(() => "accepted")
+    const rehydrationWork = vi.fn()
+    let triggerContext!: { waitUntil: (task: Promise<unknown>) => void }
+    const run = vi.fn(() => {
+      expect(rehydrationWork).toHaveBeenCalledOnce()
+      return "accepted"
+    })
     const rehydrate = vi.fn(() => {
       expect(getActiveCloudflareEnv()?.SOURCE_TOKEN).toBe("fresh-token")
+      triggerContext.waitUntil(Promise.resolve().then(rehydrationWork))
       return {
         input: { prompt: "fresh source data" },
         webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate" },
@@ -5766,10 +5772,13 @@ describe("server helpers", () => {
         github: github({
           triggers: {
             webhook: {
-              invoke: () => ({
-                input: { prompt: "stale source data" },
-                webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate", rehydrate },
-              }),
+              invoke: (context) => {
+                triggerContext = context
+                return {
+                  input: { prompt: "stale source data" },
+                  webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate", rehydrate },
+                }
+              },
             },
           },
           webhooks: { secretToken: false },
