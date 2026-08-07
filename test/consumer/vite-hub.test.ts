@@ -434,8 +434,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(existsSync(join(appDir, "node_modules/@vite-hub")), "owner packages must not be visible at the consumer root").toBe(false)
       await run("pnpm", ["run", "build"], appDir)
 
-      await expect(readFile(join(appDir, ".vitehub/nitro/database/middleware.ts"), "utf8"))
-        .resolves.toContain("from '@vite-hub/database/runtime/state'")
+      const middleware = await readFile(join(appDir, ".vitehub/nitro/database/middleware.ts"), "utf8")
+      expect(middleware).toContain("from '@vite-hub/database/runtime/state'")
+      expect(middleware).not.toContain("from 'nitro'")
     }
     finally {
       await rm(root, { recursive: true, force: true })

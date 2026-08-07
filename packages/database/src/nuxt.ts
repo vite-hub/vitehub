@@ -251,13 +251,12 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
   config.rollupConfig = rollupConfig
   await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    "import { defineMiddleware } from 'nitro'",
     "import { setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
     "",
-    "export default defineMiddleware((event) => {",
+    "export default (event: unknown) => {",
     "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
     "  setActiveCloudflareEnv(target.env ?? target.context?.cloudflare?.env ?? target.context?._platform?.cloudflare?.env ?? target.req?.runtime?.cloudflare?.env ?? (vitehubEnv as unknown as Record<string, unknown>))",
-    "})",
+    "}",
     "",
   ].join("\n"))
 }
