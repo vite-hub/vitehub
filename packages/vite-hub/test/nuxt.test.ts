@@ -299,8 +299,33 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroConfig).toMatchObject({
       alias: {
         "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/custom-vite-root/.vitehub/database/cloudflare-runtime.mjs",
+        "@vite-hub/database/runtime/state": "vite-hub/_internal/database/runtime/state",
       },
     })
+  })
+
+  it("keeps the Database Nuxt runtime alias out of development", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+
+    await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
+    const nitroConfig = {}
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig).not.toHaveProperty("alias.@vite-hub/database/runtime/state")
+  })
+
+  it("preserves an explicitly configured Database runtime alias", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
+    const nitroConfig = {
+      alias: {
+        "@vite-hub/database/runtime/state": "./custom-database-state.ts",
+      },
+    }
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.alias["@vite-hub/database/runtime/state"]).toBe("./custom-database-state.ts")
   })
 
   it("does not concatenate complete Nitro arrays returned by config hooks", async () => {
