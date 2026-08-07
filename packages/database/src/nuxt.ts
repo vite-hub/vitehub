@@ -1,11 +1,15 @@
+import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
+import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
+import { resolveDBViteConfig } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./types.ts"
@@ -13,7 +17,9 @@ import type { Plugin } from "vite"
 
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
+const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
+const databaseRuntimeDir = fileURLToPath(new URL("./runtime/", import.meta.url))
 
 type NuxtModuleDependencies = Record<string, {
   defaults?: Record<string, unknown>
@@ -37,10 +43,12 @@ type DatabaseNuxtModule = {
 type NuxtLike = {
   hook?: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => void
   options: Record<string, unknown> & {
+    buildDir?: string
     dev?: boolean
     modules?: unknown[]
     nitro?: Record<string, unknown>
     rootDir?: string
+    serverDir?: string
     srcDir?: string
     vite?: Record<string, unknown>
   }
@@ -65,6 +73,14 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       projectRoot: resolvedOptions.projectRoot,
     })
     const viteConfig = ensureRecord(nuxtOptions, "vite")
+    const generatedRoot = resolveViteHubGeneratedRoot({
+      [VITEHUB_GENERATED_ROOT]: typeof viteConfig[VITEHUB_GENERATED_ROOT] === "string"
+        ? viteConfig[VITEHUB_GENERATED_ROOT]
+        : nuxtOptions.buildDir
+          ? resolve(nuxtOptions.buildDir, "vitehub")
+          : undefined,
+      root,
+    })
     const viteOptions = resolveDatabaseViteOptions(resolvedOptions)
     if (viteOptions) {
       viteConfig.database = { ...(isRecord(viteConfig.database) ? viteConfig.database : {}), ...viteOptions }
@@ -77,6 +93,15 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       hook("nitro:config", async (config) => {
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && (provider || d1)) mergeNitroHostedCondition(config)
+        if (nuxtOptions.dev) {
+          await installNitroLocalDatabaseRuntime(
+            config,
+            root,
+            generatedRoot,
+            resolvedOptions,
+            nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined,
+          )
+        }
         if (!nuxtOptions.dev) {
           const runtimeRoot = typeof viteConfig.root === "string" ? viteConfig.root : nuxtOptions.srcDir || root
           mergeNitroDatabaseRuntimeAlias(config, runtimeRoot, provider ?? (d1 ? "cloudflare" : undefined))
@@ -108,6 +133,53 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
 const nuxtModule: DatabaseNuxtModule = hubDb()
 
 export default nuxtModule
+
+async function installNitroLocalDatabaseRuntime(
+  config: Record<string, unknown>,
+  root: string,
+  generatedRoot: string,
+  options: ResolvedDatabaseNuxtIntegrationOptions,
+  serverDirs?: string[],
+) {
+  const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
+  const alias = isRecord(config.alias) ? config.alias : undefined
+  const existingAlias = alias?.[databaseDrizzleImport]
+  if (existingAlias && existingAlias !== file) {
+    await rm(file, { force: true })
+    return
+  }
+
+  const runtime = resolveDBViteConfig(options, root, { serverDirs })
+  if (!runtime?.definitions.length) {
+    await rm(file, { force: true })
+    if (alias && existingAlias === file) {
+      delete alias[databaseDrizzleImport]
+      if (!Object.keys(alias).length) delete config.alias
+    }
+    return
+  }
+
+  const imports = runtime.definitions.map((definition, index) =>
+    `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`)
+  const entries = runtime.definitions.map((definition, index) => [
+    `  ${JSON.stringify(definition.name)}: {`,
+    `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+    `    schema: definition_${index}.schema,`,
+    "  },",
+  ].join("\n"))
+  await writeFileIfChanged(file, renderDatabaseRuntimeModule({
+    createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
+    databaseEntries: entries,
+    imports: [
+      `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
+      ...imports,
+      "",
+      `const definitionDefaults = ${JSON.stringify(runtime.definitionDefaults)}`,
+    ],
+  }))
+  if (alias) alias[databaseDrizzleImport] = file
+  else config.alias = { [databaseDrizzleImport]: file }
+}
 
 function resolveNuxtContentModuleDependencies(options: DatabaseNuxtIntegrationOptions, nuxt: unknown): NuxtModuleDependencies {
   const nuxtOptions = (nuxt as NuxtLike).options
