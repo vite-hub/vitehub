@@ -1035,7 +1035,7 @@ async function executeQueuedWebhookDelivery(
         if (!isResolvedAgentTriggerHandledInvocation(resolved) && delivery.rehydrate && !resolved.webhook?.rehydrate) {
           throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger no longer provides a rehydrate callback.")
         }
-        if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.webhook?.rehydrate) {
+        if (!isResolvedAgentTriggerHandledInvocation(resolved) && delivery.rehydrate && resolved.webhook?.rehydrate) {
           resolved = resolveAgentTriggerInvocationResult(await resolved.webhook.rehydrate(), resolved.trigger)
         }
         await context.flushWaitUntil?.()
