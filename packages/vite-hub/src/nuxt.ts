@@ -178,10 +178,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
     if (!nuxt.options.dev) {
       nuxt.hook?.("nitro:config", async (config) => {
-        config.alias = {
-          ...(config.alias as Record<string, string> | undefined),
-          "@vite-hub/database/runtime/state": "vite-hub/_internal/database/runtime/state",
-        }
+        const alias = (config.alias ??= {}) as Record<string, string>
+        alias["@vite-hub/database/runtime/state"]
+          ??= "vite-hub/_internal/database/runtime/state"
       })
     }
   }
