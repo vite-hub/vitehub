@@ -99,6 +99,29 @@ describe("Auth Nuxt integration", () => {
     expect(nuxt.hooks).toHaveLength(1)
   })
 
+  it("resolves relative Env roots from the Vite root", () => {
+    const nuxt = createNuxt()
+    ;(nuxt.options as typeof nuxt.options & { vite: { root: string } }).vite = { root: "/tmp/workspace/apps/site" }
+
+    hubAuthNuxt({ env: { projectRoot: "../shared" } }, nuxt)
+
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe("/tmp/workspace/apps/shared/.vitehub/env/server.mjs")
+  })
+
+  it("preserves the Vite Auth switch during Nitro replay", async () => {
+    const nuxt = createNuxt()
+    ;(nuxt.options as typeof nuxt.options & { vite: { auth: false } }).vite = { auth: false }
+
+    hubAuthNuxt({}, nuxt)
+
+    const plugins = (nuxt.options as typeof nuxt.options & { vite: { plugins: Array<{ config?: (config: { auth?: false }) => unknown, name?: string }> } }).vite.plugins
+    const authPlugin = plugins.find(plugin => plugin.name === "@vite-hub/auth/vite")!
+    const authConfig = vi.fn(() => ({ nitro: {} }))
+    authPlugin.config = authConfig
+    await nuxt.hooks[0]({})
+    expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ auth: false }), expect.anything())
+  })
+
   it("does nothing before Nuxt initializes", () => {
     expect(hubAuthNuxt()).toBeUndefined()
   })

@@ -43,15 +43,17 @@ export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
   nitro: Record<string, unknown>
   projectRoot: string
   serverDirs?: string[]
+  viteAuth?: AuthModuleOptions
 }): Record<string, unknown> {
-  const result = plugin.config && typeof plugin.config === "function"
+  const viteConfigResult = plugin.config && typeof plugin.config === "function"
     ? plugin.config.call({} as never, {
         root: options.projectRoot,
         nitro: options.nitro,
+        auth: options.viteAuth,
         ...(options.serverDirs ? { [VITEHUB_SERVER_DIRS]: options.serverDirs } : {}),
       } as UserConfig & { nitro: Record<string, unknown> }, { command: "build", isPreview: false, isSsrBuild: true, mode: "production" })
     : undefined
-  return (result && typeof result === "object" && "nitro" in result ? result.nitro : options.nitro) as Record<string, unknown>
+  return (viteConfigResult && typeof viteConfigResult === "object" && "nitro" in viteConfigResult ? viteConfigResult.nitro : options.nitro) as Record<string, unknown>
 }
 
 type InternalAuthModuleOptions = AuthModuleOptions & {

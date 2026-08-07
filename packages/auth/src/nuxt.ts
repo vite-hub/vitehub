@@ -1,3 +1,4 @@
+import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
@@ -27,6 +28,7 @@ type NuxtLike = {
     rootDir?: string
     serverDir?: string
     vite?: {
+      auth?: AuthModuleOptions
       plugins?: unknown[]
       root?: string
     }
@@ -43,7 +45,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   nuxt.options.vite.plugins ??= []
   const vitePlugins = nuxt.options.vite.plugins.flat(Infinity) as Array<{ name?: string }>
   const viteRoot = nuxt.options.vite.root || nuxt.options.rootDir || process.cwd()
-  const envProjectRoot = options.env === false ? viteRoot : options.env?.projectRoot || viteRoot
+  const envProjectRoot = options.env === false ? viteRoot : resolve(viteRoot, options.env?.projectRoot || ".")
   if (options.env !== false && !vitePlugins.some(plugin => plugin?.name === "@vite-hub/env/vite")) {
     nuxt.options.vite.plugins.push(hubEnv({ ...options.env, projectRoot: envProjectRoot }))
   }
@@ -57,6 +59,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
         nitro: nitroConfig,
         projectRoot: viteRoot,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        viteAuth: nuxt.options.vite?.auth,
       }))
     })
   }
