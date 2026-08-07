@@ -33,6 +33,16 @@ describe("agent public types", () => {
     type Rehydrate = NonNullable<Webhook["rehydrate"]>
 
     expectTypeOf<Awaited<ReturnType<Rehydrate>>>().toEqualTypeOf<AgentTriggerInvokeResult<Options>>()
+
+    const inlineInvocation: AgentTriggerRunInvokeResult<Options> = {
+      input: { prompt: "stale", options: { mode: "fresh" } },
+      // @ts-expect-error Rehydration runs only for invocations persisted with concurrencyLimit.
+      webhook: {
+        deliveryId: "delivery-inline",
+        rehydrate: () => ({ input: { prompt: "fresh", options: { mode: "fresh" } } }),
+      },
+    }
+    expectTypeOf(inlineInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
   })
 
   it("types bounded driver capacity", () => {

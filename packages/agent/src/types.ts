@@ -346,16 +346,16 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
 }
 
-interface AgentWebhookInvocationOwnershipBase<CALL_OPTIONS = unknown> {
+interface AgentWebhookInvocationOwnershipBase {
   concurrencyGroup?: string
   concurrencyTtlMs?: number
   deliveryId: string
-  rehydrate?: () => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
 }
 
-export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase<CALL_OPTIONS> & (
-  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number }
-  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: number }
+export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
+  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>> }
+  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>> }
+  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: undefined, rehydrate?: never }
 )
 
 export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
