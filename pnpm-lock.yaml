@@ -345,6 +345,11 @@ overrides:
 
 packageExtensionsChecksum: sha256-nXN3zsjYbryO1ExQdeIkna3umuJ8ZZ87xxqQXLFrP4M=
 
+patchedDependencies:
+  '@ai-sdk/harness-codex@1.0.41':
+    hash: b074c42ac5b900be09038dd290494f98db78ae119330a08d360fd7f530e02327
+    path: patches/@ai-sdk__harness-codex@1.0.41.patch
+
 importers:
 
   .:
@@ -517,7 +522,7 @@ importers:
         version: 1.0.39(ws@8.21.1)(zod@4.4.3)
       '@ai-sdk/harness-codex':
         specifier: catalog:ai
-        version: 1.0.41(zod@4.4.3)
+        version: 1.0.41(patch_hash=b074c42ac5b900be09038dd290494f98db78ae119330a08d360fd7f530e02327)(zod@4.4.3)
       '@chat-adapter/telegram':
         specifier: catalog:chat
         version: 4.35.0(ai@7.0.19(zod@4.4.3))(workflow@5.0.0-beta.35(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.3)(react@19.2.6)(typescript@6.0.3)(ws@8.21.1))(zod@4.4.3)
@@ -13827,7 +13832,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@ai-sdk/harness-codex@1.0.41(zod@4.4.3)':
+  '@ai-sdk/harness-codex@1.0.41(patch_hash=b074c42ac5b900be09038dd290494f98db78ae119330a08d360fd7f530e02327)(zod@4.4.3)':
     dependencies:
       '@ai-sdk/harness': 1.0.39(ws@8.21.1)(zod@4.4.3)
       '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
