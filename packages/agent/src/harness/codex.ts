@@ -81,7 +81,7 @@ const codexBridgePrepareDependenciesCommand = [
   `elif ! ${codexBridgeDependencyValidation}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the exact Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand} || exit $?; codex_bridge_node_modules="${codexBridgeNodeModules}"`,
   "fi",
   `if [ "$codex_bridge_node_modules" = "${codexBridgeNodeModules}" ]; then :`,
-  `elif [ -L "${codexBridgeNodeModules}" ]; then if [ "$(readlink "${codexBridgeNodeModules}")" != "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already links to a different dependency tree" >&2; exit 1; fi`,
+  `elif [ -L "${codexBridgeNodeModules}" ]; then if [ "$(readlink "${codexBridgeNodeModules}")" != "$codex_bridge_node_modules" ]; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already links to a different dependency tree" >&2; exit 1; fi; ln -sfn "$codex_bridge_node_modules" "${codexBridgeNodeModules}"; fi`,
   `elif [ -e "${codexBridgeNodeModules}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already exists and conflicts with ${codexBridgeNodeModulesEnv}" >&2; exit 1`,
   `else ln -s "$codex_bridge_node_modules" "${codexBridgeNodeModules}"`,
   "fi",

@@ -1,7 +1,7 @@
 import { createCodex } from "@ai-sdk/harness-codex"
 import { execFile } from "node:child_process"
 import { build } from "esbuild"
-import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -325,6 +325,66 @@ describe("ViteHub Codex harness", () => {
       })).rejects.toMatchObject({
         stderr: expect.stringContaining("already exists and conflicts with VITEHUB_CODEX_BRIDGE_NODE_MODULES"),
       })
+    }
+    finally {
+      await rm(fixture, { force: true, recursive: true })
+    }
+  })
+
+  it("refreshes an automatically managed bridge dependency symlink", async () => {
+    const fixture = await mkdtemp(join(import.meta.dirname, ".codex-stale-preinstalled-"))
+    const bootstrapDir = join(fixture, "bootstrap")
+    const staleNodeModules = join(fixture, "stale-node-modules")
+
+    try {
+      await Promise.all([mkdir(bootstrapDir), mkdir(staleNodeModules)])
+      await symlink(staleNodeModules, join(bootstrapDir, "node_modules"))
+
+      const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+      const bootstrap = await harness.getBootstrap!()
+      const command = bootstrap.commands[1]!.command.replaceAll("/tmp/harness/codex", bootstrapDir)
+      const defaultNodeModules = command.match(/then codex_bridge_node_modules='([^']+)'/)?.[1]
+
+      await exec("/bin/sh", ["-c", command], { env: { PATH: process.env.PATH } })
+
+      expect(defaultNodeModules).toBeDefined()
+      await expect(readlink(join(bootstrapDir, "node_modules"))).resolves.toBe(defaultNodeModules)
+    }
+    finally {
+      await rm(fixture, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a conflicting bridge dependency symlink for an explicit override", async () => {
+    const fixture = await mkdtemp(join(import.meta.dirname, ".codex-explicit-stale-preinstalled-"))
+    const bootstrapDir = join(fixture, "bootstrap")
+    const staleNodeModules = join(fixture, "stale-node-modules")
+    const nodeModules = join(fixture, "node_modules")
+
+    try {
+      await Promise.all([
+        mkdir(bootstrapDir),
+        mkdir(staleNodeModules),
+        mkdir(join(nodeModules, "@openai", "codex-sdk"), { recursive: true }),
+        mkdir(join(nodeModules, "ws"), { recursive: true }),
+      ])
+      await symlink(staleNodeModules, join(bootstrapDir, "node_modules"))
+      await writeFile(join(nodeModules, "@openai", "codex-sdk", "package.json"), JSON.stringify({ version: "0.144.5" }))
+      await writeFile(join(nodeModules, "ws", "package.json"), JSON.stringify({ version: "8.21.0" }))
+
+      const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+      const bootstrap = await harness.getBootstrap!()
+      const command = bootstrap.commands[1]!.command.replaceAll("/tmp/harness/codex", bootstrapDir)
+
+      await expect(exec("/bin/sh", ["-c", command], {
+        env: {
+          PATH: process.env.PATH,
+          VITEHUB_CODEX_BRIDGE_NODE_MODULES: nodeModules,
+        },
+      })).rejects.toMatchObject({
+        stderr: expect.stringContaining("already links to a different dependency tree"),
+      })
+      await expect(readlink(join(bootstrapDir, "node_modules"))).resolves.toBe(staleNodeModules)
     }
     finally {
       await rm(fixture, { force: true, recursive: true })
