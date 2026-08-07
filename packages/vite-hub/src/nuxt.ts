@@ -181,7 +181,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       auth: options.auth === true ? undefined : options.auth,
       env: options.env === false
         ? false
-        : { projectRoot: envOptions.projectRoot || nuxt.options.vite?.root || nuxt.options.rootDir },
+        : { projectRoot: envOptions.projectRoot },
       importsFrom: "vite-hub/auth/vue",
       nitro: false,
     }, nuxt)

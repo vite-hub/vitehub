@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -349,6 +351,15 @@ describe("ViteHub Nuxt integration", () => {
     expect(options.nitro.plugins).toHaveLength(1)
     expect(options.nitro.plugins[0]).toMatch(/\/runtime\/nuxt\.js$/)
     expect(nitroConfigHooks).toHaveLength(1)
+  })
+
+  it("does not resolve a relative Vite root twice for Auth Env imports", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options.vite, { root: "app" })
+
+    await viteHubNuxtModule({ auth: true, preset: "cloudflare" }, nuxt)
+
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe(resolve("app/.vitehub/env/server.mjs"))
   })
 
   it("keeps Auth composables without Env runtime wiring", async () => {
