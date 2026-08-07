@@ -998,6 +998,7 @@ export async function transformEveExtensionCapabilities(
   const defineAgentImports = new Set(["defineAgent"])
   const staticArrays = new Map<string, PositionedNode>()
   const staticObjects = new Map<string, PositionedNode>()
+  const exportedStaticArrays = new Set<PositionedNode>()
   const references = new Map<string, number>()
   const functionRanges: Array<{ end: number, start: number }> = []
   for (const statement of Array.isArray(program.body) ? program.body : []) {
@@ -1012,7 +1013,10 @@ export async function transformEveExtensionCapabilities(
       const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
       if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
       if (!isPositionedNode(initializer)) continue
-      if (initializer.type === "ArrayExpression") staticArrays.set(identifier.name, initializer)
+      if (initializer.type === "ArrayExpression") {
+        staticArrays.set(identifier.name, initializer)
+        if (statement.type === "ExportNamedDeclaration") exportedStaticArrays.add(initializer)
+      }
       if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
     }
   }
@@ -1056,16 +1060,17 @@ export async function transformEveExtensionCapabilities(
   if (!imports.size) return
 
   const calls: EveExtensionImport[] = []
-  function collectExtensionCalls(array: PositionedNode, seen = new Set<PositionedNode>()): void {
-    if (seen.has(array)) return
-    seen.add(array)
+  const collectedArrays = new Set<PositionedNode>()
+  function collectExtensionCalls(array: PositionedNode): void {
+    if (collectedArrays.has(array)) return
+    collectedArrays.add(array)
     for (const element of Array.isArray(array.elements) ? array.elements : []) {
       if (!isPositionedNode(element)) continue
       if (element.type === "SpreadElement") {
         const argument = element.argument
         if (isPositionedNode(argument) && argument.type === "Identifier" && typeof argument.name === "string") {
           const spreadArray = staticArrays.get(argument.name)
-          if (spreadArray) collectExtensionCalls(spreadArray, seen)
+          if (spreadArray) collectExtensionCalls(spreadArray)
         }
         continue
       }
@@ -1117,6 +1122,7 @@ export async function transformEveExtensionCapabilities(
     if (!array) return
     collectExtensionCalls(array)
   })
+  for (const array of exportedStaticArrays) collectExtensionCalls(array)
   if (!calls.length) return
 
   const extensions: EveExtensionImport[] = []
@@ -2139,15 +2145,20 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
       const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+      const projectModule = normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)
+        && /\.(?:c|m)?[jt]s$/i.test(normalizedId)
       const serverAgentDefinition = (serverDirs ?? [join(resolved.root, "server")]).some((directory) => {
         const agentRoot = `${resolve(directory, "agents").replace(/\\/g, "/")}/`
         return normalizedId.startsWith(agentRoot) && /\.(?:c|m)?[jt]s$/i.test(normalizedId.slice(agentRoot.length))
       })
       const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
         || serverAgentDefinition
+      let transformed = code
       if (agentDefinition) {
+        transformed = transformRepositoryHostContextMaterialization(code, value => this.parse(value)) ?? code
+      }
+      if (projectModule) {
         clearEveExtensionOwnership(normalizedId)
-        let transformed = transformRepositoryHostContextMaterialization(code, value => this.parse(value)) ?? code
         transformed = await transformEveExtensionCapabilities(
           transformed,
           value => this.parse(value),
