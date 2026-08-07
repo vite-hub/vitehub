@@ -976,9 +976,12 @@ function eveExtensionNamespace(specifier: string): string {
   const parts = specifier.split("/")
   const packageName = parts.at(-1) ?? specifier
   const scope = parts[0]?.startsWith("@") ? parts[0].slice(1) : undefined
+  const packageNamespace = packageName.replace(/(?:-eve)?-extension$/, "")
   const candidate = packageName === "eve-extension"
     ? scope?.replace(/-tools$/, "") ?? "extension"
-    : packageName.replace(/(?:-eve)?-extension$/, "")
+    : scope
+      ? `${scope}-${packageNamespace}`
+      : packageNamespace
   const namespace = candidate.replace(/[^a-z0-9-_]/gi, "-").replace(/^[^a-z]+/i, "").replace(/-+$/g, "")
   return namespace || "extension"
 }

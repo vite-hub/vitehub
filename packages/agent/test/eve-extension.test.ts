@@ -8,7 +8,7 @@ import { parseAst } from "vite"
 
 import { toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { eveExtensionCapability } from "../src/eve.ts"
-import { hubAgent } from "../src/vite.ts"
+import { hubAgent, transformEveExtensionCapabilities } from "../src/vite.ts"
 
 import type { AgentCapabilityContext, AgentToolDefinition } from "../src/types.ts"
 import type { ModelMessage } from "ai"
@@ -246,6 +246,22 @@ describe("Eve extension capabilities", () => {
 
     expect(transformed).toContain(`"@github-tools/eve-extension", "github"`)
     expect(transformed).not.toContain(`"$github"`)
+  })
+
+  it("includes package scopes when extension basenames collide", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import one from "@one/foo-extension"
+        import two from "@two/foo-extension"
+        export default defineAgent({ capabilities: [one(), two()] })
+      `,
+      parseAst,
+      async specifier => specifier.endsWith("/foo-extension"),
+    )
+
+    expect(transformed).toContain('EveExtensionCapability("@one/foo-extension", "one-foo"')
+    expect(transformed).toContain('EveExtensionCapability("@two/foo-extension", "two-foo"')
   })
 
   it("detects a default Eve factory imported with named imports", async () => {
