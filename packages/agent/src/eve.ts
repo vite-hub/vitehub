@@ -217,7 +217,9 @@ async function resolveEveTools(
   const tools: Record<string, AgentToolDefinition> = {}
   for (const [exportName, exported] of Object.entries(module)) {
     if (isEveDynamicTool(exported)) {
-      const events = Object.keys(exported.events)
+      const events = Object.entries(exported.events)
+        .filter(([, handler]) => typeof handler === "function")
+        .map(([event]) => event)
       if (events.some(event => event !== "session.started")) {
         throw new Error(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} uses unsupported events: ${events.join(", ")}.`)
       }

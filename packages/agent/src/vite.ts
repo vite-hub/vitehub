@@ -1024,8 +1024,30 @@ export async function transformEveExtensionCapabilities(
     }
   }
   visitNodes(program, (node) => {
-    if (node.type !== "Property" || node.computed === true || nodePropertyName(node) !== "capabilities") return
-    const rawValue = node.value
+    if (node.type !== "CallExpression") return
+    const callee = node.callee
+    const isDefineAgentCall = isPositionedNode(callee)
+      && (
+        (callee.type === "Identifier" && callee.name === "defineAgent")
+        || (
+          callee.type === "MemberExpression"
+          && callee.computed !== true
+          && isPositionedNode(callee.property)
+          && callee.property.type === "Identifier"
+          && callee.property.name === "defineAgent"
+        )
+      )
+    if (!isDefineAgentCall) return
+    const options = Array.isArray(node.arguments) ? node.arguments[0] : undefined
+    if (!isPositionedNode(options) || options.type !== "ObjectExpression") return
+    const capabilities = (Array.isArray(options.properties) ? options.properties : []).find(property =>
+      isPositionedNode(property)
+      && property.type === "Property"
+      && property.computed !== true
+      && nodePropertyName(property) === "capabilities",
+    )
+    if (!isPositionedNode(capabilities)) return
+    const rawValue = capabilities.value
     if (!isPositionedNode(rawValue)) return
     const value = unwrapTypeScriptExpression(rawValue)
     const array = value.type === "ArrayExpression"

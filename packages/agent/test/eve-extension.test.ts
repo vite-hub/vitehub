@@ -128,6 +128,30 @@ describe("Eve extension capabilities", () => {
     expect(transformed).not.toContain(`import github from`)
   })
 
+  it("only lowers capabilities on an Agent Definition", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const source = [
+      `import github from "@github-tools/eve-extension"`,
+      `const provider = { capabilities: [github()] }`,
+      `export default defineAgent({ capabilities: [], metadata: { provider } })`,
+    ].join("\n")
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
   it("detects Eve extensions in an exported static capabilities array", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
@@ -354,5 +378,25 @@ describe("Eve extension capabilities", () => {
       needsApproval: (input: unknown, options: { messages: ModelMessage[], toolCallId: string }) => Promise<boolean>
     }
     expect(await persistedWrite.needsApproval({}, { messages: [], toolCallId: "call-3" })).toBe(false)
+  })
+
+  it("ignores dynamic event keys without handlers", async () => {
+    const capability = await eveExtensionCapability(
+      "test-extension",
+      "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        dynamic: {
+          events: {
+            "session.ended": undefined,
+            "session.started": () => undefined,
+          },
+          kind: "eve:dynamic",
+        },
+      }),
+    )
+
+    await expect((capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext()))
+      .resolves.toEqual({})
   })
 })
