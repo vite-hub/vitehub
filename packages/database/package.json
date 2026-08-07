@@ -50,7 +50,8 @@
     "./runtime/virtual-schema": "./dist/runtime/virtual-schema.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./runtime/cloudflare-env": "./dist/runtime/state.js"
   },
   "scripts": {
     "build": "vp pack",

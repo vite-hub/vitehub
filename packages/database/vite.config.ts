@@ -33,9 +33,12 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(
-          Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
-        )
+        return {
+          ...Object.fromEntries(
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
+          ),
+          "./runtime/cloudflare-env": "./dist/runtime/state.js",
+        }
       },
       inlinedDependencies: false,
     },
