@@ -26,6 +26,8 @@ dynamicallyLoaded = [
   "packages/database/src/runtime/definition-defaults.ts",
   "packages/env/test/**/*.test-d.ts",
   "packages/auth/test/**/*.test-d.ts",
+  # Registered by the Auth Nuxt module as a Nitro runtime plugin.
+  "packages/auth/src/runtime/nuxt.ts",
   "packages/email/test/**/*.test-d.ts",
   "packages/database/examples/**/server/**",
   "packages/database/examples/**/src/server.ts",

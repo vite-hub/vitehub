@@ -14,6 +14,12 @@
       "#vitehub/auth/server": [
         "packages/auth/src/server.ts"
       ],
+      "#vitehub/env/server": [
+        "packages/auth/src/runtime/env.d.ts"
+      ],
+      "@vite-hub/auth/server": [
+        "packages/auth/src/server.ts"
+      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ],

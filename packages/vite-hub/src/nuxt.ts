@@ -1,6 +1,7 @@
 import { join } from "node:path"
 
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { mergeConfig } from "vite"
 
@@ -174,6 +175,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...existing,
   ] as PluginOption[]
   nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
+  if (options.auth) {
+    const envOptions = options.env || {}
+    hubAuthNuxt({
+      auth: options.auth === true ? undefined : options.auth,
+      env: options.env === false
+        ? false
+        : { projectRoot: envOptions.projectRoot || nuxt.options.vite?.root || nuxt.options.rootDir },
+      importsFrom: "vite-hub/auth/vue",
+      nitro: false,
+    }, nuxt)
+  }
   if (options.database) {
     await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
     if (!nuxt.options.dev) {
