@@ -1759,6 +1759,53 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("provides generated runtime Capabilities to Agent Dev Loop invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-dev-runtime-capabilities-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "calories.ts"), "export default {}", "utf8")
+
+    const { db } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [db()],
+      driver: { run: () => "ok" },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const agentDb = { query: vi.fn() }
+    server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => args[0] === "@vite-hub/database/drizzle"
+      ? { agentDb }
+      : { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+    if (typeof plugin.configResolved === "function") {
+      await plugin.configResolved.call({} as never, {
+        command: "serve",
+        plugins: [{ name: "@vite-hub/database/vite" }],
+        root,
+      } as never)
+    }
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.body.trim().split("\n").map(line => JSON.parse(line))).toEqual([
+      expect.objectContaining({ agent: "calories", type: "start" }),
+      { text: "ok", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/drizzle")
+  })
+
 
   it("consumes Response outputs from the Agent Invocation Stream endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-response-")

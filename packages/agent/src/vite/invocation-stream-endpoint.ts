@@ -75,6 +75,12 @@ interface AgentInvocationStreamEntry {
   triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentRuntimeContext>>
 }
 
+interface AgentDevRuntimeCapability {
+  importName: string
+  name: string
+  packageName: false | string
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
@@ -561,7 +567,20 @@ async function runCapabilityCliWithTimeout(
   }
 }
 
-async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, tokenOptions: WorkspaceDevTokenOptions, abortSignal?: AbortSignal): Promise<Response> {
+async function resolveDevRuntimeCapabilities(
+  server: ViteDevServer,
+  definitions: AgentDevRuntimeCapability[],
+): Promise<Record<string, unknown>> {
+  const capabilities: Record<string, unknown> = {}
+  for (const definition of definitions) {
+    capabilities[definition.name] = definition.packageName === false
+      ? false
+      : (await server.ssrLoadModule(definition.packageName))[definition.importName]
+  }
+  return capabilities
+}
+
+async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, tokenOptions: WorkspaceDevTokenOptions, abortSignal: AbortSignal | undefined, capabilities: Record<string, unknown>): Promise<Response> {
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
     await ensureWorkspaceDevToken(server.config.root, tokenOptions)
@@ -575,7 +594,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
             context: { invoker: { id: "inspection", kind: "inspection" } },
             messages: [],
           },
-          runtime: createViteAgentRuntimeContext(server, req, entry.identity, { fallbackRoute: agentInvocationStreamRoute, run }),
+          runtime: createViteAgentRuntimeContext(server, req, entry.identity, { capabilities, fallbackRoute: agentInvocationStreamRoute, run }),
         })
       : undefined
     const response = {
@@ -594,7 +613,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const body = parseBody(await readRequestBody(req))
   const entry = selectedEntry(entries, body.agent)
   const run = body.run || devRun(entry.name)
-  const context = createViteAgentRuntimeContext(server, req, entry.identity, { fallbackRoute: agentInvocationStreamRoute, run })
+  const context = createViteAgentRuntimeContext(server, req, entry.identity, { capabilities, fallbackRoute: agentInvocationStreamRoute, run })
   const payload = payloadFromBody(body)
   const timeout = typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000
 
@@ -713,8 +732,9 @@ function errorResponse(error: unknown): Response {
   })
 }
 
-export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer): Promise<void> {
+export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer, runtimeCapabilities: AgentDevRuntimeCapability[] = []): Promise<void> {
   const tokenOptions = { serverId: workspaceDevTokenServerId(server.config.server.port) }
+  const capabilities = await resolveDevRuntimeCapabilities(server, runtimeCapabilities)
   await refreshWorkspaceDevToken(server.config.root, tokenOptions)
   server.middlewares.use((req, res, next) => {
     if (!routeMatches(req)) {
@@ -732,7 +752,7 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
     }
 
     const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
-    void handleAgentInvocationStreamRequest(server, req, tokenOptions, abort.signal)
+    void handleAgentInvocationStreamRequest(server, req, tokenOptions, abort.signal, capabilities)
       .catch(errorResponse)
       .then(response => writeResponse(res, response))
       .finally(abort.dispose)

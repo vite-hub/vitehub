@@ -1784,7 +1784,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     name: "@vite-hub/agent/vite",
     async configureServer(server) {
       if (agent !== false) {
-        await registerAgentInvocationStreamEndpoint(server)
+        await registerAgentInvocationStreamEndpoint(server, runtimeCapabilities)
       }
     },
     async handleHotUpdate(context) {
