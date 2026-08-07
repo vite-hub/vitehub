@@ -17,6 +17,7 @@ Netlify support is package-specific. ViteHub currently provides Netlify-owned be
 | Local proof | The repository runs a real-project fixture through Netlify CLI in pull-request CI. |
 
 Agent function output lives under `.netlify/v1/functions`, with its generated source wrapper under `.vitehub/agent/netlify-function.mjs`. The wrapper and deployed function are Provider Output, not public application imports.
+In a Nuxt app, the source wrapper follows Nuxt's build directory and is normally `.nuxt/vitehub/agent/netlify-function.mjs`; the deployed function path is unchanged.
 
 ## Package output composition
 
@@ -48,6 +49,8 @@ pnpm build
 find .netlify/v1/functions -maxdepth 2 -type f | sort
 find .vitehub/agent -maxdepth 2 -type f | sort
 ```
+
+For Nuxt, replace the wrapper inspection command with `find .nuxt/vitehub/agent -maxdepth 2 -type f | sort`, or use the equivalent path under a custom `buildDir`.
 
 ## Unsupported inference
 

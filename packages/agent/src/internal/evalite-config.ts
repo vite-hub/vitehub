@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises"
+import { join } from "node:path"
 
 import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
@@ -21,7 +22,8 @@ export function resolveAgentEvalOptions(options: AgentEvalOptions | undefined): 
   }
 }
 
-export function createAgentEvaliteConfigPath(rootDir: string): string {
+export function createAgentEvaliteConfigPath(rootDir: string, generatedRoot?: string): string {
+  if (generatedRoot) return join(generatedRoot, "agent", "evalite.config.ts")
   return createGeneratedDefinitionPath(rootDir, {
     fileName: "evalite.config.ts",
     productName: "agent",
@@ -53,12 +55,12 @@ export function renderAgentEvaliteConfig(options: ResolvedAgentEvalOptions): str
   ].join("\n")
 }
 
-export async function writeAgentEvaliteConfig(rootDir: string, options: ResolvedAgentEvalOptions): Promise<string> {
-  const file = createAgentEvaliteConfigPath(rootDir)
+export async function writeAgentEvaliteConfig(rootDir: string, options: ResolvedAgentEvalOptions, generatedRoot?: string): Promise<string> {
+  const file = createAgentEvaliteConfigPath(rootDir, generatedRoot)
   await writeFileIfChanged(file, renderAgentEvaliteConfig(options))
   return file
 }
 
-export async function removeAgentEvaliteConfig(rootDir: string): Promise<void> {
-  await rm(createAgentEvaliteConfigPath(rootDir), { force: true })
+export async function removeAgentEvaliteConfig(rootDir: string, generatedRoot?: string): Promise<void> {
+  await rm(createAgentEvaliteConfigPath(rootDir, generatedRoot), { force: true })
 }

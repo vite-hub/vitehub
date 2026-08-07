@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { PluginOption } from "vite"
 
@@ -59,6 +59,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       alias: {
         "~": "/tmp/vitehub-nuxt/app",
       },
+      buildDir: "/tmp/vitehub-nuxt/.nuxt",
       dev,
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
@@ -169,6 +170,9 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
     expect((nuxt.options.vite as typeof nuxt.options.vite & {
+      [VITEHUB_GENERATED_ROOT]?: string
+    })[VITEHUB_GENERATED_ROOT]).toBe("/tmp/vitehub-nuxt/.nuxt/vitehub")
+    expect((nuxt.options.vite as typeof nuxt.options.vite & {
       [VITEHUB_SERVER_DIRS]?: string[]
     })[VITEHUB_SERVER_DIRS]).toEqual(["/tmp/vitehub-nuxt/custom-server"])
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
@@ -212,6 +216,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.existingOwnerConfig).toHaveBeenCalledOnce()
     expect(mocks.agentHook).toHaveBeenCalledWith(
       expect.objectContaining({
+        [VITEHUB_GENERATED_ROOT]: "/tmp/vitehub-nuxt/.nuxt/vitehub",
         [VITEHUB_SERVER_DIRS]: ["/tmp/vitehub-nuxt/custom-server"],
       }),
       expect.anything(),

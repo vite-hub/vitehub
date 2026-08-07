@@ -49,6 +49,7 @@ interface NitroVercelConfig {
 }
 
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
+export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
 
 function includesNitroVitePlugin(value: unknown): boolean {
@@ -111,6 +112,15 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
     if (parent === current) return resolvedRoot
     current = parent
   }
+}
+
+export function resolveViteHubGeneratedRoot(config: {
+  [VITEHUB_GENERATED_ROOT]?: string
+  root?: string
+}): string {
+  return config[VITEHUB_GENERATED_ROOT]
+    ? resolve(config[VITEHUB_GENERATED_ROOT])
+    : resolve(config.root ?? process.cwd(), ".vitehub")
 }
 
 function hasProjectRootDirectoryMarker(root: string): boolean {

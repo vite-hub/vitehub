@@ -3,10 +3,20 @@ import { describe, expect, it } from "vitest"
 import {
   hasNitroConfigContext,
   resolveNitroVercelFunctionName,
+  resolveViteHubGeneratedRoot,
+  VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("resolves the shared generated-artifact root", () => {
+    expect(resolveViteHubGeneratedRoot({ root: "/app" })).toBe("/app/.vitehub")
+    expect(resolveViteHubGeneratedRoot({
+      [VITEHUB_GENERATED_ROOT]: "/app/.nuxt/vitehub",
+      root: "/app",
+    })).toBe("/app/.nuxt/vitehub")
+  })
+
   it("distinguishes the Nitro host plugin from ViteHub bridge plugins", () => {
     expect(hasNitroConfigContext({ plugins: [{ name: "nitro:main" }] })).toBe(true)
     expect(hasNitroConfigContext({ plugins: [[false, [{ name: "nitro:main" }]]] })).toBe(true)

@@ -12,11 +12,12 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-it("registers generated Agent handlers from the Nuxt project root", async () => {
+it("registers generated Agent handlers from the Nuxt build directory", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-nuxt-agent-root-"))
   roots.push(rootDir)
   const srcDir = join(rootDir, "app")
   const serverDir = join(rootDir, "server")
+  const buildDir = join(rootDir, ".nuxt")
   await mkdir(join(serverDir, "agents"), { recursive: true })
   await writeFile(join(serverDir, "agents", "support.ts"), "export default {}\n", "utf8")
   await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "vitehub-nuxt-agent-root" }), "utf8")
@@ -27,6 +28,7 @@ it("registers generated Agent handlers from the Nuxt project root", async () => 
       if (name === "nitro:config") nitroConfigHook = callback
     },
     options: {
+      buildDir,
       dev: false,
       rootDir,
       serverDir,
@@ -42,7 +44,7 @@ it("registers generated Agent handlers from the Nuxt project root", async () => 
 
   expect(nitroConfig).toMatchObject({
     handlers: [{
-      handler: join(rootDir, ".vitehub/agent/chat-webhook-route.ts"),
+      handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
       route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
     }],
   })

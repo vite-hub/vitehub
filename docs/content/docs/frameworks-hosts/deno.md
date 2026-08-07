@@ -45,6 +45,7 @@ If Schedule output exists, the generated server loads `.vitehub/schedule/deno-cr
 ## Generated output
 
 A production-shaped build writes the Deno files under `.vitehub`.
+In a Nuxt app, the Agent entrypoint is written under Nuxt's build directory at `.nuxt/vitehub/agent/deno-server.ts` by default; the Schedule output remains project-owned under `.vitehub/schedule`.
 
 ```bash [Terminal]
 pnpm build
@@ -75,6 +76,7 @@ curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \
 ## Production notes
 
 Deno Deploy should treat `.vitehub/agent/deno-server.ts` as the generated server entrypoint.
+For Nuxt, configure `.nuxt/vitehub/agent/deno-server.ts` instead, or the equivalent path under a custom `buildDir`.
 Do not import generated files from application code to work around deployment configuration; keep application code on Agent Definitions, Runtime Helpers, and stable ViteHub imports.
 
 Use Deno environment variables for model keys and other Runtime Env.
