@@ -687,6 +687,7 @@ function persistedWebhookRequest(
   scope: string,
   agentName: string,
   invocation?: { input: unknown, run?: unknown },
+  rehydrate?: boolean,
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
   const concurrencyGroup = `${encodeURIComponent(agentName)}:${encodeURIComponent(ownership.concurrencyGroup?.trim() || "default")}`
@@ -698,6 +699,7 @@ function persistedWebhookRequest(
     enqueuedAt,
     ...(invocation ? { invocation } : {}),
     leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
+    ...(rehydrate ? { rehydrate: true as const } : {}),
     request: {
       body,
       headers: requestHeaders(request),
@@ -1030,6 +1032,9 @@ async function executeQueuedWebhookDelivery(
         if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
         const input = await createAgentWebhookTriggerInput(request, match.registration)
         let resolved = await resolveAgentTriggerInvocationWithResolvedContext(agent as never, resolveRuntimeContext(context as never) as never, match.trigger.id, input, { verifyWebhook: false })
+        if (!isResolvedAgentTriggerHandledInvocation(resolved) && delivery.rehydrate && !resolved.webhook?.rehydrate) {
+          throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger no longer provides a rehydrate callback.")
+        }
         if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.webhook?.rehydrate) {
           resolved = resolveAgentTriggerInvocationResult(await resolved.webhook.rehydrate(), resolved.trigger)
         }
@@ -3805,6 +3810,7 @@ export function createChannelWebhookRouteHandler(
               webhookState.keyPrefix,
               routeAgentIdentity(handlerOptions)?.name || "agent",
               !invocation.webhook.rehydrate && isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
+              Boolean(invocation.webhook.rehydrate),
             )
             if (invocation.webhook.busy === "steer") {
               const webhookQueueState = webhookState.state
