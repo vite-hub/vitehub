@@ -176,6 +176,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
   if (options.database) {
     await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
+    if (!nuxt.options.dev) {
+      nuxt.hook?.("nitro:config", async (config) => {
+        config.alias = {
+          ...(config.alias as Record<string, string> | undefined),
+          "@vite-hub/database/runtime/state": "vite-hub/_internal/database/runtime/state",
+        }
+      })
+    }
   }
 }
 
