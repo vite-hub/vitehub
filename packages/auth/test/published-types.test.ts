@@ -19,6 +19,7 @@ const packedPackages = [
   "agent",
   "auth",
   "box",
+  "env",
   "markdown-template",
   "rate-limit",
   "runtime",

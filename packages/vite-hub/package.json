@@ -73,6 +73,7 @@
     "./auth": "./dist/auth.js",
     "./auth/agent": "./dist/auth/agent.js",
     "./auth/server": "./dist/auth/server.js",
+    "./auth/vue": "./dist/auth/vue.js",
     "./blob": "./dist/blob.js",
     "./blob/content-type": "./dist/blob/content-type.js",
     "./box": "./dist/box.js",

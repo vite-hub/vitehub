@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import ownerAuthHandler from "@vite-hub/auth/server"
+import * as ownerAuthVue from "@vite-hub/auth/vue"
 import * as ownerBlobContentType from "@vite-hub/blob/content-type"
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env"
 import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state"
@@ -14,6 +15,7 @@ import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
 import frameworkAuthHandler from "vite-hub/auth/server"
+import * as frameworkAuthVue from "vite-hub/auth/vue"
 import * as frameworkBlobContentType from "vite-hub/blob/content-type"
 import * as frameworkRateLimit from "vite-hub/rate-limit"
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state"
@@ -136,6 +138,8 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
+    expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient)
+    expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession)
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType)
     expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit)
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter)
