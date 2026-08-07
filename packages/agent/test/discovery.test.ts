@@ -1767,12 +1767,18 @@ describe("agent chat capability discovery", () => {
     const { db } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agentDb = { query: vi.fn() }
+    let runtimeDb: unknown
     const agent = defineAgent({
       capabilities: [db()],
-      driver: { run: () => "ok" },
+      driver: {
+        run: ({ capabilities }) => {
+          runtimeDb = capabilities?.db
+          return "ok"
+        },
+      },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const agentDb = { query: vi.fn() }
     server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => args[0] === "@vite-hub/database/drizzle"
       ? { agentDb }
       : { default: agent })
@@ -1804,6 +1810,7 @@ describe("agent chat capability discovery", () => {
       { type: "done" },
     ])
     expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/drizzle")
+    expect(runtimeDb).toBe(agentDb)
   })
 
 
