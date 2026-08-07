@@ -32,14 +32,28 @@ describe("agent public types", () => {
     type Webhook = NonNullable<AgentTriggerRunInvokeResult<Options>["webhook"]>
     type Rehydrate = NonNullable<Webhook["rehydrate"]>
 
-    expectTypeOf<Awaited<ReturnType<Rehydrate>>>().toEqualTypeOf<AgentTriggerInvokeResult<Options>>()
+    expectTypeOf<Awaited<ReturnType<Rehydrate>>>().toMatchTypeOf<AgentTriggerInvokeResult<Options>>()
+
+    const queuedInvocation: AgentTriggerRunInvokeResult<Options> = {
+      input: { prompt: "stale", options: { mode: "fresh" } },
+      webhook: {
+        concurrencyLimit: 1,
+        deliveryId: "delivery-queued",
+        // @ts-expect-error A refreshed run result must preserve webhook ownership.
+        rehydrate: () => ({ input: { prompt: "fresh", options: { mode: "fresh" } } }),
+      },
+    }
+    expectTypeOf(queuedInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
 
     const inlineInvocation: AgentTriggerRunInvokeResult<Options> = {
       input: { prompt: "stale", options: { mode: "fresh" } },
       // @ts-expect-error Rehydration runs only for invocations persisted with concurrencyLimit.
       webhook: {
         deliveryId: "delivery-inline",
-        rehydrate: () => ({ input: { prompt: "fresh", options: { mode: "fresh" } } }),
+        rehydrate: () => ({
+          input: { prompt: "fresh", options: { mode: "fresh" } },
+          webhook: { concurrencyLimit: 1, deliveryId: "delivery-inline" },
+        }),
       },
     }
     expectTypeOf(inlineInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
