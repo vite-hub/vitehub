@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { markdownTemplateMaterializationPath } from "@vite-hub/markdown-template/vite"
 
@@ -36,13 +36,13 @@ export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
-const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
-const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway-route.ts"
-const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
-const generatedAgentWebhookQueuePlugin = ".vitehub/agent/webhook-queue-plugin.ts"
-const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
-const generatedAgentEmailRuntime = ".vitehub/agent/email-runtime.js"
-const generatedAgentScheduleRegistry = ".vitehub/agent/schedule-registry.js"
+const generatedAgentDenoServer = "agent/deno-server.ts"
+const generatedAgentDiscordGatewayRouteHandler = "agent/discord-gateway-route.ts"
+const generatedAgentWebhookRouteHandler = "agent/chat-webhook-route.ts"
+const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
+const generatedAgentNetlifyFunction = "agent/netlify-function.mjs"
+const generatedAgentEmailRuntime = "agent/email-runtime.js"
+const generatedAgentScheduleRegistry = "agent/schedule-registry.js"
 const netlifyAgentFunctionName = "vitehub-agent"
 const generatedScheduleRuntimeRegistrySuffix = "/.vitehub/nitro/schedule/runtime-registry.js"
 const scheduleRegistryId = "#vitehub/schedule/registry"
@@ -152,7 +152,7 @@ async function resolveGeneratedAgentRuntimeCapabilities(
       packageName: packageName(capability),
     }))
   }
-  const importer = join(config.root, ".vitehub", "agent", "runtime-capabilities.js")
+  const importer = join(resolveViteHubGeneratedRoot(config), "agent", "runtime-capabilities.js")
   const resolved = await Promise.all(candidates.map(async (capability) => {
     const importName = packageName(capability)
     if (importName === false) return { ...capability, packageName: importName }
@@ -193,7 +193,7 @@ async function writeStandaloneAgentRuntimeCapabilities(
     api?: { getDefinition?: () => { handler: string } | undefined }
   }
   const definition = emailPlugin?.api?.getDefinition?.()
-  const runtimePath = join(config.root, generatedAgentEmailRuntime)
+  const runtimePath = join(resolveViteHubGeneratedRoot(config), generatedAgentEmailRuntime)
   if (!emailCapability || !definition) {
     await rm(runtimePath, { force: true })
     return standaloneCapabilities
@@ -1651,13 +1651,13 @@ async function writeNetlifyAgentProviderOutput(
   generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
   serverDirs?: string[],
 ): Promise<void> {
-  const handlerPath = await writeAgentNetlifyFunctionRouteHandler(config.root, {
+  const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
     chatRoute: options.routes.chat,
     discordGatewayRoute: options.routes.discordGateway,
     libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options, config),
     webhookRoute: options.routes.webhooks,
-  }, serverDirs)
+  }, serverDirs ?? [join(config.root, "server")])
   await writeProviderDeploymentOutputs({
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
@@ -1708,9 +1708,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     const normalized = normalizeAgentOptions(agent)
     const schedule = hasScheduleVitePlugin(config)
     const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
+    const generatedRoot = resolveViteHubGeneratedRoot(config)
+    const definitionServerDirs = serverDirs ?? [join(config.root, "server")]
     if (normalized && hasHostedAgents) {
       if (normalized.runtime === "deno") {
-        await writeAgentDenoServer(config.root, {
+        await writeAgentDenoServer(generatedRoot, {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
           libsqlState: resolveLibsqlAgentState(normalized, config),
@@ -1721,10 +1723,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        }, serverDirs)
+        }, definitionServerDirs)
       }
       else {
-        await writeAgentWebhookRouteHandler(config.root, {
+        await writeAgentWebhookRouteHandler(generatedRoot, {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
@@ -1737,9 +1739,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        }, serverDirs)
+        }, definitionServerDirs)
         if (normalized.routes.discordGateway) {
-          await writeAgentDiscordGatewayRouteHandler(config.root, {
+          await writeAgentDiscordGatewayRouteHandler(generatedRoot, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
             discordGatewayRoute: normalized.routes.discordGateway,
             ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
@@ -1750,7 +1752,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
             webhookRoute: normalized.routes.webhooks,
-          }, serverDirs)
+          }, definitionServerDirs)
         }
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
@@ -1764,7 +1766,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-          }, serverDirs)
+          }, definitionServerDirs)
         }
       }
     }
@@ -1802,12 +1804,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (resolved?.root) {
         moduleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
         if (colocatedResourceUpdate) {
-          const root = resolved.root
+          const root = resolveViteHubGeneratedRoot(resolved)
           moduleIds.push(...[
             generatedAgentDenoServer,
             generatedAgentDiscordGatewayRouteHandler,
             generatedAgentNetlifyFunction,
             generatedAgentWebhookRouteHandler,
+            generatedAgentWebhookQueuePlugin,
           ].map(handler => join(root, handler).replace(/\\/g, "/")))
         }
       }
@@ -1863,6 +1866,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
+      const generatedRoot = resolveViteHubGeneratedRoot(config)
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
@@ -1877,19 +1881,19 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const nitroHandlers = [
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{
-              handler: join(root, generatedAgentWebhookRouteHandler),
+              handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
               route: normalizeNitroRoute(resolved.routes.chat),
             }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput
           ? [{
-              handler: join(root, generatedAgentWebhookRouteHandler),
+              handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
               route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.discordGateway
           ? [{
-              handler: join(root, generatedAgentDiscordGatewayRouteHandler),
+              handler: join(generatedRoot, generatedAgentDiscordGatewayRouteHandler),
               route: normalizeNitroRoute(resolved.routes.discordGateway),
             }]
           : []),
@@ -1902,7 +1906,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
       const mergedNitro = mergeNitroPlugins(
         mergeNitroHandlers(nitro, nitroHandlers),
-        installWebhookQueue ? [join(root, generatedAgentWebhookQueuePlugin)] : [],
+        installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : [],
       )
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
@@ -1927,6 +1931,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       resolved = config
       agent = config.agent ?? agent
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+      const generatedRoot = resolveViteHubGeneratedRoot(config)
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
@@ -1934,12 +1939,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       await writeGeneratedAgentOutputs(config)
       if (agent === false || !discoverAgentEvalFiles([config.root, ...(serverDirs ?? [])]).length) {
-        await removeAgentEvaliteConfig(config.root)
+        await removeAgentEvaliteConfig(config.root, generatedRoot)
         return
       }
 
       const evalOptions = resolveAgentEvalOptions(agent?.eval)
-      await writeAgentEvaliteConfig(config.root, evalOptions)
+      await writeAgentEvaliteConfig(config.root, evalOptions, generatedRoot)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

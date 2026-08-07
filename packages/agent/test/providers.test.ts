@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Message } from "chat"
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
@@ -259,6 +259,54 @@ describe("agent Vite plugin", () => {
     finally {
       await rm(root, { force: true, recursive: true })
       await rm(serverDir, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps Agent generation and cleanup under a configured root", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-generated-root-"))
+    const generatedRoot = join(root, ".nuxt", "vitehub")
+    const generatedRoute = join(generatedRoot, "agent", "chat-webhook-route.ts")
+    const generatedQueue = join(generatedRoot, "agent", "webhook-queue-plugin.ts")
+    const generatedEvalConfig = join(generatedRoot, "agent", "evalite.config.ts")
+    const evalFile = join(root, "support.eval.ts")
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      await writeFile(evalFile, "export default defineEval({})", "utf8")
+      const plugin = hubAgent({ providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } } })
+      const config = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: "build", mode: "production" }) => Record<string, unknown>
+      const configResolved = plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>
+      const privateConfig = {
+        [VITEHUB_GENERATED_ROOT]: generatedRoot,
+        command: "build",
+        plugins: [],
+        root,
+      }
+
+      expect(await config(privateConfig, { command: "build", mode: "production" })).toMatchObject({
+        nitro: {
+          handlers: [{ handler: generatedRoute, route: "/api/_vitehub/agents/:agent/webhooks/:webhook" }],
+          plugins: [generatedQueue],
+        },
+      })
+      await configResolved(privateConfig)
+
+      await expect(readFile(generatedRoute, "utf8")).resolves.toContain("server/agents/support.ts")
+      await expect(readFile(generatedQueue, "utf8")).resolves.toContain("resumeWebhookQueues")
+      await expect(readFile(generatedEvalConfig, "utf8")).resolves.toContain("forceRerunTriggers")
+      await expect(readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
+      await rm(evalFile)
+      await configResolved({
+        ...privateConfig,
+        agent: { providers: { state: { provider: "memory" } } },
+      })
+      await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
     }
   })
 
@@ -646,6 +694,7 @@ describe("agent Vite plugin", () => {
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-routes-"))
+    const generatedRoot = join(root, ".nuxt", "vitehub")
     const previousHosting = process.env.VITEHUB_HOSTING
     const previousNetlify = process.env.NETLIFY
     try {
@@ -675,11 +724,12 @@ describe("agent Vite plugin", () => {
         workspaceImportBase: "vite-hub/_internal/workspace",
       }
       const plugin = hubAgent(agentOptions as never)
-      const configResolved = plugin.configResolved as (config: { agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: { [VITEHUB_GENERATED_ROOT]?: string, agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
       await configResolved({
+        [VITEHUB_GENERATED_ROOT]: generatedRoot,
         agent: agentOptions,
         build: { outDir: "dist/client" },
         command: "build",
@@ -688,8 +738,9 @@ describe("agent Vite plugin", () => {
       })
       await closeBundle.handler()
 
-      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      await execFileAsync(process.execPath, ["--check", join(root, ".vitehub/agent/netlify-function.mjs")])
+      const wrapper = await readFile(join(generatedRoot, "agent/netlify-function.mjs"), "utf8")
+      await execFileAsync(process.execPath, ["--check", join(generatedRoot, "agent/netlify-function.mjs")])
+      expect(wrapper).toContain("server/agents/support.ts")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
       expect(wrapper).toContain("import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from \"@vite-hub/agent/server/internal\"")
       expect(wrapper).toContain("state: () => import(\"vite-hub/_internal/workflow/runtime/state\")")
@@ -724,7 +775,7 @@ describe("agent Vite plugin", () => {
         clientOutDir: "dist/client",
         netlify: {
           functions: [{
-            bundleEntry: join(root, ".vitehub/agent/netlify-function.mjs"),
+            bundleEntry: join(generatedRoot, "agent/netlify-function.mjs"),
             bundleOptions: {
               alias: {
                 "#support": join(root, "support.ts"),
