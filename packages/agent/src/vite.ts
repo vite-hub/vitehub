@@ -1021,6 +1021,27 @@ export async function transformEveExtensionCapabilities(
       if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
     }
   }
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isPositionedNode(statement)) continue
+    if (statement.type === "ExportNamedDeclaration") {
+      for (const specifier of Array.isArray(statement.specifiers) ? statement.specifiers : []) {
+        if (!isPositionedNode(specifier)) continue
+        const local = specifier.local
+        if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") continue
+        const array = staticArrays.get(local.name)
+        if (array) exportedStaticArrays.add(array)
+      }
+    }
+    if (statement.type === "ExportDefaultDeclaration" && isPositionedNode(statement.declaration)) {
+      const declaration = unwrapTypeScriptExpression(statement.declaration)
+      const array = declaration.type === "ArrayExpression"
+        ? declaration
+        : declaration.type === "Identifier" && typeof declaration.name === "string"
+          ? staticArrays.get(declaration.name)
+          : undefined
+      if (array) exportedStaticArrays.add(array)
+    }
+  }
   visitNodes(program, (node, parent) => {
     const nonComputedPropertyKey = parent?.type === "Property"
       && parent.computed !== true
