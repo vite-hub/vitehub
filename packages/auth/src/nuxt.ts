@@ -48,12 +48,13 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   const viteRoot = nuxt.options.vite.root || nuxt.options.rootDir || process.cwd()
   const configuredEnvProjectRoot = resolve(viteRoot, options.env === false ? "." : options.env?.projectRoot || ".")
   const existingEnvPlugin = vitePlugins.find(plugin => plugin?.name === "@vite-hub/env/vite") as EnvVitePlugin | undefined
-  const envProjectRoot = existingEnvPlugin?.api.resolveProjectRoot(viteRoot) || configuredEnvProjectRoot
+  const envPlugin = existingEnvPlugin || (options.env === false ? undefined : hubEnv(options.env))
+  const envProjectRoot = envPlugin?.api.resolveProjectRoot(viteRoot) || configuredEnvProjectRoot
   if (options.env !== false && options.env?.projectRoot && existingEnvPlugin && envProjectRoot !== configuredEnvProjectRoot) {
     throw new TypeError("`@vite-hub/auth/nuxt` env.projectRoot must match the installed `@vite-hub/env/vite` plugin.")
   }
   if (options.env !== false && !existingEnvPlugin) {
-    nuxt.options.vite.plugins.push(hubEnv({ ...options.env, projectRoot: envProjectRoot }))
+    nuxt.options.vite.plugins.push(envPlugin!)
   }
   const authPlugin = vitePlugins.find(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME) || hubAuth(options.auth)
   if (!vitePlugins.some(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME)) nuxt.options.vite.plugins.push(authPlugin)

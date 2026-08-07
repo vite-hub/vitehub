@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { hubEnv } from "@vite-hub/env/vite"
@@ -108,6 +112,24 @@ describe("Auth Nuxt integration", () => {
     hubAuthNuxt({ env: { projectRoot: "../shared" } }, nuxt)
 
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe("/tmp/workspace/apps/shared/.vitehub/env/server.mjs")
+  })
+
+  it("preserves automatic Env project-root detection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-auth-nuxt-root-"))
+    const appRoot = join(root, "app")
+    await mkdir(appRoot)
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "auth-nuxt-root" }))
+    try {
+      const nuxt = createNuxt()
+      ;(nuxt.options as typeof nuxt.options & { vite: { root: string } }).vite = { root: appRoot }
+
+      hubAuthNuxt({}, nuxt)
+
+      expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe(join(root, ".vitehub/env/server.mjs"))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("reuses the installed Env plugin project root", () => {

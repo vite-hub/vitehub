@@ -359,7 +359,7 @@ describe("ViteHub Nuxt integration", () => {
 
     await viteHubNuxtModule({ auth: true, preset: "cloudflare" }, nuxt)
 
-    expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe(resolve("app/.vitehub/env/server.mjs"))
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe(resolve(".vitehub/env/server.mjs"))
   })
 
   it("keeps Auth composables without Env runtime wiring", async () => {
