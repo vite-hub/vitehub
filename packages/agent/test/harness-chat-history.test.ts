@@ -22,6 +22,7 @@ interface CapturedTurn {
 const roots: string[] = []
 
 afterEach(async () => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
@@ -344,6 +345,43 @@ describe("Harness chat history", () => {
     controller.abort(new Error("request closed"))
 
     await expect(invocation).rejects.toThrow("request closed")
+    expect(turns).toEqual([])
+    expect(await attachmentPaths(root)).toEqual([])
+  })
+
+  it("times out stalled Channel attachment resolution before Harness invocation", async () => {
+    vi.useFakeTimers()
+    const root = await createRoot()
+    const turns: CapturedTurn[] = []
+    let markFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve
+    })
+    const agent = defineAgent({
+      driver: {
+        harness: createHistoryHarness(turns),
+        sandbox: createLocalHarnessSandbox({ rootDir: root }),
+      },
+    })
+
+    const invocation = runAgent(agent, runtime, {
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{
+          fetchData: () => {
+            markFetchStarted()
+            return new Promise<Uint8Array>(() => {})
+          },
+          mediaType: "image/png",
+          type: "image",
+        }],
+        role: "user",
+      })],
+    })
+    await fetchStarted
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    await expect(invocation).rejects.toThrow("Harness attachment resolution timed out after 15000ms")
     expect(turns).toEqual([])
     expect(await attachmentPaths(root)).toEqual([])
   })
