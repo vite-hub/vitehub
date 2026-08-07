@@ -128,11 +128,12 @@ export function createViteAgentRuntimeContext(
   server: ViteDevServer,
   req: IncomingMessage,
   identity: AgentHostIdentity,
-  options: { fallbackRoute: string, run?: AgentRunMetadata },
+  options: { capabilities?: AgentRuntimeContext["capabilities"], fallbackRoute: string, run?: AgentRunMetadata },
 ): ViteAgentRuntimeContext {
   return createAgentRuntimeContext({
     agentIdentity: identity,
     request: createRequest(server, req, options.fallbackRoute),
+    ...(options.capabilities ? { capabilities: options.capabilities } : {}),
     ...(options.run ? { run: options.run } : {}),
     runtime: "vite",
     runtimeConfig: {},

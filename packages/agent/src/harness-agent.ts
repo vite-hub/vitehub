@@ -112,7 +112,6 @@ const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 const harnessAttachmentDirectory = ".vitehub/attachments"
 const harnessAttachmentMaxBytes = 25 * 1024 * 1024
 const harnessAttachmentResolutionTimeoutMs = 15_000
-const harnessAgentPackage = "@ai-sdk/harness/agent"
 const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
@@ -974,7 +973,7 @@ async function createHarnessAgent<
   ) => Promise<void>,
 ): Promise<{ agent: HarnessAgentLike, instructions?: string, workDir?: string }> {
   assertSupportedHarnessDriverContributions(context)
-  const { HarnessAgent } = await import(/* @vite-ignore */ harnessAgentPackage) as unknown as { HarnessAgent: HarnessAgentConstructor }
+  const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
   const globalSkillsDirectory = resolveHarnessGlobalSkillsDirectory(harness, context, invocation)
   if (context.globalSkills?.length && !isHarnessRelativeDirectory(globalSkillsDirectory)) {

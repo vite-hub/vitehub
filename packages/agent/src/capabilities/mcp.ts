@@ -73,8 +73,7 @@ function sanitizeMcpMetadata(value: unknown, seen = new WeakSet<object>()): unkn
 }
 
 async function createMcpClient(config: McpClientConfig): Promise<McpClient> {
-  const specifier = ["@ai-sdk", "mcp"].join("/")
-  const runtime = await import(specifier) as typeof import("@ai-sdk/mcp")
+  const runtime = await import("@ai-sdk/mcp")
   return await runtime.createMCPClient(config as never)
 }
 
