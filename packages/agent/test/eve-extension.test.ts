@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { parseAst } from "vite"
 
 import { toAiSdkModelMessages } from "../src/ai-sdk.ts"
@@ -586,5 +586,31 @@ describe("Eve extension capabilities", () => {
 
     await expect((capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext()))
       .resolves.toEqual({})
+  })
+
+  it("starts dynamic tools once per session without retaining an invocation context", async () => {
+    const execute = vi.fn(async (_input: unknown, context: { session: { turn: { id: string } } }) => context.session.turn.id)
+    const started = vi.fn(() => ({ run: { execute } }))
+    const capability = await eveExtensionCapability(
+      "test-extension",
+      "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        dynamic: {
+          events: { "session.started": started },
+          kind: "eve:dynamic",
+        },
+      }),
+    )
+    const first = capabilityContext()
+    first.run = { runId: "run-1", threadId: "session-1" }
+    const second = capabilityContext()
+    second.run = { runId: "run-2", threadId: "session-1" }
+
+    await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(first)
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(second)
+
+    expect(started).toHaveBeenCalledTimes(1)
+    await expect(tools.test__run!.execute?.({}, { toolCallId: "call-1" } as never)).resolves.toBe("run-2")
   })
 })

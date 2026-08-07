@@ -105,6 +105,7 @@ export interface AgentTelegramPollingRouteOptions extends AgentRouteRuntimeOptio
 
 export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
   agentName?: string
+  state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
 export interface AgentChannelChatRouteStandardSchemaResultSuccess<T = unknown> {
@@ -3517,6 +3518,141 @@ async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
   return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
 }
 
+interface AgentChatPendingApproval {
+  id: string
+  input?: unknown
+  name: string
+  toolCallId: string
+}
+
+const agentChatApprovalTtlMs = 24 * 60 * 60 * 1000
+
+function agentChatApprovalKey(sessionId: string, approvalId?: string): string {
+  const session = `session:${encodeURIComponent(sessionId)}:approval`
+  return approvalId ? `${session}:${encodeURIComponent(approvalId)}` : session
+}
+
+async function withAgentChatApprovalLock<T>(state: StateAdapter, sessionId: string, callback: () => Promise<T>): Promise<T> {
+  const lock = await state.acquireLock(`${agentChatApprovalKey(sessionId)}:lock`, 10_000)
+  if (!lock) throw createRouteError(409, "Agent chat session is already handling an approval response.")
+  try {
+    return await callback()
+  }
+  finally {
+    await state.releaseLock(lock)
+  }
+}
+
+function uiApprovalPart(part: unknown): { approval: Record<string, unknown>, record: Record<string, unknown> } | undefined {
+  if (!isRecord(part)) return
+  const type = part.type
+  if (type !== "dynamic-tool" && !(typeof type === "string" && type.startsWith("tool-"))) return
+  if (part.state !== "approval-requested" && part.state !== "approval-responded") return
+  if (!isRecord(part.approval) || typeof part.approval.id !== "string") return
+  return { approval: part.approval, record: part }
+}
+
+async function authorizeAgentChatApprovals(
+  state: StateAdapter,
+  sessionId: string,
+  messages: UIMessageLike[],
+): Promise<UIMessageLike[]> {
+  const submitted = messages.flatMap(message => (message.parts || []).flatMap(part => {
+    const approvalPart = uiApprovalPart(part)
+    return approvalPart ? [approvalPart] : []
+  }))
+  if (!submitted.length) return messages
+
+  return await withAgentChatApprovalLock(state, sessionId, async () => {
+    const pending = new Map(await Promise.all([...new Set(submitted.map(part => part.approval.id as string))].map(async id => [
+      id,
+      await state.get<AgentChatPendingApproval>(agentChatApprovalKey(sessionId, id)),
+    ] as const)))
+    const consumed = new Set<string>()
+    const authorized = messages.map(message => ({
+      ...message,
+      parts: (message.parts || []).map((part) => {
+        const submittedPart = uiApprovalPart(part)
+        if (!submittedPart) return part
+        const id = submittedPart.approval.id as string
+        const request = pending.get(id)
+        if (!request) throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} was not issued by this session.`)
+        if (submittedPart.record.state === "approval-responded") {
+          if (typeof submittedPart.approval.approved !== "boolean") {
+            throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} requires an approved decision.`)
+          }
+          if (consumed.has(id)) throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} was submitted more than once.`)
+          consumed.add(id)
+        }
+        return {
+          ...submittedPart.record,
+          approval: {
+            id,
+            ...(typeof submittedPart.approval.approved === "boolean" ? { approved: submittedPart.approval.approved } : {}),
+            ...(typeof submittedPart.approval.reason === "string" ? { reason: submittedPart.approval.reason } : {}),
+          },
+          input: request.input,
+          toolCallId: request.toolCallId,
+          toolName: request.name,
+        }
+      }),
+    }))
+
+    await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(sessionId, id))))
+    return authorized
+  })
+}
+
+function trackAgentChatApprovals(result: unknown, state: StateAdapter, sessionId: string): unknown {
+  if (result instanceof Response || !(result instanceof ReadableStream)) return result
+  const reader = result.getReader()
+  const toolInputs = new Map<string, { input?: unknown, name?: string }>()
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          controller.close()
+          return
+        }
+        if (isRecord(chunk.value)) {
+          const type = chunk.value.type
+          const toolCallId = firstString(chunk.value.toolCallId, chunk.value.id)
+          if ((type === "tool-input-available" || type === "tool-call") && toolCallId) {
+            toolInputs.set(toolCallId, {
+              input: chunk.value.input,
+              name: firstString(chunk.value.toolName, chunk.value.name),
+            })
+          }
+          if (type === "tool-approval-request" && toolCallId) {
+            const id = firstString(chunk.value.approvalId, chunk.value.id)
+            if (id) {
+              const tool = toolInputs.get(toolCallId)
+              await state.set(
+                agentChatApprovalKey(sessionId, id),
+                {
+                  id,
+                  input: tool?.input ?? chunk.value.input,
+                  name: firstString(chunk.value.toolName, tool?.name) || "tool",
+                  toolCallId,
+                } satisfies AgentChatPendingApproval,
+                agentChatApprovalTtlMs,
+              )
+            }
+          }
+        }
+        controller.enqueue(chunk.value)
+      }
+      catch (error) {
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
+    },
+  })
+}
+
 function agentChatFetchErrorResponse(error: unknown): Response {
   const response = toHttpErrorResponse(error)
   if (response) return response
@@ -3560,13 +3696,28 @@ export function createChannelChatRouteHandler(
         trustedInput,
         await routeOptions.admission?.context?.(inputContext),
       )
-      const triggerInput = mergeAgentChannelChatRouteInput(
+      let triggerInput = mergeAgentChannelChatRouteInput(
         admittedInput,
         await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
       )
-      const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
+      const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
+      const registration = {
+        channelId: routeOptions.channelId || "http",
+        id: routeOptions.channelId || "http",
+        provider: routeOptions.origin || "http",
+      }
+      const { state } = await resolveChatState(getAgentChatOptions(agent), context, registration, handlerOptions)
+      await state.connect()
+      if (sessionId) {
+        triggerInput = {
+          ...triggerInput,
+          messages: await authorizeAgentChatApprovals(state, sessionId, triggerInput.messages),
+        }
+      }
+      let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
+      if (sessionId) result = trackAgentChatApprovals(result, state, sessionId)
       return await toAgentChatFetchResponse(result)
     }
     catch (error) {

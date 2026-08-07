@@ -39,6 +39,7 @@ interface ToolExecutionOptions {
 }
 
 let extensionLoad = Promise.resolve()
+const dynamicSessionTools = new WeakMap<object, Map<string, Promise<Record<string, EveToolDefinition>>>>()
 
 function packageNamespace(packageName: string): string {
   return packageName
@@ -196,24 +197,38 @@ async function resolveEveTools(
       if (events.some(event => event !== "session.started")) {
         throw new Error(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} uses unsupported events: ${events.join(", ")}.`)
       }
-      const handler = exported.events["session.started"]
-      const resolved = await handler?.({ type: "session.started" }, {
-        channel: {
-          kind: context.run?.origin,
-          metadata: context.invoker.meta,
-        },
-        messages: toAiSdkModelMessages(context.invocation?.input.messages() ?? []),
-        session: {
-          auth: { current: null, initiator: null },
-          id: eveSessionId(context),
-        },
-      })
-      if (resolved === null || resolved === undefined) continue
-      if (isEveTool(resolved)) addEveTool(tools, namespace, exportName, resolved, context)
-      else if (typeof resolved === "object") {
-        for (const [name, tool] of Object.entries(resolved)) addEveTool(tools, namespace, name, tool, context)
+      let sessions = dynamicSessionTools.get(module)
+      if (!sessions) {
+        sessions = new Map()
+        dynamicSessionTools.set(module, sessions)
       }
-      else throw new TypeError(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} returned an unsupported value.`)
+      const sessionId = eveSessionId(context)
+      const cacheKey = JSON.stringify([sessionId, exportName])
+      let resolving = sessions.get(cacheKey)
+      if (!resolving) {
+        // ponytail: Agent Sessions do not expose an end hook yet; move cleanup there when they do.
+        resolving = (async () => {
+          const handler = exported.events["session.started"]
+          const resolved = await handler?.({ type: "session.started" }, {
+            channel: {
+              kind: context.run?.origin,
+              metadata: context.invoker.meta,
+            },
+            messages: toAiSdkModelMessages(context.invocation?.input.messages() ?? []),
+            session: {
+              auth: { current: null, initiator: null },
+              id: sessionId,
+            },
+          })
+          if (resolved === null || resolved === undefined) return {}
+          if (isEveTool(resolved)) return { [exportName]: resolved }
+          if (typeof resolved === "object") return resolved as Record<string, EveToolDefinition>
+          throw new TypeError(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} returned an unsupported value.`)
+        })()
+        sessions.set(cacheKey, resolving)
+        void resolving.catch(() => sessions!.delete(cacheKey))
+      }
+      for (const [name, tool] of Object.entries(await resolving)) addEveTool(tools, namespace, name, tool, context)
       continue
     }
     addEveTool(tools, namespace, exportName, exported, context)
