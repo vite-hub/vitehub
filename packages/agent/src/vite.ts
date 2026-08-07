@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -748,6 +748,17 @@ function visitNodes(node: PositionedNode, visit: (node: PositionedNode) => void)
   }
 }
 
+function applyCodeReplacements(
+  code: string,
+  replacements: Array<{ end: number, start: number, value: string }>,
+): string {
+  let transformed = code
+  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
+    transformed = transformed.slice(0, replacement.start) + replacement.value + transformed.slice(replacement.end)
+  }
+  return transformed
+}
+
 function addBindingIdentifiers(value: unknown, bindings: Set<string>): void {
   if (!isPositionedNode(value)) return
   if (value.type === "Identifier" && typeof value.name === "string") {
@@ -904,11 +915,168 @@ export function transformRepositoryHostContextMaterialization(
     start: importPosition!,
     value: `${imports.join("\n")}\n`,
   })
-  let transformed = code
-  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
-    transformed = transformed.slice(0, replacement.start) + replacement.value + transformed.slice(replacement.end)
+  return applyCodeReplacements(code, replacements)
+}
+
+interface EveExtensionImport {
+  call: PositionedNode
+  declaration: PositionedNode
+  local: string
+  source: string
+}
+
+function nodePropertyName(node: PositionedNode): unknown {
+  const key = node.key
+  return isPositionedNode(key) && key.type === "Identifier"
+    ? key.name
+    : isPositionedNode(key) && key.type === "Literal"
+      ? key.value
+      : undefined
+}
+
+export async function transformEveExtensionCapabilities(
+  code: string,
+  parse: (code: string) => unknown,
+  resolveExtension: (specifier: string) => Promise<boolean>,
+): Promise<string | undefined> {
+  const program = parse(code)
+  if (!isPositionedNode(program)) return
+
+  const imports = new Map<string, { declaration: PositionedNode, source: string }>()
+  const references = new Map<string, number>()
+  const functionRanges: Array<{ end: number, start: number }> = []
+  visitNodes(program, (node) => {
+    if (node.type === "Identifier" && typeof node.name === "string") {
+      references.set(node.name, (references.get(node.name) ?? 0) + 1)
+    }
+    if (node.type.includes("Function")) functionRanges.push({ end: node.end, start: node.start })
+    if (node.type !== "ImportDeclaration") return
+    const source = node.source
+    const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
+    if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") return
+    if (specifiers.length !== 1 || !isPositionedNode(specifiers[0]) || specifiers[0].type !== "ImportDefaultSpecifier") return
+    const local = specifiers[0].local
+    if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") return
+    imports.set(local.name, { declaration: node, source: source.value })
+  })
+  if (!imports.size) return
+
+  const calls: EveExtensionImport[] = []
+  visitNodes(program, (node) => {
+    if (node.type !== "Property" || node.computed === true || nodePropertyName(node) !== "capabilities") return
+    const value = node.value
+    if (!isPositionedNode(value) || value.type !== "ArrayExpression") return
+    for (const element of Array.isArray(value.elements) ? value.elements : []) {
+      if (!isPositionedNode(element) || element.type !== "CallExpression") continue
+      const callee = element.callee
+      if (!isPositionedNode(callee) || callee.type !== "Identifier" || typeof callee.name !== "string") continue
+      const imported = imports.get(callee.name)
+      if (!imported) continue
+      if (functionRanges.some(range => element.start > range.start && element.end < range.end)) {
+        throw new Error(`[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.`)
+      }
+      calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
+    }
+  })
+  if (!calls.length) return
+
+  const extensions: EveExtensionImport[] = []
+  for (const call of calls) {
+    if (!await resolveExtension(call.source)) continue
+    if ((references.get(call.local) ?? 0) !== 2) {
+      throw new Error(`[vitehub] Eve extension import ${JSON.stringify(call.local)} must only be used once in the capabilities array.`)
+    }
+    const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
+    if (args.length > 1 || args.some(argument => isPositionedNode(argument) && argument.type === "SpreadElement")) {
+      throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.`)
+    }
+    extensions.push(call)
   }
-  return transformed
+  if (!extensions.length) return
+
+  const packageCounts = new Map<string, number>()
+  for (const extension of extensions) {
+    packageCounts.set(extension.source, (packageCounts.get(extension.source) ?? 0) + 1)
+  }
+  const duplicate = [...packageCounts].find(([, count]) => count > 1)
+  if (duplicate) throw new Error(`[vitehub] Eve extension ${JSON.stringify(duplicate[0])} can only be mounted once per Agent Definition.`)
+
+  const identifiers = new Set(references.keys())
+  let helper = "__vitehubEveExtensionCapability"
+  while (identifiers.has(helper)) helper += "_"
+  const firstImport = extensions.reduce((first, extension) =>
+    extension.declaration.start < first.declaration.start ? extension : first
+  )
+  const replacements: Array<{ end: number, start: number, value: string }> = []
+  for (const extension of extensions) {
+    const args = Array.isArray(extension.call.arguments) ? extension.call.arguments : []
+    const config = isPositionedNode(args[0]) ? code.slice(args[0].start, args[0].end) : "undefined"
+    replacements.push({
+      end: extension.call.end,
+      start: extension.call.start,
+      value: `await ${helper}(${JSON.stringify(extension.source)}, ${JSON.stringify(extension.local)}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
+    })
+    replacements.push({
+      end: extension.declaration.end,
+      start: extension.declaration.start,
+      value: extension === firstImport
+        ? `import { eveExtensionCapability as ${helper} } from "@vite-hub/agent/eve"`
+        : "",
+    })
+  }
+  return applyCodeReplacements(code, replacements)
+}
+
+interface EveExtensionPackageJson {
+  eve?: { extension?: { dist?: unknown } }
+  name?: unknown
+}
+
+interface EveExtensionManifest {
+  formatVersion?: unknown
+  kind?: unknown
+  requires?: unknown
+}
+
+const supportedEveExtensionContracts: Record<string, number> = {
+  config: 1,
+  dynamicTool: 8,
+  extension: 1,
+  tool: 5,
+}
+
+async function resolveEveExtensionPackage(
+  config: Pick<ResolvedConfig, "createResolver">,
+  specifier: string,
+  importer: string,
+): Promise<boolean> {
+  const entry = await config.createResolver()(specifier, importer)
+  if (!entry) return false
+  let directory = dirname(entry.split(/[?#]/, 1)[0]!)
+  while (true) {
+    const packagePath = join(directory, "package.json")
+    if (existsSync(packagePath)) {
+      const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as EveExtensionPackageJson
+      if (packageJson.name === specifier) {
+        const dist = packageJson.eve?.extension?.dist
+        if (typeof dist !== "string") return false
+        const manifestPath = resolve(directory, dist, "_manifest.json")
+        const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as EveExtensionManifest
+        if (manifest.kind !== "eve-extension" || manifest.formatVersion !== 1 || !manifest.requires || typeof manifest.requires !== "object") {
+          throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.`)
+        }
+        for (const [contract, version] of Object.entries(manifest.requires)) {
+          if (supportedEveExtensionContracts[contract] !== version) {
+            throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.`)
+          }
+        }
+        return true
+      }
+    }
+    const parent = dirname(directory)
+    if (parent === directory) return false
+    directory = parent
+  }
 }
 
 function generatedRuntimeHelpers(): string[] {
@@ -1701,6 +1869,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
+  const eveExtensionOwners = new Map<string, string>()
   let resolved: ResolvedConfig | undefined
   let serverDirs: string[] | undefined
 
@@ -1826,8 +1995,21 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
         || serverAgentDefinition
       if (agentDefinition) {
-        const materialization = transformRepositoryHostContextMaterialization(code, value => this.parse(value))
-        if (materialization) return materialization
+        let transformed = transformRepositoryHostContextMaterialization(code, value => this.parse(value)) ?? code
+        transformed = await transformEveExtensionCapabilities(
+          transformed,
+          value => this.parse(value),
+          async (specifier) => {
+            if (!await resolveEveExtensionPackage(resolved!, specifier, normalizedId)) return false
+            const owner = eveExtensionOwners.get(specifier)
+            if (owner && owner !== normalizedId) {
+              throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.`)
+            }
+            eveExtensionOwners.set(specifier, normalizedId)
+            return true
+          },
+        ) ?? transformed
+        if (transformed !== code) return transformed
       }
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
       const definitions = discoverScheduledAgentDefinitions(resolved.root, serverDirs)

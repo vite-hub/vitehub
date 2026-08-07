@@ -65,6 +65,10 @@
       "types": "./dist/eval.d.ts",
       "import": "./dist/eval.js"
     },
+    "./eve": {
+      "types": "./dist/eve.d.ts",
+      "import": "./dist/eve.js"
+    },
     "./harness/local-sandbox": {
       "types": "./dist/harness/local-sandbox.d.ts",
       "import": "./dist/harness/local-sandbox.js"
@@ -133,6 +137,7 @@
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
+    "@vercel/connect": "^0.6.1",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -143,12 +148,14 @@
     "chat": "catalog:chat",
     "comark": "catalog:ui",
     "esbuild": "catalog:esbuild-v27",
-    "effect": "catalog:effect"
+    "effect": "catalog:effect",
+    "eve": "^0.31.0"
   },
   "devDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@github-tools/eve-extension": "0.3.0",
     "@types/node": "catalog:tooling",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",

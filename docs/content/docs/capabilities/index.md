@@ -56,6 +56,24 @@ export default defineAgent({
 
 Return only invocation-scoped behavior from the callback. Capabilities that contribute Agent Triggers, chat admission, or static Workspace Sources must stay in a static list because ViteHub registers those contributions before an invocation exists.
 
+## Use an Eve extension
+
+ViteHub detects compatible Eve extension packages in a static Capability list and compiles their tools into a Capability. Install the extension, then use its existing factory and options:
+
+```ts [server/agents/reviewer.ts]
+import github from '@github-tools/eve-extension'
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: [
+    github({ preset: 'code-review' }),
+  ],
+})
+```
+
+The Vite plugin reads the package's Eve manifest and fails the build when its contract version or runtime features are unsupported. The first bridge supports one mount per extension package, direct default-import factory calls, static and `session.started` tools, tool schemas and output conversion, and Eve's `always`, `never`, and `once` approval modes.
+
 ## What Capabilities can contribute
 
 | Contribution | What it changes |

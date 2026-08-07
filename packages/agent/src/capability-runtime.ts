@@ -53,6 +53,7 @@ import type {
   AgentProviderToolContribution,
   AgentRunInput,
   AgentRuntimeConfig,
+  AgentStaticCapabilitiesList,
   AgentToolSet,
   AgentToolTransform,
   MaybePromise,
@@ -228,13 +229,16 @@ export function normalizeMode(value: unknown, label: string): AgentCapabilityMod
 }
 
 export function normalizeCapabilities(
-  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+  capabilities: AgentStaticCapabilitiesList | undefined,
 ): AgentCapabilityDefinition[] {
   if (capabilities === undefined) return []
   if (!Array.isArray(capabilities)) {
     throw new TypeError("[vitehub] defineAgent({ capabilities }) must be an ordered array.")
   }
-  const explicit = capabilities.map(capability => defineCapability(capability))
+  if (capabilities.some(capability => (capability as Record<symbol, unknown>)?.[Symbol.for("eve.mounted-extension")] === true)) {
+    throw new TypeError("[vitehub] Eve extensions must be compiled by the ViteHub Vite plugin.")
+  }
+  const explicit = capabilities.map(capability => defineCapability(capability as AgentCapabilityDefinition))
   const explicitById = new Map<string, AgentCapabilityDefinition>()
   for (const capability of explicit) {
     if (explicitById.has(capability.id)) {

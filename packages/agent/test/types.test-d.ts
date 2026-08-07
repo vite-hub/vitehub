@@ -11,6 +11,7 @@ import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import githubExtension from "@github-tools/eve-extension"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
 
@@ -27,6 +28,13 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("types Eve extensions in static capabilities", () => {
+    defineAgent({
+      capabilities: [githubExtension({ preset: "code-review" })],
+      driver: { run: () => "ok" },
+    })
+  })
+
   it("types bounded driver capacity", () => {
     const queue = { maxPending: 20, timeout: 300_000 } satisfies AgentDriverCapacityQueueOptions
     const capacity = { concurrency: 2, queue } satisfies AgentDriverCapacityOptions
