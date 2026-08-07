@@ -961,8 +961,12 @@ export async function transformEveExtensionCapabilities(
   const references = new Map<string, number>()
   const functionRanges: Array<{ end: number, start: number }> = []
   for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isPositionedNode(statement) || statement.type !== "VariableDeclaration" || statement.kind !== "const") continue
-    for (const declaration of Array.isArray(statement.declarations) ? statement.declarations : []) {
+    if (!isPositionedNode(statement)) continue
+    const declarationStatement = statement.type === "ExportNamedDeclaration" && isPositionedNode(statement.declaration)
+      ? statement.declaration
+      : statement
+    if (declarationStatement.type !== "VariableDeclaration" || declarationStatement.kind !== "const") continue
+    for (const declaration of Array.isArray(declarationStatement.declarations) ? declarationStatement.declarations : []) {
       if (!isPositionedNode(declaration) || declaration.type !== "VariableDeclarator") continue
       const identifier = declaration.id
       const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
