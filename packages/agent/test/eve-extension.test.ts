@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { afterEach, describe, expect, it } from "vitest"
 import { parseAst } from "vite"
 
+import { toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { eveExtensionCapability } from "../src/eve.ts"
 import { hubAgent } from "../src/vite.ts"
 
@@ -110,19 +111,21 @@ describe("Eve extension capabilities", () => {
     expect(typeof read.toModelOutput).toBe("function")
     expect(await write.needsApproval({}, { messages: [], toolCallId: "call-1" })).toBe(true)
 
-    const messages = [
+    const messages = toAiSdkModelMessages([
       {
-        content: [
-          { input: {}, toolCallId: "call-1", toolName: "github__createOrUpdateFile", type: "tool-call" },
-          { approvalId: "approval-1", toolCallId: "call-1", type: "tool-approval-request" },
+        id: "message-1",
+        parts: [
+          { id: "call-1", input: {}, name: "github__createOrUpdateFile", state: "proposed", type: "tool-call" },
+          { id: "approval-1", name: "github__createOrUpdateFile", toolCallId: "call-1", type: "approval-request" },
         ],
         role: "assistant",
       },
       {
-        content: [{ approvalId: "approval-1", approved: true, type: "tool-approval-response" }],
-        role: "tool",
+        id: "message-2",
+        parts: [{ approved: true, id: "approval-1", type: "approval-decision" }],
+        role: "assistant",
       },
-    ] as ModelMessage[]
+    ]) as ModelMessage[]
     expect(await write.needsApproval({}, { messages, toolCallId: "call-2" })).toBe(false)
   })
 })

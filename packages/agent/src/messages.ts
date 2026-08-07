@@ -78,6 +78,7 @@ export interface ApprovalRequestPart {
   input?: unknown
   name: string
   reason?: string
+  toolCallId?: string
   type: "approval-request"
 }
 
@@ -220,7 +221,7 @@ export type StreamEvent =
   | { data: unknown, id?: string, messageId?: string, transient?: boolean, type: "data" | `data-${string}` }
   | { id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
   | { durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
-  | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, type: "approval-request" }
+  | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, toolCallId?: string, type: "approval-request" }
   | { approved: boolean, decidedAt?: Date | string, id: string, messageId?: string, reason?: string, type: "approval-decision" }
   | { error: string, id?: string, messageId?: string, recoverable?: boolean, type: "error" }
   | { messageId?: string, usageRecord: AgentUsageRecord, type: "usage" }
@@ -396,6 +397,7 @@ export function validateMessage(message: Message): void {
       case "approval-request":
         assertString(part.id, "approval-request.id")
         assertString(part.name, "approval-request.name")
+        if (part.toolCallId !== undefined) assertString(part.toolCallId, "approval-request.toolCallId")
         openToolCalls.set(part.id, part)
         break
       case "approval-decision":
@@ -499,7 +501,7 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
     message.parts.push(omitUndefined({ error: event.error, id: event.id, name: event.name, output: event.output, state: event.error ? "failed" : "completed", type: "tool-result" }) as ToolResultPart)
   }
   else if (event.type === "approval-request") {
-    message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, reason: event.reason, type: "approval-request" }) as ApprovalRequestPart)
+    message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, reason: event.reason, toolCallId: event.toolCallId, type: "approval-request" }) as ApprovalRequestPart)
   }
   else if (event.type === "approval-decision") {
     const decidedAt = normalizeCreatedAt(event.decidedAt)

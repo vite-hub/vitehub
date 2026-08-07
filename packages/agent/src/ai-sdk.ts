@@ -212,7 +212,7 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
   if (part.type === "approval-request") {
     return {
       approvalId: part.id,
-      toolCallId: part.id,
+      toolCallId: part.toolCallId ?? part.id,
       type: "tool-approval-request" as const,
     }
   }
