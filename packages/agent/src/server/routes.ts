@@ -203,11 +203,30 @@ function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
+function isReadableStreamLike(value: unknown): value is ReadableStream<unknown> {
+  return isRecord(value)
+    && typeof value.getReader === "function"
+    && typeof value.pipeThrough === "function"
+}
+
+function isHeadersLike(value: unknown): value is Headers {
+  return isRecord(value)
+    && typeof value.entries === "function"
+    && typeof value.get === "function"
+}
+
+function isResponseLike(value: unknown): value is Response & { body: ReadableStream<unknown> } {
+  return isRecord(value)
+    && isReadableStreamLike(value.body)
+    && isHeadersLike(value.headers)
+    && typeof value.status === "number"
+    && typeof value.statusText === "string"
+}
+
 function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
-  if (value instanceof ReadableStream) return value
-  if (isRecord(value) && typeof value.getReader === "function") return value as unknown as ReadableStream<unknown>
+  if (value instanceof ReadableStream || isReadableStreamLike(value)) return value
   if (value instanceof Response && value.body) return value.body
-  if (isRecord(value) && isRecord(value.body) && typeof value.body.getReader === "function") return value.body as unknown as ReadableStream<unknown>
+  if (isResponseLike(value)) return value.body
   throw new Error("[vitehub] Agent chat trigger expected a UI message stream.")
 }
 
@@ -222,7 +241,7 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
   const decoder = new TextDecoder()
   const reader = response.body.getReader()
   let tail = ""
-  const headers = new Headers(response.headers)
+  const headers = new Headers([...response.headers.entries()])
   headers.delete("content-encoding")
   headers.delete("content-length")
 
@@ -3517,8 +3536,8 @@ function mergeAgentChannelChatRouteInput(
 }
 
 async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
-  if (result instanceof Response || (isRecord(result) && isRecord(result.body) && typeof result.body.getReader === "function" && isRecord(result.headers) && typeof result.headers.get === "function")) {
-    return withCleanUiMessageStreamResponse(result as Response)
+  if (result instanceof Response || isResponseLike(result)) {
+    return withCleanUiMessageStreamResponse(result)
   }
   return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
 }

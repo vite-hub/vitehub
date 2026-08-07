@@ -2393,12 +2393,16 @@ describe("server helpers", () => {
       pipeThrough: stream.pipeThrough.bind(stream),
       [Symbol.asyncIterator]: stream[Symbol.asyncIterator].bind(stream),
     }
+    const responseHeaders = new Headers({
+      "content-type": "text/event-stream",
+      "x-vercel-ai-ui-message-stream": "v1",
+    })
     const foreignResponse = {
       body: new Response("data: {\"type\":\"finish\"}\n\n").body,
-      headers: new Headers({
-        "content-type": "text/event-stream",
-        "x-vercel-ai-ui-message-stream": "v1",
-      }),
+      headers: {
+        entries: responseHeaders.entries.bind(responseHeaders),
+        get: responseHeaders.get.bind(responseHeaders),
+      },
       status: 202,
       statusText: "Accepted",
     }
