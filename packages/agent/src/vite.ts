@@ -1873,6 +1873,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let resolved: ResolvedConfig | undefined
   let serverDirs: string[] | undefined
 
+  function clearEveExtensionOwnership(owner: string): void {
+    for (const [specifier, currentOwner] of eveExtensionOwners) {
+      if (currentOwner === owner) eveExtensionOwners.delete(specifier)
+    }
+  }
+
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
     const schedule = hasScheduleVitePlugin(config)
@@ -1951,6 +1957,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
+      clearEveExtensionOwnership(file)
       const agentRoots = (serverDirs ?? [join(resolved?.root ?? context.server.config.root, "server")])
         .map(directory => `${resolve(directory).replace(/\\/g, "/")}/agents/`)
       const relativeAgentPath = agentRoots
@@ -1995,6 +2002,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
         || serverAgentDefinition
       if (agentDefinition) {
+        clearEveExtensionOwnership(normalizedId)
         let transformed = transformRepositoryHostContextMaterialization(code, value => this.parse(value)) ?? code
         transformed = await transformEveExtensionCapabilities(
           transformed,

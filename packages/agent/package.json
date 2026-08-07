@@ -161,6 +161,7 @@
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
     "evalite": "catalog:ai",
+    "eve": "^0.31.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

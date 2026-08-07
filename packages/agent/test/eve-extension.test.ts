@@ -72,6 +72,19 @@ describe("Eve extension capabilities", () => {
       source,
       join(root, "server", "agents", "other.ts"),
     )).rejects.toThrow("can only be mounted once per Vite app")
+
+    await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
+      file: id,
+      server: {
+        config: { root },
+        moduleGraph: { getModuleById: () => undefined },
+      },
+    })
+    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      join(root, "server", "agents", "other.ts"),
+    )).resolves.toContain(`from "@vite-hub/agent/eve"`)
   })
 
   it("loads GitHub tools and preserves once-per-session approval", async () => {
