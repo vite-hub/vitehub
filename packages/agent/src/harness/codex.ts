@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { basename, dirname, join } from "node:path"
@@ -62,8 +63,12 @@ export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(opt
 const codexBootstrapDir = "/tmp/harness/codex"
 const codexBridgeInstallCommand = `if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; then :; else pnpm --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; fi`
 const codexBridgeNodeModules = `${codexBootstrapDir}/node_modules`
-const codexBridgeDefaultNodeModules = packageNodeModules(fileURLToPath(import.meta.resolve("@openai/codex-sdk")))
 const codexBridgeDependencyMarkers = ["@openai/codex-sdk/package.json", "ws/package.json"]
+const codexBridgeDefaultNodeModules = packageNodeModules([
+  fileURLToPath(import.meta.url),
+  fileURLToPath(import.meta.resolve("@openai/codex-sdk")),
+  fileURLToPath(import.meta.resolve("ws")),
+])
 const codexBridgeDependencyMissing = codexBridgeDependencyMarkers.map(marker => `[ ! -r \"$codex_bridge_node_modules/${marker}\" ]`).join(" || ")
 const codexBridgePrepareDependenciesCommand = [
   `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-${codexBridgeDefaultNodeModules}}"`,
@@ -76,14 +81,24 @@ const codexBridgePrepareDependenciesCommand = [
   "fi",
 ].join("; ")
 
-function packageNodeModules(entry: string): string {
-  let directory = dirname(entry)
-  while (basename(directory) !== "node_modules") {
-    const parent = dirname(directory)
-    if (parent === directory) throw new Error("[vitehub] Could not resolve the Codex bridge dependency tree.")
-    directory = parent
+function packageNodeModules(entries: string[]): string {
+  const workingDirectoryNodeModules = join(process.cwd(), "node_modules")
+  if (codexBridgeDependencyMarkers.every(marker => existsSync(join(workingDirectoryNodeModules, marker)))) return workingDirectoryNodeModules
+  for (const entry of entries) {
+    let directory = dirname(entry)
+    while (true) {
+      const candidates = [
+        ...(basename(directory) === "node_modules" ? [directory] : []),
+        join(directory, "node_modules"),
+      ]
+      const nodeModules = candidates.find(candidate => codexBridgeDependencyMarkers.every(marker => existsSync(join(candidate, marker))))
+      if (nodeModules) return nodeModules
+      const parent = dirname(directory)
+      if (parent === directory) break
+      directory = parent
+    }
   }
-  return directory
+  throw new Error("[vitehub] Could not resolve the Codex bridge dependency tree.")
 }
 
 function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {
