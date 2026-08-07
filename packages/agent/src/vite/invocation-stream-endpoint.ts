@@ -81,6 +81,12 @@ interface AgentDevRuntimeCapability {
   packageName: false | string
 }
 
+interface AgentDevRuntimeOptions {
+  runtimeCapabilities?: AgentDevRuntimeCapability[]
+  schedule?: boolean
+  scheduleRuntimeImport?: string
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
@@ -570,6 +576,7 @@ async function runCapabilityCliWithTimeout(
 async function resolveDevRuntimeCapabilities(
   server: ViteDevServer,
   definitions: AgentDevRuntimeCapability[],
+  options: Pick<AgentDevRuntimeOptions, "schedule" | "scheduleRuntimeImport">,
 ): Promise<Record<string, unknown>> {
   const capabilities: Record<string, unknown> = {}
   for (const definition of definitions) {
@@ -577,10 +584,19 @@ async function resolveDevRuntimeCapabilities(
       ? false
       : (await server.ssrLoadModule(definition.packageName))[definition.importName]
   }
+  if (options.schedule) {
+    const [registry, runtime] = await Promise.all([
+      server.ssrLoadModule("#vitehub/schedule/registry"),
+      server.ssrLoadModule(options.scheduleRuntimeImport ?? "@vite-hub/schedule/runtime"),
+    ])
+    runtime.setScheduleRuntimeRegistry(registry.default)
+    capabilities.schedule = { schedules: runtime.schedules }
+  }
   return capabilities
 }
 
-async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, tokenOptions: WorkspaceDevTokenOptions, abortSignal: AbortSignal | undefined, capabilities: Record<string, unknown>): Promise<Response> {
+async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, tokenOptions: WorkspaceDevTokenOptions, abortSignal: AbortSignal | undefined, runtimeOptions: AgentDevRuntimeOptions): Promise<Response> {
+  const capabilities = await resolveDevRuntimeCapabilities(server, runtimeOptions.runtimeCapabilities ?? [], runtimeOptions)
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
     await ensureWorkspaceDevToken(server.config.root, tokenOptions)
@@ -732,9 +748,8 @@ function errorResponse(error: unknown): Response {
   })
 }
 
-export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer, runtimeCapabilities: AgentDevRuntimeCapability[] = []): Promise<void> {
+export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer, runtimeOptions: AgentDevRuntimeOptions = {}): Promise<void> {
   const tokenOptions = { serverId: workspaceDevTokenServerId(server.config.server.port) }
-  const capabilities = await resolveDevRuntimeCapabilities(server, runtimeCapabilities)
   await refreshWorkspaceDevToken(server.config.root, tokenOptions)
   server.middlewares.use((req, res, next) => {
     if (!routeMatches(req)) {
@@ -752,7 +767,7 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
     }
 
     const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
-    void handleAgentInvocationStreamRequest(server, req, tokenOptions, abort.signal, capabilities)
+    void handleAgentInvocationStreamRequest(server, req, tokenOptions, abort.signal, runtimeOptions)
       .catch(errorResponse)
       .then(response => writeResponse(res, response))
       .finally(abort.dispose)
