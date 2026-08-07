@@ -80,7 +80,6 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 120
     await mkdir(join(root, "server", "api"), { recursive: true })
     await writeFile(join(root, "package.json"), `${JSON.stringify({
       dependencies: {
-        "@ai-sdk/mcp": "2.0.0",
         "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz",
         nuxt: "4.4.8",
         vite: "8.2.0",
@@ -126,21 +125,26 @@ export default defineEventHandler(async () => {
     await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], root)
     await runPnpm(["exec", "nuxt", "build"], root)
 
-    const output = await readTree(join(root, ".output", "server"))
+    const outputServer = join(root, ".output", "server")
+    const output = await readTree(outputServer)
     expect(output).toContain("HarnessAgent.createSession")
+    expect(output).toContain("createMCPClient")
     expect(output).not.toContain('["@ai-sdk", "mcp"].join("/")')
 
     await rename(join(root, "node_modules"), join(root, "source-node_modules"))
     const port = await availablePort()
-    const child = spawn(process.execPath, [join(root, ".output", "server", "index.mjs")], {
+    const child = spawn(process.execPath, [join(outputServer, "index.mjs")], {
       cwd: root,
       env: { ...process.env, NITRO_PORT: String(port) },
-      stdio: "ignore",
+      stdio: ["ignore", "ignore", "pipe"],
     })
+    let stderr = ""
+    child.stderr.setEncoding("utf8")
+    child.stderr.on("data", chunk => stderr += chunk)
     const exited = once(child, "exit")
     try {
       const response = await requestWhenReady(`http://127.0.0.1:${port}/api/proof`)
-      expect(response.status).toBe(200)
+      expect(response.status, `${await response.clone().text()}\n${stderr}`).toBe(200)
       await expect(response.json()).resolves.toEqual({
         agent: "ai-sdk-harness",
         mcp: "loaded-before-transport-error",

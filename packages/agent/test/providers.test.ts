@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Message } from "chat"
-import { VITEHUB_GENERATED_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
@@ -1060,6 +1060,25 @@ describe("agent Vite plugin", () => {
       : undefined
 
     expect((result as { nitro?: unknown } | undefined)?.nitro).toBeUndefined()
+  })
+
+  it("inlines Agent runtimes in Nitro output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+          nitro: { externals: { inline: ["existing"] } },
+        } as never, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        externals: {
+          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
+        },
+      },
+    })
   })
 
   it("registers configured Discord Gateway routes with Nitro", async () => {

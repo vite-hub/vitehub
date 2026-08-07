@@ -162,9 +162,11 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
+  "optionalDependencies": {
+    "@ai-sdk/mcp": "catalog:ai"
+  },
   "peerDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
-    "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
@@ -177,9 +179,6 @@
   },
   "peerDependenciesMeta": {
     "@ai-sdk/harness-claude-code": {
-      "optional": true
-    },
-    "@ai-sdk/mcp": {
       "optional": true
     },
     "@chat-adapter/discord": {
