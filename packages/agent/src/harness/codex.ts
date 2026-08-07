@@ -70,8 +70,8 @@ const codexBridgeDependencyVersions = {
 const codexBridgeDependencyMarkers = Object.keys(codexBridgeDependencyVersions)
 const codexBridgeDefaultNodeModules = packageNodeModules([
   fileURLToPath(import.meta.url),
-  fileURLToPath(import.meta.resolve("@openai/codex-sdk")),
-  fileURLToPath(import.meta.resolve("ws")),
+  resolvePackageEntry("@openai/codex-sdk"),
+  resolvePackageEntry("ws"),
 ]) ?? ""
 const codexBridgeDependencyMissing = codexBridgeDependencyMarkers.map(marker => `[ ! -r \"$codex_bridge_node_modules/${marker}\" ]`).join(" || ")
 const codexBridgePrepareDependenciesCommand = [
@@ -92,8 +92,18 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
 }
 
-function packageNodeModules(entries: string[]): string | undefined {
+function resolvePackageEntry(specifier: string): string | undefined {
+  try {
+    return fileURLToPath(import.meta.resolve(specifier))
+  }
+  catch {
+    return undefined
+  }
+}
+
+function packageNodeModules(entries: Array<string | undefined>): string | undefined {
   for (const entry of entries) {
+    if (!entry) continue
     let directory = dirname(entry)
     while (true) {
       const candidates = [

@@ -2,6 +2,7 @@ import { createCodex } from "@ai-sdk/harness-codex"
 import { execFile } from "node:child_process"
 import { build } from "esbuild"
 import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -44,7 +45,7 @@ describe("ViteHub Codex harness", () => {
   })
 
   it("loads bridge assets after the adapter is bundled into another directory", async () => {
-    const fixture = await mkdtemp(join(import.meta.dirname, ".codex-bundle-"))
+    const fixture = await mkdtemp(join(tmpdir(), "vitehub-codex-bundle-"))
     const output = join(fixture, "server", "_libs", "adapter.mjs")
 
     try {
