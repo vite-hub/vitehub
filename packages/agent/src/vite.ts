@@ -1784,7 +1784,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     name: "@vite-hub/agent/vite",
     async configureServer(server) {
       if (agent !== false) {
-        await registerAgentInvocationStreamEndpoint(server)
+        await registerAgentInvocationStreamEndpoint(server, {
+          runtimeCapabilities,
+          schedule: hasScheduleVitePlugin(resolved ?? server.config),
+          scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+        })
       }
     },
     async handleHotUpdate(context) {
