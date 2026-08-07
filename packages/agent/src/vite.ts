@@ -943,8 +943,20 @@ export async function transformEveExtensionCapabilities(
   if (!isPositionedNode(program)) return
 
   const imports = new Map<string, { declaration: PositionedNode, source: string }>()
+  const staticArrays = new Map<string, PositionedNode>()
   const references = new Map<string, number>()
   const functionRanges: Array<{ end: number, start: number }> = []
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isPositionedNode(statement) || statement.type !== "VariableDeclaration" || statement.kind !== "const") continue
+    for (const declaration of Array.isArray(statement.declarations) ? statement.declarations : []) {
+      if (!isPositionedNode(declaration) || declaration.type !== "VariableDeclarator") continue
+      const identifier = declaration.id
+      const initializer = declaration.init
+      if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
+      if (!isPositionedNode(initializer) || initializer.type !== "ArrayExpression") continue
+      staticArrays.set(identifier.name, initializer)
+    }
+  }
   visitNodes(program, (node) => {
     if (node.type === "Identifier" && typeof node.name === "string") {
       references.set(node.name, (references.get(node.name) ?? 0) + 1)
@@ -965,8 +977,14 @@ export async function transformEveExtensionCapabilities(
   visitNodes(program, (node) => {
     if (node.type !== "Property" || node.computed === true || nodePropertyName(node) !== "capabilities") return
     const value = node.value
-    if (!isPositionedNode(value) || value.type !== "ArrayExpression") return
-    for (const element of Array.isArray(value.elements) ? value.elements : []) {
+    if (!isPositionedNode(value)) return
+    const array = value.type === "ArrayExpression"
+      ? value
+      : value.type === "Identifier" && typeof value.name === "string"
+        ? staticArrays.get(value.name)
+        : undefined
+    if (!array) return
+    for (const element of Array.isArray(array.elements) ? array.elements : []) {
       if (!isPositionedNode(element) || element.type !== "CallExpression") continue
       const callee = element.callee
       if (!isPositionedNode(callee) || callee.type !== "Identifier" || typeof callee.name !== "string") continue

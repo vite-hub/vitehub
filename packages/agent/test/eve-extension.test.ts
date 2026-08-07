@@ -88,6 +88,31 @@ describe("Eve extension capabilities", () => {
     )).resolves.toContain(`from "@vite-hub/agent/eve"`)
   })
 
+  it("detects Eve extensions in a factored static capabilities array", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const source = [
+      `import github from "@github-tools/eve-extension"`,
+      `const capabilities = [github({ preset: "code-review" })]`,
+      `export default defineAgent({ capabilities })`,
+    ].join("\n")
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      source,
+      join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).not.toContain(`import github from`)
+  })
+
   it("loads GitHub tools and preserves once-per-session approval", async () => {
     const capability = await eveExtensionCapability(
       "@github-tools/eve-extension",
