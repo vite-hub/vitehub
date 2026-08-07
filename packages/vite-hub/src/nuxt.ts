@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
@@ -8,6 +9,8 @@ import { mergeConfig } from "vite"
 import { vitehub } from "./index.ts"
 
 import type { Plugin, PluginOption, UserConfig } from "vite"
+
+const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 
 type NuxtLike = {
   hook?: (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) => void
@@ -187,12 +190,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }, nuxt)
   }
   if (options.database) {
+    const nuxtAlias = (nuxt.options.alias ??= {})
+    nuxtAlias["@vite-hub/database/runtime/state"] ??= databaseRuntimeState
     await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
     if (!nuxt.options.dev) {
       nuxt.hook?.("nitro:config", async (config) => {
         const alias = (config.alias ??= {}) as Record<string, string>
         alias["@vite-hub/database/runtime/state"]
-          ??= "vite-hub/_internal/database/runtime/state"
+          ??= nuxtAlias["@vite-hub/database/runtime/state"]
       })
     }
   }
