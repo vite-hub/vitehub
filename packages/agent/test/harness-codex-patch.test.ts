@@ -435,7 +435,15 @@ describe("ViteHub Codex harness", () => {
 
       const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
       const bootstrap = await harness.getBootstrap!()
-      const command = bootstrap.commands[1]!.command.replaceAll("/tmp/harness/codex", bootstrapDir)
+      const command = withPackageRoot(
+        withPackageRoot(
+          withoutPreinstalledDependencies(bootstrap.commands[1]!.command, ""),
+          "@openai/codex-sdk",
+          "",
+        ),
+        "ws",
+        "",
+      ).replaceAll("/tmp/harness/codex", bootstrapDir)
 
       await exec("/bin/sh", ["-c", command], {
         env: {
