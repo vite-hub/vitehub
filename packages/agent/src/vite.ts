@@ -1250,7 +1250,7 @@ async function generateAgentWebhookRouteHandler(
       ? [
           "  const handler = chatHandlers[agent]",
           "  if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
-          `  return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
+          `  return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, event, waitUntil: waitUntilFromEvent(event) })`,
         ]
       : [
           "  throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",

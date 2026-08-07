@@ -105,6 +105,7 @@ export interface AgentTelegramPollingRouteOptions extends AgentRouteRuntimeOptio
 
 export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
   agentName?: string
+  event?: unknown
 }
 
 export interface AgentChannelChatRouteStandardSchemaResultSuccess<T = unknown> {
@@ -125,6 +126,7 @@ export interface AgentChannelChatRouteStandardSchemaV1<T = unknown> {
 export interface AgentChannelChatRouteAdmissionContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody> {
   agentName: string
   body: TBody
+  event?: unknown
   rawBody: string
   request: Request
 }
@@ -203,7 +205,9 @@ function firstString(...values: unknown[]): string | undefined {
 
 function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   if (value instanceof ReadableStream) return value
+  if (isRecord(value) && typeof value.getReader === "function") return value as unknown as ReadableStream<unknown>
   if (value instanceof Response && value.body) return value.body
+  if (isRecord(value) && isRecord(value.body) && typeof value.body.getReader === "function") return value.body as unknown as ReadableStream<unknown>
   throw new Error("[vitehub] Agent chat trigger expected a UI message stream.")
 }
 
@@ -3513,7 +3517,9 @@ function mergeAgentChannelChatRouteInput(
 }
 
 async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
-  if (result instanceof Response) return withCleanUiMessageStreamResponse(result)
+  if (result instanceof Response || (isRecord(result) && isRecord(result.body) && typeof result.body.getReader === "function" && isRecord(result.headers) && typeof result.headers.get === "function")) {
+    return withCleanUiMessageStreamResponse(result as Response)
+  }
   return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
 }
 
@@ -3537,7 +3543,7 @@ export function createChannelChatRouteHandler(
       const parsed = await parseAgentChannelChatRouteBody(request)
       const agentIdentity = routeAgentIdentity(handlerOptions)
       const agentName = agentIdentity?.name || "agent"
-      const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, rawBody: parsed.rawBody, request })
+      const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, event: handlerOptions.event, rawBody: parsed.rawBody, request })
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
       const context = createRuntimeContext(
@@ -3555,7 +3561,7 @@ export function createChannelChatRouteHandler(
         baseInput,
         trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined,
       )
-      const inputContext = { agentName, auth: auth as never, body, input: trustedInput, rawBody: parsed.rawBody, request }
+      const inputContext = { agentName, auth: auth as never, body, event: handlerOptions.event, input: trustedInput, rawBody: parsed.rawBody, request }
       const admittedInput = mergeAgentChannelChatRouteInput(
         trustedInput,
         await routeOptions.admission?.context?.(inputContext),
