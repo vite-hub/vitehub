@@ -310,6 +310,31 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("keeps the Deno cron import pointed at project-owned Schedule output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-generated-root-"))
+    const generatedRoot = join(root, ".nuxt", "vitehub")
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ runtime: "deno" })
+      const configResolved = plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>
+
+      await configResolved({
+        [VITEHUB_GENERATED_ROOT]: generatedRoot,
+        command: "build",
+        plugins: [],
+        root,
+      })
+
+      const denoServer = await readFile(join(generatedRoot, "agent", "deno-server.ts"), "utf8")
+      expect(denoServer).toContain('await import("../../../.vitehub/schedule/deno-cron.mjs").catch')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("bundles repository context templates into Vite builds", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(import.meta.dirname, ".repository-context-template-"))
@@ -1931,7 +1956,7 @@ export default defineAgent({
 
       expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from \"@vite-hub/agent/server/internal\"")
       expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
-      expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
+      expect(denoServer).toContain('await import("../schedule/deno-cron.mjs").catch')
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
       expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
       expect(denoServer).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")

@@ -103,6 +103,7 @@ interface InternalAgentModuleOptions extends AgentModuleOptions {
 
 interface AgentGeneratedImportOptions {
   agentImportBase?: string
+  denoCronImport?: string
   providerImportAliases?: Record<string, string>
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
   schedule?: boolean
@@ -1508,7 +1509,7 @@ async function generateAgentDenoServer(
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
-    "await import('../schedule/deno-cron.mjs').catch((error) => {",
+    `await import(${JSON.stringify(options.denoCronImport ?? "../schedule/deno-cron.mjs")}).catch((error) => {`,
     "  if (error instanceof TypeError && String(error.message).includes('deno-cron.mjs')) return",
     "  throw error",
     "})",
@@ -1715,6 +1716,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await writeAgentDenoServer(generatedRoot, {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
+          denoCronImport: moduleImportSpecifier(
+            join(generatedRoot, generatedAgentDenoServer),
+            join(config.root, ".vitehub", "schedule", "deno-cron.mjs"),
+          ),
           libsqlState: resolveLibsqlAgentState(normalized, config),
           runtimeCapabilities: standaloneRuntimeCapabilities,
           schedule,
