@@ -3,7 +3,7 @@ import { execFile } from "node:child_process"
 import { build } from "esbuild"
 import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { describe, expect, it, vi } from "vitest"
 
@@ -16,6 +16,48 @@ const exec = promisify(execFile)
 const codexBridgeInstallCommand = "if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; then :; else pnpm --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; fi"
 
 describe("ViteHub Codex harness", () => {
+  it("preserves ordered text and sandbox-local images in Codex prompts", async () => {
+    const fixture = await mkdtemp(join(import.meta.dirname, ".codex-input-"))
+    const output = join(fixture, "adapter.mjs")
+
+    try {
+      await build({
+        bundle: true,
+        entryPoints: [fileURLToPath(import.meta.resolve("@ai-sdk/harness-codex"))],
+        footer: { js: "export { extractUserInput, startMessageSchema }" },
+        format: "esm",
+        outfile: output,
+        platform: "node",
+      })
+      const { extractUserInput, startMessageSchema } = await import(`${pathToFileURL(output).href}?${Date.now()}`)
+      const prompt = extractUserInput({
+        content: [
+          { text: "Compare ", type: "text" },
+          { image: "/workspace/before.png", type: "image" },
+          { image: "./after.png", type: "image" },
+        ],
+        role: "user",
+      })
+
+      expect(prompt).toEqual([
+        { text: "Compare ", type: "text" },
+        { path: "/workspace/before.png", type: "local_image" },
+        { path: "./after.png", type: "local_image" },
+      ])
+      expect(() => extractUserInput({
+        content: [{ image: "https://example.com/image.png", type: "image" }],
+        role: "user",
+      })).toThrow("Images must be materialized to a sandbox-local path")
+      expect(() => startMessageSchema.parse({
+        prompt: [{ path: "https://example.com/image.png", type: "local_image" }],
+        type: "start",
+      })).toThrow("Codex local image paths must begin")
+    }
+    finally {
+      await rm(fixture, { force: true, recursive: true })
+    }
+  })
+
   it("bootstraps inside the sandbox workspace with the supported bridge", async () => {
     const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
     const bootstrap = await harness.getBootstrap!()
@@ -79,6 +121,7 @@ describe("ViteHub Codex harness", () => {
       pathConvertedToFileURL: true,
       runtimeESMResolver: false,
     })
+    expect(codexChunk?.source).toContain('type: "local_image"')
 
     const { stdout } = await exec(process.execPath, [
       "--input-type=module",
