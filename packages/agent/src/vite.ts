@@ -736,13 +736,13 @@ function isPositionedNode(value: unknown): value is PositionedNode {
   )
 }
 
-function visitNodes(node: PositionedNode, visit: (node: PositionedNode) => void): void {
-  visit(node)
+function visitNodes(node: PositionedNode, visit: (node: PositionedNode, parent?: PositionedNode) => void, parent?: PositionedNode): void {
+  visit(node, parent)
   for (const value of Object.values(node)) {
-    if (isPositionedNode(value)) visitNodes(value, visit)
+    if (isPositionedNode(value)) visitNodes(value, visit, node)
     else if (Array.isArray(value)) {
       for (const item of value) {
-        if (isPositionedNode(item)) visitNodes(item, visit)
+        if (isPositionedNode(item)) visitNodes(item, visit, node)
       }
     }
   }
@@ -957,8 +957,12 @@ export async function transformEveExtensionCapabilities(
       staticArrays.set(identifier.name, initializer)
     }
   }
-  visitNodes(program, (node) => {
-    if (node.type === "Identifier" && typeof node.name === "string") {
+  visitNodes(program, (node, parent) => {
+    const nonComputedPropertyKey = parent?.type === "Property"
+      && parent.computed !== true
+      && parent.shorthand !== true
+      && parent.key === node
+    if (node.type === "Identifier" && typeof node.name === "string" && !nonComputedPropertyKey) {
       references.set(node.name, (references.get(node.name) ?? 0) + 1)
     }
     if (node.type.includes("Function")) functionRanges.push({ end: node.end, start: node.start })
