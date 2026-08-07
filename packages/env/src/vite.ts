@@ -45,6 +45,7 @@ export { env }
 export interface EnvVitePluginAPI {
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
+  resolveProjectRoot: (viteRoot: string) => string
 }
 
 export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
@@ -73,11 +74,12 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let diagnosticsText: string | undefined
   const getPublicEnv = () => buildPublicConfig
   const getServerEnvRegistry = () => serverRegistry
+  const resolveProjectRoot = (viteRoot: string) => resolveViteHubProjectRoot(resolve(viteRoot), { projectRoot: options.projectRoot })
   const runtimeImports = resolveRuntimeImports(options.runtimeImports)
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
-    api: { getPublicEnv, getServerEnvRegistry },
+    api: { getPublicEnv, getServerEnvRegistry, resolveProjectRoot },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
@@ -85,7 +87,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         return
       }
 
-      const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
+      const root = resolveProjectRoot(config.root || process.cwd())
       const loadedEnv = loadEnv(env.mode, root, "")
       const context = createSourceContext({
         env: { ...loadedEnv, ...process.env },
@@ -125,7 +127,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       if (diagnosticsText) {
         config.logger.info(diagnosticsText)
       }
-      const projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: options.projectRoot })
+      const projectRoot = resolveProjectRoot(config.root)
       const packageRoot = await resolvePackageRoot(config.root, projectRoot)
       await refreshEnvGeneratedFiles(projectRoot, packageRoot, buildPublicConfig, serverRegistry, runtimeImports)
     },

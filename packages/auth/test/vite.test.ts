@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -169,7 +169,7 @@ describe("hubAuth", () => {
     expect(config({ root })).toMatchObject({
       nitro: {
         handlers: [{
-          handler: ".vitehub/auth/route.ts",
+          handler: resolve(root, ".vitehub/auth/route.ts"),
           route: "/api/auth/**",
         }],
       },
@@ -195,11 +195,11 @@ describe("hubAuth", () => {
       nitro: {
         handlers: [
           {
-            handler: ".vitehub/auth/route.ts",
+            handler: resolve(root, ".vitehub/auth/route.ts"),
             route: "/api/auth/**",
           },
           {
-            handler: ".vitehub/auth/access-middleware.ts",
+            handler: resolve(root, ".vitehub/auth/access-middleware.ts"),
             middleware: true,
             route: "/**",
           },
@@ -220,7 +220,7 @@ describe("hubAuth", () => {
     expect(config({ root })).toMatchObject({
       nitro: {
         handlers: [{
-          handler: ".vitehub/auth/route.ts",
+          handler: resolve(root, ".vitehub/auth/route.ts"),
           route: "/auth/**",
         }],
       },

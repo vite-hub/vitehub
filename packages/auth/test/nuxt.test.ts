@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { hubEnv } from "@vite-hub/env/vite"
+
 import hubAuthNuxt from "../src/nuxt.ts"
 
 function createNuxt() {
@@ -106,6 +108,34 @@ describe("Auth Nuxt integration", () => {
     hubAuthNuxt({ env: { projectRoot: "../shared" } }, nuxt)
 
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe("/tmp/workspace/apps/shared/.vitehub/env/server.mjs")
+  })
+
+  it("reuses the installed Env plugin project root", () => {
+    const nuxt = createNuxt()
+    ;(nuxt.options as typeof nuxt.options & { vite: { plugins: unknown[], root: string } }).vite = {
+      plugins: [hubEnv({ projectRoot: "../shared" })],
+      root: "/tmp/workspace/apps/site",
+    }
+
+    hubAuthNuxt({}, nuxt)
+
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/env/server"]).toBe("/tmp/workspace/apps/shared/.vitehub/env/server.mjs")
+  })
+
+  it("validates an explicit Env root against the installed plugin", () => {
+    function createNuxtWithEnv() {
+      const nuxt = createNuxt()
+      ;(nuxt.options as typeof nuxt.options & { vite: { plugins: unknown[], root: string } }).vite = {
+        plugins: [hubEnv({ projectRoot: "../shared" })],
+        root: "/tmp/workspace/apps/site",
+      }
+      return nuxt
+    }
+
+    expect(() => hubAuthNuxt({ env: { projectRoot: "../shared" } }, createNuxtWithEnv())).not.toThrow()
+    expect(() => hubAuthNuxt({ env: { projectRoot: "../other" } }, createNuxtWithEnv())).toThrow(
+      "env.projectRoot must match the installed `@vite-hub/env/vite` plugin",
+    )
   })
 
   it("preserves the Vite Auth switch during Nitro replay", async () => {

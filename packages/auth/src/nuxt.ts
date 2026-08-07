@@ -6,6 +6,7 @@ import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth } from "./vite.ts"
 
 import type { AuthModuleOptions } from "./types.ts"
+import type { EnvVitePlugin } from "@vite-hub/env/vite"
 
 export interface AuthNuxtModuleOptions {
   auth?: AuthModuleOptions
@@ -45,8 +46,13 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   nuxt.options.vite.plugins ??= []
   const vitePlugins = nuxt.options.vite.plugins.flat(Infinity) as Array<{ name?: string }>
   const viteRoot = nuxt.options.vite.root || nuxt.options.rootDir || process.cwd()
-  const envProjectRoot = options.env === false ? viteRoot : resolve(viteRoot, options.env?.projectRoot || ".")
-  if (options.env !== false && !vitePlugins.some(plugin => plugin?.name === "@vite-hub/env/vite")) {
+  const configuredEnvProjectRoot = resolve(viteRoot, options.env === false ? "." : options.env?.projectRoot || ".")
+  const existingEnvPlugin = vitePlugins.find(plugin => plugin?.name === "@vite-hub/env/vite") as EnvVitePlugin | undefined
+  const envProjectRoot = existingEnvPlugin?.api.resolveProjectRoot(viteRoot) || configuredEnvProjectRoot
+  if (options.env !== false && options.env?.projectRoot && existingEnvPlugin && envProjectRoot !== configuredEnvProjectRoot) {
+    throw new TypeError("`@vite-hub/auth/nuxt` env.projectRoot must match the installed `@vite-hub/env/vite` plugin.")
+  }
+  if (options.env !== false && !existingEnvPlugin) {
     nuxt.options.vite.plugins.push(hubEnv({ ...options.env, projectRoot: envProjectRoot }))
   }
   const authPlugin = vitePlugins.find(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME) || hubAuth(options.auth)

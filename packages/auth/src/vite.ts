@@ -187,12 +187,12 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
     ...(config.route === false
       ? []
       : [{
-          handler: generatedAuthRouteHandler,
+          handler: resolve(config.rootDir, generatedAuthRouteHandler),
           route: authRoutePattern(config.route),
         }]),
     ...(config.access.routes.length > 0
       ? [{
-          handler: generatedAuthAccessMiddlewareHandler,
+          handler: resolve(config.rootDir, generatedAuthAccessMiddlewareHandler),
           middleware: true,
           route: "/**",
         }]
