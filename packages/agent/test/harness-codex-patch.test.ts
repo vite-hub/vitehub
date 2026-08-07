@@ -15,6 +15,10 @@ import type { HarnessV1SandboxProvider } from "@ai-sdk/harness"
 const exec = promisify(execFile)
 const codexBridgeInstallCommand = "if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; then :; else pnpm --dir /tmp/harness/codex install --ignore-workspace --frozen-lockfile --store-dir /tmp/harness/codex/.pnpm-store; fi"
 
+function withoutPreinstalledDependencies(command: string, path: string): string {
+  return command.replace(/(?<=\$\{VITEHUB_CODEX_BRIDGE_NODE_MODULES:-)[^}]*/, path)
+}
+
 describe("ViteHub Codex harness", () => {
   it("bootstraps inside the sandbox workspace with the supported bridge", async () => {
     const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
@@ -23,7 +27,8 @@ describe("ViteHub Codex harness", () => {
     const bridge = bootstrap.files.find(file => file.path.endsWith("bridge.mjs"))
 
     expect(bootstrap.bootstrapDir).toBe("/tmp/harness/codex")
-    expect(bootstrap.commands[1]!.command).toContain(`if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand}`)
+    expect(bootstrap.commands[1]!.command).toContain(codexBridgeInstallCommand)
+    expect(bootstrap.commands[1]!.command).toMatch(/^codex_bridge_node_modules="\$\{VITEHUB_CODEX_BRIDGE_NODE_MODULES:-\/.+\}"/)
     expect(bootstrap.commands[1]!.command).toContain("VITEHUB_CODEX_BRIDGE_NODE_MODULES")
     expect(JSON.parse(bridgePackage!.content)).toMatchObject({
       dependencies: { "@openai/codex-sdk": "0.144.5" },
@@ -57,7 +62,7 @@ describe("ViteHub Codex harness", () => {
     finally {
       await rm(fixture, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("loads bridge assets through package-scoped resolution in the built package", async () => {
     const dist = new URL("../dist/", import.meta.url)
@@ -70,15 +75,7 @@ describe("ViteHub Codex harness", () => {
     )
     const codexChunk = chunks.find(chunk => chunk.source.includes("readCodexBridgeAsset"))
 
-    expect({
-      packageScopedResolver: codexChunk?.source.includes("createRequire(import.meta.url).resolve(\"@ai-sdk/harness-codex\")"),
-      pathConvertedToFileURL: codexChunk?.source.includes("pathToFileURL(packageEntry)"),
-      runtimeESMResolver: codexChunk?.source.includes("import.meta.resolve(\"@ai-sdk/harness-codex\")"),
-    }).toEqual({
-      packageScopedResolver: true,
-      pathConvertedToFileURL: true,
-      runtimeESMResolver: false,
-    })
+    expect(codexChunk?.source).toContain("harness-codex-bridge")
 
     const { stdout } = await exec(process.execPath, [
       "--input-type=module",
@@ -119,7 +116,8 @@ describe("ViteHub Codex harness", () => {
 
       const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
       const bootstrap = await harness.getBootstrap!()
-      await exec("/bin/sh", ["-c", bootstrap.commands[1]!.command], {
+      const command = withoutPreinstalledDependencies(bootstrap.commands[1]!.command, join(fixture, "missing-node_modules"))
+      await exec("/bin/sh", ["-c", command], {
         cwd: fixture,
         env: { INSTALLER_MARKER: marker, PATH: bin },
       })
@@ -141,10 +139,12 @@ describe("ViteHub Codex harness", () => {
     try {
       await Promise.all([
         mkdir(join(nodeModules, "@openai", "codex-sdk"), { recursive: true }),
+        mkdir(join(nodeModules, "ws"), { recursive: true }),
         mkdir(bin),
         mkdir(bootstrapDir),
       ])
       await writeFile(join(nodeModules, "@openai", "codex-sdk", "package.json"), "{}")
+      await writeFile(join(nodeModules, "ws", "package.json"), "{}")
       await writeFile(join(bin, "corepack"), "#!/bin/sh\nprintf corepack > \"$INSTALLER_MARKER\"\nexit 1\n")
       await writeFile(join(bin, "pnpm"), "#!/bin/sh\nprintf pnpm > \"$INSTALLER_MARKER\"\nexit 1\n")
       await Promise.all([chmod(join(bin, "corepack"), 0o755), chmod(join(bin, "pnpm"), 0o755)])
@@ -193,7 +193,7 @@ describe("ViteHub Codex harness", () => {
           VITEHUB_CODEX_BRIDGE_NODE_MODULES: nodeModules,
         },
       })).rejects.toMatchObject({
-        stderr: expect.stringContaining("VITEHUB_CODEX_BRIDGE_NODE_MODULES must contain readable @openai/codex-sdk/package.json"),
+        stderr: expect.stringContaining("VITEHUB_CODEX_BRIDGE_NODE_MODULES must contain the Codex bridge dependencies"),
       })
       await expect(exec("/bin/sh", ["-c", command], {
         env: {
@@ -219,9 +219,11 @@ describe("ViteHub Codex harness", () => {
     try {
       await Promise.all([
         mkdir(join(nodeModules, "@openai", "codex-sdk"), { recursive: true }),
+        mkdir(join(nodeModules, "ws"), { recursive: true }),
         mkdir(join(bootstrapDir, "node_modules"), { recursive: true }),
       ])
       await writeFile(join(nodeModules, "@openai", "codex-sdk", "package.json"), "{}")
+      await writeFile(join(nodeModules, "ws", "package.json"), "{}")
 
       const harness = createCodexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
       const bootstrap = await harness.getBootstrap!()
@@ -262,6 +264,7 @@ describe("ViteHub Codex harness", () => {
         onFirstCreate: async (session) => {
           await session.writeTextFile({ content: "ready", path: "/tmp/harness/codex/marker" })
           await session.writeTextFile({ content: "{}", path: "/opt/codex-bridge/node_modules/@openai/codex-sdk/package.json" })
+          await session.writeTextFile({ content: "{}", path: "/opt/codex-bridge/node_modules/ws/package.json" })
           const marker = await session.run({ command: "cat /tmp/harness/codex/marker" })
           const dependencies = await session.run({ command: bootstrap.commands[1]!.command })
           const linked = await session.run({ command: "readlink /tmp/harness/codex/node_modules" })

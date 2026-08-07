@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createCodex } from "@ai-sdk/harness-codex"
@@ -22,6 +22,8 @@ const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
+declare const __VITEHUB_CODEX_BRIDGE_ASSETS__: Record<CodexBridgeAssetName, string> | undefined
+const bundledCodexBridgeAssets = typeof __VITEHUB_CODEX_BRIDGE_ASSETS__ === "undefined" ? undefined : __VITEHUB_CODEX_BRIDGE_ASSETS__
 export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
   const {
     capacity,
@@ -60,18 +62,29 @@ export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(opt
 const codexBootstrapDir = "/tmp/harness/codex"
 const codexBridgeInstallCommand = `if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; then :; else pnpm --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; fi`
 const codexBridgeNodeModules = `${codexBootstrapDir}/node_modules`
-const codexBridgeDependencyMarker = "@openai/codex-sdk/package.json"
+const codexBridgeDefaultNodeModules = packageNodeModules(fileURLToPath(import.meta.resolve("@openai/codex-sdk")))
+const codexBridgeDependencyMarkers = ["@openai/codex-sdk/package.json", "ws/package.json"]
+const codexBridgeDependencyMissing = codexBridgeDependencyMarkers.map(marker => `[ ! -r \"$codex_bridge_node_modules/${marker}\" ]`).join(" || ")
 const codexBridgePrepareDependenciesCommand = [
-  `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-}"`,
-  `if [ -z "$codex_bridge_node_modules" ]; then ${codexBridgeInstallCommand}`,
-  `elif [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1`,
-  `elif [ ! -r "$codex_bridge_node_modules/${codexBridgeDependencyMarker}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain readable ${codexBridgeDependencyMarker}: $codex_bridge_node_modules" >&2; exit 1`,
-  `elif [ "$codex_bridge_node_modules" = "${codexBridgeNodeModules}" ]; then :`,
+  `codex_bridge_node_modules="\${${codexBridgeNodeModulesEnv}:-${codexBridgeDefaultNodeModules}}"`,
+  `if [ "\${codex_bridge_node_modules#/}" = "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must be an absolute sandbox path: $codex_bridge_node_modules" >&2; exit 1; fi`,
+  `if ${codexBridgeDependencyMissing}; then if [ -n "\${${codexBridgeNodeModulesEnv}:-}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModulesEnv} must contain the Codex bridge dependencies: $codex_bridge_node_modules" >&2; exit 1; fi; ${codexBridgeInstallCommand}; codex_bridge_node_modules="${codexBridgeNodeModules}"; fi`,
+  `if [ "$codex_bridge_node_modules" = "${codexBridgeNodeModules}" ]; then :`,
   `elif [ -L "${codexBridgeNodeModules}" ]; then if [ "$(readlink "${codexBridgeNodeModules}")" != "$codex_bridge_node_modules" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already links to a different dependency tree" >&2; exit 1; fi`,
   `elif [ -e "${codexBridgeNodeModules}" ]; then printf '%s\\n' "[vitehub] ${codexBridgeNodeModules} already exists and conflicts with ${codexBridgeNodeModulesEnv}" >&2; exit 1`,
   `else ln -s "$codex_bridge_node_modules" "${codexBridgeNodeModules}"`,
   "fi",
 ].join("; ")
+
+function packageNodeModules(entry: string): string {
+  let directory = dirname(entry)
+  while (basename(directory) !== "node_modules") {
+    const parent = dirname(directory)
+    if (parent === directory) throw new Error("[vitehub] Could not resolve the Codex bridge dependency tree.")
+    directory = parent
+  }
+  return directory
+}
 
 function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {
   const harness = createCodex(settings)
@@ -121,7 +134,10 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   }
 }
 
-async function readCodexBridgeAsset(name: string): Promise<string> {
+type CodexBridgeAssetName = "index.mjs" | "package.json" | "pnpm-lock.yaml"
+
+async function readCodexBridgeAsset(name: CodexBridgeAssetName): Promise<string> {
+  if (bundledCodexBridgeAssets) return bundledCodexBridgeAssets[name]
   const packageEntry = createRequire(import.meta.url).resolve("@ai-sdk/harness-codex")
   return await readFile(fileURLToPath(new URL(`./bridge/${name}`, pathToFileURL(packageEntry))), "utf8")
 }
