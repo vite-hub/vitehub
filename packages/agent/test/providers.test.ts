@@ -6326,8 +6326,8 @@ describe("server helpers", () => {
     let stop: () => void | Promise<void> = () => undefined
 
     try {
-      stop = handler.resume({ agentName: "review", webhookState: queueState })
       await handler(request("delivery-stop-1"), "github", { agentName: "review", webhookState: queueState })
+      stop = handler.resume({ agentName: "review", webhookState: queueState })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 3_000 })
       blockClaims = true
       await handler(request("delivery-stop-2"), "github", { agentName: "review", webhookState: queueState })
