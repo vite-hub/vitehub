@@ -21,6 +21,14 @@ export type WorkflowVitePlugin = Plugin & {
   }
 }
 
+interface AgentWorkflowRegistryPlugin extends Plugin {
+  vitehub?: {
+    agent?: {
+      transformWorkflowRegistry?: (code: string, id: string) => string | Promise<string>
+    }
+  }
+}
+
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
 type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
@@ -106,6 +114,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         workflow,
         workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
         workspaceImportBase: internalOptions?.workspaceImportBase,
+        transformRegistry: (resolved.plugins as AgentWorkflowRegistryPlugin[])
+          .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
+          ?.vitehub?.agent?.transformWorkflowRegistry,
       })
     },
   }

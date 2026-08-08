@@ -29,6 +29,9 @@ import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModule
 
 interface AgentCliContributingPlugin {
   vitehub?: {
+    agent?: {
+      transformWorkflowRegistry: (code: string, id: string) => string
+    }
     cli?: unknown
   }
 }
@@ -2462,6 +2465,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         : transformScheduleTargets(code, definitions)
     },
     vitehub: {
+      agent: {
+        transformWorkflowRegistry: (code, id) => isGeneratedAgentWorkflowRegistryId(id)
+          ? transformGeneratedAgentWorkflowRegistry(
+              code,
+              runtimeCapabilities,
+              getAgentImportBase(agent, frameworkOptions),
+            )
+          : code,
+      },
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
