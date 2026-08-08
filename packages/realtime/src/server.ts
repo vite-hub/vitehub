@@ -301,19 +301,27 @@ export async function readRealtimeWorkspaceDocument(
   writable: WritableWorkspaceFacade,
   documentId: string,
 ): Promise<{ baselineDigest: string | undefined, markdown: string }> {
+  const stat = async () => {
+    try {
+      return await writable.fs.stat(documentId)
+    }
+    catch {
+      return undefined
+    }
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
-    const before = await writable.fs.stat(documentId)
+    const before = await stat()
     let markdown = ""
     if (await readable.fs.exists(documentId)) {
       try {
         markdown = await readable.fs.readFile(documentId, { encoding: "utf8" })
       }
       catch (error) {
-        if (!(await writable.fs.stat(documentId))) continue
+        if (!(await stat())) continue
         throw error
       }
     }
-    const after = await writable.fs.stat(documentId)
+    const after = await stat()
     if (before?.digest === after?.digest) return { baselineDigest: after?.digest, markdown }
   }
   throw new HTTPError({ status: 409, message: "The Workspace document changed while opening its realtime room." })
