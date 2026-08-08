@@ -26,7 +26,7 @@ The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Ea
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. `VITEHUB_DEPLOYMENT_NAME` remains a compatibility input, and conflicts with an explicit `name` fail configuration. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare preset uses it after explicit ViteHub identity inputs and fails when those inputs resolve to another name because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
-Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in:
+Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
 
 ```ts
 vitehub({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { normalizeAgentInvoker } from "../src/invoker.ts"
+import { normalizeAgentInvoker, portableResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 
 describe("Agent Invoker", () => {
   it("normalizes Agent Actor email without changing invoker metadata", () => {
@@ -45,5 +45,20 @@ describe("Agent Invoker", () => {
       id: "tenant-1",
       meta: { email: "also invalid", scope: "acme" },
     })
+  })
+
+  it("removes nonportable resolved invoker metadata from Workflow inputs", () => {
+    const input = withResolvedAgentInvokerInput({ prompt: "hello" }, {
+      id: "user-1",
+      kind: "user",
+      meta: { loadTenant: () => "acme", tenant: "acme" },
+    })
+
+    const portable = portableResolvedAgentInvokerInput(input)
+    expect(portable.context).toMatchObject({
+      actor: { id: "user-1", kind: "user", meta: { tenant: "acme" } },
+      invoker: { id: "user-1", kind: "user", meta: { tenant: "acme" } },
+    })
+    expect((portable.context as { invoker: { meta: Record<string, unknown> } }).invoker.meta.loadTenant).toBeUndefined()
   })
 })

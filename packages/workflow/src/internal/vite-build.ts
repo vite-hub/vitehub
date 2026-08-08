@@ -17,6 +17,7 @@ import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { Plugin as VitePlugin } from "vite"
 
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
@@ -28,6 +29,7 @@ const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
+const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 interface VercelWorkflowBuilders {
@@ -41,6 +43,27 @@ interface VercelWorkflowBuilders {
     workingDir: string
   }) => { build: () => Promise<void> }
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
+}
+
+function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
+  const require = createRequire(join(rootDir, "package.json"))
+  const namespace = "vitehub-optional-vite-devtools"
+  return {
+    name: namespace,
+    setup(build) {
+      build.onResolve({ filter: optionalViteDevtoolsPattern }, (args) => {
+        try {
+          require.resolve(args.path)
+          return
+        }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error
+          return { namespace, path: args.path }
+        }
+      })
+      build.onLoad({ filter: /.*/, namespace }, () => ({ contents: "export {}", loader: "js" }))
+    },
+  }
 }
 
 async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
@@ -204,6 +227,7 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
+  includeUserAppEntry?: boolean
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -230,6 +254,113 @@ interface CloudflareWorkflowConfig {
   name?: string
   observability: { enabled: true }
   workflows?: Array<{ binding: string, class_name: string, name: string }>
+}
+
+interface CloudflareWorkflowNitroOptions {
+  agentImportBase?: string
+  nitro: Record<string, unknown>
+  rootDir: string
+  serverDirs?: string[]
+  includeUserAppEntry?: boolean
+  workflow: WorkflowModuleOptions | undefined
+  workflowImportBase?: string
+  workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
+  workspaceImportBase?: string
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {}
+}
+
+function mergeCloudflareWorkersExternal(external: unknown): unknown {
+  if (external === undefined) return ["cloudflare:workers"]
+  if (typeof external === "string") return external === "cloudflare:workers" ? [external] : [external, "cloudflare:workers"]
+  if (external instanceof RegExp) return [external, "cloudflare:workers"]
+  if (Array.isArray(external)) return external.includes("cloudflare:workers") ? external : [...external, "cloudflare:workers"]
+  if (typeof external === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === "cloudflare:workers" || external(source, importer, isResolved)
+  }
+  return external
+}
+
+function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: DiscoveredWorkflowDefinition[]): VitePlugin {
+  const moduleId = "virtual:vitehub-workflow-cloudflare-exports"
+  const resolvedModuleId = `\0${moduleId}`
+  const fileName = "workflow-cloudflare-exports.mjs"
+  return {
+    name: "vitehub-workflow-cloudflare-exports",
+    buildStart() {
+      this.emitFile({ fileName, id: moduleId, type: "chunk" })
+    },
+    resolveId(id: string) {
+      if (id === moduleId) return resolvedModuleId
+    },
+    load(id: string) {
+      if (id !== resolvedModuleId) return
+      return [
+        `import { WorkflowEntrypoint } from "cloudflare:workers"`,
+        `import { installViteHubWorkflowRuntime, runViteHubWorkflowDefinition } from ${JSON.stringify(entryFile)}`,
+        "",
+        "installViteHubWorkflowRuntime()",
+        "",
+        ...definitions.map((definition) => {
+          const className = getCloudflareWorkflowClassName(definition.name)
+          return [
+            `export class ${className} extends WorkflowEntrypoint {`,
+            "  async run(event, step) {",
+            `    return await runViteHubWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
+            "  }",
+            "}",
+            "",
+          ].join("\n")
+        }),
+      ].join("\n")
+    },
+    renderChunk(code, chunk) {
+      if (!chunk.isEntry || (chunk.fileName !== "index.mjs" && chunk.fileName !== "index.js")) return null
+      const classes = definitions.map(definition => getCloudflareWorkflowClassName(definition.name)).join(", ")
+      return { code: `${code}\nexport { ${classes} } from './${fileName}'\n`, map: null }
+    },
+  }
+}
+
+export async function createCloudflareWorkflowNitroConfig(options: CloudflareWorkflowNitroOptions): Promise<Record<string, unknown>> {
+  const preset = String(options.nitro.preset || "")
+  if (options.workflow === undefined && !preset.includes("cloudflare")) return options.nitro
+  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset })
+  if (!config || config.provider !== "cloudflare") return options.nitro
+
+  const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
+    agent: options.agentImportBase,
+    workflow: options.workflowImportBase,
+    workspace: options.workspaceImportBase,
+    workspaceDependencies: options.workspaceDependencyRuntimeImports,
+  }, options.serverDirs, options.includeUserAppEntry)
+  if (!artifacts.providerDefinitions.length) return options.nitro
+
+  const nitro = { ...options.nitro }
+  const cloudflare = { ...record(nitro.cloudflare) }
+  const wrangler = { ...record(cloudflare.wrangler) }
+  const workflows = createCloudflareWorkflowBindings(artifacts.providerDefinitions, config)
+  const existingWorkflows = Array.isArray(wrangler.workflows) ? [...wrangler.workflows] : []
+  for (const workflow of workflows || []) {
+    if (!existingWorkflows.some(entry => record(entry).binding === workflow.binding && record(entry).class_name === workflow.class_name && record(entry).name === workflow.name)) {
+      existingWorkflows.push(workflow)
+    }
+  }
+  wrangler.workflows = existingWorkflows
+  cloudflare.wrangler = wrangler
+  nitro.cloudflare = cloudflare
+
+  const rollupConfig = { ...record(nitro.rollupConfig) }
+  const plugins = Array.isArray(rollupConfig.plugins) ? [...rollupConfig.plugins] : []
+  if (!plugins.some(plugin => record(plugin).name === "vitehub-workflow-cloudflare-exports")) {
+    plugins.push(createCloudflareWorkflowNitroPlugin(artifacts.cloudflareWorkerFile, artifacts.providerDefinitions))
+  }
+  rollupConfig.plugins = plugins
+  rollupConfig.external = mergeCloudflareWorkersExternal(rollupConfig.external)
+  nitro.rollupConfig = rollupConfig
+  return nitro
 }
 
 function renderRegistryImport(registryFile: string, file: string): string {
@@ -472,7 +603,7 @@ function renderProviderEntry(
 ) {
   const installVercelWorkflowRuntime = spec.name === "vercel" && framework
   const imports = [
-    `import { ${spec.factory}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
+    `import { ${spec.factory}${spec.name === "cloudflare" ? ", installWorkflowCloudflareRuntime" : ""}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import workflowRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
     ...(installVercelWorkflowRuntime ? [`import * as workflowApi from "workflow/api"`, `import * as workflowRuntime from "workflow/runtime"`] : []),
   ]
@@ -485,6 +616,10 @@ function renderProviderEntry(
 
   const cloudflareDispatcher = spec.name === "cloudflare"
     ? [
+        "",
+        "export function installViteHubWorkflowRuntime() {",
+        "  installWorkflowCloudflareRuntime({ registry: workflowRegistry, workflow: workflowConfig })",
+        "}",
         "",
         "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
         "  return await runCloudflareWorkflow({ config: workflowConfig, env: env || {}, event, name, registry: workflowRegistry, step })",
@@ -513,6 +648,7 @@ async function writeProviderEntries(
   workflow: WorkflowModuleOptions | undefined,
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
+  includeUserAppEntry = true,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
@@ -520,7 +656,7 @@ async function writeProviderEntries(
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir, serverDirs })
   const providerDefinitions = definitions
-  const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
+  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(rootDir) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
   await writeFile(registryFile, createWorkflowRegistryContents(registryFile, definitions, importBases), "utf8")
@@ -585,6 +721,7 @@ function createCloudflareOutput(
       ],
       format: "esm",
       platform: "neutral",
+      plugins: [createOptionalViteDevtoolsPlugin(rootDir)],
     },
     bundleOutfileName: "worker.mjs",
     files: { "index.js": createCloudflareWorkflowWrapper(artifacts) },
@@ -621,6 +758,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
 }
 
 function createVercelOutput(
+  rootDir: string,
   artifacts: GeneratedWorkflowArtifacts,
   workflowTransformPlugin: Plugin | undefined,
   frameworkImportBase?: string,
@@ -640,7 +778,10 @@ function createVercelOutput(
       ],
       format: "esm",
       platform: "node",
-      plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
+      plugins: [
+        createOptionalViteDevtoolsPlugin(rootDir),
+        ...(workflowTransformPlugin ? [workflowTransformPlugin] : []),
+      ],
     },
     ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
@@ -652,7 +793,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs)
+  }, options.serverDirs, options.includeUserAppEntry)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
@@ -662,7 +803,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-    ? createVercelOutput(artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases, options.serverFunctionName)
+    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases, options.serverFunctionName)
     : undefined
   const writeOutputs = async () => {
     await writeProviderDeploymentOutputs({

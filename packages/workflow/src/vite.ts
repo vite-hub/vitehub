@@ -2,12 +2,24 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { Plugin, ResolvedConfig } from "vite"
 
-export type WorkflowVitePlugin = Plugin
+interface WorkflowNitroConfigOptions {
+  nitro: Record<string, unknown>
+  projectRoot: string
+  serverDirs?: string[]
+}
+
+export type WorkflowVitePlugin = Plugin & {
+  vitehub?: {
+    workflow?: {
+      createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
+    }
+  }
+}
 
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
@@ -15,6 +27,7 @@ type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
   agentImportBase?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
+  includeUserAppEntry?: boolean
   workspaceDependencyRuntimeImports?: {
     sandbox?: string
     sandboxRuntimeState?: string
@@ -57,6 +70,23 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
+    vitehub: {
+      workflow: {
+        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs }: WorkflowNitroConfigOptions) {
+          return await createCloudflareWorkflowNitroConfig({
+            agentImportBase: internalOptions?.agentImportBase,
+            nitro,
+            rootDir: projectRoot,
+            serverDirs: nitroServerDirs,
+            includeUserAppEntry: internalOptions?.includeUserAppEntry,
+            workflow,
+            workflowImportBase: internalOptions?.importBase,
+            workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
+            workspaceImportBase: internalOptions?.workspaceImportBase,
+          })
+        },
+      },
+    },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
@@ -72,6 +102,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         rootDir: resolved.root,
         serverDirs,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "workflow"),
+        includeUserAppEntry: internalOptions?.includeUserAppEntry,
         workflow,
         workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
         workspaceImportBase: internalOptions?.workspaceImportBase,

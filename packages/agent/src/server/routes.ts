@@ -13,7 +13,7 @@ import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatTrig
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
-import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { isAttachmentData } from "../messages.ts"
@@ -3043,7 +3043,25 @@ async function handleChatSdkMessage(
 
     assertChatDeliveryOptions(options || {})
     const manualDelivery = options?.delivery === "manual"
+    const durableDelivery = manualDelivery && options?.durable === true
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
+    run = invocation.run
+    const runContext = {
+      ...context,
+      ...(invocation.run ? { run: invocation.run } : {}),
+    }
+    const resolvedInvocationInput = invocation.input as AgentRunInput
+    if (durableDelivery) {
+      await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({
+        ...resolvedInvocationInput,
+        context: {
+          ...resolvedInvocationInput.context,
+          [finalChannelOutputContextKey]: true,
+          [requireAgentWorkflowContextKey]: true,
+        },
+      }, invoker) as never)
+      return
+    }
     typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
@@ -3060,16 +3078,10 @@ async function handleChatSdkMessage(
         invocationDeadlineAbort,
       )
     }
-    run = invocation.run
-    const runContext = {
-      ...context,
-      ...(invocation.run ? { run: invocation.run } : {}),
-    }
     const chatFinish = createChatFinishExtension(input, registration)
     progress = manualDelivery
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal)
       : undefined
-    const resolvedInvocationInput = invocation.input as AgentRunInput
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined
       ? undefined
       : Math.max(0, maximumInvocationDeadline - Date.now())

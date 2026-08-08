@@ -68,7 +68,7 @@ const codexBridgeDependencyVersions = {
   "ws/package.json": "8.21.0",
 }
 const codexBridgeDefaultNodeModules = packageNodeModules([
-  fileURLToPath(import.meta.url),
+  typeof import.meta.url === "string" ? fileURLToPath(import.meta.url) : undefined,
   resolvePackageEntry("@openai/codex-sdk"),
   resolvePackageEntry("ws"),
 ]) ?? ""

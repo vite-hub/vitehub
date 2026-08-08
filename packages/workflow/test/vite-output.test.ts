@@ -83,6 +83,7 @@ describe("Vite workflow provider outputs", () => {
     const agentDir = join(rootDir, "server", "agents", "nuxt")
     const boxedAgentDir = join(rootDir, "server", "agents", "boxed")
     const inlineAgentDir = join(rootDir, "server", "agents", "inline")
+    const optionalDevtoolsFixture = join(rootDir, "node_modules", "optional-vite-devtools-fixture")
     const flatAgent = join(rootDir, "server", "agents", "flat.ts")
     await mkdir(agentDir, { recursive: true })
     await mkdir(join(boxedAgentDir, "home"), { recursive: true })
@@ -92,16 +93,20 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
     await mkdir(join(rootDir, "server", "templates"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
+    await mkdir(optionalDevtoolsFixture, { recursive: true })
+    await writeFile(join(optionalDevtoolsFixture, "package.json"), JSON.stringify({ main: "index.js", name: "optional-vite-devtools-fixture", type: "module" }))
+    await writeFile(join(optionalDevtoolsFixture, "index.js"), `export const optionalDevtools = import("@vitejs/devtools-vite")\n`)
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
     await writeFile(join(rootDir, "server", "templates", "review.md"), "Review {{ repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       `import repositoryHostContext from "./repository-host-context.md?raw"`,
       `import { renderTemplate } from "#vitehub/templates"`,
+      `import { optionalDevtools } from "optional-vite-devtools-fixture"`,
       "",
       "export default defineAgent({",
       "  workspace: {},",
-      `  run: async () => [repositoryHostContext, await renderTemplate("review", { repository: "ViteHub" })].join("\\n"),`,
+      `  run: async () => [repositoryHostContext, await renderTemplate("review", { repository: "ViteHub" }), optionalDevtools].join("\\n"),`,
       "})",
       "",
     ].join("\n"))

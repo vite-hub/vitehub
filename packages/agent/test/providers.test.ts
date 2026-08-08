@@ -9028,6 +9028,60 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Explicit reply" })
   })
 
+  it("defers durable manual delivery to the Agent Workflow", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let release!: () => void
+    const blocked = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", durable: true },
+        }),
+      },
+      driver: { run: async () => {
+          await blocked
+          return "internal output"
+        } },
+      hooks: {
+        "agent:finish": event => event.reply("Durable reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await Promise.race([
+        handler(chatWebhookRequest(91_100), "telegram", {
+          agentName: "calories",
+          waitUntil: task => waitUntilTasks.push(task),
+        }),
+        new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 25)),
+      ])
+
+      expect(response).not.toBe("blocked")
+      if (response === "blocked") throw new Error("Durable chat delivery waited for Workflow completion.")
+      expect(response.status).toBe(200)
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+      release()
+      await Promise.all(waitUntilTasks)
+      await vi.waitFor(() => {
+        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Durable reply" })
+      })
+    }
+    finally {
+      release()
+      resetWorkflowRuntime()
+    }
+  })
+
   it("uses generate for manual delivery without progress summaries", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
