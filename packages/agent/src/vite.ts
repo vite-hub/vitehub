@@ -1279,7 +1279,13 @@ export async function transformEveExtensionCapabilities(
       if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
       if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
       if (node.start >= extension.declaration.start && node.end <= extension.declaration.end) return
-      if (extensions.some(candidate => candidate.local === extension.local && node.start >= candidate.call.start && node.end <= candidate.call.end)) return
+      if (extensions.some((candidate) => {
+        const callee = candidate.call.callee
+        return candidate.local === extension.local
+          && isPositionedNode(callee)
+          && node.start >= callee.start
+          && node.end <= callee.end
+      })) return
       if (shadowRanges.get(extension.local)?.some(range => node.start > range.start && node.end < range.end)) return
       hasSurvivingReference = true
     })

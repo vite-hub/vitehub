@@ -769,6 +769,18 @@ describe("Eve extension capabilities", () => {
     )).rejects.toThrow("cannot be referenced outside its static Capability mount")
   })
 
+  it("rejects extension factory references inside mount config", async () => {
+    await expect(transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        export default defineAgent({ capabilities: [github({ decorate: github })] })
+      `,
+      parseAst,
+      async () => true,
+    )).rejects.toThrow("cannot be referenced outside its static Capability mount")
+  })
+
   it("detects Eve extensions in a spread static capabilities array", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
