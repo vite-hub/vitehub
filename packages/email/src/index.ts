@@ -8,7 +8,8 @@ export type {
   EmailClient,
   EmailDefinition,
   EmailDriver,
-  EmailDriverResult,
+  EmailDriverFactory,
+  EmailDriverSource,
   EmailMessage,
   EmailSendResult,
 } from "./types.ts"

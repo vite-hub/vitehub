@@ -85,12 +85,9 @@ catalogs:
       specifier: 4.0.0-beta.99
       version: 4.0.0-beta.99
   email:
-    '@types/nodemailer':
-      specifier: ^8.0.1
-      version: 8.0.1
-    nodemailer:
-      specifier: ^9.0.3
-      version: 9.0.3
+    unemail:
+      specifier: 0.5.0
+      version: 0.5.0
   esbuild-v27:
     esbuild:
       specifier: ^0.27.7
@@ -925,9 +922,6 @@ importers:
 
   packages/email:
     dependencies:
-      '@types/nodemailer':
-        specifier: catalog:email
-        version: 8.0.1
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
@@ -937,6 +931,9 @@ importers:
       comark:
         specifier: catalog:ui
         version: 0.5.1(shiki@4.3.1)
+      unemail:
+        specifier: catalog:email
+        version: 0.5.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -947,9 +944,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      nodemailer:
-        specifier: catalog:email
-        version: 9.0.3
       publint:
         specifier: catalog:tooling
         version: 0.3.21
@@ -7443,9 +7437,6 @@ packages:
   '@types/node@26.1.1':
     resolution: {integrity: sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==}
 
-  '@types/nodemailer@8.0.1':
-    resolution: {integrity: sha512-PxpaInm8V1JQDd4j0ds5HfvWQk8JupS1C0Picb96QJsrrRDjBH+DlK7L4ZdNSqNULhiZRQHc40nLVShaGxXAMw==}
-
   '@types/picomatch@4.0.3':
     resolution: {integrity: sha512-iG0T6+nYJ9FAPmx9SsUlnwcq1ZVRuCXcVEvWnntoPlrOpwtSTKNDC9uVAxTsC3PUvJ+99n4RpAcNgBbHX3JSnQ==}
 
@@ -11584,10 +11575,6 @@ packages:
     resolution: {integrity: sha512-wRNIrw4DmVLKQlbgOMdkMx27Wrpzes2hh5Jtbi2bjPd+4wJstWIqP5A+lscnqbm0xxmT5Bpg8Lec5ItEBwx6BQ==}
     engines: {node: '>=18'}
 
-  nodemailer@9.0.3:
-    resolution: {integrity: sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==}
-    engines: {node: '>=6.0.0'}
-
   nopt@8.1.0:
     resolution: {integrity: sha512-ieGu42u/Qsa4TFktmaKEwM6MQH0pOWnaB3htzh0JRtx84+Mebc0cbZYN5bC+6WTZ4+77xrL9Pn5m7CV6VIkV7A==}
     engines: {node: ^18.17.0 || >=20.5.0}
@@ -13356,6 +13343,10 @@ packages:
   undici@8.9.0:
     resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
     engines: {node: '>=22.19.0'}
+
+  unemail@0.5.0:
+    resolution: {integrity: sha512-pTzgIYsCzYULYk1uoFEYL4GLQl9mCYLUQSZUvAt3DOBzR/QxoTkcDVB2qlvtY/80pOFU+KFQRlcT2NFjaAoz/g==}
+    engines: {node: '>=20.11.1'}
 
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
@@ -19782,10 +19773,6 @@ snapshots:
     dependencies:
       undici-types: 8.3.0
 
-  '@types/nodemailer@8.0.1':
-    dependencies:
-      '@types/node': 26.1.1
-
   '@types/picomatch@4.0.3': {}
 
   '@types/request@2.48.13':
@@ -25938,8 +25925,6 @@ snapshots:
 
   node-releases@2.0.51: {}
 
-  nodemailer@9.0.3: {}
-
   nopt@8.1.0:
     dependencies:
       abbrev: 3.0.1
@@ -28862,6 +28847,8 @@ snapshots:
   undici@7.28.0: {}
 
   undici@8.9.0: {}
+
+  unemail@0.5.0: {}
 
   unenv@2.0.0-rc.24:
     dependencies:

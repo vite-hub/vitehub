@@ -2,7 +2,6 @@ import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 export type EmailErrorCode =
   | "EMAIL_AUTHENTICATION"
-  | "EMAIL_INVALID_MESSAGE"
   | "EMAIL_NETWORK"
   | "EMAIL_NOT_CONFIGURED"
   | "EMAIL_PROVIDER_FAILED"
@@ -16,7 +15,6 @@ export interface EmailErrorOptions {
 
 const emailErrorCodes = new Set<EmailErrorCode>([
   "EMAIL_AUTHENTICATION",
-  "EMAIL_INVALID_MESSAGE",
   "EMAIL_NETWORK",
   "EMAIL_NOT_CONFIGURED",
   "EMAIL_PROVIDER_FAILED",

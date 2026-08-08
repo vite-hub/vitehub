@@ -4,7 +4,6 @@
   "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
     "email",
-    "smtp",
     "transactional-email",
     "vite",
     "vitehub"
@@ -33,8 +32,6 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./drivers/resend": "./dist/drivers/resend.js",
-    "./drivers/smtp": "./dist/drivers/smtp.js",
     "./markdown": "./dist/markdown.js",
     "./server": "./dist/server.js",
     "./test": "./dist/test.js",
@@ -48,15 +45,14 @@
     "test": "vp run -t @vite-hub/email#build && vp test"
   },
   "dependencies": {
-    "@types/nodemailer": "catalog:email",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "comark": "catalog:ui"
+    "comark": "catalog:ui",
+    "unemail": "catalog:email"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "nodemailer": "catalog:email",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -64,13 +60,9 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "nodemailer": "catalog:email",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
-    "nodemailer": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     }

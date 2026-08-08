@@ -10,8 +10,6 @@ describe("@vite-hub/email package contract", () => {
   it("exposes only the documented public entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       ".",
-      "./drivers/resend",
-      "./drivers/smtp",
       "./markdown",
       "./package.json",
       "./server",
