@@ -272,10 +272,9 @@ export function resolveChatSessionId(
   const strategy = options.strategy || (options.idleTimeoutMs ? "idle-timeout" : "manual")
   const manualId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, options.metadataKey)
   if (strategy === "manual") {
-    if (triggerSession?.action !== "new") return manualId
-    const latest = messages.at(-1)
-    const boundary = latest?.id || uiMessageTime(latest || {})?.toString() || crypto.randomUUID()
-    return `${manualId ? `${manualId}:` : ""}new:${boundary}`
+    const first = selectManualSession(messages, options, triggerSession)[0]
+    const boundary = first?.id || uiMessageTime(first || {})?.toString()
+    return boundary ? `${manualId ? `${manualId}:` : ""}manual:${boundary}` : manualId
   }
   const selected = strategy === "idle-timeout"
     ? selectIdleSession(messages, options)

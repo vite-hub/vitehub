@@ -3,17 +3,20 @@ import { describe, expect, it } from "vitest"
 import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
 
 describe("chat message trigger input", () => {
-  it("creates a fresh approval boundary for a new manual Chat Session", () => {
-    const messages = [{ id: "message-new", metadata: { sessionId: "chat" }, parts: [], role: "user" as const }]
+  it("keeps a fresh approval boundary stable for a new manual Chat Session", () => {
+    const messages = [
+      { id: "message-new", metadata: { sessionId: "chat" }, parts: [], role: "user" as const },
+      { id: "approval-response", metadata: { sessionId: "chat" }, parts: [], role: "assistant" as const },
+    ]
 
-    expect(resolveChatSessionId(messages, true, { action: "new", id: "chat" })).toBe("chat:new:message-new")
-    expect(resolveChatSessionId(messages, true, { action: "new" })).toBe("chat:new:message-new")
+    expect(resolveChatSessionId(messages.slice(0, 1), true, { action: "new", id: "chat" })).toBe("chat:manual:message-new")
+    expect(resolveChatSessionId(messages, true, { id: "chat" })).toBe("chat:manual:message-new")
   })
 
   it("resolves metadata-selected manual Chat Sessions", () => {
     expect(resolveChatSessionId([
-      { metadata: { sessionId: "metadata-session" }, parts: [], role: "user" },
-    ], true)).toBe("metadata-session")
+      { id: "message-new", metadata: { sessionId: "metadata-session" }, parts: [], role: "user" },
+    ], true)).toBe("metadata-session:manual:message-new")
   })
 
   it("resolves idle Chat Sessions from the selected history boundary", () => {
