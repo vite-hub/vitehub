@@ -131,6 +131,44 @@ describe("Eve extension capabilities", () => {
     expect(transformed).not.toContain(`import github from`)
   })
 
+  it("detects TypeScript-wrapped Eve extension calls", async () => {
+    const parseWithWrappers = (code: string) => {
+      const ast = parseAst(code) as unknown as Record<string, unknown>
+      const visit = (value: unknown): boolean => {
+        if (!value || typeof value !== "object") return false
+        const node = value as Record<string, unknown>
+        if (node.type === "ArrayExpression" && Array.isArray(node.elements)) {
+          const index = node.elements.findIndex(element => (element as { callee?: { name?: unknown } })?.callee?.name === "github")
+          if (index >= 0) {
+            const call = node.elements[index] as Record<string, unknown>
+            const callee = call.callee as { end: number, start: number }
+            const wrappedCall = {
+              ...call,
+              callee: { end: callee.end, expression: callee, start: callee.start, type: "TSAsExpression" },
+            }
+            node.elements[index] = { end: call.end, expression: wrappedCall, start: call.start, type: "TSAsExpression" }
+            return true
+          }
+        }
+        return Object.values(node).some(child => Array.isArray(child) ? child.some(visit) : visit(child))
+      }
+      visit(ast)
+      return ast
+    }
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        export default defineAgent({ capabilities: [github()] })
+      `,
+      parseWithWrappers,
+      async () => true,
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).not.toContain(`import github from`)
+  })
+
   it("only lowers capabilities on an Agent Definition", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)

@@ -1117,8 +1117,9 @@ export async function transformEveExtensionCapabilities(
   function collectExtensionCalls(array: PositionedNode): void {
     if (collectedArrays.has(array)) return
     collectedArrays.add(array)
-    for (const element of Array.isArray(array.elements) ? array.elements : []) {
-      if (!isPositionedNode(element)) continue
+    for (const rawElement of Array.isArray(array.elements) ? array.elements : []) {
+      if (!isPositionedNode(rawElement)) continue
+      const element = unwrapTypeScriptExpression(rawElement)
       if (element.type === "SpreadElement") {
         const argument = element.argument
         if (isPositionedNode(argument) && argument.type === "Identifier" && typeof argument.name === "string") {
@@ -1128,7 +1129,9 @@ export async function transformEveExtensionCapabilities(
         continue
       }
       if (element.type !== "CallExpression") continue
-      const callee = element.callee
+      const rawCallee = element.callee
+      if (!isPositionedNode(rawCallee)) continue
+      const callee = unwrapTypeScriptExpression(rawCallee)
       if (!isPositionedNode(callee) || callee.type !== "Identifier" || typeof callee.name !== "string") continue
       const imported = imports.get(callee.name)
       if (!imported) continue
