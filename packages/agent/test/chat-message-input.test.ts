@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest"
 import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
 
 describe("chat message trigger input", () => {
+  it("creates a fresh approval boundary for a new manual Chat Session", () => {
+    const messages = [{ id: "message-new", metadata: { sessionId: "chat" }, parts: [], role: "user" as const }]
+
+    expect(resolveChatSessionId(messages, true, { action: "new", id: "chat" })).toBe("chat:new:message-new")
+    expect(resolveChatSessionId(messages, true, { action: "new" })).toBe("chat:new:message-new")
+  })
+
   it("resolves metadata-selected manual Chat Sessions", () => {
     expect(resolveChatSessionId([
       { metadata: { sessionId: "metadata-session" }, parts: [], role: "user" },

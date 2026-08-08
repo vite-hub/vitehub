@@ -1128,7 +1128,13 @@ export async function transformEveExtensionCapabilities(
   const collectShadows = (value: unknown, scope?: { end: number, start: number }): void => {
     if (!value || typeof value !== "object") return
     const node = value as Record<string, unknown>
-    const nextScope = isPositionedNode(node) && (node.type === "BlockStatement" || node.type.includes("Function"))
+    const nextScope = isPositionedNode(node) && (
+      node.type === "BlockStatement"
+      || node.type === "ForStatement"
+      || node.type === "ForInStatement"
+      || node.type === "ForOfStatement"
+      || node.type.includes("Function")
+    )
       ? { end: node.end, start: node.start }
       : scope
     if (nextScope && node.type === "VariableDeclarator") {

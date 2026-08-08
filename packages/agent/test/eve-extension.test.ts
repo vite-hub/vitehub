@@ -700,6 +700,21 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it("keeps loop bindings scoped to the loop", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        for (const github of []) github()
+        export default defineAgent({ capabilities: [github()] })
+      `,
+      parseAst,
+      async () => true,
+    )
+
+    expect(transformed).toContain("__vitehubEveExtensionCapability(")
+  })
+
   it("rejects surviving extension factory references", async () => {
     await expect(transformEveExtensionCapabilities(
       `
