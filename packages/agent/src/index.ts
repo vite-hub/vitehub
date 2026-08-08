@@ -615,7 +615,7 @@ type AgentDefinitionWithBaseResolve<
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   capabilities?: Record<string, false>
   input: AgentRunInput<CALL_OPTIONS>
-  request?: { headers: Array<[string, string]>, method: string, url: string }
+  requestUrl?: string
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeContext["runtime"]
@@ -759,9 +759,8 @@ async function runAgentAsWorkflow<
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
     input: workflowInput,
-    ...(context.request
-      ? { request: { headers: [...context.request.headers.entries()], method: context.request.method, url: context.request.url } }
-      : {}),
+    // Headers and bodies may contain webhook credentials and remain process-local by design.
+    ...(context.request ? { requestUrl: context.request.url } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,

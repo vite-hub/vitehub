@@ -10716,7 +10716,7 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("preserves request semantics across Agent Workflows", async () => {
+    it("preserves only the request URL across Agent Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -10742,8 +10742,8 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("request-url", run.id)).resolves.toMatchObject({
         result: {
-          method: "POST",
-          tenant: "acme",
+          method: "GET",
+          tenant: null,
           url: "https://calories.example/messages?source=telegram",
         },
         status: "completed",
