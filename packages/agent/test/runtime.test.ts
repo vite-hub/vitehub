@@ -5838,6 +5838,20 @@ describe("agent message protocol", () => {
     })).toThrow(error)
   })
 
+  it("rejects serial concurrency with durable message delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    expect(() => defineAgent({
+      channels: { telegram: telegram({ adapter: () => ({}) as never }) },
+      driver: { run: () => "ok" },
+      messages: {
+        concurrency: "serial",
+        delivery: "manual",
+        durable: true,
+      },
+    })).toThrow("messages.durable cannot be combined with concurrency: \"serial\"")
+  })
+
   it("rejects invalid message timeouts", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -10702,25 +10716,36 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("preserves the request URL across Agent Workflows", async () => {
+    it("preserves request semantics across Agent Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = defineAgent({ driver: { run: context => context.request?.url } })
+      const agent = defineAgent({ driver: { run: context => ({
+        method: context.request?.method,
+        tenant: context.request?.headers.get("x-tenant"),
+        url: context.request?.url,
+      }) } })
       const run = await runAgent(agent, {
         agentIdentity: { name: "request-url" },
         memo: vi.fn(),
-        request: new Request("https://calories.example/messages?source=telegram"),
+        request: new Request("https://calories.example/messages?source=telegram", {
+          headers: { "x-tenant": "acme" },
+          method: "POST",
+        }),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
       }, { prompt: "hello" }) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("request-url", run.id)).resolves.toMatchObject({
-        result: "https://calories.example/messages?source=telegram",
+        result: {
+          method: "POST",
+          tenant: "acme",
+          url: "https://calories.example/messages?source=telegram",
+        },
         status: "completed",
       })
     })

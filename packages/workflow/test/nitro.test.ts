@@ -24,6 +24,13 @@ it("installs discovered Agent workflows into a Cloudflare Nitro entry", async ()
     expect((nitro.rollupConfig as { plugins: Array<{ name: string }> }).plugins).toContainEqual(
       expect.objectContaining({ name: "vitehub-workflow-cloudflare-exports" }),
     )
+    const plugin = (nitro.rollupConfig as { plugins: Array<Record<string, any>> }).plugins
+      .find(candidate => candidate.name === "vitehub-workflow-cloudflare-exports")!
+    const renderChunk = typeof plugin.renderChunk === "function" ? plugin.renderChunk : plugin.renderChunk.handler
+    expect(renderChunk.call({}, "export default {}", { fileName: "index.js", isEntry: true })).toMatchObject({
+      code: expect.stringMatching(/export \{ ViteHub.*Workflow \} from '\.\/workflow-cloudflare-exports\.mjs'/),
+    })
+    expect(renderChunk.call({}, "export default {}", { fileName: "other.js", isEntry: true })).toBeNull()
   }
   finally {
     await rm(rootDir, { force: true, recursive: true })

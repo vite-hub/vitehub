@@ -48,6 +48,7 @@ import {
   createFallbackAgentInvoker,
   hasResolvedAgentInvokerInput,
   normalizeAgentInvokerOptions,
+  portableResolvedAgentInvokerInput,
   resolveAgentInvoker,
 } from "./invoker.ts"
 import {
@@ -614,7 +615,7 @@ type AgentDefinitionWithBaseResolve<
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   capabilities?: Record<string, false>
   input: AgentRunInput<CALL_OPTIONS>
-  requestUrl?: string
+  request?: { headers: Array<[string, string]>, method: string, url: string }
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeContext["runtime"]
@@ -745,7 +746,7 @@ async function runAgentAsWorkflow<
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
-  const workflowInput = { ...input }
+  const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
   if (workflowInput.messages) workflowInput.messages = await materializeMessageAttachmentData(workflowInput.messages)
@@ -758,7 +759,9 @@ async function runAgentAsWorkflow<
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
     input: workflowInput,
-    ...(context.request ? { requestUrl: context.request.url } : {}),
+    ...(context.request
+      ? { request: { headers: [...context.request.headers.entries()], method: context.request.method, url: context.request.url } }
+      : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,

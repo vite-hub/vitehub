@@ -315,7 +315,7 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
       ].join("\n")
     },
     renderChunk(code, chunk) {
-      if (!chunk.isEntry || chunk.fileName !== "index.mjs") return null
+      if (!chunk.isEntry || (chunk.fileName !== "index.mjs" && chunk.fileName !== "index.js")) return null
       const classes = definitions.map(definition => getCloudflareWorkflowClassName(definition.name)).join(", ")
       return { code: `${code}\nexport { ${classes} } from './${fileName}'\n`, map: null }
     },

@@ -170,6 +170,21 @@ export function hasResolvedAgentInvokerInput(input: AgentRunInput): boolean {
   return (input.context as { [resolvedAgentInvokerInputKey]?: unknown } | undefined)?.[resolvedAgentInvokerInputKey] === true
 }
 
+export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
+  if (!hasResolvedAgentInvokerInput(input)) return input
+  const context = contextRecord(input.context)
+  const invoker = normalizeAgentInvoker(context[agentInvokerContextKey] ?? context[agentActorContextKey])
+  const { meta: _meta, ...portableInvoker } = invoker
+  return {
+    ...input,
+    context: {
+      ...context,
+      [agentActorContextKey]: portableInvoker,
+      [agentInvokerContextKey]: portableInvoker,
+    },
+  }
+}
+
 export function restoreResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
   return { ...input, context: { ...input.context, [resolvedAgentInvokerInputKey]: true } }
 }
