@@ -83,4 +83,18 @@ describe("hubRealtime", () => {
     await expect(hook(config, { command: "build" })).resolves.toBeUndefined()
     expect(config.nitro).toMatchObject({ features: { websocket: true } })
   })
+
+  it("rejects memory authority for distributed Deno deployments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime({ authority: "memory" })
+    const config = { root, nitro: { preset: "deno-deploy" } }
+    const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
+
+    await expect(hook(config)).rejects.toThrow("cannot use the deno deployment preset")
+  })
 })

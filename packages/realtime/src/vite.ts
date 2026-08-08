@@ -101,8 +101,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
       else if (environment?.command === "build" && authority === "auto") {
         throw new Error("[vitehub] Realtime production builds require one room authority. Deploy to Cloudflare Durable Objects or explicitly set realtime.authority to \"memory\" for a single-process server.")
       }
-      else if (authority === "memory" && provider) {
-        throw new Error(`[vitehub] Realtime authority "memory" is single-process only and cannot use the ${provider} deployment preset.`)
+      else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
+        throw new Error(`[vitehub] Realtime authority "memory" is single-process only and cannot use the ${deploymentPreset} deployment preset.`)
       }
       nitro.features = { ...nitro.features, websocket: true }
       nitro.handlers = [
