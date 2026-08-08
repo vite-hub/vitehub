@@ -18,13 +18,13 @@ import type { WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeDefinition, RealtimeRegistry } from "./types.ts"
 import { createRealtimeIdentity } from "./presence.ts"
-import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, workspaceRoomId } from "./protocol.ts"
+import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds } from "./protocol.ts"
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
 const maxRoomStateBytes = 8 * 1024 * 1024
 const maxRoomAwarenessBytes = 8 * 1024 * 1024
-const memoryRoomGraceMs = 30_000
+const maxMemoryRooms = 128
 const messageSync = 0
 const fragmentName = "default"
 
@@ -89,7 +89,6 @@ interface Room {
   checkpoint?: Promise<WorkspaceSnapshot>
   checkpointState?: Uint8Array
   document: Y.Doc
-  evictionTimer?: ReturnType<typeof setTimeout>
   key: string
   pendingCheckpoint?: {
     message: string
@@ -290,6 +289,7 @@ async function authorize(request: Request, required: boolean | undefined, event:
 }
 
 export function createRealtimeHandler(registry: RealtimeRegistry) {
+  const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
 
@@ -335,6 +335,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       : realtimeRoomKey(definitionName, documentId)
     let room = rooms.get(key)
     if (!room) {
+      if (!sql && memoryRoomKeys.size >= maxMemoryRooms) {
+        throw new HTTPError({ status: 503, message: "The in-memory realtime authority reached its room limit." })
+      }
+      if (!sql) memoryRoomKeys.add(key)
       room = (async () => {
         const workspaceDocument = !workspaceEvents
         const workspace = workspaceDocument ? useWorkspace(definition.document.workspace) : undefined
@@ -371,13 +375,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         return value
       })()
       rooms.set(key, room)
-      room.catch(() => rooms.delete(key))
+      room.catch(() => {
+        rooms.delete(key)
+        memoryRoomKeys.delete(key)
+      })
     }
     const value = await room
-    if (value.evictionTimer) {
-      clearTimeout(value.evictionTimer)
-      value.evictionTimer = undefined
-    }
     return value
   }
 
@@ -394,19 +397,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
 
   function evictRoom(room: Room): void {
     if (room.peers.size > 0 || room.checkpoint || room.pendingCheckpoint) return
-    if (!room.sql && !room.evictionTimer) {
-      room.evictionTimer = setTimeout(() => {
-        room.evictionTimer = undefined
-        if (room.peers.size === 0 && !room.checkpoint && !room.pendingCheckpoint) destroyRoom(room)
-      }, memoryRoomGraceMs)
-      return
-    }
     if (!room.sql) return
     destroyRoom(room)
   }
 
   function destroyRoom(room: Room): void {
-    if (room.evictionTimer) clearTimeout(room.evictionTimer)
     room.awareness.destroy()
     room.document.destroy()
     rooms.delete(room.key)
@@ -465,6 +460,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         throw error
       }
       if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
+      room.baselineDigest = snapshot.entries[documentId]?.digest
+      persistRoom(room)
       const effectiveMarkdown = await pending.workspace.fs.readFile(documentId, { encoding: "utf8" })
       if (effectiveMarkdown !== yDocToMarkdown(pending.submittedDocument)) {
         const update = replaceRealtimeDocument(pending.submittedDocument, effectiveMarkdown)
@@ -475,8 +472,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         }
       }
       pending.submittedDocument.destroy()
-      room.baselineDigest = snapshot.entries[documentId]?.digest
-      persistRoom(room)
       return snapshot
     })()
 
