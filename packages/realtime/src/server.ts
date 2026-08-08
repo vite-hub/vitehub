@@ -28,6 +28,7 @@ const maxMemoryRooms = 128
 const awarenessQueryIntervalMs = 10_000
 const awarenessUpdateIntervalMs = 50
 const syncUpdateIntervalMs = 50
+const pendingCheckpointRetentionMs = 30_000
 const durableUpdateCompactionInterval = 128
 const messageSync = 0
 const fragmentName = "default"
@@ -95,12 +96,14 @@ interface Room {
   document: Y.Doc
   durableReady: boolean
   key: string
+  mutated: boolean
   pendingCheckpoint?: {
     message: string
     state: Uint8Array
     submittedDocument: Y.Doc
     workspace: Pick<WritableWorkspaceFacade, "fs" | "history">
   }
+  pendingCheckpointTimer?: ReturnType<typeof setTimeout>
   peers: Set<WebSocketPeer>
   persistedUpdates: number
   sql?: RealtimeRoomSql
@@ -433,6 +436,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           && inactiveKey
           && inactiveMemoryRoomKeys.has(inactiveKey)
           && inactiveRoom.peers.size === 0
+          && !inactiveRoom.mutated
           && !inactiveRoom.checkpoint
           && !inactiveRoom.pendingCheckpoint
         ) {
@@ -477,11 +481,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           document,
           durableReady: !!sql || !!initial.baselineDigest,
           key,
+          mutated: false,
           peers: new Set(),
           persistedUpdates: storedUpdates.length,
           sql: workspaceDocument ? sql : undefined,
         }
         value.document.on("update", (update: Uint8Array, origin: unknown) => {
+          value.mutated = true
           persistRoomUpdate(value, update)
           if (origin && typeof origin === "object" && "publish" in origin) {
             (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
@@ -529,6 +535,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   function evictRoom(room: Room): void {
     if (room.peers.size > 0 || room.checkpoint || room.pendingCheckpoint) return
     if (!room.sql) {
+      if (room.mutated) return
       inactiveMemoryRoomKeys.delete(room.key)
       inactiveMemoryRoomKeys.add(room.key)
       return
@@ -544,6 +551,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     memoryRoomKeys.delete(room.key)
   }
 
+  function clearPendingCheckpoint(room: Room, pending: NonNullable<Room["pendingCheckpoint"]>): void {
+    if (room.pendingCheckpoint !== pending) return
+    room.pendingCheckpoint = undefined
+    if (room.pendingCheckpointTimer) clearTimeout(room.pendingCheckpointTimer)
+    room.pendingCheckpointTimer = undefined
+    pending.submittedDocument.destroy()
+  }
+
   async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, state: Uint8Array): Promise<WorkspaceSnapshot> {
     const configured = definition.history?.checkpoint
     if (!configured) throw new HTTPError({ status: 404 })
@@ -557,8 +572,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     const checkpoint = serializeWorkspaceCheckpoint(definition.document.workspace, async () => {
       let pending = room.pendingCheckpoint
       if (pending && !matchesBytes(pending.state, state)) {
-        room.pendingCheckpoint = undefined
-        pending.submittedDocument.destroy()
+        clearPendingCheckpoint(room, pending)
         const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
         room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
         room.durableReady = !!room.baselineDigest
@@ -597,14 +611,23 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       }
       catch (error) {
         if (isWorkspaceConflict(error)) {
-          if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
-          pending.submittedDocument.destroy()
+          clearPendingCheckpoint(room, pending)
           await refreshWritableWorkspace(definition.document.workspace)
           throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
         }
+        if (!room.pendingCheckpointTimer) {
+          room.pendingCheckpointTimer = setTimeout(() => {
+            clearPendingCheckpoint(room, pending)
+            evictRoom(room)
+          }, pendingCheckpointRetentionMs)
+        }
         throw error
       }
-      if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
+      if (room.pendingCheckpoint === pending) {
+        room.pendingCheckpoint = undefined
+        if (room.pendingCheckpointTimer) clearTimeout(room.pendingCheckpointTimer)
+        room.pendingCheckpointTimer = undefined
+      }
       room.baselineDigest = snapshot.entries[documentId]?.digest
       room.durableReady = !!room.baselineDigest
       persistRoom(room)

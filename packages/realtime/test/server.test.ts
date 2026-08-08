@@ -252,6 +252,34 @@ describe("realtime server handler", () => {
     }
   })
 
+  it("does not evict inactive memory rooms with collaborative edits", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const updateDocument = new Y.Doc()
+    updateDocument.getMap("edits").set("value", true)
+    const update = encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument))
+
+    for (let index = 0; index < 128; index++) {
+      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/edited-${index}.md`, {
+        headers: { upgrade: "websocket" },
+      })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
+      const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+      response.crossws.open(peer)
+      response.crossws.message(peer, { uint8Array: () => update })
+      response.crossws.close(peer)
+    }
+
+    const overflow = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/overflow.md", {
+      headers: { upgrade: "websocket" },
+    }))
+    expect(overflow.status).toBe(503)
+    updateDocument.destroy()
+  })
+
   it("does not evict an inactive room while it is reconnecting", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
