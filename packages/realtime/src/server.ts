@@ -26,6 +26,7 @@ const maxRoomStateBytes = 8 * 1024 * 1024
 const maxRoomAwarenessBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
 const awarenessQueryIntervalMs = 10_000
+const awarenessUpdateIntervalMs = 50
 const durableUpdateCompactionInterval = 128
 const messageSync = 0
 const fragmentName = "default"
@@ -289,15 +290,15 @@ export async function readRealtimeWorkspaceDocument(
   writable: WritableWorkspaceFacade,
   documentId: string,
 ): Promise<{ baselineDigest: string | undefined, markdown: string }> {
-  const [exists, writableExists] = await Promise.all([
-    readable.fs.exists(documentId),
-    writable.fs.exists(documentId),
-  ])
-  const [markdown, stat] = await Promise.all([
-    exists ? readable.fs.readFile(documentId, { encoding: "utf8" }) : "",
-    writableExists ? writable.fs.stat(documentId) : undefined,
-  ])
-  return { baselineDigest: stat?.digest, markdown }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const before = await writable.fs.stat(documentId)
+    const markdown = await readable.fs.exists(documentId)
+      ? await readable.fs.readFile(documentId, { encoding: "utf8" })
+      : ""
+    const after = await writable.fs.stat(documentId)
+    if (before?.digest === after?.digest) return { baselineDigest: after?.digest, markdown }
+  }
+  throw new HTTPError({ status: 409, message: "The Workspace document changed while opening its realtime room." })
 }
 
 export function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
@@ -349,6 +350,23 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const rooms = new Map<string, Promise<Room>>()
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
   const peerAwarenessQueryAt = new WeakMap<WebSocketPeer, number>()
+  const peerAwarenessUpdateAt = new WeakMap<WebSocketPeer, number>()
+  const workspaceCheckpointQueues = new Map<string, Promise<void>>()
+
+  async function serializeWorkspaceCheckpoint<T>(workspaceName: string, operation: () => Promise<T>): Promise<T> {
+    const previous = workspaceCheckpointQueues.get(workspaceName) || Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => { release = resolve })
+    workspaceCheckpointQueues.set(workspaceName, current)
+    await previous
+    try {
+      return await operation()
+    }
+    finally {
+      release()
+      if (workspaceCheckpointQueues.get(workspaceName) === current) workspaceCheckpointQueues.delete(workspaceName)
+    }
+  }
 
   async function refreshWritableWorkspace(workspaceName: string): Promise<WritableWorkspaceFacade> {
     const current = useWorkspace(workspaceName, { mode: "write" })
@@ -527,7 +545,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       return await checkpointRoom(documentId, definition, room, state)
     }
 
-    const checkpoint = (async () => {
+    const checkpoint = serializeWorkspaceCheckpoint(definition.document.workspace, async () => {
       let pending = room.pendingCheckpoint
       if (pending && !matchesBytes(pending.state, state)) {
         room.pendingCheckpoint = undefined
@@ -589,7 +607,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       }
       pending.submittedDocument.destroy()
       return snapshot
-    })()
+    })
 
     room.checkpoint = checkpoint
     room.checkpointState = state
@@ -706,6 +724,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType === messageAwareness) {
+          const now = Date.now()
+          const previous = peerAwarenessUpdateAt.get(peer)
+          if (previous !== undefined && now - previous < awarenessUpdateIntervalMs) return
+          peerAwarenessUpdateAt.set(peer, now)
           let update: Uint8Array
           let clients: number[]
           let claimed: number[] = []

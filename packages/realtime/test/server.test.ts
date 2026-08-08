@@ -515,7 +515,7 @@ describe("realtime Workspace documents", () => {
     const readFile = vi.fn()
     const result = await readRealtimeWorkspaceDocument(
       { fs: { exists: vi.fn().mockResolvedValue(false), readFile } } as never,
-      { fs: { exists: vi.fn().mockResolvedValue(false) } } as never,
+      { fs: { stat: vi.fn().mockResolvedValue(undefined) } } as never,
       "new.md",
     )
 
@@ -526,11 +526,32 @@ describe("realtime Workspace documents", () => {
   it("bases generated assets on the writable store", async () => {
     const result = await readRealtimeWorkspaceDocument(
       { fs: { exists: vi.fn().mockResolvedValue(true), readFile: vi.fn().mockResolvedValue("# Generated asset") } } as never,
-      { fs: { exists: vi.fn().mockResolvedValue(false) } } as never,
+      { fs: { stat: vi.fn().mockResolvedValue(undefined) } } as never,
       "generated.md",
     )
 
     expect(result).toEqual({ baselineDigest: undefined, markdown: "# Generated asset" })
+  })
+
+  it("retries when the Workspace digest changes during the initial read", async () => {
+    const result = await readRealtimeWorkspaceDocument(
+      {
+        fs: {
+          exists: vi.fn().mockResolvedValue(true),
+          readFile: vi.fn().mockResolvedValueOnce("# Stale").mockResolvedValue("# Current"),
+        },
+      } as never,
+      {
+        fs: {
+          stat: vi.fn()
+            .mockResolvedValueOnce({ digest: "old" })
+            .mockResolvedValue({ digest: "current" }),
+        },
+      } as never,
+      "page.md",
+    )
+
+    expect(result).toEqual({ baselineDigest: "current", markdown: "# Current" })
   })
 })
 
