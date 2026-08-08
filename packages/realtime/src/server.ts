@@ -155,7 +155,7 @@ export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
   return encoding.toUint8Array(encoder)
 }
 
-function encodeSyncStep1(document: Y.Doc): Uint8Array {
+export function encodeSyncStep1(document: Y.Doc): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageSync)
   syncProtocol.writeSyncStep1(encoder, document)
@@ -440,6 +440,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         room.pendingCheckpoint = undefined
         pending.submittedDocument.destroy()
         await invalidateWorkspaceStore(definition.document.workspace)
+        const refreshedWorkspace = useWorkspace(definition.document.workspace, { mode: "write" })
+        room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
         pending = undefined
       }
       if (!pending) {
@@ -518,13 +520,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (!(await workspace.capabilities()).conditionalWrites) {
       throw new HTTPError({ status: 501, message: "Realtime checkpoints require a Workspace Store with conditional writes." })
     }
-    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
     const contentLength = Number(event.req.headers.get("content-length") || 0)
     if (contentLength > maxRoomStateBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
     const state = new Uint8Array(await event.req.arrayBuffer())
     if (!state.byteLength) throw new HTTPError({ status: 400, message: "Realtime checkpoint state is required." })
     if (state.byteLength > maxRoomStateBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
+    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
     if (!matchesRealtimeState(room.document, state)) {
+      evictRoom(room)
       throw new HTTPError({
         status: 409,
         message: "The realtime document is still syncing.",

@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeSyncStep1, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
 const serverMocks = vi.hoisted(() => ({
   assertAuthOrigin: vi.fn(),
   getSession: vi.fn(),
+  invalidateWorkspaceStore: vi.fn(),
   useWorkspace: vi.fn(),
 }))
 
@@ -18,6 +19,7 @@ vi.mock("@vite-hub/auth/server", () => ({
 
 vi.mock("@vite-hub/workspace", async (importOriginal) => ({
   ...await importOriginal<typeof import("@vite-hub/workspace")>(),
+  invalidateWorkspaceStore: serverMocks.invalidateWorkspaceStore,
   useWorkspace: serverMocks.useWorkspace,
 }))
 
@@ -26,6 +28,7 @@ afterEach(() => vi.unstubAllGlobals())
 beforeEach(() => {
   serverMocks.assertAuthOrigin.mockReset().mockResolvedValue({ api: { getSession: serverMocks.getSession } })
   serverMocks.getSession.mockReset()
+  serverMocks.invalidateWorkspaceStore.mockReset().mockResolvedValue(undefined)
   serverMocks.useWorkspace.mockReset()
 })
 
@@ -181,6 +184,88 @@ describe("realtime server handler", () => {
       response.crossws!.open(peer)
       response.crossws!.close(peer)
     }
+  })
+
+  it("does not retain rooms for rejected checkpoints", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+
+    for (let index = 0; index < 129; index++) {
+      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/rejected-${index}.md?history=checkpoint`, {
+        method: "POST",
+      }))
+      expect(response.status).toBe(400)
+    }
+
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/valid.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws?: unknown }
+    expect(response.crossws).toBeDefined()
+  })
+
+  it("refreshes the written baseline before retrying a failed checkpoint", async () => {
+    let digest = "baseline"
+    let snapshots = 0
+    const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
+      if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
+      digest = `written-${writeFile.mock.calls.length}`
+      return "page.md"
+    })
+    const workspace = {
+      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
+      fs: {
+        exists: vi.fn().mockResolvedValue(true),
+        readFile: vi.fn().mockResolvedValue(""),
+        stat: vi.fn(async () => ({ digest })),
+        writeFile,
+      },
+      history: {
+        checkpoint: vi.fn(async () => {
+          snapshots++
+          if (snapshots === 1) throw new Error("publisher unavailable")
+          return { entries: { "page.md": { digest } }, id: "snapshot" }
+        }),
+      },
+    }
+    serverMocks.useWorkspace.mockReturnValue(workspace)
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = {
+      close: vi.fn(),
+      publish: vi.fn(),
+      send: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    }
+    websocket.crossws.open(peer)
+    const client = new Y.Doc()
+    peer.send.mockClear()
+    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(client) })
+    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
+    const firstState = Y.encodeStateAsUpdate(client)
+
+    const first = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(firstState).buffer,
+      method: "POST",
+    }))
+    expect(first.status).toBe(500)
+
+    const update = replaceRealtimeDocument(client, "# New draft")
+    websocket.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
+    const second = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(second.status).toBe(200)
+    expect(writeFile).toHaveBeenCalledTimes(2)
+    client.destroy()
   })
 
   it("replaces durable room state when the Workspace baseline changed", async () => {

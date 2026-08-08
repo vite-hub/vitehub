@@ -53,7 +53,6 @@
     "h3": "catalog:unjs",
     "lib0": "catalog:realtime",
     "pathe": "catalog:unjs",
-    "vue": "catalog:ui",
     "y-protocols": "catalog:realtime",
     "y-websocket": "catalog:realtime",
     "yjs": "catalog:realtime"
@@ -65,13 +64,18 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },
