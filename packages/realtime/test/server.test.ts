@@ -332,10 +332,13 @@ describe("realtime server handler", () => {
   })
 
   it("refreshes the written baseline before retrying a failed checkpoint", async () => {
+    let content = ""
     let digest = "baseline"
+    let changedDuringRead = false
     let snapshots = 0
-    const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
+    const writeFile = vi.fn(async (_path: string, nextContent: string, options: { ifDigest: string | null }) => {
       if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
+      content = nextContent.replace("New draft", "Canonical draft")
       digest = `written-${writeFile.mock.calls.length}`
       return "page.md"
     })
@@ -343,7 +346,15 @@ describe("realtime server handler", () => {
       capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
       fs: {
         exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn().mockResolvedValue(""),
+        readFile: vi.fn(async () => {
+          const result = content
+          if (digest === "written-2" && !changedDuringRead) {
+            changedDuringRead = true
+            content = "# Canonical draft\n"
+            digest = "canonical-2"
+          }
+          return result
+        }),
         stat: vi.fn(async () => ({ digest })),
         writeFile,
       },
@@ -351,7 +362,12 @@ describe("realtime server handler", () => {
         checkpoint: vi.fn(async () => {
           snapshots++
           if (snapshots === 1) throw new Error("publisher unavailable")
-          return { entries: { "page.md": { digest } }, id: "snapshot" }
+          const snapshot = { entries: { "page.md": { digest } }, id: "snapshot" }
+          queueMicrotask(() => {
+            content = "# Later unsaved draft"
+            digest = "later"
+          })
+          return snapshot
         }),
       },
     }
@@ -388,6 +404,82 @@ describe("realtime server handler", () => {
     }))
 
     expect(second.status).toBe(200)
+    await expect(second.json()).resolves.toEqual({
+      content: "# Canonical draft\n",
+      snapshot: { entries: { "page.md": { digest: "canonical-2" } }, id: "snapshot" },
+    })
+    expect(writeFile).toHaveBeenCalledTimes(2)
+    client.destroy()
+  })
+
+  it("reconciles a mismatched snapshot before retrying its checkpoint", async () => {
+    let content = ""
+    let digest = "baseline"
+    let checkpoints = 0
+    const writeFile = vi.fn(async (_path: string, nextContent: string, options: { ifDigest: string | null }) => {
+      if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
+      content = nextContent
+      digest = `written-${writeFile.mock.calls.length}`
+      return "page.md"
+    })
+    const workspace = {
+      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
+      fs: {
+        exists: vi.fn().mockResolvedValue(true),
+        readFile: vi.fn(async () => content),
+        stat: vi.fn(async () => ({ digest })),
+        writeFile,
+      },
+      history: {
+        checkpoint: vi.fn(async () => {
+          checkpoints++
+          if (checkpoints === 1) {
+            content = "# Snapshot version"
+            digest = "other"
+          }
+          return { entries: { "page.md": { digest } }, id: `snapshot-${checkpoints}` }
+        }),
+      },
+    }
+    serverMocks.useWorkspace.mockReturnValue(workspace)
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = {
+      close: vi.fn(),
+      publish: vi.fn(),
+      send: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    }
+    websocket.crossws.open(peer)
+    const client = new Y.Doc()
+    peer.send.mockClear()
+    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(client) })
+    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
+    peer.send.mockClear()
+
+    const first = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(first.status).toBe(409)
+    await expect(first.json()).resolves.toMatchObject({ message: "The Workspace document changed while creating its realtime checkpoint." })
+    expect(peer.send).toHaveBeenCalledTimes(1)
+    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
+
+    const second = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(second.status).toBe(200)
+    await expect(second.json()).resolves.toEqual({
+      content: "# Snapshot version",
+      snapshot: { entries: { "page.md": { digest: "written-2" } }, id: "snapshot-2" },
+    })
     expect(writeFile).toHaveBeenCalledTimes(2)
     client.destroy()
   })

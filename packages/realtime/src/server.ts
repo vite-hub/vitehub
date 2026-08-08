@@ -16,7 +16,7 @@ import * as Y from "yjs"
 import type { ReadonlyWorkspaceFacade, WorkspaceSnapshot, WritableWorkspaceFacade } from "@vite-hub/workspace"
 import type { WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
-import type { RealtimeDefinition, RealtimeRegistry } from "./types.ts"
+import type { RealtimeCheckpoint, RealtimeDefinition, RealtimeRegistry } from "./types.ts"
 import { createRealtimeIdentity } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds } from "./protocol.ts"
 
@@ -91,17 +91,19 @@ interface Room {
   awarenessClientOwners: Map<number, WebSocketPeer>
   baselineDigest?: string
   channel: string
-  checkpoint?: Promise<WorkspaceSnapshot>
+  checkpoint?: Promise<RealtimeCheckpoint>
   checkpointState?: Uint8Array
   document: Y.Doc
   durableReady: boolean
   key: string
   mutated: boolean
   pendingCheckpoint?: {
+    content: string
+    digest: string
     message: string
     state: Uint8Array
     submittedDocument: Y.Doc
-    workspace: Pick<WritableWorkspaceFacade, "fs" | "history">
+    workspace: WritableWorkspaceFacade
   }
   pendingCheckpointTimer?: ReturnType<typeof setTimeout>
   peers: Set<WebSocketPeer>
@@ -577,6 +579,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     pending.submittedDocument.destroy()
   }
 
+  function reconcilePendingCheckpoint(room: Room, pending: NonNullable<Room["pendingCheckpoint"]>, content: string): void {
+    if (content === yDocToMarkdown(pending.submittedDocument)) return
+    const update = replaceRealtimeDocument(pending.submittedDocument, content)
+    Y.applyUpdate(room.document, update)
+    if (update.byteLength > 0) {
+      const message = encodeSyncUpdate(update)
+      for (const peer of room.peers) peer.send(message)
+    }
+  }
+
   function schedulePendingCheckpointExpiry(
     room: Room,
     pending: NonNullable<Room["pendingCheckpoint"]>,
@@ -604,7 +616,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     room.pendingCheckpointTimer = setTimeout(expire, pendingCheckpointRetentionMs)
   }
 
-  async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, state: Uint8Array): Promise<WorkspaceSnapshot> {
+  async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, state: Uint8Array): Promise<RealtimeCheckpoint> {
     const configured = definition.history?.checkpoint
     if (!configured) throw new HTTPError({ status: 404 })
     if (room.checkpoint) {
@@ -630,8 +642,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const message = typeof configured === "object" && configured.message
           ? configured.message
           : `docs: checkpoint ${documentId}`
+        let content: string
+        let digest: string
         try {
           await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
+          const written = await readRealtimeWorkspaceDocument(workspace, workspace, documentId)
+          if (!written.baselineDigest) throw new Error("Realtime checkpoints require Workspace file digests.")
+          content = written.markdown
+          digest = written.baselineDigest
         }
         catch (error) {
           submittedDocument.destroy()
@@ -646,7 +664,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           persistRoom(room)
           throw error
         }
-        pending = { message, state: Uint8Array.from(state), submittedDocument, workspace }
+        pending = { content, digest, message, state: Uint8Array.from(state), submittedDocument, workspace }
         room.pendingCheckpoint = pending
       }
 
@@ -663,25 +681,21 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         schedulePendingCheckpointExpiry(room, pending, definition.document.workspace, documentId)
         throw error
       }
-      if (room.pendingCheckpoint === pending) {
-        room.pendingCheckpoint = undefined
-        if (room.pendingCheckpointTimer) clearTimeout(room.pendingCheckpointTimer)
-        room.pendingCheckpointTimer = undefined
+      if (snapshot.entries[documentId]?.digest !== pending.digest) {
+        const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, documentId)
+        room.baselineDigest = current.baselineDigest
+        room.durableReady = !!room.sql || !!room.baselineDigest
+        reconcilePendingCheckpoint(room, pending, current.markdown)
+        persistRoom(room)
+        clearPendingCheckpoint(room, pending)
+        throw new HTTPError({ status: 409, message: "The Workspace document changed while creating its realtime checkpoint." })
       }
       room.baselineDigest = snapshot.entries[documentId]?.digest
       room.durableReady = !!room.sql || !!room.baselineDigest
+      reconcilePendingCheckpoint(room, pending, pending.content)
       persistRoom(room)
-      const effectiveMarkdown = await pending.workspace.fs.readFile(documentId, { encoding: "utf8" })
-      if (effectiveMarkdown !== yDocToMarkdown(pending.submittedDocument)) {
-        const update = replaceRealtimeDocument(pending.submittedDocument, effectiveMarkdown)
-        Y.applyUpdate(room.document, update)
-        if (update.byteLength > 0) {
-          const message = encodeSyncUpdate(update)
-          for (const peer of room.peers) peer.send(message)
-        }
-      }
-      pending.submittedDocument.destroy()
-      return snapshot
+      clearPendingCheckpoint(room, pending)
+      return { content: pending.content, snapshot }
     })
 
     room.checkpoint = checkpoint

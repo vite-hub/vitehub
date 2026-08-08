@@ -9,17 +9,20 @@ import { computed, markRaw, onScopeDispose, ref, shallowRef, toValue, watch } fr
 import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
 
-import type { WorkspaceSnapshot } from "@vite-hub/workspace"
 import type { MaybeRefOrGetter } from "vue"
 import type { RealtimeIdentity } from "./presence.ts"
-import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
+import type { RealtimeCheckpoint, RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
 
-export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGetter<string | undefined>) {
+export interface UseRealtimeTiptapOptions {
+  enabled?: MaybeRefOrGetter<boolean>
+}
+
+export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGetter<string | undefined>, options: UseRealtimeTiptapOptions = {}) {
   const { user } = useUserSession()
   const document = shallowRef<Y.Doc>()
   const provider = shallowRef<WebsocketProvider>()
@@ -28,7 +31,9 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   const people = shallowRef<RealtimePerson[]>([])
   const status = ref<RealtimeStatus>("disconnected")
   const synced = ref(false)
+  const checkpointRequests = ref(0)
   const pendingWorkspaceChanges: RealtimeWorkspaceChange[] = []
+  const enabled = () => options.enabled === undefined || toValue(options.enabled)
 
   function destroyDocument() {
     provider.value?.destroy()
@@ -58,6 +63,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   }
 
   function notifyWorkspaceChange(change: RealtimeWorkspaceChange) {
+    if (!enabled()) return
     pendingWorkspaceChanges.push(change)
     flushWorkspaceChanges()
   }
@@ -88,36 +94,41 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       if (event.status === "connected") flushWorkspaceChanges()
     })
     workspaceProvider.value = nextWorkspaceProvider
-    nextWorkspaceProvider.connect()
   }
 
-  async function checkpoint(): Promise<WorkspaceSnapshot> {
-    const id = toValue(documentId)
-    if (!id) throw new Error("A realtime document is required before creating a checkpoint.")
-    const room = id.split("/").map(encodeURIComponent).join("/")
-    for (let attempt = 0; ; attempt++) {
-      const current = document.value
-      if (!current) throw new Error("The realtime document is not connected.")
-      const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
-        body: Uint8Array.from(Y.encodeStateAsUpdate(current)).buffer,
-        method: "POST",
-      })
-      if (response.ok) return await response.json() as WorkspaceSnapshot
-      const data = await response.json().catch(() => undefined) as { data?: { code?: string }, message?: string, statusMessage?: string } | undefined
-      if (response.status === 409 && data?.data?.code === "REALTIME_SYNC_PENDING" && attempt < 20) {
-        await new Promise(resolve => setTimeout(resolve, 50))
-        continue
+  async function checkpoint(): Promise<RealtimeCheckpoint> {
+    checkpointRequests.value++
+    try {
+      const id = toValue(documentId)
+      if (!id) throw new Error("A realtime document is required before creating a checkpoint.")
+      const room = id.split("/").map(encodeURIComponent).join("/")
+      for (let attempt = 0; ; attempt++) {
+        const current = document.value
+        if (!current) throw new Error("The realtime document is not connected.")
+        const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
+          body: Uint8Array.from(Y.encodeStateAsUpdate(current)).buffer,
+          method: "POST",
+        })
+        if (response.ok) return await response.json() as RealtimeCheckpoint
+        const data = await response.json().catch(() => undefined) as { data?: { code?: string }, message?: string, statusMessage?: string } | undefined
+        if (response.status === 409 && data?.data?.code === "REALTIME_SYNC_PENDING" && attempt < 20) {
+          await new Promise(resolve => setTimeout(resolve, 50))
+          continue
+        }
+        throw Object.assign(new Error(data?.statusMessage || data?.message || "Could not create the realtime checkpoint."), {
+          data,
+          statusCode: response.status,
+        })
       }
-      throw Object.assign(new Error(data?.statusMessage || data?.message || "Could not create the realtime checkpoint."), {
-        data,
-        statusCode: response.status,
-      })
+    }
+    finally {
+      checkpointRequests.value--
     }
   }
 
-  watch(() => toValue(documentId), (id) => {
+  watch([() => toValue(documentId), enabled], ([id, active]) => {
     destroyDocument()
-    if (!id || typeof window === "undefined") return
+    if (!active || !id || typeof window === "undefined") return
     const nextDocument = markRaw(new Y.Doc())
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
     const server = `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`)}`
@@ -131,6 +142,16 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     document.value = nextDocument
     provider.value = nextProvider
     status.value = "connecting"
+  }, { immediate: true })
+
+  watch(enabled, (active) => {
+    const current = workspaceProvider.value
+    if (!current) return
+    if (active) current.connect()
+    else {
+      current.disconnect()
+      pendingWorkspaceChanges.length = 0
+    }
   }, { immediate: true })
 
   watch(user, () => {
@@ -158,7 +179,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     provider,
     status,
     synced,
-    history: { checkpoint },
+    history: { checkpoint, pending: computed(() => checkpointRequests.value > 0) },
     workspace: {
       change: workspaceChange,
       notify: notifyWorkspaceChange,
