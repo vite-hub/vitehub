@@ -24,7 +24,6 @@ export type WorkflowVitePlugin = Plugin & {
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
 type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
-  agentCapabilityRuntimeImports?: { blob?: string, database?: string }
   agentImportBase?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
@@ -75,7 +74,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       workflow: {
         async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs }: WorkflowNitroConfigOptions) {
           return await createCloudflareWorkflowNitroConfig({
-            agentCapabilityRuntimeImports: internalOptions?.agentCapabilityRuntimeImports,
             agentImportBase: internalOptions?.agentImportBase,
             nitro,
             rootDir: projectRoot,
@@ -94,7 +92,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         return
       }
       await generateProviderOutputs({
-        agentCapabilityRuntimeImports: internalOptions?.agentCapabilityRuntimeImports,
         agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolved.build.outDir,
         importBase: internalOptions?.importBase,

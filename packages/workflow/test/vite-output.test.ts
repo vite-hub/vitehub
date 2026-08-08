@@ -85,11 +85,6 @@ describe("Vite workflow provider outputs", () => {
     const inlineAgentDir = join(rootDir, "server", "agents", "inline")
     const optionalDevtoolsFixture = join(rootDir, "node_modules", "optional-vite-devtools-fixture")
     const flatAgent = join(rootDir, "server", "agents", "flat.ts")
-    const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replace(
-      "plugins: [hubMarkdownTemplate(), hubWorkflow()],",
-      `plugins: [hubMarkdownTemplate(), hubWorkflow({ agentCapabilityRuntimeImports: { blob: "@vite-hub/blob", database: "@vite-hub/database/drizzle" }, importBase: "@vite-hub/workflow" } as never)],`,
-    ))
     await mkdir(agentDir, { recursive: true })
     await mkdir(join(boxedAgentDir, "home"), { recursive: true })
     await mkdir(join(agentDir, "workspace"), { recursive: true })
@@ -209,8 +204,6 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
-    expect(registry).toContain('blob: () => import("@vite-hub/blob")')
-    expect(registry).toContain('database: () => import("@vite-hub/database/drizzle")')
     expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain("agentWithColocatedSkills")

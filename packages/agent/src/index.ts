@@ -46,6 +46,7 @@ import { bindAgentRunEvents } from "./run-events.ts"
 import { materializeMessageAttachmentData, type AgentMessagePhase } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
+  hasResolvedAgentInvokerInput,
   normalizeAgentInvokerOptions,
   resolveAgentInvoker,
 } from "./invoker.ts"
@@ -55,7 +56,7 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
-import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, requireAgentWorkflowContextKey, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
@@ -614,6 +615,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   capabilities?: Record<string, false>
   input: AgentRunInput<CALL_OPTIONS>
   requestUrl?: string
+  resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeContext["runtime"]
   runtimeConfig?: AgentRuntimeConfig
@@ -644,7 +646,6 @@ interface ScheduleRunContextLike {
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
 const agentIdentityOwner = Symbol("vitehub.agentIdentityOwner")
-const portableWorkflowCapabilities = new Set(["blob", "db"])
 
 interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
   discoveryDefault: true
@@ -739,7 +740,8 @@ async function runAgentAsWorkflow<
   const disabledCapabilities = Object.fromEntries(
     Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
   ) as Record<string, false>
-  if ("discoveryDefault" in binding && capabilityNames.some(name => !portableWorkflowCapabilities.has(name))) return undefined
+  if (input.context?.[requireAgentWorkflowContextKey] === true && capabilityNames.length) return undefined
+  if ("discoveryDefault" in binding && capabilityNames.length) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -757,6 +759,7 @@ async function runAgentAsWorkflow<
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
     input: workflowInput,
     ...(context.request ? { requestUrl: context.request.url } : {}),
+    ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(inheritedRun ? { run: inheritedRun } : {}),
@@ -4029,6 +4032,9 @@ export async function runAgent<
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflow) return workflow.run
+  if (input.context?.[requireAgentWorkflowContextKey] === true) {
+    throw new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+  }
   return await runAgentInline(agent, invocationContext, input)
 }
 

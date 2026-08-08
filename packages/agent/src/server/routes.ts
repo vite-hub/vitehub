@@ -13,7 +13,7 @@ import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatTrig
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
-import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { isAttachmentData } from "../messages.ts"
@@ -3057,6 +3057,7 @@ async function handleChatSdkMessage(
         context: {
           ...resolvedInvocationInput.context,
           [finalChannelOutputContextKey]: true,
+          [requireAgentWorkflowContextKey]: true,
         },
       }, invoker) as never)
       return

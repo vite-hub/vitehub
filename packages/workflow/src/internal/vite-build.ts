@@ -220,7 +220,6 @@ interface GeneratedWorkflowArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
-  agentCapabilityRuntimeImports?: { blob?: string, database?: string }
   agentImportBase?: string
   clientOutDir: string
   importBase?: string
@@ -242,7 +241,6 @@ interface WorkspaceDependencyRuntimeImports {
 
 interface WorkflowImportBases {
   agent?: string
-  agentCapabilities?: { blob?: string, database?: string }
   workflow?: string
   workspace?: string
   workspaceDependencies?: WorkspaceDependencyRuntimeImports
@@ -259,7 +257,6 @@ interface CloudflareWorkflowConfig {
 }
 
 interface CloudflareWorkflowNitroOptions {
-  agentCapabilityRuntimeImports?: { blob?: string, database?: string }
   agentImportBase?: string
   nitro: Record<string, unknown>
   rootDir: string
@@ -332,7 +329,6 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
 
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
-    agentCapabilities: options.agentCapabilityRuntimeImports,
     workflow: options.workflowImportBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
@@ -507,7 +503,6 @@ function createWorkflowRegistryContents(
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
-  const agentCapabilityRuntimeImports = needsAgentRuntime ? importBases.agentCapabilities : undefined
   const workspaceDependencyRuntimeImports = importBases.workspace ? importBases.workspaceDependencies : undefined
   const imports = [
     ...(needsAgentRuntime
@@ -536,8 +531,6 @@ function createWorkflowRegistryContents(
     ...(installAgentWorkflowRuntime
       ? [
           "setAgentWorkflowRuntimeLoaders({",
-          ...(agentCapabilityRuntimeImports?.blob ? [`  blob: () => import(${JSON.stringify(agentCapabilityRuntimeImports.blob)}),`] : []),
-          ...(agentCapabilityRuntimeImports?.database ? [`  database: () => import(${JSON.stringify(agentCapabilityRuntimeImports.database)}),`] : []),
           `  state: () => import(${JSON.stringify(`${importBases.workflow}/runtime/state`)}),`,
           `  workflow: () => import(${JSON.stringify(importBases.workflow)}),`,
           "})",
@@ -790,7 +783,6 @@ function createVercelOutput(
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
-    agentCapabilities: options.agentCapabilityRuntimeImports,
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,

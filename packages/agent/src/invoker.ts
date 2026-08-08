@@ -166,6 +166,14 @@ export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
   }
 }
 
+export function hasResolvedAgentInvokerInput(input: AgentRunInput): boolean {
+  return (input.context as { [resolvedAgentInvokerInputKey]?: unknown } | undefined)?.[resolvedAgentInvokerInputKey] === true
+}
+
+export function restoreResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
+  return { ...input, context: { ...input.context, [resolvedAgentInvokerInputKey]: true } }
+}
+
 function selectedProfileId(inputContext: object | undefined): string | undefined {
   const context = contextRecord(inputContext)
   for (const key of profileSelectorKeys) {

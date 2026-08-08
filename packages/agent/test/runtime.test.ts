@@ -10725,7 +10725,7 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("materializes a lazy message attachment before portable primitive Workflows", async () => {
+    it("materializes a lazy message attachment before Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -10737,7 +10737,6 @@ describe("agent message protocol", () => {
       })
       const run = await runAgent(agent, {
         agentIdentity: { name: "portable-attachments" },
-        capabilities: { blob: {}, db: {} },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
@@ -10758,6 +10757,23 @@ describe("agent message protocol", () => {
         },
         status: "completed",
       })
+    })
+
+    it("rejects required Workflow delivery instead of falling back inline", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
+      const run = vi.fn(() => "inline")
+      const agent = defineAgent({ driver: { run } })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        context: { [requireAgentWorkflowContextKey]: true },
+        prompt: "hello",
+      })).rejects.toThrow("requires this Agent invocation to start a Workflow")
+      expect(run).not.toHaveBeenCalled()
     })
 
     it("reconstructs Agent Run Events inside workflow execution", async () => {

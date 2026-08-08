@@ -7,7 +7,6 @@ import {
   readHarnessWorkspaceDiff,
 } from "../../harness-runtime.ts"
 import { cloneWithPropertyDescriptors } from "../../internal/stream-result.ts"
-import { loadAgentWorkflowBlobModule } from "../../internal/workflow-runtime-loaders.ts"
 import { attachmentStringBytes, currentInputAttachments, isAttachmentData, resolveAttachmentData } from "../../messages.ts"
 import {
   assertString,
@@ -232,7 +231,7 @@ function normalizeListLimit(limit: unknown): number {
 async function resolveBlobPrimitive(context: AgentCapabilityContext) {
   if (context.capabilities?.blob !== undefined) return requirePrimitive(context as never, "blob")
   try {
-    return (await (loadAgentWorkflowBlobModule() ?? import(blobPackageName)) as { blob: unknown }).blob
+    return ((await import(blobPackageName)) as { blob: unknown }).blob
   }
   catch (error) {
     throw new Error(`[vitehub] Capability "blob" requires the blob primitive to be configured or @vite-hub/blob to be installed. ${error instanceof Error ? error.message : String(error)}`)
