@@ -29,7 +29,7 @@ function unseal(value: AgentGatewayModel["apiKey"]): string | undefined {
 
 function gatewayApiKey<TRuntimeConfig extends AgentRuntimeConfig>(
   value: AgentGatewayModel["apiKey"],
-  context: AgentAdapterMetadataContext<TRuntimeConfig>,
+  context: Pick<AgentAdapterMetadataContext<TRuntimeConfig>, "cloudflare">,
 ): string | undefined {
   if (value !== undefined) return unseal(value)
   const cloudflare = context.cloudflare?.env?.AI_GATEWAY_API_KEY
@@ -39,7 +39,7 @@ function gatewayApiKey<TRuntimeConfig extends AgentRuntimeConfig>(
 
 export async function materializeAgentModel<TRuntimeConfig extends AgentRuntimeConfig>(
   model: AgentModelInput,
-  context: AgentAdapterMetadataContext<TRuntimeConfig>,
+  context: Pick<AgentAdapterMetadataContext<TRuntimeConfig>, "cloudflare">,
 ): Promise<LanguageModel> {
   const descriptor = gatewayModelDescriptor(model)
   if (!descriptor) return model as LanguageModel

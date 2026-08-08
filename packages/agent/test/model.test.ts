@@ -92,6 +92,31 @@ describe("Agent model materialization", () => {
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "tenant-token" })
   })
 
+  it("materializes Capability models with invocation runtime config", async () => {
+    const model = languageModel()
+    const selectModel = vi.fn(() => model)
+    const createGateway = vi.fn(() => selectModel)
+    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    let resolvedModel: unknown
+
+    await resolveAgentCapabilities({
+      capabilities: [defineCapability<{ gatewayKey: string }>({
+        id: "model-consumer",
+        async resolve(context) {
+          resolvedModel = await context.model.resolve(({ runtimeConfig }) => ({
+            apiKey: runtimeConfig.gatewayKey,
+            id: "zai/glm-5v-turbo",
+          }))
+        },
+      })],
+    }, { ...runtime, runtimeConfig: { gatewayKey: "capability-token" } }, {})
+
+    expect(createGateway).toHaveBeenCalledWith({ apiKey: "capability-token" })
+    expect(selectModel).toHaveBeenCalledWith("zai/glm-5v-turbo")
+    expect(resolvedModel).toBe(model)
+  })
+
   it("leaves conventional Gateway credential discovery intact", async () => {
     vi.stubEnv("AI_GATEWAY_API_KEY", "")
     const createGateway = vi.fn(() => vi.fn(() => languageModel()))
