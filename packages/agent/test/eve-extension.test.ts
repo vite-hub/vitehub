@@ -820,6 +820,22 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it("rejects extension mounts inside static blocks", async () => {
+    await expect(transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        class AgentFactory {
+          static {
+            defineAgent({ capabilities: [github()] })
+          }
+        }
+      `,
+      parseAst,
+      async specifier => specifier === "@github-tools/eve-extension",
+    )).rejects.toThrow("must be mounted in a top-level static capabilities array")
+  })
+
   it("does not lower a catch-parameter-shadowed extension factory", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `

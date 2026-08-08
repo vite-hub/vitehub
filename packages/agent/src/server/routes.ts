@@ -3635,6 +3635,7 @@ async function authorizeAgentChatApprovals(
   sessionId: string,
   messages: UIMessageLike[],
   persistApprovedTools = true,
+  ttlMs = agentChatApprovalTtlMs,
 ): Promise<{ approvedTools: string[], messages: UIMessageLike[] }> {
   const submitted = messages.flatMap((message, messageIndex) => (message.parts || []).flatMap(part => {
     const approvalPart = uiApprovalPart(part)
@@ -3701,7 +3702,7 @@ async function authorizeAgentChatApprovals(
       await state.set(
         agentChatApprovedToolsKey(invokerId, sessionId),
         [...new Set([...(approved ?? []), ...newlyApproved])],
-        agentChatApprovalTtlMs,
+        ttlMs,
       )
     }
     await Promise.all([...consumed].map(async (id) => {
@@ -3712,7 +3713,7 @@ async function authorizeAgentChatApprovals(
           ...request,
           approved: decision.approved,
           ...(typeof decision.reason === "string" ? { reason: decision.reason } : {}),
-        } satisfies AgentChatConsumedApproval, agentChatApprovalTtlMs)
+        } satisfies AgentChatConsumedApproval, ttlMs)
       }
     }))
     await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(invokerId, sessionId, id))))
@@ -3720,7 +3721,7 @@ async function authorizeAgentChatApprovals(
   })
 }
 
-function trackAgentChatApprovals(result: unknown, state: StateAdapter, invokerId: string, sessionId: string): unknown {
+function trackAgentChatApprovals(result: unknown, state: StateAdapter, invokerId: string, sessionId: string, ttlMs = agentChatApprovalTtlMs): unknown {
   const toolInputs = new Map<string, { input?: unknown, name?: string }>()
 
   async function trackChunk(value: unknown): Promise<void> {
@@ -3745,7 +3746,7 @@ function trackAgentChatApprovals(result: unknown, state: StateAdapter, invokerId
         name: firstString(value.toolName, tool?.name) || "tool",
         toolCallId,
       } satisfies AgentChatPendingApproval,
-      agentChatApprovalTtlMs,
+      ttlMs,
     )
   }
 
@@ -3879,12 +3880,13 @@ export function createChannelChatRouteHandler(
       const { state } = await resolveChatState(chatOptions, context, registration, handlerOptions)
       await state.connect()
       const sessionOptions = chatOptions.sessions
+      let approvalTtlMs = agentChatApprovalTtlMs
       const manualSessions = sessionOptions === true
         || Boolean(sessionOptions && (sessionOptions.strategy === "manual" || sessionOptions.strategy === "hybrid" || (!sessionOptions.strategy && !sessionOptions.idleTimeoutMs)))
       if (sessionId && manualSessions) {
         const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
         const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)
-        const boundaryTtlMs = sessionOptions && sessionOptions !== true && sessionOptions.strategy === "hybrid" && sessionOptions.idleTimeoutMs
+        approvalTtlMs = sessionOptions && sessionOptions !== true && sessionOptions.strategy === "hybrid" && sessionOptions.idleTimeoutMs
           ? Math.min(agentChatApprovalTtlMs, sessionOptions.idleTimeoutMs)
           : agentChatApprovalTtlMs
         if (triggerInput.session?.action === "new") {
@@ -3893,7 +3895,7 @@ export function createChannelChatRouteHandler(
         else {
           selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
         }
-        if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, boundaryTtlMs)
+        if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
       }
       const approvalSessionId = sessionId && selectedSessionId
         ? `${sessionId}:chat-session:${selectedSessionId}`
@@ -3903,7 +3905,7 @@ export function createChannelChatRouteHandler(
         if (!persistApprovedTools && triggerInput.messages.some(message => message.parts?.some(part => uiApprovalPart(part)?.record.state === "approval-responded"))) {
           throw createRouteBodyError("Agent chat approval responses require an authenticated invoker.")
         }
-        const authorized = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages, persistApprovedTools)
+        const authorized = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages, persistApprovedTools, approvalTtlMs)
         const approvedTools = persistApprovedTools
           ? await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, approvalSessionId))
           : authorized.approvedTools
@@ -3919,7 +3921,7 @@ export function createChannelChatRouteHandler(
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
-      if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId)
+      if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
       return await toAgentChatFetchResponse(result)
     }
     catch (error) {

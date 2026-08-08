@@ -2450,6 +2450,11 @@ describe("server helpers", () => {
       expect(requested.status).toBe(201)
       expect(requested.headers.get("x-agent")).toBe("approval")
       await requested.text()
+      expect(stateSet).toHaveBeenCalledWith(
+        expect.stringMatching(/:approval:approval-1$/),
+        expect.objectContaining({ id: "approval-1", toolCallId: "call-1" }),
+        60_000,
+      )
       stateSet.mockClear()
 
       const otherUser = await handler(request("approval-1", "user-2"), { agentName: "support", state })
@@ -2472,6 +2477,16 @@ describe("server helpers", () => {
         expect.any(String),
         "session-1:manual:user-1",
         expect.any(Number),
+      )
+      expect(stateSet).toHaveBeenCalledWith(
+        expect.stringMatching(/:eve:approved-tools$/),
+        ["github__createOrUpdateFile"],
+        60_000,
+      )
+      expect(stateSet).toHaveBeenCalledWith(
+        expect.stringMatching(/:approval:approval-1:consumed$/),
+        expect.objectContaining({ approved: true, id: "approval-1", toolCallId: "call-1" }),
+        60_000,
       )
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
 

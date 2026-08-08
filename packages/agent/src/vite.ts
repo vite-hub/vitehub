@@ -1016,6 +1016,7 @@ export async function transformEveExtensionCapabilities(
   const exportedStaticArrays = new Set<PositionedNode>()
   const references = new Map<string, number>()
   const functionRanges: Array<{ end: number, start: number }> = []
+  const staticBlockRanges: Array<{ end: number, start: number }> = []
   const shadowRanges = new Map<string, Array<{ end: number, start: number }>>()
   for (const statement of Array.isArray(program.body) ? program.body : []) {
     if (!isPositionedNode(statement)) continue
@@ -1067,6 +1068,7 @@ export async function transformEveExtensionCapabilities(
       references.set(node.name, (references.get(node.name) ?? 0) + 1)
     }
     if (node.type.includes("Function")) functionRanges.push({ end: node.end, start: node.start })
+    if (node.type === "StaticBlock") staticBlockRanges.push({ end: node.end, start: node.start })
     if (node.type !== "ImportDeclaration") return
     const source = node.source
     const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
@@ -1257,7 +1259,7 @@ export async function transformEveExtensionCapabilities(
   for (const call of calls) {
     const resolvedIdentity = await resolveExtension(call.source)
     if (!resolvedIdentity) continue
-    if (functionRanges.some(range => call.call.start > range.start && call.call.end < range.end)) {
+    if ([...functionRanges, ...staticBlockRanges].some(range => call.call.start > range.start && call.call.end < range.end)) {
       throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} must be mounted in a top-level static capabilities array.`)
     }
     const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
