@@ -738,10 +738,13 @@ describe("hubWorkspace", () => {
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        rollupConfig: { external: ["cloudflare:workers"] },
       },
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
     expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
     expect(pluginSource).toContain('"repository": () => process.env.WORKSPACE_REPO')
     expect(pluginSource).toContain('"token": () => process.env.WORKSPACE_TOKEN')

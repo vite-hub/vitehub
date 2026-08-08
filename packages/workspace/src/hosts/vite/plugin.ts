@@ -6,6 +6,7 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
@@ -623,14 +624,18 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
+function configureCloudflareNitroRuntime(nitro: NitroConfig): void {
+  const rollupConfig = isRecord(nitro.rollupConfig) ? { ...nitro.rollupConfig } : {}
+  nitro.rollupConfig = { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }
+}
+
 function configureCloudflareArtifactsNitroRuntime(nitro: NitroConfig): void {
   nitro.cloudflare ??= {}
   nitro.cloudflare.wrangler ??= {}
   const compatibilityFlags = nitro.cloudflare.wrangler.compatibility_flags || []
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   nitro.cloudflare.wrangler.compatibility_flags = compatibilityFlags
-  const rollupConfig = isRecord(nitro.rollupConfig) ? { ...nitro.rollupConfig } : {}
-  nitro.rollupConfig = { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }
+  configureCloudflareNitroRuntime(nitro)
 }
 
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
@@ -677,7 +682,7 @@ function renderNitroWorkspacePlugin(
   config: false | ResolvedWorkspaceModuleOptions,
   registryImport: string,
   installHostedRuntime: boolean,
-  cloudflareArtifacts: boolean,
+  cloudflareRuntime: boolean,
   importBase = WORKSPACE_PACKAGE_NAME,
 ): string {
   const hostedRuntimeImport = `${importBase}/internal/runtime/hosted`
@@ -700,7 +705,7 @@ function renderNitroWorkspacePlugin(
         ...(installHostedRuntime ? [`import { installHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`] : []),
         `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
       ]
-  if (cloudflareArtifacts) {
+  if (cloudflareRuntime) {
     runtimeImports.unshift(
       "import { env as vitehubEnv } from 'cloudflare:workers'",
       `import { setActiveCloudflareEnv } from '${importBase}/internal/runtime/state'`,
@@ -722,7 +727,7 @@ function renderNitroWorkspacePlugin(
     `import registry from ${JSON.stringify(registryImport)}`,
     "",
     "export default function vitehubWorkspacePlugin() {",
-    ...(cloudflareArtifacts ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
+    ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
     "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
     "}",
@@ -735,7 +740,7 @@ async function writeNitroWorkspacePlugin(
   config: false | ResolvedWorkspaceModuleOptions,
   options: false | WorkspaceModuleOptions | undefined,
   definitions: DiscoveredWorkspaceDefinition[],
-  cloudflareArtifacts = false,
+  cloudflareRuntime = false,
   importBase = WORKSPACE_PACKAGE_NAME,
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
 ): Promise<void> {
@@ -753,7 +758,7 @@ async function writeNitroWorkspacePlugin(
       runtimeConfig,
       moduleImportSpecifier(pluginFile, registryFile),
       definitions.length > 0 && !(runtimeConfig && isHostedWorkspaceStore(runtimeConfig.store)),
-      cloudflareArtifacts,
+      cloudflareRuntime,
       importBase,
     ),
     "utf8",
@@ -783,10 +788,12 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
     definitionOverrides,
   })
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
-  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareArtifactsConfigs.length > 0, WORKSPACE_PACKAGE_NAME, definitionOverrides)
+  const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(options.hosting) === "cloudflare"
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides)
   const nitro = mergeNitroWorkspaceConfig(options.nitro)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
   if (cloudflareArtifactsConfigs.length > 0) configureCloudflareArtifactsNitroRuntime(nitro)
+  else if (cloudflareRuntime) configureCloudflareNitroRuntime(nitro)
   return nitro
 }
 
@@ -889,10 +896,12 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           definitionOverrides,
         })
         const usesCloudflareArtifacts = artifacts.length > 0
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareArtifacts, importBase, definitionOverrides)
+        const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(hosting) === "cloudflare"
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareArtifacts) configureCloudflareArtifactsNitroRuntime(nitro)
+        else if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
         viteConfig.nitro = nitro
       }
