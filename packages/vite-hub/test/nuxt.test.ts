@@ -427,6 +427,19 @@ describe("ViteHub Nuxt integration", () => {
       .rejects.toThrow("Cannot auto-import useChat from vite-hub/agent/vue because it is already configured from custom-chat")
   })
 
+  it("auto-imports the Realtime Vue composable", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & {
+      imports: { imports: Array<{ from: string, name: string }> }
+    }).imports.imports).toContainEqual({
+      from: "vite-hub/realtime/vue",
+      name: "useRealtimeTiptap",
+    })
+  })
+
   it("does not resolve a relative Vite root twice for Auth Env imports", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options.vite, { root: "app" })
