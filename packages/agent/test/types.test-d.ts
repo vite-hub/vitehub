@@ -12,6 +12,7 @@ import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import githubExtension from "@github-tools/eve-extension"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
 
@@ -28,6 +29,28 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("preserves native Capability context inference beside Eve mounts", () => {
+    const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
+      AgentRuntimeConfig,
+      any,
+      { invocationContext: { native: string } }
+    >
+    defineAgent({
+      capabilities: [native, githubExtension({ preset: "code-review" })],
+      driver: { run({ context }) {
+        expectTypeOf(context.get("native")).toEqualTypeOf<string | undefined>()
+        return "ok"
+      } },
+    })
+  })
+
+  it("types Eve extensions in static capabilities", () => {
+    defineAgent({
+      capabilities: [githubExtension({ preset: "code-review" })],
+      driver: { run: () => "ok" },
+    })
+  })
+
   it("preserves call options through queued webhook rehydration", () => {
     type Options = { mode: "fresh" }
     type Webhook = NonNullable<AgentTriggerRunInvokeResult<Options>["webhook"]>

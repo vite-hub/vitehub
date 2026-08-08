@@ -56,6 +56,26 @@ export default defineAgent({
 
 Return only invocation-scoped behavior from the callback. Capabilities that contribute Agent Triggers, chat admission, or static Workspace Sources must stay in a static list because ViteHub registers those contributions before an invocation exists.
 
+## Use an Eve extension
+
+ViteHub detects compatible Eve extension packages in a static Capability list and compiles their tools into a Capability. Install the extension, then use its existing factory and options:
+
+```ts [server/agents/reviewer.ts]
+import github from '@github-tools/eve-extension'
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: [
+    github({ preset: 'code-review' }),
+  ],
+})
+```
+
+The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. The first bridge supports one mount per extension package, direct default-import factory calls, static and `session.started` tools, tool schemas and output conversion, and Eve's `always`, `never`, and `once` approval modes. ViteHub maps `session.started` to the start of each Agent Invocation and uses the invocation's `runId` as the Eve session ID, so every invocation resolves a fresh tool set without relying on process-local state. The built-in HTTP chat route persists pending approvals in its configured Chat state, reconstructs the authoritative tool call server-side, and consumes each response once under a session lock. Client-supplied chat history never creates approval authority. Unsupported dynamic events fail when ViteHub resolves the extension's tools for an Agent Invocation.
+
+This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getSkill()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Session authentication is unavailable and turn sequence metadata is not preserved. ViteHub Agent Invocations are not Eve durable sessions, so extensions that depend on one `session.started` resolution spanning several invocations are not supported yet.
+
 ## What Capabilities can contribute
 
 | Contribution | What it changes |

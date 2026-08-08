@@ -427,6 +427,17 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("normalizes native tool approval requests", () => {
+    const toolNames = new Map<string, string>()
+    expect(toAgentStreamEvent({ input: {}, toolCallId: "call-1", toolName: "github__write", type: "tool-call" }, toolNames)).toMatchObject({ type: "tool-call" })
+    expect(toAgentStreamEvent({ approvalId: "approval-1", toolCallId: "call-1", type: "tool-approval-request" }, toolNames)).toEqual({
+      id: "approval-1",
+      name: "github__write",
+      toolCallId: "call-1",
+      type: "approval-request",
+    })
+  })
+
   it("converts text outputs into stream events", async () => {
     const events: unknown[] = []
     for await (const event of streamAgentOutputToEvents({ finishReason: "stop", text: "ok" })) {

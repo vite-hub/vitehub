@@ -156,6 +156,7 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentSettings,
+  AgentStaticCapabilitiesList,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -579,9 +580,9 @@ type CapabilityInvocationContextValues<TCapability> =
     ? TTypeContract extends AgentCapabilityTypeContract
       ? TTypeContract["invocationContext"] extends object
         ? TTypeContract["invocationContext"]
-        : unknown
-      : unknown
-    : unknown
+        : never
+      : never
+    : never
 type AgentCapabilitiesInvocationContextValues<TCapabilities> =
   AgentInvocationContextValues & UnionToIntersection<
     ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly [unknown, ...unknown[]] | readonly []
@@ -1360,7 +1361,7 @@ type AgentCapabilitiesOption<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
   CALL_OPTIONS,
-  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+  TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
 > = TCapabilities | AgentCapabilitiesResolver<
   TRuntimeConfig,
   Name,
@@ -1376,7 +1377,7 @@ export interface DefineAgent {
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
     TOutput = unknown,
     const TOptions extends WorkspaceAgentOptions<
       TRuntimeConfig,
@@ -1405,7 +1406,7 @@ export interface DefineAgent {
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
     TOutput = unknown,
     const TOptions extends WorkspaceAgentOptions<
       TRuntimeConfig,
@@ -1429,7 +1430,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig> | undefined,
     TOutput = unknown,
   >(
     options: AgentSettings<
@@ -1446,7 +1447,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = AgentStaticCapabilitiesList<TRuntimeConfig> | undefined,
     TOutput = unknown,
   >(
     options: AgentSettings<

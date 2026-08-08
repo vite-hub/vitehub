@@ -19,7 +19,7 @@ export default defineConfig({
     },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/],
+      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/, /^eve\/extension$/],
       neverBundle: [
         "vite",
         "esbuild",
@@ -48,6 +48,7 @@ export default defineConfig({
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",
+      "src/eve.ts",
       "src/harness/local-sandbox.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",
