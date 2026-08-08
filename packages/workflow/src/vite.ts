@@ -2,12 +2,24 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { Plugin, ResolvedConfig } from "vite"
 
-export type WorkflowVitePlugin = Plugin
+interface WorkflowNitroConfigOptions {
+  nitro: Record<string, unknown>
+  projectRoot: string
+  serverDirs?: string[]
+}
+
+export type WorkflowVitePlugin = Plugin & {
+  vitehub?: {
+    workflow?: {
+      createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
+    }
+  }
+}
 
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
@@ -58,6 +70,24 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       return {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
+    },
+    vitehub: {
+      workflow: {
+        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs }: WorkflowNitroConfigOptions) {
+          return await createCloudflareWorkflowNitroConfig({
+            agentCapabilityRuntimeImports: internalOptions?.agentCapabilityRuntimeImports,
+            agentImportBase: internalOptions?.agentImportBase,
+            nitro,
+            rootDir: projectRoot,
+            serverDirs: nitroServerDirs,
+            userAppEntry: internalOptions?.userAppEntry,
+            workflow,
+            workflowImportBase: internalOptions?.importBase,
+            workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
+            workspaceImportBase: internalOptions?.workspaceImportBase,
+          })
+        },
+      },
     },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {

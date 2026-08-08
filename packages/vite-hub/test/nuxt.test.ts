@@ -48,6 +48,10 @@ const mocks = vi.hoisted(() => ({
     },
   })),
   vitehub: vi.fn(),
+  workflowNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
+    ...nitro,
+    workflows: true,
+  })),
 }))
 
 vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
@@ -92,6 +96,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
+    mocks.workflowNitroConfig.mockClear()
     mocks.vitehub.mockReset()
     mocks.vitehub.mockReturnValue([
       false,
@@ -132,6 +137,14 @@ describe("ViteHub Nuxt integration", () => {
       {
         name: "@vite-hub/sandbox/vite",
         config: mocks.sandboxHook,
+      },
+      {
+        name: "@vite-hub/workflow/vite",
+        vitehub: {
+          workflow: {
+            createNitroConfig: mocks.workflowNitroConfig,
+          },
+        },
       },
       {
         name: "vite-hub/object-hook",
@@ -185,6 +198,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
+      expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
       existingQueuePlugin,
       existingOwnerPlugin,
       existingPlugin,
@@ -216,6 +230,11 @@ describe("ViteHub Nuxt integration", () => {
       nitro: expect.objectContaining({ preset: "cloudflare_module" }),
       projectRoot: "/tmp/vitehub-nuxt",
       root: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
+    expect(mocks.workflowNitroConfig).toHaveBeenCalledWith({
+      nitro: expect.objectContaining({ preset: "cloudflare_module" }),
+      projectRoot: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
     expect(mocks.queueNitroConfig).not.toHaveBeenCalled()
@@ -267,6 +286,7 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
       },
       sandbox: true,
+      workflows: true,
     })
   })
 
