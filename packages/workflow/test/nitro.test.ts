@@ -6,6 +6,15 @@ import { expect, it } from "vitest"
 
 import { createCloudflareWorkflowNitroConfig } from "../src/internal/vite-build.ts"
 
+it("leaves implicit Workflow disabled for Netlify Nitro output", async () => {
+  const nitro = { preset: "netlify" }
+  await expect(createCloudflareWorkflowNitroConfig({
+    nitro,
+    rootDir: "/tmp/unused",
+    workflow: undefined,
+  })).resolves.toBe(nitro)
+})
+
 it("installs discovered Agent workflows into a Cloudflare Nitro entry", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-"))
   try {

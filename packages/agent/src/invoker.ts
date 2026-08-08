@@ -174,7 +174,15 @@ export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunI
   if (!hasResolvedAgentInvokerInput(input)) return input
   const context = contextRecord(input.context)
   const invoker = normalizeAgentInvoker(context[agentInvokerContextKey] ?? context[agentActorContextKey])
-  const { meta: _meta, ...portableInvoker } = invoker
+  const portableMeta = invoker.meta === undefined
+    ? undefined
+    : JSON.parse(JSON.stringify(invoker.meta, (_key, value) => {
+        return typeof value === "bigint" || typeof value === "function" || typeof value === "symbol" ? undefined : value
+      })) as Record<string, unknown>
+  const portableInvoker = {
+    ...invoker,
+    ...(portableMeta ? { meta: portableMeta } : {}),
+  }
   return {
     ...input,
     context: {

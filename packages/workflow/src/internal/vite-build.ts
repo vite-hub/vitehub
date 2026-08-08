@@ -324,6 +324,7 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
 
 export async function createCloudflareWorkflowNitroConfig(options: CloudflareWorkflowNitroOptions): Promise<Record<string, unknown>> {
   const preset = String(options.nitro.preset || "")
+  if (options.workflow === undefined && !preset.includes("cloudflare")) return options.nitro
   const config = normalizeWorkflowOptions(options.workflow, { hosting: preset })
   if (!config || config.provider !== "cloudflare") return options.nitro
 
