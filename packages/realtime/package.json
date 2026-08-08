@@ -1,0 +1,81 @@
+{
+  "name": "@vite-hub/realtime",
+  "version": "0.0.1",
+  "description": "Realtime document primitives and Vite integration for ViteHub.",
+  "keywords": [
+    "collaboration",
+    "h3",
+    "realtime",
+    "vite",
+    "vitehub",
+    "yjs"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/realtime"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./server": "./dist/server.js",
+    "./vite": "./dist/vite.js",
+    "./vue": "./dist/vue.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/realtime#build && vp test"
+  },
+  "dependencies": {
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-collaboration": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/markdown": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
+    "@tiptap/y-tiptap": "catalog:realtime",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/history": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "h3": "catalog:unjs",
+    "lib0": "catalog:realtime",
+    "pathe": "catalog:unjs",
+    "vue": "catalog:ui",
+    "y-protocols": "catalog:realtime",
+    "y-websocket": "catalog:realtime",
+    "yjs": "catalog:realtime"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

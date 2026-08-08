@@ -451,6 +451,22 @@ describe("vitehub", () => {
     }
   })
 
+  it("uses Nitro's Durable Object transport for Cloudflare realtime", async () => {
+    const config = await applyDeploymentConfig({ preset: "cloudflare", realtime: true })
+
+    expect(config.nitro).toMatchObject({
+      preset: "cloudflare-durable",
+      cloudflare: {
+        wrangler: {
+          durable_objects: {
+            bindings: [{ class_name: "$DurableObject", name: "$DurableObject" }],
+          },
+          migrations: [{ new_sqlite_classes: ["$DurableObject"], tag: "vitehub-realtime-v1" }],
+        },
+      },
+    })
+  })
+
   it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
     const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
       nitro.options.commands.deploy = "node ./deploy.mjs"

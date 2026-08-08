@@ -238,6 +238,18 @@ describe("workspace public API", () => {
     expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
   })
 
+  it("checkpoints writable workspace history", async () => {
+    const store = createMemoryWorkspaceStore()
+    const snapshot = vi.spyOn(store, "snapshot")
+    registerWorkspace("history-api", defineWorkspace({ store }))
+
+    const workspace = useWorkspace("history-api", { mode: "write" })
+    const checkpoint = await workspace.history.checkpoint({ message: "docs: save draft" })
+
+    expect(snapshot).toHaveBeenCalledWith({ name: "docs: save draft" })
+    expect(checkpoint.name).toBe("docs: save draft")
+  })
+
   it("publishes from the writable facade without running definition sync", async () => {
     const store = createMemoryWorkspaceStore()
     const snapshot = vi.spyOn(store, "snapshot")

@@ -131,6 +131,9 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
       writeFile: async (path, content, options) => await workspace.writeFile(path, content, options),
     },
     getMeta: async key => await workspace.getMeta?.(key),
+    history: {
+      checkpoint: async options => await workspace.snapshot({ name: options?.message }),
+    },
     materializeSources: async options => await workspace.materializeSources?.(options) ?? {
       bytes: 0,
       directories: 0,

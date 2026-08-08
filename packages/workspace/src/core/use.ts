@@ -19,6 +19,7 @@ import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecuti
 import { workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 
 import type { Tool, ToolSet } from "ai"
+import type { History } from "@vite-hub/history"
 import type {
   DiffOptions,
   GlobOptions,
@@ -120,6 +121,7 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
+  history: History<WorkspaceSnapshot>
   getMeta?(key: string): Promise<unknown>
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   publish(options?: WorkspacePublishOptions): Promise<void>
@@ -469,6 +471,9 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       },
       diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
+      history: {
+        checkpoint: async options => await workspace.snapshot({ name: options?.message }),
+      },
       getMeta: async key => await workspace.getMeta?.(key),
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),
       publish: async options => await workspace.publish(options),
