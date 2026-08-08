@@ -3872,7 +3872,7 @@ export function createChannelChatRouteHandler(
       if (sessionId && manualSessions) {
         const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
         const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)
-        const boundaryTtlMs = sessionOptions !== true && sessionOptions.strategy === "hybrid" && sessionOptions.idleTimeoutMs
+        const boundaryTtlMs = sessionOptions && sessionOptions !== true && sessionOptions.strategy === "hybrid" && sessionOptions.idleTimeoutMs
           ? Math.min(agentChatApprovalTtlMs, sessionOptions.idleTimeoutMs)
           : agentChatApprovalTtlMs
         if (triggerInput.session?.action === "new") {
