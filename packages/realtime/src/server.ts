@@ -5,7 +5,7 @@ import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { getAuthForRequest } from "@vite-hub/auth/server"
-import { isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
+import { invalidateWorkspaceStore, isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -93,6 +93,7 @@ interface Room {
   key: string
   pendingCheckpoint?: {
     message: string
+    state: Uint8Array
     submittedDocument: Y.Doc
     workspace: Pick<WritableWorkspaceFacade, "fs" | "history">
   }
@@ -366,6 +367,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
           }
         })
+        if (value.sql && !stored) persistRoom(value)
         return value
       })()
       rooms.set(key, room)
@@ -422,6 +424,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
 
     const checkpoint = (async () => {
       let pending = room.pendingCheckpoint
+      if (pending && !matchesBytes(pending.state, state)) {
+        room.pendingCheckpoint = undefined
+        pending.submittedDocument.destroy()
+        await invalidateWorkspaceStore(definition.document.workspace)
+        pending = undefined
+      }
       if (!pending) {
         const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
         const submittedDocument = new Y.Doc()
@@ -439,7 +447,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           }
           throw error
         }
-        pending = { message, submittedDocument, workspace }
+        pending = { message, state: Uint8Array.from(state), submittedDocument, workspace }
         room.pendingCheckpoint = pending
       }
 
@@ -451,6 +459,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         if (isWorkspaceConflict(error)) {
           if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
           pending.submittedDocument.destroy()
+          await invalidateWorkspaceStore(definition.document.workspace)
           throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
         }
         throw error

@@ -11,6 +11,10 @@ export function getCachedWorkspaceStore(definition: WorkspaceDefinition, create:
   return store
 }
 
+export function invalidateCachedWorkspaceStore(definition: WorkspaceDefinition): void {
+  storeByDefinition.delete(definition)
+}
+
 export function resetWorkspaceStoreCache(): void {
   storeByDefinition = new WeakMap<WorkspaceDefinition, WorkspaceStore>()
 }

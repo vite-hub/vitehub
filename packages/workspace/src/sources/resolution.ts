@@ -370,6 +370,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     async function writeWithPolicy(
       input: Omit<WorkspaceWriteInput, "previous" | "rule" | "workspace">,
       write: (input: WorkspaceWriteInput) => Promise<void>,
+      preservePath = false,
     ) {
       await sourceView.assertWritable(input.path)
       const next = await writePolicy.before({
@@ -379,6 +380,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         workspace: resolvedDefinition.name,
       })
       try {
+        if (preservePath && next.path !== normalizeWorkspacePath(input.path)) {
+          throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${normalizeWorkspacePath(input.path)} -> ${next.path}.`)
+        }
         await sourceView.assertWritable(next.path)
         await write(next)
         await writePolicy.after(next)
@@ -447,7 +451,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
             ? undefined
             : { ...options, mediaType: next.mediaType, metadata: next.metadata }
           await workspace.fs.writeFile(next.path as never, next.content ?? content, writeOptions)
-        })
+        }, options?.preservePath)
         return input.path
       },
     }, sourceRequestExecution)
