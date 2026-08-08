@@ -33,6 +33,7 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./drivers/resend": "./dist/drivers/resend.js",
     "./drivers/smtp": "./dist/drivers/smtp.js",
     "./markdown": "./dist/markdown.js",
     "./server": "./dist/server.js",

@@ -16,6 +16,7 @@ import { useAgent, useChat } from "vite-hub/agent/vue"
 import * as authAgent from "vite-hub/auth/agent"
 import { createAuthClient, useUserSession } from "vite-hub/auth/vue"
 import type { BoxDefinition } from "vite-hub/box"
+import * as resend from "vite-hub/email/drivers/resend"
 import * as smtp from "vite-hub/email/drivers/smtp"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
@@ -36,6 +37,7 @@ export const appFacingModules = [
   agentServer,
   agentSqliteState,
   authAgent,
+  resend,
   smtp,
   markdownTemplate,
   scheduleDriver,
