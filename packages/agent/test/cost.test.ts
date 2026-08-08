@@ -234,6 +234,29 @@ describe("cost Capability", () => {
     })
   })
 
+  it("leaves malformed provider cost metadata best-effort", async () => {
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const legacyCost = { amount: "0.01", currency: "USD" }
+    const agent = defineAgent({
+      capabilities: [cost()],
+      driver: {
+        run: () => ({
+          text: "ok",
+          usageRecord: {
+            cost: legacyCost,
+            usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+          },
+        }),
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      text: "ok",
+      usageRecord: { cost: legacyCost },
+    })
+  })
+
   it.each([
     { catalogId: "openai/gpt-5", modelId: "gpt-5", provider: "openai.responses" },
     { catalogId: "google/gemini-2.5-pro", modelId: "gemini-2.5-pro", provider: "google.generative-ai" },

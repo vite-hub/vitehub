@@ -74,6 +74,17 @@ describe("Agent model materialization", () => {
     expect(createGateway).toHaveBeenNthCalledWith(2, { apiKey: "cloudflare-token" })
   })
 
+  it("rejects empty explicit credentials instead of using ambient credentials", async () => {
+    vi.stubEnv("AI_GATEWAY_API_KEY", "ambient-token")
+    const createGateway = vi.fn(() => vi.fn(() => languageModel()))
+    vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
+    const { materializeAgentModel } = await import("../src/internal/agent-model.ts")
+
+    await expect(materializeAgentModel({ apiKey: "", id: "zai/glm-5v-turbo" }, {} as never))
+      .rejects.toThrow("apiKey must be non-empty")
+    expect(createGateway).not.toHaveBeenCalled()
+  })
+
   it("resolves descriptor credentials for each invocation", async () => {
     const createGateway = vi.fn(() => vi.fn(() => languageModel()))
     vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))

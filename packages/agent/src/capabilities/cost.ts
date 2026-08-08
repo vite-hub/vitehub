@@ -53,7 +53,14 @@ export function cost<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
         }
       }
 
-      if (record.cost) record.cost = materializeAgentUsageCost(record.cost)
+      if (record.cost) {
+        try {
+          record.cost = materializeAgentUsageCost(record.cost)
+        }
+        catch {
+          return record
+        }
+      }
 
       return record
     },

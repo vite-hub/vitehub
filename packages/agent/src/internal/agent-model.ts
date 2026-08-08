@@ -39,7 +39,13 @@ function gatewayApiKey<TRuntimeConfig extends AgentRuntimeConfig>(
   value: AgentGatewayModel["apiKey"],
   context: Pick<AgentAdapterMetadataContext<TRuntimeConfig>, "cloudflare">,
 ): string | undefined {
-  if (value !== undefined) return unseal(value)
+  if (value !== undefined) {
+    const apiKey = unseal(value)
+    if (!apiKey?.trim()) {
+      throw new TypeError("[vitehub] Agent model apiKey must be non-empty when provided.")
+    }
+    return apiKey
+  }
   const cloudflare = context.cloudflare?.env?.AI_GATEWAY_API_KEY
   if (typeof cloudflare === "string" && cloudflare.trim()) return cloudflare
   return typeof process === "object" && process?.env ? process.env.AI_GATEWAY_API_KEY : undefined

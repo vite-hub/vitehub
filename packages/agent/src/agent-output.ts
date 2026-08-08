@@ -315,7 +315,13 @@ function withFallbackUsageMetadata(
   const modelMetadata = modelMetadataFromResult(fallbackMetadataSource)
   const model = record.model ?? modelMetadata?.model
   const transport = record.transport ?? modelMetadata?.transport
-  const cost = record.cost ? materializeAgentUsageCost(record.cost) : undefined
+  let cost: AgentUsageRecord["cost"] | undefined
+  try {
+    cost = record.cost ? materializeAgentUsageCost(record.cost) : undefined
+  }
+  catch {
+    cost = undefined
+  }
   const response = record.response ?? responseFromResult(fallbackMetadataSource)
   const latency = record.latency ?? latencyFromResult(fallbackMetadataSource)
   const credentialSource = record.credentialSource ?? credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource))
