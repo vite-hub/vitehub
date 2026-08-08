@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeCheckpointState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeCheckpointState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, messageAwareness, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -177,6 +177,30 @@ describe("realtime server handler", () => {
 
     expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
+  })
+
+  it("closes peers instead of dropping rapid sync updates", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const first = new Y.Doc()
+    const second = new Y.Doc()
+    first.getMap("edits").set("first", true)
+    second.getMap("edits").set("second", true)
+
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(first)) })
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(second)) })
+
+    expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
+    first.destroy()
+    second.destroy()
   })
 
   it("treats an @workspace path as a document without the events selector", async () => {
@@ -517,6 +541,14 @@ describe("realtime transport boundaries", () => {
     expect(room.getMap("ignored").size).toBe(0)
     room.destroy()
     updateDocument.destroy()
+  })
+
+  it("rejects oversized room state during initialization", () => {
+    const room = new Y.Doc()
+    room.getMap("content").set("payload", "x".repeat(1024))
+
+    expect(() => assertRealtimeRoomStateQuota(room, 512)).toThrow("room quota")
+    room.destroy()
   })
 })
 

@@ -230,6 +230,12 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
   return apply(document)
 }
 
+export function assertRealtimeRoomStateQuota(document: Y.Doc, maxStateBytes = maxRoomStateBytes): void {
+  if (Y.encodeStateAsUpdate(document).byteLength > maxStateBytes) {
+    throw new HTTPError({ status: 413, message: "Realtime document exceeds its 8 MiB room quota." })
+  }
+}
+
 export function applyRealtimeAwarenessUpdate(
   awareness: awarenessProtocol.Awareness,
   update: Uint8Array,
@@ -460,6 +466,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           const update = storedUpdate(row.update_blob)
           if (update) Y.applyUpdate(document, update)
         }
+        assertRealtimeRoomStateQuota(document)
         const awareness = new awarenessProtocol.Awareness(document)
         awareness.setLocalState(null)
         const value: Room = {
@@ -763,7 +770,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           if (syncType !== 0) {
             const now = Date.now()
             const previous = peerSyncUpdateAt.get(peer)
-            if (previous !== undefined && now - previous < syncUpdateIntervalMs) return
+            if (previous !== undefined && now - previous < syncUpdateIntervalMs) {
+              peer.close(1013, "Realtime updates are arriving too quickly.")
+              return
+            }
             peerSyncUpdateAt.set(peer, now)
           }
           const response = applyRealtimeSyncMessage(data, room.document, peer)
