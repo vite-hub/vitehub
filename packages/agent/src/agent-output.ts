@@ -224,7 +224,7 @@ function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model
   const rawModel = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
   if (rawModel === undefined && provider !== "gateway") return
-  const scope = rawModel && provider && provider !== "gateway" ? modelVendorScope(provider, rawModel) : undefined
+  const scope = rawModel && provider && provider !== "gateway" ? modelVendorScope(provider) : undefined
   const model = scope && rawModel && !rawModel.includes("/")
     ? `${scope}/${rawModel}`
     : rawModel
@@ -234,10 +234,10 @@ function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model
   }
 }
 
-function modelVendorScope(provider: string, model: string): string {
+function modelVendorScope(provider: string): string {
   const normalized = provider.toLowerCase()
-  if (normalized.includes("anthropic") || model.startsWith("claude-")) return "anthropic"
-  if (normalized.startsWith("google") || model.startsWith("gemini-")) return "google"
+  if (normalized.includes("anthropic")) return "anthropic"
+  if (normalized.startsWith("google")) return "google"
   return provider.includes(".") ? provider.split(".", 1)[0]! : provider
 }
 

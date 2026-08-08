@@ -64,6 +64,14 @@ describe("agent output helpers", () => {
     })
   })
 
+  it.each(["claude-custom", "gemini-custom"])("does not infer a vendor from the %s model name", (modelId) => {
+    expect(toAgentRunResult({
+      modelId,
+      provider: "custom-provider",
+      usage: { inputTokens: 1 },
+    }).usageRecord?.model).toBe(`custom-provider/${modelId}`)
+  })
+
   it("preserves published delivery artifacts in Agent run results", () => {
     const value = {
       artifacts: [{
