@@ -9358,6 +9358,34 @@ describe("server helpers", () => {
     }
   })
 
+  it("keeps auto manual delivery inline when an explicit Agent Workflow is unavailable", async () => {
+    const { defineAgent, workflow } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "internal output")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual" },
+        }),
+      },
+      driver: { run },
+      hooks: {
+        "agent:finish": event => event.reply("Inline reply"),
+      },
+      runtime: workflow("calories"),
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_104), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Inline reply" })
+  })
+
   it("keeps auto manual delivery inline with nonportable capabilities on explicit Workflows", async () => {
     const { defineAgent, workflow } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

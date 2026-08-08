@@ -886,11 +886,12 @@ function positiveWebhookDuration(value: number | undefined, fallback: number, na
 async function hasActiveWorkflowRuntime(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
+  requireAvailable = false,
 ): Promise<boolean> {
   if (!isRecord(agent) || !isRecord(agent.runtime) || agent.runtime.kind !== "workflow") return false
   if (!hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)) return false
-  if (agent.runtime.discoveryDefault !== true) return true
-  if (!context.agentIdentity) return false
+  if (agent.runtime.discoveryDefault !== true && !requireAvailable) return true
+  if (agent.runtime.discoveryDefault === true && !context.agentIdentity) return false
   try {
     return Boolean((await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig())
   }
@@ -3053,7 +3054,7 @@ async function handleChatSdkMessage(
     }
     const durableDelivery = manualDelivery && options?.durable !== false && (
       options?.durable === true
-      || options?.concurrency !== "serial" && await hasActiveWorkflowRuntime(agent as never, runContext as never)
+      || options?.concurrency !== "serial" && await hasActiveWorkflowRuntime(agent as never, runContext as never, true)
     )
     const resolvedInvocationInput = invocation.input as AgentRunInput
     if (durableDelivery) {
