@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { bindAwarenessIdentity, claimAwarenessClientIds, markdownToYDoc, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { bindAwarenessIdentity, claimAwarenessClientIds, markdownToYDoc, realtimeRoomKey, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -61,6 +61,11 @@ describe("workspace changes", () => {
       .toEqual({ operation: "move", from: "docs/old.md", to: "docs/new.md" })
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })
+
+  it("encodes definition and document room keys without delimiter collisions", () => {
+    expect(realtimeRoomKey("public", "private:secret.md"))
+      .not.toBe(realtimeRoomKey("public:private", "secret.md"))
+  })
 })
 
 describe("realtime awareness", () => {
@@ -73,6 +78,16 @@ describe("realtime awareness", () => {
 
     expect(() => claimAwarenessClientIds(owners, secondPeer, [1])).toThrow("already owned")
     expect(owners.get(1)).toBe(firstPeer)
+  })
+
+  it("limits the cumulative awareness clients owned by one peer", () => {
+    const owners = new Map<number, object>()
+    const peer = {}
+    claimAwarenessClientIds(owners, peer, Array.from({ length: 1024 }, (_, index) => index))
+
+    expect(() => claimAwarenessClientIds(owners, peer, [1024]))
+      .toThrow("too many awareness clients")
+    expect(owners.has(1024)).toBe(false)
   })
 
   it("reads the clients represented by a Yjs awareness update", () => {

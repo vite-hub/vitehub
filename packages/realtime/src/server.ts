@@ -6,7 +6,6 @@ import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { getAuthForRequest } from "@vite-hub/auth/server"
 import { isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
-import { resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -19,7 +18,7 @@ import type { WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeDefinition, RealtimeRegistry } from "./types.ts"
 import { createRealtimeIdentity } from "./presence.ts"
-import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, workspaceRoomId } from "./protocol.ts"
+import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, workspaceRoomId } from "./protocol.ts"
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
@@ -80,7 +79,18 @@ export function claimAwarenessClientIds(owners: Map<number, object>, peer: objec
     const owner = owners.get(client)
     if (owner && owner !== peer) throw new AwarenessOwnershipConflict()
   }
+  const ownedClients = new Set(
+    [...owners].filter(([, owner]) => owner === peer).map(([client]) => client),
+  )
+  for (const client of clients) ownedClients.add(client)
+  if (ownedClients.size > maxAwarenessClients) {
+    throw new TypeError("Peer owns too many awareness clients.")
+  }
   for (const client of clients) owners.set(client, peer)
+}
+
+export function realtimeRoomKey(definitionName: string, documentId: string): string {
+  return JSON.stringify([definitionName, documentId])
 }
 
 class AwarenessOwnershipConflict extends TypeError {
@@ -172,7 +182,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   }
 
   async function getRoom(definitionName: string, documentId: string, definition: RealtimeDefinition): Promise<Room> {
-    const key = `${definitionName}:${documentId}`
+    const key = realtimeRoomKey(definitionName, documentId)
     let room = rooms.get(key)
     if (!room) {
       room = (async () => {
@@ -319,7 +329,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             peer.close(4400, "Invalid workspace change.")
             return
           }
-          resetWorkspaceStoreCache()
           peer.publish(room.channel, encodeWorkspaceChange(change))
           return
         }

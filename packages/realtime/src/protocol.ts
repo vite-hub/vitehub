@@ -7,7 +7,7 @@ export const messageWorkspaceChange = 4
 export const messageAwareness = 1
 export const messageQueryAwareness = 3
 export const workspaceRoomId = "@workspace"
-const maxAwarenessClients = 1024
+export const maxAwarenessClients = 1024
 
 function validPath(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0")
