@@ -5,7 +5,7 @@ import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { invalidateWorkspaceStore, isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -388,10 +388,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   }
 
   async function refreshWritableWorkspace(workspaceName: string): Promise<WritableWorkspaceFacade> {
-    const current = useWorkspace(workspaceName, { mode: "write" })
-    const target = await resolveWorkspaceStoreTarget(current)
-    if (target?.provider === "memory") return current
-    await invalidateWorkspaceStore(workspaceName)
     return useWorkspace(workspaceName, { mode: "write" })
   }
 
@@ -616,7 +612,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         clearPendingCheckpoint(room, pending)
         const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
         room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
-        room.durableReady = !!room.baselineDigest
+        room.durableReady = !!room.sql || !!room.baselineDigest
         pending = undefined
       }
       if (!pending) {
@@ -638,7 +634,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           // Refresh the baseline so a retry does not remain pinned to the stale digest.
           const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
           room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
-          room.durableReady = !!room.baselineDigest
+          room.durableReady = !!room.sql || !!room.baselineDigest
           persistRoom(room)
           throw error
         }
@@ -665,7 +661,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         room.pendingCheckpointTimer = undefined
       }
       room.baselineDigest = snapshot.entries[documentId]?.digest
-      room.durableReady = !!room.baselineDigest
+      room.durableReady = !!room.sql || !!room.baselineDigest
       persistRoom(room)
       const effectiveMarkdown = await pending.workspace.fs.readFile(documentId, { encoding: "utf8" })
       if (effectiveMarkdown !== yDocToMarkdown(pending.submittedDocument)) {
