@@ -16,13 +16,33 @@ type NuxtLike = {
   hook?: (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) => void
   options: {
     alias?: Record<string, string>
+    app?: {
+      baseURL?: string
+    }
     buildDir: string
     dev?: boolean
+    imports?: {
+      imports?: Array<{ as?: string, from: string, name: string }>
+    }
     rootDir?: string
     serverDir?: string
     srcDir?: string
     vite?: UserConfig
     vitehub?: Parameters<typeof vitehub>[0]
+  }
+}
+
+const agentVueComposables = ["useAgent", "useChat"]
+
+function addAgentVueImports(nuxt: NuxtLike): void {
+  nuxt.options.imports ??= {}
+  const imports = (nuxt.options.imports.imports ??= [])
+  for (const name of agentVueComposables) {
+    const existing = imports.find(entry => (entry.as ?? entry.name) === name)
+    if (existing && existing.from !== "vite-hub/agent/vue") {
+      throw new TypeError(`[vitehub] Cannot auto-import ${name} from vite-hub/agent/vue because it is already configured from ${existing.from}.`)
+    }
+    if (!existing) imports.push({ from: "vite-hub/agent/vue", name })
   }
 }
 
@@ -170,6 +190,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_SERVER_DIRS]?: string[]
   }
+  viteConfig.define = {
+    ...viteConfig.define,
+    __VITEHUB_APP_BASE_URL__: JSON.stringify(nuxt.options.app?.baseURL || "/"),
+  }
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
@@ -178,6 +202,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...existing,
   ] as PluginOption[]
   nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
+  if (options.agent) addAgentVueImports(nuxt)
   if (options.auth) {
     const envOptions = options.env || {}
     hubAuthNuxt({

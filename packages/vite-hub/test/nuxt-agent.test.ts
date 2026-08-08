@@ -28,16 +28,20 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
       if (name === "nitro:config") nitroConfigHook = callback
     },
     options: {
+      app: { baseURL: "/portal/" },
       buildDir,
       dev: false,
       rootDir,
       serverDir,
       srcDir,
-      vite: {},
+      vite: { define: {} },
     },
   }
 
   viteHubNuxtModule({ agent: true, preset: "node" }, nuxt)
+  expect(nuxt.options.vite.define).toMatchObject({
+    __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
+  })
   if (!nitroConfigHook) throw new TypeError("Expected a Nitro config hook.")
   const nitroConfig: Record<string, unknown> = {}
   await nitroConfigHook(nitroConfig)

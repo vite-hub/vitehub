@@ -57,6 +57,7 @@ export default defineConfig({
       "src/server/internal.ts",
       "src/server/workspace.ts",
       "src/test.ts",
+      "src/vue.ts",
       "src/vite.ts",
     ],
     exports: {

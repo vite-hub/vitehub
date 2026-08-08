@@ -18,6 +18,9 @@ catalogs:
     '@ai-sdk/harness-codex':
       specifier: 1.0.41
       version: 1.0.41
+    '@ai-sdk/vue':
+      specifier: 4.0.19
+      version: 4.0.19
     '@modelcontextprotocol/sdk':
       specifier: ^1.29.0
       version: 1.29.0
@@ -523,6 +526,9 @@ importers:
       '@ai-sdk/harness-codex':
         specifier: catalog:ai
         version: 1.0.41(patch_hash=b074c42ac5b900be09038dd290494f98db78ae119330a08d360fd7f530e02327)(zod@4.4.3)
+      '@ai-sdk/vue':
+        specifier: catalog:ai
+        version: 4.0.19(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)
       '@chat-adapter/telegram':
         specifier: catalog:chat
         version: 4.35.0(ai@7.0.19(zod@4.4.3))(workflow@5.0.0-beta.35(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.3)(react@19.2.6)(typescript@6.0.3)(ws@8.21.0))(zod@4.4.3)
@@ -623,6 +629,9 @@ importers:
       vite-plus:
         specifier: catalog:tooling
         version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)
+      vue:
+        specifier: catalog:ui
+        version: 3.5.40(typescript@6.0.3)
     optionalDependencies:
       '@ai-sdk/mcp':
         specifier: catalog:ai
@@ -1732,6 +1741,12 @@ packages:
   '@ai-sdk/vue@3.0.228':
     resolution: {integrity: sha512-8+t7DEJt97r7ZmYR641oxr0KLes27tnx3TybYhi/KQm/UUtuq66nhMKealZY6y6Tq3Yg9+gsOgcoCAu13YWtWA==}
     engines: {node: '>=18'}
+    peerDependencies:
+      vue: ^3.3.4
+
+  '@ai-sdk/vue@4.0.19':
+    resolution: {integrity: sha512-K8EGL/J055lBcuGCKc1wVa+qAfNCMqcDxef5MII7g2eWFxrifDyEvF/WTmpBm6Rq0WXlmOZ8HxtE7MOgwftuZw==}
+    engines: {node: '>=22'}
     peerDependencies:
       vue: ^3.3.4
 
@@ -13978,6 +13993,15 @@ snapshots:
     dependencies:
       '@ai-sdk/provider-utils': 4.0.39(zod@4.4.3)
       ai: 6.0.228(zod@4.4.3)
+      swrv: 1.2.0(vue@3.5.40(typescript@6.0.3))
+      vue: 3.5.40(typescript@6.0.3)
+    transitivePeerDependencies:
+      - zod
+
+  '@ai-sdk/vue@4.0.19(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider-utils': 5.0.7(zod@4.4.3)
+      ai: 7.0.19(zod@4.4.3)
       swrv: 1.2.0(vue@3.5.40(typescript@6.0.3))
       vue: 3.5.40(typescript@6.0.3)
     transitivePeerDependencies:
