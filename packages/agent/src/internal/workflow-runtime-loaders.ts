@@ -5,6 +5,8 @@ type WorkflowModule = typeof import("@vite-hub/workflow")
 type WorkflowRuntimeStateModule = typeof import("@vite-hub/workflow/runtime/state")
 
 export interface AgentWorkflowRuntimeLoaders {
+  blob?: () => Promise<{ blob: unknown }>
+  database?: () => Promise<{ agentDb: unknown }>
   state: () => Promise<WorkflowRuntimeStateModule>
   workflow: () => Promise<WorkflowModule>
 }
@@ -24,4 +26,12 @@ export function loadAgentWorkflowModule(): Promise<WorkflowModule> {
 
 export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeStateModule> {
   return workflowRuntimeLoaders.state()
+}
+
+export function loadAgentWorkflowBlobModule(): Promise<{ blob: unknown }> | undefined {
+  return workflowRuntimeLoaders.blob?.()
+}
+
+export function loadAgentWorkflowDatabaseModule(): Promise<{ agentDb: unknown }> | undefined {
+  return workflowRuntimeLoaders.database?.()
 }

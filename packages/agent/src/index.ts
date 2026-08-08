@@ -747,6 +747,7 @@ async function runAgentAsWorkflow<
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
   if (workflowInput.messages) workflowInput.messages = await materializeMessageAttachmentData(workflowInput.messages)
+  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await materializeMessageAttachmentData([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await materializeMessageAttachmentData(workflowInput.prompt)
   const inheritedRun = options.fresh && context.run
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))

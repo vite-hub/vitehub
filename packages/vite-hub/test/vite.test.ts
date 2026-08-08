@@ -200,6 +200,10 @@ describe("vitehub", () => {
       runtimeImport: "vite-hub/_internal/schedule/runtime/static",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({
+      agentCapabilityRuntimeImports: {
+        blob: "vite-hub/_internal/blob",
+        database: "vite-hub/database/drizzle",
+      },
       agentImportBase: "vite-hub/_internal/agent",
       importBase: "vite-hub/_internal/workflow",
       providerImportAliases: {

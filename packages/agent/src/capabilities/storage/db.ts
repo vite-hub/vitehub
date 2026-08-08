@@ -1,4 +1,5 @@
 import { defineCapability, normalizeMode } from "../../capability-runtime.ts"
+import { loadAgentWorkflowDatabaseModule } from "../../internal/workflow-runtime-loaders.ts"
 import {
   assertString,
   createTool,
@@ -59,12 +60,12 @@ const dbExecInputSchema = jsonObjectSchema({
   statement: { type: "string" },
 }, ["statement", "rationale"])
 
-const databasePackageName: string = "@vite-hub/database/drizzle"
-
 async function resolveDatabasePrimitive(context: Parameters<typeof requirePrimitive>[0]) {
   if (context.capabilities?.db !== undefined) return requirePrimitive(context, "db")
+  const workflowDatabase = loadAgentWorkflowDatabaseModule()
+  if (!workflowDatabase) return requirePrimitive(context, "db")
   try {
-    return ((await import(databasePackageName)) as { agentDb: unknown }).agentDb
+    return (await workflowDatabase).agentDb
   }
   catch (error) {
     throw new Error(`[vitehub] Capability "db" requires the database primitive to be configured or @vite-hub/database to be installed. ${error instanceof Error ? error.message : String(error)}`)

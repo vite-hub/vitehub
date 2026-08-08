@@ -10725,7 +10725,7 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("materializes lazy attachments before portable primitive Workflows", async () => {
+    it("materializes a lazy message attachment before portable primitive Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -10742,11 +10742,11 @@ describe("agent message protocol", () => {
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
       }, {
-        messages: [{
+        message: {
           id: "message-1",
           parts: [{ fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" }],
           role: "user",
-        }],
+        },
       }) as { id: string }
 
       await Promise.all(waitUntilTasks)

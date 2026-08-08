@@ -600,6 +600,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (workflowEnabled) {
     plugins.push(hubWorkflow({
       ...(options.workflow && options.workflow !== true ? options.workflow : {}),
+      agentCapabilityRuntimeImports: {
+        ...(blobEnabled ? { blob: `${generatedImportBase}/blob` } : {}),
+        ...(options.database ? { database: "vite-hub/database/drizzle" } : {}),
+      },
       agentImportBase: `${generatedImportBase}/agent`,
       importBase: `${generatedImportBase}/workflow`,
       providerImportAliases,

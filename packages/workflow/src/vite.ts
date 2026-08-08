@@ -12,6 +12,7 @@ export type WorkflowVitePlugin = Plugin
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
 type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
+  agentCapabilityRuntimeImports?: { blob?: string, database?: string }
   agentImportBase?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
@@ -63,6 +64,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         return
       }
       await generateProviderOutputs({
+        agentCapabilityRuntimeImports: internalOptions?.agentCapabilityRuntimeImports,
         agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolved.build.outDir,
         importBase: internalOptions?.importBase,
