@@ -100,6 +100,21 @@ describe("createEmail", () => {
     })
   })
 
+  it("rejects a successful result without a provider message ID", async () => {
+    const client = createEmail({
+      driver: fixtureDriver(vi.fn(async () => ({
+        data: { at: new Date(), driver: "fixture", id: "" },
+        error: null,
+      }))),
+    })
+
+    await expect(client.send(message)).rejects.toMatchObject({
+      code: "EMAIL_PROVIDER_FAILED",
+      details: { driver: "fixture" },
+      message: "[vitehub] Email driver fixture returned an invalid message id.",
+    })
+  })
+
   it("preserves ViteHub errors thrown while resolving the driver", async () => {
     const error = new ViteHubError("EMAIL_RATE_LIMITED", "Try again later.", {
       details: { driver: "fixture" },

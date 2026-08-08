@@ -138,7 +138,6 @@ After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub err
 
 | Failure | What to do |
 | --- | --- |
-| `EMAIL_INVALID_MESSAGE` | Fix the message before retrying. The driver was not called. |
 | `EMAIL_NOT_CONFIGURED` | Enable the Email integration and confirm exactly one Email Definition is discoverable. |
 | `EMAIL_AUTHENTICATION` | Fix provider credentials or sender authorization before retrying. |
 | `EMAIL_RATE_LIMITED` | Apply an application-owned backoff or queue policy. |
