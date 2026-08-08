@@ -203,6 +203,32 @@ describe("realtime server handler", () => {
     second.destroy()
   })
 
+  it("accepts only the initial sync response outside the update throttle", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const server = new Y.Doc()
+    const client = new Y.Doc()
+    const syncStep2 = applyRealtimeSyncMessage(encodeSyncStep1(client), server, "server")!
+    client.getMap("edits").set("first", true)
+
+    response.crossws.message(peer, { uint8Array: () => syncStep2 })
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
+
+    expect(peer.close).not.toHaveBeenCalled()
+    response.crossws.message(peer, { uint8Array: () => syncStep2 })
+    expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
+    server.destroy()
+    client.destroy()
+  })
+
   it("treats an @workspace path as a document without the events selector", async () => {
     const readFile = vi.fn().mockResolvedValue("# Workspace document")
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
@@ -332,10 +358,13 @@ describe("realtime server handler", () => {
   })
 
   it("refreshes the written baseline before retrying a failed checkpoint", async () => {
+    let content = ""
     let digest = "baseline"
+    let changedDuringRead = false
     let snapshots = 0
-    const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
+    const writeFile = vi.fn(async (_path: string, nextContent: string, options: { ifDigest: string | null }) => {
       if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
+      content = nextContent.replace("New draft", "Canonical draft")
       digest = `written-${writeFile.mock.calls.length}`
       return "page.md"
     })
@@ -343,7 +372,15 @@ describe("realtime server handler", () => {
       capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
       fs: {
         exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn().mockResolvedValue(""),
+        readFile: vi.fn(async () => {
+          const result = content
+          if (digest === "written-2" && !changedDuringRead) {
+            changedDuringRead = true
+            content = "# Canonical draft\n"
+            digest = "canonical-2"
+          }
+          return result
+        }),
         stat: vi.fn(async () => ({ digest })),
         writeFile,
       },
@@ -351,7 +388,12 @@ describe("realtime server handler", () => {
         checkpoint: vi.fn(async () => {
           snapshots++
           if (snapshots === 1) throw new Error("publisher unavailable")
-          return { entries: { "page.md": { digest } }, id: "snapshot" }
+          const snapshot = { entries: { "page.md": { digest } }, id: "snapshot" }
+          queueMicrotask(() => {
+            content = "# Later unsaved draft"
+            digest = "later"
+          })
+          return snapshot
         }),
       },
     }
@@ -388,6 +430,97 @@ describe("realtime server handler", () => {
     }))
 
     expect(second.status).toBe(200)
+    await expect(second.json()).resolves.toEqual({
+      content: "# Canonical draft\n",
+      snapshot: { entries: { "page.md": { digest: "canonical-2" } }, id: "snapshot" },
+    })
+    expect(writeFile).toHaveBeenCalledTimes(2)
+    client.destroy()
+  })
+
+  it("reconciles a mismatched snapshot before retrying its checkpoint", async () => {
+    let content = ""
+    let digest = "baseline"
+    let checkpoints = 0
+    let failedMismatchReads = 0
+    const writeFile = vi.fn(async (_path: string, nextContent: string, options: { ifDigest: string | null }) => {
+      if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
+      content = nextContent
+      digest = `written-${writeFile.mock.calls.length}`
+      return "page.md"
+    })
+    const workspace = {
+      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
+      fs: {
+        exists: vi.fn().mockResolvedValue(true),
+        readFile: vi.fn(async () => {
+          if (checkpoints === 1 && failedMismatchReads++ < 1) throw new Error("canonical read unavailable")
+          return content
+        }),
+        stat: vi.fn(async () => ({ digest })),
+        writeFile,
+      },
+      history: {
+        checkpoint: vi.fn(async () => {
+          checkpoints++
+          if (checkpoints === 1) {
+            content = "# Snapshot version"
+            digest = "other"
+          }
+          return { entries: { "page.md": { digest } }, id: `snapshot-${checkpoints}` }
+        }),
+      },
+    }
+    serverMocks.useWorkspace.mockReturnValue(workspace)
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = {
+      close: vi.fn(),
+      publish: vi.fn(),
+      send: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    }
+    websocket.crossws.open(peer)
+    const client = new Y.Doc()
+    peer.send.mockClear()
+    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(client) })
+    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
+    peer.send.mockClear()
+
+    const first = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(first.status).toBe(500)
+    expect(peer.send).not.toHaveBeenCalled()
+
+    const recovery = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(recovery.status).toBe(409)
+    await expect(recovery.json()).resolves.toMatchObject({
+      data: { code: "REALTIME_CHECKPOINT_REJECTED" },
+      message: "The Workspace document changed while recovering its realtime checkpoint.",
+    })
+    expect(peer.send).toHaveBeenCalledTimes(1)
+    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
+
+    const second = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(second.status).toBe(200)
+    await expect(second.json()).resolves.toEqual({
+      content: "# Snapshot version",
+      snapshot: { entries: { "page.md": { digest: "written-2" } }, id: "snapshot-2" },
+    })
     expect(writeFile).toHaveBeenCalledTimes(2)
     client.destroy()
   })
@@ -432,6 +565,48 @@ describe("realtime server handler", () => {
     expect((await handler.fetch(request())).status).toBe(200)
     expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", "written-1"])
     expect(serverMocks.invalidateWorkspaceStore).not.toHaveBeenCalled()
+    document.destroy()
+  })
+
+  it("recovers a committed write when the canonical reread initially fails", async () => {
+    let unstable = false
+    let stats = 0
+    const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
+      if (options.ifDigest !== (writeFile.mock.calls.length === 1 ? "baseline" : `external-${stats}`)) throw new Error(`stale digest: ${options.ifDigest}`)
+      unstable = true
+      return "page.md"
+    })
+    const workspace = {
+      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
+      fs: {
+        exists: vi.fn().mockResolvedValue(true),
+        readFile: vi.fn().mockResolvedValue("# External change"),
+        stat: vi.fn(async () => ({ digest: unstable ? (stats < 6 ? `external-${++stats}` : `external-${stats}`) : "baseline" })),
+        writeFile,
+      },
+      history: { checkpoint: vi.fn(async () => ({ entries: { "page.md": { digest: `external-${stats}` } }, id: "snapshot" })) },
+    }
+    serverMocks.useWorkspace.mockReturnValue(workspace)
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const document = new Y.Doc()
+    websocket.crossws.open(peer)
+    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(document) })
+    applyRealtimeSyncMessage(peer.send.mock.calls.at(-1)![0], document, "server")
+    const request = () => new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(document)).buffer,
+      method: "POST",
+    })
+
+    expect((await handler.fetch(request())).status).toBe(409)
+    const recovery = await handler.fetch(request())
+    expect(recovery.status).toBe(409)
+    await expect(recovery.json()).resolves.toMatchObject({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } })
+    expect((await handler.fetch(request())).status).toBe(200)
+    expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", `external-${stats}`])
     document.destroy()
   })
 
@@ -598,6 +773,16 @@ describe("realtime Workspace documents", () => {
     expect(readFile).not.toHaveBeenCalled()
   })
 
+  it("fails room initialization when the writable Workspace cannot be inspected", async () => {
+    const error = new Error("GitHub workspace store requires a token.")
+
+    await expect(readRealtimeWorkspaceDocument(
+      { fs: { exists: vi.fn().mockResolvedValue(false), readFile: vi.fn() } } as never,
+      { fs: { stat: vi.fn().mockRejectedValue(error) } } as never,
+      "page.md",
+    )).rejects.toBe(error)
+  })
+
   it("bases generated assets on the writable store", async () => {
     const result = await readRealtimeWorkspaceDocument(
       { fs: { exists: vi.fn().mockResolvedValue(true), readFile: vi.fn().mockResolvedValue("# Generated asset") } } as never,
@@ -606,6 +791,21 @@ describe("realtime Workspace documents", () => {
     )
 
     expect(result).toEqual({ baselineDigest: undefined, markdown: "# Generated asset" })
+  })
+
+  it("reads hosted documents from the writable store when readonly assets are unavailable", async () => {
+    const result = await readRealtimeWorkspaceDocument(
+      { fs: { exists: vi.fn().mockResolvedValue(false), readFile: vi.fn() } } as never,
+      {
+        fs: {
+          readFile: vi.fn().mockResolvedValue("# Hosted document"),
+          stat: vi.fn().mockResolvedValue({ digest: "hosted" }),
+        },
+      } as never,
+      "hosted.md",
+    )
+
+    expect(result).toEqual({ baselineDigest: "hosted", markdown: "# Hosted document" })
   })
 
   it("retries when the Workspace digest changes during the initial read", async () => {

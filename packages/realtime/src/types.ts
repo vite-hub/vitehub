@@ -1,3 +1,5 @@
+import type { WorkspaceSnapshot } from "@vite-hub/workspace"
+
 export interface RealtimeDefinition {
   auth?: boolean
   document: {
@@ -6,6 +8,11 @@ export interface RealtimeDefinition {
   history?: {
     checkpoint: true | { message?: string }
   }
+}
+
+export interface RealtimeCheckpoint {
+  content: string
+  snapshot: WorkspaceSnapshot
 }
 
 export interface DiscoveredRealtimeDefinition {
