@@ -341,7 +341,7 @@ Read the `EMAIL_*` code first. For `EMAIL_AUTHENTICATION`, verify the provider c
 - Email Definition discovery requires Vite 8 or later; explicit `createEmail()` clients do not require Vite.
 - Provider runtime support comes from the selected Unemail driver.
 
-ViteHub owns discovery, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior; Queue, Workflow, and Schedule remain the orchestration layer.
+ViteHub does not independently certify provider behavior. ViteHub owns discovery, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior; Queue, Workflow, and Schedule remain the orchestration layer.
 
 ## Expose Email to an Agent
 
