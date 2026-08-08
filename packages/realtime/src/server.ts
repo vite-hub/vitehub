@@ -170,14 +170,19 @@ function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: n
   return encoding.toUint8Array(encoder)
 }
 
-function parseRoomPath(url: string): { definitionName: string, documentId: string } {
-  const path = new URL(url).pathname
+function parseRoomPath(url: string): { definitionName: string, documentId: string, workspaceEvents: boolean } {
+  const parsed = new URL(url)
+  const path = parsed.pathname
   if (!path.startsWith(routePrefix)) throw new HTTPError({ status: 404 })
   const [definitionName, ...documentParts] = path.slice(routePrefix.length).split("/").map(decodeURIComponent)
   if (!definitionName || documentParts.length === 0 || documentParts.some(part => !part)) {
     throw new HTTPError({ status: 400, message: "Realtime definition and document path are required." })
   }
-  return { definitionName, documentId: documentParts.join("/") }
+  return {
+    definitionName,
+    documentId: documentParts.join("/"),
+    workspaceEvents: parsed.searchParams.get("workspace") === "events",
+  }
 }
 
 async function authorize(request: Request, required: boolean | undefined, event: unknown): Promise<RealtimeIdentity | undefined> {
@@ -223,12 +228,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     return definition
   }
 
-  async function getRoom(definitionName: string, documentId: string, definition: RealtimeDefinition, sql?: RealtimeRoomSql): Promise<Room> {
-    const key = realtimeRoomKey(definitionName, documentId)
+  async function getRoom(definitionName: string, documentId: string, definition: RealtimeDefinition, sql?: RealtimeRoomSql, workspaceEvents = false): Promise<Room> {
+    const key = workspaceEvents
+      ? JSON.stringify([definitionName, { workspaceEvents: true }])
+      : realtimeRoomKey(definitionName, documentId)
     let room = rooms.get(key)
     if (!room) {
       room = (async () => {
-        const workspaceDocument = documentId !== workspaceRoomId
+        const workspaceDocument = !workspaceEvents
         const workspace = workspaceDocument ? useWorkspace(definition.document.workspace) : undefined
         const stat = workspace ? await workspace.fs.stat(documentId) : undefined
         const markdown = workspace ? await workspace.fs.readFile(documentId, { encoding: "utf8" }) : ""
@@ -363,11 +370,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (event.req.method !== "POST" || new URL(event.req.url).searchParams.get("history") !== "checkpoint") {
       throw new HTTPError({ status: 405 })
     }
-    const { definitionName, documentId } = parseRoomPath(event.req.url)
-    if (documentId === workspaceRoomId) throw new HTTPError({ status: 400, message: "Workspace events cannot be checkpointed." })
+    const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
+    if (workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events cannot be checkpointed." })
     const definition = await getDefinition(definitionName)
     await authorize(event.req, definition.auth, event)
-    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event))
+    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
     const contentLength = Number(event.req.headers.get("content-length") || 0)
     if (contentLength > maxMessageBytes) throw new HTTPError({ status: 413, message: "Realtime state vector exceeds 1 MiB." })
     const stateVector = new Uint8Array(await event.req.arrayBuffer())
@@ -384,10 +391,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   })
 
   const websocketHandler = defineWebSocketHandler(async (event) => {
-    const { definitionName, documentId } = parseRoomPath(event.req.url)
+    const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
     const definition = await getDefinition(definitionName)
     const identity = await authorize(event.req, definition.auth, event)
-    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event))
+    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
 
     function leave(peer: WebSocketPeer) {
       if (!room.peers.delete(peer)) return
@@ -421,7 +428,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const decoder = decoding.createDecoder(data)
         const messageType = decoding.readVarUint(decoder)
         if (messageType === messageWorkspaceChange) {
-          if (documentId !== workspaceRoomId) {
+          if (!workspaceEvents) {
             peer.close(4400, "Workspace changes require the workspace room.")
             return
           }

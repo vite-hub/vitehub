@@ -113,6 +113,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     const nextWorkspaceProvider = new WebsocketProvider(server, encodeURIComponent(workspaceRoomId), workspaceDocument, {
       connect: false,
       disableBc: true,
+      params: { workspace: "events" },
     })
     nextWorkspaceProvider.awareness.setLocalState(null)
     nextWorkspaceProvider.messageHandlers[messageWorkspaceChange] = (_encoder, decoder) => {

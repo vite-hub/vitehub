@@ -101,6 +101,28 @@ describe("realtime server handler", () => {
     expect(peer.close).toHaveBeenCalledWith(4400, "Workspace changes require the workspace room.")
     expect(peer.publish).not.toHaveBeenCalled()
   })
+
+  it("treats an @workspace path as a document without the events selector", async () => {
+    const readFile = vi.fn().mockResolvedValue("# Workspace document")
+    serverMocks.useWorkspace.mockReturnValue({
+      fs: {
+        readFile,
+        stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
+        writeFile: vi.fn(),
+      },
+    })
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const client = markdownToYDoc("# Unsynchronized client version")
+
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateVector(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(409)
+    expect(readFile).toHaveBeenCalledWith("@workspace", { encoding: "utf8" })
+    client.destroy()
+  })
 })
 
 describe("realtime application paths", () => {
