@@ -968,7 +968,7 @@ function staticObjectProperty(
   name: string,
   objects: Map<string, PositionedNode>,
   seen = new Set<PositionedNode>(),
-): PositionedNode | undefined {
+): PositionedNode | null | undefined {
   if (seen.has(object)) return
   seen.add(object)
   const properties = Array.isArray(object.properties) ? object.properties : []
@@ -978,12 +978,11 @@ function staticObjectProperty(
     if (property.type === "Property" && property.computed !== true && nodePropertyName(property) === name) return property
     if (property.type !== "SpreadElement") continue
     const argument = property.argument
-    if (!isPositionedNode(argument) || argument.type !== "Identifier" || typeof argument.name !== "string") continue
+    if (!isPositionedNode(argument) || argument.type !== "Identifier" || typeof argument.name !== "string") return null
     const spread = objects.get(argument.name)
-    if (spread) {
-      const found = staticObjectProperty(spread, name, objects, seen)
-      if (found) return found
-    }
+    if (!spread) return null
+    const found = staticObjectProperty(spread, name, objects, seen)
+    if (found !== undefined) return found
   }
 }
 

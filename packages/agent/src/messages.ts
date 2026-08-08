@@ -305,22 +305,29 @@ export function appendMessageText(message: Message, text: string): Message {
 
 export function getToolInvocations(message: Message): ToolInvocation[] {
   const invocations = new Map<string, ToolInvocation>()
+  const approvalRequests = new Map(message.parts.flatMap(part => part.type === "approval-request"
+    ? [[part.toolCallId ?? part.id, part] as const]
+    : []))
 
   for (const part of message.parts) {
     if (part.type === "approval-request") {
-      invocations.set(part.id, {
-        id: part.id,
+      const id = part.toolCallId ?? part.id
+      const invocation = invocations.get(id)
+      invocations.set(id, {
+        id,
         input: part.input,
         name: part.name,
+        ...invocation,
         state: "approval-required",
       })
     }
     if (part.type === "tool-call") {
+      const approval = approvalRequests.get(part.id)
       invocations.set(part.id, {
         id: part.id,
         input: part.input,
         name: part.name,
-        state: part.state,
+        state: approval ? "approval-required" : part.state,
       })
     }
     if (part.type === "tool-result") {

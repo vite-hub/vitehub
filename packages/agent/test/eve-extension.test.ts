@@ -219,6 +219,20 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
   })
 
+  it("does not lower capabilities that a later unresolved spread can override", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        export default defineAgent({ capabilities: [github()], ...runtimeOptions })
+      `,
+      parseAst,
+      async () => true,
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
   it("detects Eve extensions through an aliased defineAgent import", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
