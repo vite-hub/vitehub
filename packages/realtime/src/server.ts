@@ -303,9 +303,16 @@ export async function readRealtimeWorkspaceDocument(
 ): Promise<{ baselineDigest: string | undefined, markdown: string }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const before = await writable.fs.stat(documentId)
-    const markdown = await readable.fs.exists(documentId)
-      ? await readable.fs.readFile(documentId, { encoding: "utf8" })
-      : ""
+    let markdown = ""
+    if (await readable.fs.exists(documentId)) {
+      try {
+        markdown = await readable.fs.readFile(documentId, { encoding: "utf8" })
+      }
+      catch (error) {
+        if (!(await writable.fs.stat(documentId))) continue
+        throw error
+      }
+    }
     const after = await writable.fs.stat(documentId)
     if (before?.digest === after?.digest) return { baselineDigest: after?.digest, markdown }
   }

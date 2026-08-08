@@ -367,9 +367,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       }
     }
 
-    async function writeWithPolicy(
+    async function writeWithPolicy<Result = void>(
       input: Omit<WorkspaceWriteInput, "previous" | "rule" | "workspace">,
-      write: (input: WorkspaceWriteInput) => Promise<void>,
+      write: (input: WorkspaceWriteInput) => Promise<Result>,
       preservePath = false,
     ) {
       await sourceView.assertWritable(input.path)
@@ -384,14 +384,14 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
           throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${normalizeWorkspacePath(input.path)} -> ${next.path}.`)
         }
         await sourceView.assertWritable(next.path)
-        await write(next)
+        const result = await write(next)
         await writePolicy.after(next)
+        return { input: next, result }
       }
       catch (error) {
         await writePolicy.error(next, error)
         throw error
       }
-      return next
     }
 
     function withSessionSourceGuards(session: WorkspaceSession): WorkspaceSession {
@@ -440,7 +440,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       search: fs.search,
       stat: fs.stat,
       writeFile: async (path, content, options) => {
-        const input = await writeWithPolicy({
+        const { input, result } = await writeWithPolicy({
           content,
           mediaType: options?.mediaType,
           metadata: options?.metadata,
@@ -450,9 +450,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
           const writeOptions = options === undefined && next.mediaType === undefined && next.metadata === undefined
             ? undefined
             : { ...options, mediaType: next.mediaType, metadata: next.metadata }
-          await workspace.fs.writeFile(next.path as never, next.content ?? content, writeOptions)
+          return await workspace.fs.writeFile(next.path as never, next.content ?? content, writeOptions)
         }, options?.preservePath)
-        return input.path
+        return result || input.path
       },
     }, sourceRequestExecution)
     writeWorkspace = attachWorkspaceSourceRequestExecution({

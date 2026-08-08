@@ -628,6 +628,22 @@ describe("realtime Workspace documents", () => {
 
     expect(result).toEqual({ baselineDigest: "current", markdown: "# Current" })
   })
+
+  it("retries when the Workspace document disappears during the initial read", async () => {
+    const exists = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false)
+    const readFile = vi.fn().mockRejectedValueOnce(new Error("not found"))
+    const stat = vi.fn()
+      .mockResolvedValueOnce({ digest: "before" })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+
+    await expect(readRealtimeWorkspaceDocument(
+      { fs: { exists, readFile } } as never,
+      { fs: { stat } } as never,
+      "deleted.md",
+    )).resolves.toEqual({ baselineDigest: undefined, markdown: "" })
+  })
 })
 
 describe("realtime application paths", () => {
