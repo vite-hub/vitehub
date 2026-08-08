@@ -1202,9 +1202,6 @@ export async function transformEveExtensionCapabilities(
       const imported = imports.get(callee.name)
       if (!imported) continue
       if (shadowRanges.get(callee.name)?.some(range => element.start > range.start && element.end < range.end)) continue
-      if (functionRanges.some(range => element.start > range.start && element.end < range.end)) {
-        throw new Error(`[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.`)
-      }
       calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
     }
   }
@@ -1260,6 +1257,9 @@ export async function transformEveExtensionCapabilities(
   for (const call of calls) {
     const resolvedIdentity = await resolveExtension(call.source)
     if (!resolvedIdentity) continue
+    if (functionRanges.some(range => call.call.start > range.start && call.call.end < range.end)) {
+      throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} must be mounted in a top-level static capabilities array.`)
+    }
     const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
     if (args.length > 1 || args.some(argument => isPositionedNode(argument) && argument.type === "SpreadElement")) {
       throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.`)

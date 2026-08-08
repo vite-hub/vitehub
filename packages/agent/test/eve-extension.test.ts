@@ -223,6 +223,22 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it("allows non-Eve Capability factories in composable Agent Definitions", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import plugin from "ordinary-capability"
+        export function createAgent() {
+          return defineAgent({ capabilities: [plugin()] })
+        }
+      `,
+      parseAst,
+      async () => false,
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
   it("does not lower calls to a shadowed imported defineAgent binding", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `
