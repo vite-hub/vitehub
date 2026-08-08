@@ -204,6 +204,7 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
+  userAppEntry?: boolean
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -513,6 +514,7 @@ async function writeProviderEntries(
   workflow: WorkflowModuleOptions | undefined,
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
+  userAppEntryEnabled = true,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
@@ -520,7 +522,7 @@ async function writeProviderEntries(
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir, serverDirs })
   const providerDefinitions = definitions
-  const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
+  const userAppEntry = userAppEntryEnabled ? resolveWorkflowUserAppEntry(rootDir) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
   await writeFile(registryFile, createWorkflowRegistryContents(registryFile, definitions, importBases), "utf8")
@@ -652,7 +654,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs)
+  }, options.serverDirs, options.userAppEntry)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"

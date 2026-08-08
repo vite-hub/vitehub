@@ -603,6 +603,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       agentImportBase: `${generatedImportBase}/agent`,
       importBase: `${generatedImportBase}/workflow`,
       providerImportAliases,
+      userAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
     } as unknown as WorkflowModuleOptions))
