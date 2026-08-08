@@ -432,8 +432,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const stored = workspaceDocument && sql
           ? sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
           : undefined
+        const restoresStoredDocument = workspaceDocument && canRestoreRealtimeDocument(initial.baselineDigest, stored)
         const document = workspaceDocument ? restoreRealtimeDocument(initial.markdown, initial.baselineDigest, stored) : new Y.Doc()
-        const storedUpdates = workspaceDocument && sql
+        const storedUpdates = restoresStoredDocument && sql
           ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
           : []
         for (const row of storedUpdates) {
@@ -459,7 +460,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
           }
         })
-        if (value.sql && !canRestoreRealtimeDocument(initial.baselineDigest, stored)) persistRoom(value)
+        if (value.sql && !restoresStoredDocument) persistRoom(value)
         return value
       })()
       rooms.set(key, room)

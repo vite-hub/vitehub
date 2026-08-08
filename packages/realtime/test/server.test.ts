@@ -399,6 +399,7 @@ describe("realtime server handler", () => {
       "current",
       expect.any(ArrayBuffer),
     )
+    expect(exec).not.toHaveBeenCalledWith(expect.stringContaining("SELECT update_blob"), expect.anything())
     exec.mockClear()
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
     response.crossws.open(peer)
