@@ -18,6 +18,7 @@ import {
 import { normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions, discoverAgentEvalFiles } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
+import { agentRouteUsesParam, normalizeAgentRoute } from "./internal/routes.ts"
 import { readColocatedAgentHome } from "./vite/colocated-agent-home.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
@@ -651,8 +652,7 @@ function mergeNitroPlugins(nitro: NitroConfig, plugins: string[]): NitroConfig {
 }
 
 function normalizeNitroRoute(route: string): string {
-  const normalized = route.startsWith("/") ? route : `/${route}`
-  return normalized.replace(/\[([^\]]+)\]/g, ":$1")
+  return normalizeAgentRoute(route)
 }
 
 function escapeRegExp(value: string): string {
@@ -670,7 +670,7 @@ function routeRegexSource(route: false | string | undefined, captureParams: stri
 }
 
 function routeUsesParam(route: false | string | undefined, param: string): boolean {
-  return Boolean(route && normalizeNitroRoute(route).split("/").includes(`:${param}`))
+  return agentRouteUsesParam(route, param)
 }
 
 function generatedWebhookRoute(route: false | string | undefined): string {
@@ -1897,6 +1897,11 @@ async function generateAgentDenoServer(
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
     "}",
     "",
+    "function decodeRouteParam(value) {",
+    "  try { return decodeURIComponent(value || '') }",
+    "  catch { return value || '' }",
+    "}",
+    "",
     "function readDenoArg(args, index, name) {",
     "  const arg = args[index]",
     "  if (arg === name) return { index: index + 1, value: args[index + 1] }",
@@ -1932,8 +1937,8 @@ async function generateAgentDenoServer(
     "  const webhookMatch = webhookRoutePattern.exec(pathname)",
     "  const isWebhookRoute = Boolean(webhookMatch)",
     "  const groups = (webhookMatch || chatMatch)?.groups || {}",
-    "  const agent = groups.agent || (agentNames.length === 1 ? agentNames[0] : undefined)",
-    "  const webhook = groups.webhook || ''",
+    "  const agent = groups.agent ? decodeRouteParam(groups.agent) : (agentNames.length === 1 ? agentNames[0] : undefined)",
+    "  const webhook = decodeRouteParam(groups.webhook)",
     "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler || (!chatMatch && !webhookMatch)) return jsonError(404, 'Unknown ViteHub agent route.')",
     `  return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver" : ""} }) : await handler(request, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver" : ""} })`,
@@ -2325,6 +2330,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       ))
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
+        define: {
+          ...config.define,
+          __VITEHUB_AGENT_CHAT_ROUTE__: JSON.stringify(resolved ? resolved.routes.chat : false),
+        },
         ...(nitroHandlers.length
           ? {
               build: mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals),

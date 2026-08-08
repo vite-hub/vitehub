@@ -121,6 +121,10 @@
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
     },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -169,10 +173,12 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "optionalDependencies": {
-    "@ai-sdk/mcp": "catalog:ai"
+    "@ai-sdk/mcp": "catalog:ai",
+    "@ai-sdk/vue": "catalog:ai"
   },
   "peerDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
@@ -184,7 +190,8 @@
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
     "vite": "catalog:vite-compat",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/harness-claude-code": {
@@ -215,6 +222,9 @@
       "optional": true
     },
     "vitest": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

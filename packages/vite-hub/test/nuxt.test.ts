@@ -365,6 +365,48 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroConfigHooks).toHaveLength(1)
   })
 
+  it("auto-imports Agent Vue clients only when Agent Definitions are enabled", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ agent: true, preset: "cloudflare" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & {
+      imports: { imports: Array<{ from: string, name: string }> }
+    }).imports.imports).toEqual([
+      { from: "vite-hub/agent/vue", name: "useAgent" },
+      { from: "vite-hub/agent/vue", name: "useChat" },
+    ])
+  })
+
+  it("rejects a configured Nuxt composable that would bind a different useChat", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, {
+      imports: { imports: [{ from: "@ai-sdk/vue", name: "useChat" }] },
+    })
+
+    await expect(viteHubNuxtModule({ agent: true, preset: "cloudflare" }, nuxt))
+      .rejects.toThrow("Cannot auto-import useChat from vite-hub/agent/vue because it is already configured from @ai-sdk/vue")
+  })
+
+  it("checks Nuxt composable collisions against their exposed aliases", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, {
+      imports: { imports: [{ as: "useAiChat", from: "@ai-sdk/vue", name: "useChat" }] },
+    })
+
+    await viteHubNuxtModule({ agent: true, preset: "cloudflare" }, nuxt)
+    expect((nuxt.options as typeof nuxt.options & {
+      imports: { imports: Array<{ as?: string, from: string, name: string }> }
+    }).imports.imports).toContainEqual({ from: "vite-hub/agent/vue", name: "useChat" })
+
+    const { nuxt: conflictingNuxt } = createNuxt()
+    Object.assign(conflictingNuxt.options, {
+      imports: { imports: [{ as: "useChat", from: "custom-chat", name: "chat" }] },
+    })
+    await expect(viteHubNuxtModule({ agent: true, preset: "cloudflare" }, conflictingNuxt))
+      .rejects.toThrow("Cannot auto-import useChat from vite-hub/agent/vue because it is already configured from custom-chat")
+  })
+
   it("does not resolve a relative Vite root twice for Auth Env imports", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options.vite, { root: "app" })

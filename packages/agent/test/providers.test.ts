@@ -1050,6 +1050,16 @@ describe("agent Vite plugin", () => {
       },
       webhook,
     ])
+
+    const plugin = hubAgent({ routes: { chat: "/chat/[agent]" } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+      : undefined
+    expect(result).toMatchObject({
+      define: {
+        __VITEHUB_AGENT_CHAT_ROUTE__: JSON.stringify("/chat/[agent]"),
+      },
+    })
   })
 
   it("does not register agent routes without hosted Agents", async () => {

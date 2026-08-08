@@ -24,6 +24,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/harness/local-sandbox` | Trusted local harness sandbox helper for development and Agent Evals. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
+| `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
@@ -79,6 +80,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
 | `@vite-hub/agent/harness/local-sandbox` | Agent Package | Trusted local harness sandbox helper for development and Agent Evals. |
 | `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Agent state helpers. |
+| `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
