@@ -223,8 +223,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   }
 
   const httpHandler = defineEventHandler(async (event) => {
-    const forwarded = await forwardToCloudflareDurableObject(event)
-    if (forwarded) return forwarded
     if (event.req.method !== "POST" || new URL(event.req.url).searchParams.get("history") !== "checkpoint") {
       throw new HTTPError({ status: 405 })
     }
@@ -325,7 +323,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     }
   })
 
-  return defineEventHandler(event => event.req.headers.get("upgrade")?.toLowerCase() === "websocket"
-    ? websocketHandler(event)
-    : httpHandler(event))
+  return defineEventHandler(async (event) => {
+    const forwarded = await forwardToCloudflareDurableObject(event)
+    if (forwarded) return forwarded
+    return event.req.headers.get("upgrade")?.toLowerCase() === "websocket"
+      ? websocketHandler(event)
+      : httpHandler(event)
+  })
 }

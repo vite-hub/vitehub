@@ -9,6 +9,10 @@ import { discoverRealtimeDefinitions } from "./discovery.ts"
 import type { Plugin, UserConfig } from "vite"
 import type { RealtimeModuleOptions } from "./types.ts"
 
+export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
+  importBase?: string
+}
+
 interface NitroConfig extends Record<string, unknown> {
   features?: Record<string, unknown>
   handlers?: Array<Record<string, unknown>>
@@ -19,7 +23,8 @@ function moduleSpecifier(from: string, to: string): string {
   return value.startsWith(".") ? value : `./${value}`
 }
 
-export function hubRealtime(options: RealtimeModuleOptions = {}): Plugin {
+export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
+  const importBase = options.importBase ?? "@vite-hub/realtime"
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -42,7 +47,7 @@ export function hubRealtime(options: RealtimeModuleOptions = {}): Plugin {
         writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
         writeFile(handlerFile, [
           `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
-          `import { createRealtimeHandler } from ${JSON.stringify("vite-hub/realtime/server")}`,
+          `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
           "",
           "export default createRealtimeHandler(registry)",
           "",

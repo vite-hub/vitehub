@@ -607,7 +607,12 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
   }
-  if (options.realtime) plugins.push(hubRealtime(options.realtime === true ? undefined : options.realtime))
+  if (options.realtime) {
+    plugins.push(hubRealtime({
+      ...(options.realtime === true ? {} : options.realtime),
+      importBase: "vite-hub/realtime",
+    }))
+  }
   if (options.schedule) {
     plugins.push(hubSchedule({
       ...(options.schedule === true ? {} : options.schedule),
