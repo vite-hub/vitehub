@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { bindAwarenessIdentity, claimAwarenessClientIds, markdownToYDoc, realtimeRoomKey, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { bindAwarenessIdentity, claimAwarenessClientIds, markdownToYDoc, matchesRealtimeStateVector, realtimeRoomKey, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -50,6 +50,20 @@ describe("tiptap-markdown documents", () => {
     expect(calls).toEqual([
       "write:docs/page.md:# Shared draft:baseline",
     ])
+  })
+
+  it("only checkpoints a document state the server has received", () => {
+    const client = markdownToYDoc("# Shared draft")
+    const server = new Y.Doc()
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
+    const stateVector = Y.encodeStateVector(client)
+
+    expect(matchesRealtimeStateVector(server, stateVector)).toBe(true)
+    client.getMap("pending").set("change", true)
+    expect(matchesRealtimeStateVector(server, Y.encodeStateVector(client))).toBe(false)
+
+    client.destroy()
+    server.destroy()
   })
 })
 

@@ -123,11 +123,16 @@ function encodeSyncUpdate(update: Uint8Array): Uint8Array {
   return encoding.toUint8Array(encoder)
 }
 
-function encodeSyncState(document: Y.Doc): Uint8Array {
+function encodeSyncStep1(document: Y.Doc): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageSync)
-  syncProtocol.writeSyncStep2(encoder, document)
+  syncProtocol.writeSyncStep1(encoder, document)
   return encoding.toUint8Array(encoder)
+}
+
+export function matchesRealtimeStateVector(document: Y.Doc, expected: Uint8Array): boolean {
+  const actual = Y.encodeStateVector(document)
+  return actual.length === expected.length && actual.every((byte, index) => byte === expected[index])
 }
 
 function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
@@ -279,6 +284,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     const definition = await getDefinition(definitionName)
     await authorize(event.req, definition.auth, event)
     const room = await getRoom(definitionName, documentId, definition)
+    const contentLength = Number(event.req.headers.get("content-length") || 0)
+    if (contentLength > maxMessageBytes) throw new HTTPError({ status: 413, message: "Realtime state vector exceeds 1 MiB." })
+    const stateVector = new Uint8Array(await event.req.arrayBuffer())
+    if (!stateVector.byteLength) throw new HTTPError({ status: 400, message: "A realtime state vector is required." })
+    if (stateVector.byteLength > maxMessageBytes) throw new HTTPError({ status: 413, message: "Realtime state vector exceeds 1 MiB." })
+    if (!matchesRealtimeStateVector(room.document, stateVector)) {
+      throw new HTTPError({
+        status: 409,
+        message: "The realtime document is still syncing.",
+        data: { code: "REALTIME_SYNC_PENDING" },
+      })
+    }
     return await checkpointRoom(documentId, definition, room)
   })
 
@@ -307,7 +324,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       open(peer) {
         room.peers.add(peer)
         peer.subscribe(room.channel)
-        peer.send(encodeSyncState(room.document))
+        peer.send(encodeSyncStep1(room.document))
         const clients = [...room.awareness.getStates().keys()]
         if (clients.length) peer.send(encodeAwarenessState(room.awareness, clients))
       },

@@ -26,7 +26,7 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function configureCloudflareRealtime(nitro: NitroConfig): void {
-  const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET
+  const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
   if (getHostingProvider(configuredPreset) !== "cloudflare") return
 
   nitro.preset = "cloudflare-durable"
@@ -68,6 +68,10 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
       config.resolve = {
         ...config.resolve,
         dedupe: [...new Set([...(config.resolve?.dedupe || []), "yjs"])],
+      }
+      config.define = {
+        __VITEHUB_APP_BASE_URL__: JSON.stringify(config.base || "/"),
+        ...config.define,
       }
 
       const directory = resolve(root, ".vitehub/nitro/realtime")

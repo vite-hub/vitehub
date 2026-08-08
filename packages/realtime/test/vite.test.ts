@@ -19,7 +19,7 @@ describe("hubRealtime", () => {
 
     const { hubRealtime } = await import("../src/vite.ts")
     const plugin = hubRealtime()
-    const config = { root, nitro: { preset: "cloudflare" } }
+    const config = { base: "/wiki/", root, nitro: { preset: "cloudflare" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
     await hook(config)
 
@@ -33,6 +33,9 @@ describe("hubRealtime", () => {
           migrations: [{ new_sqlite_classes: ["$DurableObject"], tag: "vitehub-realtime-v1" }],
         },
       },
+    })
+    expect(config).toMatchObject({
+      define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/wiki/") },
     })
   })
 })

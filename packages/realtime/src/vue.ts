@@ -129,17 +129,24 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     const id = toValue(documentId)
     if (!id) throw new Error("A realtime document is required before creating a checkpoint.")
     const room = id.split("/").map(encodeURIComponent).join("/")
-    const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
-      method: "POST",
-    })
-    if (!response.ok) {
-      const data = await response.json().catch(() => undefined) as { message?: string, statusMessage?: string } | undefined
+    for (let attempt = 0; ; attempt++) {
+      const current = document.value
+      if (!current) throw new Error("The realtime document is not connected.")
+      const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
+        body: Uint8Array.from(Y.encodeStateVector(current)).buffer,
+        method: "POST",
+      })
+      if (response.ok) return await response.json() as WorkspaceSnapshot
+      const data = await response.json().catch(() => undefined) as { data?: { code?: string }, message?: string, statusMessage?: string } | undefined
+      if (response.status === 409 && data?.data?.code === "REALTIME_SYNC_PENDING" && attempt < 20) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+        continue
+      }
       throw Object.assign(new Error(data?.statusMessage || data?.message || "Could not create the realtime checkpoint."), {
         data,
         statusCode: response.status,
       })
     }
-    return await response.json() as WorkspaceSnapshot
   }
 
   watch(() => toValue(documentId), (id) => {
