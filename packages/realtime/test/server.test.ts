@@ -201,7 +201,7 @@ describe("realtime server handler", () => {
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
 
-    await handler.fetch(request)
+    await handler.fetch(request as never)
 
     expect(exec).toHaveBeenCalledWith(
       expect.stringContaining("INSERT OR REPLACE"),
