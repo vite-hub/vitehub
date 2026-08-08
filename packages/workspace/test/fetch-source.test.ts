@@ -284,7 +284,7 @@ describe("fetch sources", () => {
         }),
       },
     }, store)
-    await expect(nextView.writeFile("old.json", "editable")).resolves.toBeUndefined()
+    await expect(nextView.writeFile("old.json", "editable")).resolves.toBe("old.json")
     await expect(nextView.readFile("old.json")).resolves.toBe("editable")
   })
 

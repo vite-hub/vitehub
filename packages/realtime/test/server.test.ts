@@ -210,12 +210,13 @@ describe("tiptap-markdown documents", () => {
       fs: {
         async writeFile(path: string, content: string, options: { ifDigest: string }) {
           calls.push(`write:${path}:${content}:${options.ifDigest}`)
+          return path
         },
       },
     }
 
     await expect(writeRealtimeDocument(workspace as never, "docs/page.md", document, "baseline"))
-      .resolves.toBeUndefined()
+      .resolves.toBe("docs/page.md")
     expect(calls).toEqual([
       "write:docs/page.md:# Shared draft:baseline",
     ])

@@ -387,6 +387,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         await writePolicy.error(next, error)
         throw error
       }
+      return next
     }
 
     function withSessionSourceGuards(session: WorkspaceSession): WorkspaceSession {
@@ -413,10 +414,12 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       exists: fs.exists,
       glob: fs.glob,
       list: fs.list,
-      mkdir: async (path, options) => await writeWithPolicy({
-        operation: "mkdir",
-        path,
-      }, async input => await workspace.fs.mkdir(input.path as never, options)),
+      mkdir: async (path, options) => {
+        await writeWithPolicy({
+          operation: "mkdir",
+          path,
+        }, async input => await workspace.fs.mkdir(input.path as never, options))
+      },
       movePath: async (from, to, options) => {
         await sourceView.assertWritable(from)
         await sourceView.assertWritable(to)
@@ -424,24 +427,29 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         await writeWorkspace.rm(from, { recursive: true, force: true })
       },
       readFile: fs.readFile,
-      rm: async (path, options) => await writeWithPolicy({
-        operation: "rm",
-        path,
-      }, async input => await workspace.fs.rm(input.path as never, options)),
+      rm: async (path, options) => {
+        await writeWithPolicy({
+          operation: "rm",
+          path,
+        }, async input => await workspace.fs.rm(input.path as never, options))
+      },
       search: fs.search,
       stat: fs.stat,
-      writeFile: async (path, content, options) => await writeWithPolicy({
-        content,
-        mediaType: options?.mediaType,
-        metadata: options?.metadata,
-        operation: "writeFile",
-        path,
-      }, async (input) => {
-        const writeOptions = options === undefined && input.mediaType === undefined && input.metadata === undefined
-          ? undefined
-          : { ...options, mediaType: input.mediaType, metadata: input.metadata }
-        await workspace.fs.writeFile(input.path as never, input.content ?? content, writeOptions)
-      }),
+      writeFile: async (path, content, options) => {
+        const input = await writeWithPolicy({
+          content,
+          mediaType: options?.mediaType,
+          metadata: options?.metadata,
+          operation: "writeFile",
+          path,
+        }, async (next) => {
+          const writeOptions = options === undefined && next.mediaType === undefined && next.metadata === undefined
+            ? undefined
+            : { ...options, mediaType: next.mediaType, metadata: next.metadata }
+          await workspace.fs.writeFile(next.path as never, next.content ?? content, writeOptions)
+        })
+        return input.path
+      },
     }, sourceRequestExecution)
     writeWorkspace = attachWorkspaceSourceRequestExecution({
       name: resolvedDefinition.name,

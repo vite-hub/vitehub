@@ -464,11 +464,11 @@ describe("workspace public API", () => {
     const workspace = useWorkspace("rules", { mode: "write" })
 
     await expect(workspace.fs.writeFile("README.md", "# Blocked\n")).rejects.toThrow("does not allow writeFile")
-    await expect(workspace.fs.writeFile("generated/result.txt", "ok")).resolves.toBeUndefined()
+    await expect(workspace.fs.writeFile("generated/result.txt", "ok")).resolves.toBe("generated/result.txt")
     await expect(workspace.fs.writeFile("generated/large.txt", "x".repeat(1025))).rejects.toThrow("limits writes")
     await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/plain" })).rejects.toThrow("does not allow media type")
     await expect(workspace.fs.writeFile("docs/guide.md", "<script />\n", { mediaType: "text/markdown" })).rejects.toThrow("validator rejected")
-    await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/markdown" })).resolves.toBeUndefined()
+    await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/markdown" })).resolves.toBe("docs/guide.md")
   })
 
   it("merges workspace plugin rules and hooks into the write pipeline", async () => {

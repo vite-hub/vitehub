@@ -41,7 +41,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       return await files.readFile(path, options)
     },
     async writeFile(path, content, options) {
-      await files.writeFile(path, content, options)
+      return await files.writeFile(path, content, options)
     },
     async list(path, options) {
       return await files.list(path, options)

@@ -33,7 +33,7 @@ import type {
 
 export interface WorkspaceSourceView {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
-  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   assertWritable(path: string): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
@@ -367,6 +367,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         else await store.writeFile(input.path, file)
         await writePolicy.after(input)
+        return input.path
       }
       catch (error) {
         await writePolicy.error(input, error)

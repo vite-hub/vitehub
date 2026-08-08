@@ -100,7 +100,7 @@ export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = Wo
 
 export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName> {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: WorkspaceWritablePath<Name>, options?: TOptions): Promise<ReadFileResult<TOptions>>
-  writeFile(path: WorkspaceWritablePath<Name>, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  writeFile(path: WorkspaceWritablePath<Name>, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   appendFile(path: WorkspaceWritablePath<Name>, content: string): Promise<void>
   stat(path: WorkspaceWritablePath<Name>): Promise<WorkspaceStat>
   exists(path: WorkspaceWritablePath<Name>): Promise<boolean>
@@ -203,7 +203,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)
     },
     async writeFile(path, content, options) {
-      await (await resolveSyncedWorkspace()).writeFile(normalizePath(path), content, options)
+      return await (await resolveSyncedWorkspace()).writeFile(normalizePath(path), content, options)
     },
     async list(path, options) {
       return await (await resolveSyncedWorkspace()).list(path ? normalizeListPath(path) : "", options)

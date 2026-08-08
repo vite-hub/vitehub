@@ -144,8 +144,8 @@ export async function writeRealtimeDocument(
   documentId: string,
   document: Y.Doc,
   ifDigest: string | null,
-): Promise<void> {
-  await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
+): Promise<string> {
+  return await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
 }
 
 export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
@@ -306,7 +306,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       idFromName(name: string): unknown
     } | undefined
     if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
-    return await binding.get(binding.idFromName("server")).fetch(event.req)
+    const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
+    const key = workspaceEvents
+      ? JSON.stringify([definitionName, { workspaceEvents: true }])
+      : realtimeRoomKey(definitionName, documentId)
+    return await binding.get(binding.idFromName(key)).fetch(event.req)
   }
 
   function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
@@ -426,7 +430,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           ? configured.message
           : `docs: checkpoint ${documentId}`
         try {
-          await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
+          const effectivePath = await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
+          if (effectivePath !== documentId) {
+            throw new Error(`[vitehub] Realtime Workspace validators cannot rewrite document paths: ${documentId} -> ${effectivePath}.`)
+          }
         }
         catch (error) {
           submittedDocument.destroy()

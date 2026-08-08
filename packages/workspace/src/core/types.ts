@@ -653,7 +653,7 @@ export interface Workspace {
   getMeta?(key: string): Promise<unknown>
   setMeta?(key: string, value: unknown): Promise<void>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
-  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
