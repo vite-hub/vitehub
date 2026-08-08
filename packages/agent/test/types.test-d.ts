@@ -1,7 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
+import type { LanguageModel } from "ai"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, usageCost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type UsageCostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -110,23 +111,38 @@ describe("agent public types", () => {
     })
   })
 
+  it("types declarative and concrete Agent models", () => {
+    const descriptor = { apiKey: "token", id: "zai/glm-5v-turbo" } satisfies AgentGatewayModel
+    const concrete = {} as LanguageModel
+
+    defineAgent({ driver: { model: "zai/glm-5v-turbo" } })
+    defineAgent({ driver: { model: descriptor } })
+    defineAgent({ driver: { model: () => descriptor } })
+    defineAgent({ driver: { model: concrete } })
+    defineAgent({
+      driver: {
+        // @ts-expect-error Gateway descriptors require id.
+        model: { idd: "zai/glm-5v-turbo" },
+      },
+    })
+  })
+
   it("types usage cost pricing and finish extensions", () => {
     const pricing = ((context) => {
       expectTypeOf(context.usage).toMatchTypeOf<NonNullable<AgentUsageRecord["usage"]>>()
       return {
-        amount: "0.01",
-        currency: "USD",
+        usd: "0.01",
         estimated: true,
         source: "custom",
       }
     }) satisfies AgentUsagePricing
-    const options = { pricing } satisfies UsageCostOptions
+    const options = { pricing } satisfies CostOptions
     const gatewayPricingOptions = { timeout: 5_000 } satisfies VercelAiGatewayPricingOptions
 
-    expectTypeOf(usageCost(options)).toMatchTypeOf<AgentCapabilityDefinition>()
+    expectTypeOf(cost(options)).toMatchTypeOf<AgentCapabilityDefinition>()
     expectTypeOf(vercelAiGatewayPricing(gatewayPricingOptions)).toMatchTypeOf<AgentUsagePricing>()
     defineAgent({
-      capabilities: [usageCost(options)],
+      capabilities: [cost(options)],
       driver: { run: () => "ok" },
       hooks: {
         "agent:error"(event) {
@@ -145,7 +161,7 @@ describe("agent public types", () => {
           void event.error
           // @ts-expect-error Agent Finish Hooks do not receive normalized error messages.
           void event.errorMessage
-          expectTypeOf(event.extensions.get("usage-cost")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get("cost")).toEqualTypeOf<AgentUsageRecord | undefined>()
         },
       },
     })
@@ -586,7 +602,7 @@ describe("agent public types", () => {
         }),
         title({
           channelDelivery: "once-per-thread",
-          model: () => ({}),
+          model: () => ({} as AgentModelInput),
           template({ fallback, maxLength, source, text, trigger }) {
             expectTypeOf(fallback).toEqualTypeOf<string>()
             expectTypeOf(maxLength).toEqualTypeOf<number>()
@@ -2022,7 +2038,7 @@ describe("agent public types", () => {
         scorers: [scorer],
       }],
       scorers: [scorer],
-      variants: [{ name: "strict", instructions: "Be strict.", model: {} }],
+      variants: [{ name: "strict", instructions: "Be strict.", model: {} as AgentModelInput }],
     }
 
     defineEval(definition)

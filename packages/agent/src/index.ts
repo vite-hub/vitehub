@@ -338,9 +338,11 @@ export type {
   AgentMessageFilterContext,
   AgentMessageLockScope,
   AgentOutputDefinition,
+  AgentGatewayModel,
   AgentModelInput,
   AgentModelDriver,
   AgentModelExecutionInstrumentation,
+  AgentModelResolverContext,
   AgentModelExecutionOptions,
   AgentModelInstrumentation,
   AgentModelResolver,
@@ -448,15 +450,6 @@ export {
   agentChatContextKey,
   getAgentChatContext,
 } from "./chat-trigger.ts"
-
-export {
-  gateway,
-} from "./gateway.ts"
-
-export type {
-  GatewayModelSettings,
-  GatewayModelSettingsResolver,
-} from "./gateway.ts"
 
 export type {
   AgentChannelContext,

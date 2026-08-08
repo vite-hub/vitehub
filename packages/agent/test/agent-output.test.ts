@@ -32,7 +32,7 @@ describe("agent output helpers", () => {
       finishReason: "tool-calls",
       raw,
       text: "",
-      usageRecord: { model: { id: "rendered-model" }, usage: { inputTokens: 1 } },
+      usageRecord: { model: "rendered-model", usage: { inputTokens: 1 } },
       warnings: ["rendered warning"],
     })
   })
@@ -50,6 +50,26 @@ describe("agent output helpers", () => {
       },
       warnings: [],
     })
+  })
+
+  it("separates Gateway transport from canonical model identity", () => {
+    expect(toAgentRunResult({
+      modelId: "zai/glm-5v-turbo",
+      provider: "gateway",
+      usage: { inputTokens: 1 },
+    }).usageRecord).toEqual({
+      model: "zai/glm-5v-turbo",
+      transport: "gateway",
+      usage: { inputTokens: 1 },
+    })
+  })
+
+  it.each(["claude-custom", "gemini-custom"])("does not infer a vendor from the %s model name", (modelId) => {
+    expect(toAgentRunResult({
+      modelId,
+      provider: "custom-provider",
+      usage: { inputTokens: 1 },
+    }).usageRecord?.model).toBe(`custom-provider/${modelId}`)
   })
 
   it("preserves published delivery artifacts in Agent run results", () => {
@@ -580,10 +600,7 @@ describe("agent output helpers", () => {
           latency: {
             durationMs: 1000,
           },
-          model: {
-            id: "claude-opus-4-8",
-            provider: "googleVertex.anthropic.messages",
-          },
+          model: "anthropic/claude-opus-4-8",
           response: {
             id: "resp_1",
             timestamp: "2026-06-22T20:00:00.000Z",
@@ -597,6 +614,25 @@ describe("agent output helpers", () => {
       },
       { type: "finish" },
     ])
+  })
+
+  it.each(["google-compatible", "my-anthropic-proxy"])("preserves custom provider identity %s", async (provider) => {
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents({
+      raw: {
+        provider,
+        response: { modelId: "gemini-custom" },
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      },
+      text: "ok",
+    })) {
+      events.push(event)
+    }
+
+    expect(events[1]).toMatchObject({
+      type: "usage",
+      usageRecord: { model: `${provider}/gemini-custom` },
+    })
   })
 
   it("adds a terminal finish event to fullStream output", async () => {
@@ -798,10 +834,7 @@ describe("agent output helpers", () => {
       {
         type: "usage",
         usageRecord: {
-          model: {
-            id: "claude-opus-4-8",
-            provider: "googleVertex.anthropic.messages",
-          },
+          model: "anthropic/claude-opus-4-8",
           usage: {
             inputTokens: 16,
             outputTokens: 4,

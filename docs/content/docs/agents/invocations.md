@@ -192,12 +192,11 @@ export default defineAgent({
 Use an Agent Finish Hook to observe a successful invocation. Finish hooks are appropriate for usage export, trace collection, or product-side notifications; use an Agent Error Hook for failed invocations and Capability cleanup for work that must run after either outcome. Read normalized usage directly from `event.invocation.usage`.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: 'Answer support requests.',
   },
   hooks: {

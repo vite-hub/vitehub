@@ -13,10 +13,19 @@ export interface AgentUsagePricingContext {
   usage: AgentUsage
 }
 
-export type AgentUsagePricing = (context: AgentUsagePricingContext) => MaybePromise<AgentUsageCost | undefined>
+export type AgentUsagePrice = Omit<AgentUsageCost, "display">
+
+export type AgentUsagePricing = (context: AgentUsagePricingContext) => MaybePromise<AgentUsagePrice | undefined>
+
+export function materializeAgentUsageCost(cost: AgentUsageCost | AgentUsagePrice): AgentUsageCost {
+  const usd = cost.usd.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "")
+  return {
+    ...cost,
+    display: `${cost.estimated ? "~" : ""}$${usd}`,
+  }
+}
 
 interface StaticModelPrice {
-  currency?: string
   input?: string
   inputCacheRead?: string
   inputCacheWrite?: string
@@ -98,18 +107,13 @@ function normalizeAnthropicGatewayModelId(id: string): string {
 }
 
 function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undefined): string[] {
-  const modelId = typeof model?.id === "string" ? model.id.trim() : ""
+  const modelId = typeof model === "string" ? model.trim() : ""
   if (!modelId) return []
   const candidates: string[] = []
   addModelIdCandidate(candidates, modelId)
 
   const unscoped = modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId
-  const provider = typeof model?.provider === "string" ? model.provider.toLowerCase() : ""
-  if (!modelId.includes("/") && provider) {
-    const providerScope = provider.split(".", 1)[0]!
-    addModelIdCandidate(candidates, `${providerScope}/${unscoped}`)
-  }
-  const isAnthropic = modelId.startsWith("anthropic/") || unscoped.startsWith("claude-") || provider.includes("anthropic")
+  const isAnthropic = modelId.startsWith("anthropic/") || (!modelId.includes("/") && unscoped.startsWith("claude-"))
   if (isAnthropic) {
     addModelIdCandidate(candidates, `anthropic/${unscoped}`)
     addModelIdCandidate(candidates, `anthropic/${normalizeAnthropicGatewayModelId(unscoped)}`)
@@ -165,11 +169,10 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
     if (!price) return
     const amount = pricedTokens(usage, price)
     if (amount === undefined) return
-    return {
-      amount,
-      currency: price.currency || "USD",
+    return materializeAgentUsageCost({
       estimated: true,
       source: "vercel-ai-gateway",
-    }
+      usd: amount,
+    })
   }
 }

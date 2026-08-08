@@ -15,6 +15,7 @@ import {
 } from "./invoker.ts"
 import { runObservedAgentHook } from "./hooks.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
+import { materializeAgentModel } from "./internal/agent-model.ts"
 import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
 import type {
   AgentCapabilitiesInput,
@@ -1053,12 +1054,15 @@ export async function resolveAgentCapabilities<
             if (resolver === undefined) {
               throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
             }
-            return await resolveRuntimeValue(resolver as never, {
+            const resolverContext = {
               ...metadataContext,
               fs: currentWorkspace?.fs,
+              runtimeConfig: runtime.runtimeConfig,
               workspace: currentWorkspace,
               workspaceDefinition: currentWorkspaceDefinition,
-            } as never) as unknown
+            }
+            const resolved = await resolveRuntimeValue(resolver as never, resolverContext as never)
+            return await materializeAgentModel(resolved as never, resolverContext)
           },
         },
         modelExecution: {

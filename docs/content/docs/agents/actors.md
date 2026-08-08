@@ -71,12 +71,11 @@ When no Actor is supplied, ViteHub creates an anonymous fallback Actor from Agen
 Profiles are static selectable Actors on an Agent Definition. They are useful for CLI inspection, local development, schedules, and trusted app routes that need a known profile id.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent, defineAgentInvoker } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: 'Answer support requests.',
   },
   invoker: defineAgentInvoker({

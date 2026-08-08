@@ -53,7 +53,7 @@ describe("usage context", () => {
     expect(finish).toHaveBeenCalledTimes(1)
     const usage = finish.mock.calls[0]![0].invocation.usage
     expect(usage).toMatchObject({
-      model: { id: "openai/gpt-test" },
+      model: "openai/gpt-test",
       response: {
         finishReason: "stop",
         id: "response-1",

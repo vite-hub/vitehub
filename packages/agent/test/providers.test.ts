@@ -6437,8 +6437,8 @@ describe("server helpers", () => {
     let stop: () => void | Promise<void> = () => undefined
 
     try {
-      stop = handler.resume({ agentName: "review", webhookState: queueState })
       await handler(request("delivery-stop-1"), "github", { agentName: "review", webhookState: queueState })
+      stop = handler.resume({ agentName: "review", webhookState: queueState })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 3_000 })
       blockClaims = true
       await handler(request("delivery-stop-2"), "github", { agentName: "review", webhookState: queueState })
@@ -11075,7 +11075,7 @@ describe("server helpers", () => {
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].invocation.usage).toEqual(expect.objectContaining({
       latency: expect.objectContaining({ durationMs: 900 }),
-      model: expect.objectContaining({ id: "openai/gpt-test" }),
+      model: "openai/gpt-test",
       usage: expect.objectContaining({
         inputTokens: 12,
         outputTokens: 3,
@@ -11768,7 +11768,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].invocation.usage).toEqual(expect.objectContaining({
-      model: expect.objectContaining({ id: "openai/gpt-test" }),
+      model: "openai/gpt-test",
       usage: expect.objectContaining({
         inputTokens: 10,
         outputTokens: 5,

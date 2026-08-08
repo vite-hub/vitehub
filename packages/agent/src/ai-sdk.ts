@@ -14,6 +14,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
+import { materializeAgentModel } from "./internal/agent-model.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -49,6 +50,8 @@ import type {
   AgentAttachmentExecutionOptions,
   AgentModelExecutionInstrumentation,
   AgentModelExecutionOptions,
+  AgentModelResolver,
+  AgentModelResolverContext,
   AgentModelInstrumentationContext,
   AgentRuntimeConfig,
   AgentToolSet,
@@ -67,7 +70,7 @@ export interface AiSdkAdapterOptions<
 > {
   execution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
-  model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
+  model: AgentModelResolver<TRuntimeConfig, Name>
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
 }
 
@@ -1055,7 +1058,11 @@ async function createAgent(
     invoker: context.invoker,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
-  const model = await resolveValue(options.model as never, metadataContext)
+  const modelContext = {
+    ...metadataContext,
+    runtimeConfig: context.runtime.runtimeConfig,
+  } as AgentModelResolverContext
+  const model = await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })

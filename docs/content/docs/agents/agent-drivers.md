@@ -26,13 +26,11 @@ Custom driver variants are mutually exclusive. A single Agent Definition cannot 
 Use a model-backed driver for normal model execution. Put Model Driver Instructions and model execution settings inside `driver`.
 
 ```ts [server/agents/support.ts]
-import { defineAgent, gateway } from '@vite-hub/agent'
+import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini', {
-      fallbacks: ['anthropic/claude-sonnet-4.5'],
-    }),
+    model: 'openai/gpt-5.1-mini',
     maxRetries: 0,
     instructions: [
       'Answer support requests from inspected evidence.',
@@ -46,7 +44,42 @@ export default defineAgent({
 })
 ```
 
-ViteHub's `gateway()` resolves `AI_GATEWAY_API_KEY` from process or Cloudflare Server Env and creates the AI SDK Gateway provider behind the Agent Driver interface. Pass `fallbacks` to configure AI Gateway model fallbacks, or use a settings callback when credentials come from invocation-aware server configuration. A concrete AI SDK model remains accepted as the provider escape hatch.
+Model strings are the normal declaration. ViteHub materializes them through AI Gateway and discovers `AI_GATEWAY_API_KEY` from the process or Cloudflare Server Env.
+
+Use a descriptor when the Agent Definition supplies the Gateway credential explicitly:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+const apiKey = process.env.SUPPORT_AI_GATEWAY_API_KEY
+if (!apiKey) throw new Error('SUPPORT_AI_GATEWAY_API_KEY is required')
+
+export default defineAgent({
+  driver: {
+    model: {
+      id: 'zai/glm-5v-turbo',
+      apiKey,
+    },
+  },
+})
+```
+
+The whole model can resolve for each Agent Invocation, so runtime configuration can select tenant-specific credentials:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent<{ gatewayKey: string }>({
+  driver: {
+    model: ({ runtimeConfig }) => ({
+      id: 'zai/glm-5v-turbo',
+      apiKey: runtimeConfig.gatewayKey,
+    }),
+  },
+})
+```
+
+Pass a concrete compatible AI SDK model when an application needs a provider SDK directly. Inspection reports a declarative model's id and Gateway transport without exposing its key.
 
 Capability Driver Contributions such as model-facing tools are filtered for the selected Agent Driver before the model call. Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown.
 
@@ -54,7 +87,7 @@ Capability Driver Contributions such as model-facing tools are filtered for the 
 
 | Option | Type | Default | Purpose |
 | --- | --- | --- | --- |
-| `model` | model value or callback | Required | Resolves the AI SDK model for the invocation. |
+| `model` | model id, `{ id, apiKey }`, compatible AI SDK model, or callback | Required | Resolves and materializes the model for the invocation. |
 | `instructions` | `string`, `string[]`, or callback parts | Colocated instructions when available | Supplies Model Driver Instructions. Callback parts receive trusted runtime and Workspace metadata. |
 | `maxRetries` | non-negative integer | AI SDK default | Sets the common model retry count. Do not combine it with `execution.callSettings.maxRetries`. |
 | `execution.callSettings` | `Record<string, unknown>` | `{}` | Passes provider and AI SDK call settings to model execution. |

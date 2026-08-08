@@ -52,7 +52,7 @@ describe("LLM decision capabilities", () => {
         reason: "User asks for account help.",
       })
       expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
-        model: "router-model",
+        model: expect.objectContaining({ modelId: "router-model" }),
       }))
     }
     finally {

@@ -431,7 +431,7 @@ describe("agent eval", () => {
 
     expect(agentSettings.at(-1)).toMatchObject({
       instructions: "Variant instructions.",
-      model: variantModel,
+      model: { modelId: "variant" },
     })
   })
 
@@ -468,7 +468,7 @@ describe("agent eval", () => {
     await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
 
     expect(agentSettings.at(-1)).toMatchObject({
-      model: variantModel,
+      model: { modelId: "variant" },
     })
     expect(validate).toHaveBeenCalledWith({ ok: true })
   })
@@ -494,7 +494,7 @@ describe("agent eval", () => {
 
     expect(agentSettings.at(-1)).toMatchObject({
       instructions: "Variant instructions.",
-      model: baseModel,
+      model: { modelId: "base" },
     })
   })
 
@@ -520,7 +520,7 @@ describe("agent eval", () => {
 
     expect(agentSettings.at(-1)).toMatchObject({
       instructions: "Base instructions.",
-      model: variantModel,
+      model: { modelId: "variant" },
     })
   })
 
