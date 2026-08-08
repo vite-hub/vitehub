@@ -70,6 +70,7 @@
     "./agent/harness/local-sandbox": "./dist/agent/harness/local-sandbox.js",
     "./agent/server": "./dist/agent/server.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
+    "./agent/vue": "./dist/agent/vue.js",
     "./auth": "./dist/auth.js",
     "./auth/agent": "./dist/auth/agent.js",
     "./auth/server": "./dist/auth/server.js",

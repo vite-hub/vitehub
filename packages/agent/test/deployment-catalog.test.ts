@@ -85,11 +85,14 @@ function deploymentRuntimeModules(): Map<string, string> {
   ])
 }
 
-async function createDeploymentRuntimeFixture(adapter: "deno" | "netlify" | "nitro" = "nitro"): Promise<DeploymentRuntimeFixture> {
+async function createDeploymentRuntimeFixture(
+  adapter: "deno" | "netlify" | "nitro" = "nitro",
+  supportName = "support",
+): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
     : join(tmpdir(), "vitehub-agent-deployment-catalog-"))
-  const supportRoot = join(root, "server", "agents", "support")
+  const supportRoot = join(root, "server", "agents", ...supportName.split("/"))
   const reviewerRoot = join(root, "server", "agents", "reviewer")
   const capture: DeploymentRuntimeCapture = { workspaceRegistry: {} }
   const scope = globalThis as typeof globalThis & Record<string, unknown>
@@ -354,20 +357,20 @@ describe("generated Agent deployment catalog", () => {
 
   it("executes the same catalog through the Deno Adapter", async () => {
     await runtime!.close()
-    runtime = await createDeploymentRuntimeFixture("deno")
+    runtime = await createDeploymentRuntimeFixture("deno", "team/support")
 
-    await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({
+    await expect((await runtime.request("team%2Fsupport", "chat")).json()).resolves.toMatchObject({
       agent: "support",
-      agentIdentity: { name: "support", workspace: "support" },
+      agentIdentity: { name: "team/support", workspace: "team/support" },
       kind: "chat",
     })
-    await expect((await runtime.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
+    await expect((await runtime.request("team%2Fsupport", "webhooks/channel")).json()).resolves.toMatchObject({
       agent: "support",
-      agentIdentity: { name: "support", workspace: "support" },
+      agentIdentity: { name: "team/support", workspace: "team/support" },
       kind: "webhook",
       webhook: "channel",
     })
     expect(await runtime.request("missing", "chat")).toMatchObject({ status: 404 })
-    expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support"])
+    expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["team/support"])
   })
 })

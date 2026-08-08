@@ -1,8 +1,6 @@
-import type { AgentModuleOptions, ResolvedAgentModuleOptions } from "./types.ts"
+import { defaultAgentChatRoute, defaultAgentDiscordGatewayRoute, defaultAgentWebhookRoute } from "./internal/routes.ts"
 
-const defaultAgentChatRoute = "/api/_vitehub/agents/[agent]/chat"
-const defaultAgentDiscordGatewayRoute = "/api/_vitehub/agents/[agent]/discord/gateway"
-const defaultAgentWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
+import type { AgentModuleOptions, ResolvedAgentModuleOptions } from "./types.ts"
 
 function normalizeAgentRouteOption(value: boolean | string | undefined, defaultRoute: string): false | string {
   if (value === true) return defaultRoute

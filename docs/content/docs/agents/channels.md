@@ -280,6 +280,19 @@ export default defineAgent({
 })
 ```
 
+In Vue, create the Agent client handle and pass it to the chat adapter. ViteHub derives the generated endpoint from the Agent name and delegates messages, status, errors, actions, and UI-message streaming to `@ai-sdk/vue`.
+
+```vue [app/components/SupportChat.vue]
+<script setup lang="ts">
+import { useAgent, useChat } from '@vite-hub/agent/vue'
+
+const agent = useAgent('support')
+const { messages, status, sendMessage, stop } = useChat(agent)
+</script>
+```
+
+The `vite-hub/nuxt` integration auto-imports both composables when `agent` is enabled; framework-distribution imports are also available from `vite-hub/agent/vue`. Pass `api` for an application-owned endpoint, or pass an AI SDK `transport` when the request protocol needs further customization. An explicit transport takes precedence over `api`. When `routes.chat` is disabled, `useChat(agent)` requires one of those explicit options instead of deriving an unavailable route.
+
 ViteHub reads the raw request body once and runs `authenticate` with `rawBody`. It then requires a non-empty `messages` array containing `user` or `assistant` messages, accepts optional string `id`, `messageId`, and `trigger` fields, and passes additional AI SDK fields unchanged to admission validation. An `admission.body` Standard Schema adds product-specific validation to that shared contract instead of recreating it.
 
 `input.trust` lists request body fields that may be copied after authentication. Add `timeout` only when authenticated callers may control Agent Invocation duration; ViteHub forwards positive, finite numeric values and ignores invalid timeouts. Use `admission.context` only when the route needs to derive or validate different `chat.message` input.

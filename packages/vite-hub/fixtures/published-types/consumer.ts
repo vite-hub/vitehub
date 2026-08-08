@@ -12,6 +12,7 @@ import * as agentEval from "vite-hub/agent/eval"
 import * as localHarnessSandbox from "vite-hub/agent/harness/local-sandbox"
 import * as agentServer from "vite-hub/agent/server"
 import * as agentSqliteState from "vite-hub/agent/state/sqlite"
+import { useAgent, useChat } from "vite-hub/agent/vue"
 import * as authAgent from "vite-hub/auth/agent"
 import { createAuthClient, useUserSession } from "vite-hub/auth/vue"
 import type { BoxDefinition } from "vite-hub/box"
@@ -50,6 +51,7 @@ export const appFacingModules = [
 export const nuxtModule = viteHubNuxtModule
 export const customAuthClient = createAuthClient({ basePath: "/auth" })
 export const userSession = useUserSession(customAuthClient)
+export const supportChat = useChat(useAgent("support"))
 export const builtInAgent = defineAgent({ driver: "codex", runtime: false })
 export const builtInBox = { runtime: "trusted-host" } satisfies BoxDefinition
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
