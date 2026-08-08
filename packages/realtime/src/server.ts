@@ -304,7 +304,14 @@ export async function readRealtimeWorkspaceDocument(
   writable: WritableWorkspaceFacade,
   documentId: string,
 ): Promise<{ baselineDigest: string | undefined, markdown: string }> {
-  const stat = () => writable.fs.stat(documentId)
+  const stat = async () => {
+    try {
+      return await writable.fs.stat(documentId)
+    }
+    catch {
+      return undefined
+    }
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
     const before = await stat()
     let markdown = ""

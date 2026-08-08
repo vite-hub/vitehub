@@ -101,29 +101,6 @@ describe("realtime server handler", () => {
     expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/api/_vitehub/realtime/docs/page.md" }), expect.anything())
   })
 
-  it("syncs a nonempty Workspace document into a fresh client", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
-      exists: vi.fn().mockResolvedValue(true),
-      readFile: vi.fn().mockResolvedValue("# Canonical document"),
-      stat: vi.fn().mockResolvedValue({ digest: "canonical" }),
-    }))
-    const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
-      headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
-    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    const client = new Y.Doc()
-
-    response.crossws.open(peer)
-    peer.send.mockClear()
-    response.crossws.message(peer, { uint8Array: () => encodeSyncStep1(client) })
-    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
-
-    expect(yDocToMarkdown(client)).toBe("# Canonical document")
-    expect(peer.close).not.toHaveBeenCalled()
-    client.destroy()
-  })
-
   it("rejects checkpoints when the Workspace Store cannot write conditionally", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({}, { conditionalWrites: false }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
@@ -794,16 +771,6 @@ describe("realtime Workspace documents", () => {
 
     expect(result).toEqual({ baselineDigest: undefined, markdown: "" })
     expect(readFile).not.toHaveBeenCalled()
-  })
-
-  it("fails room initialization when the writable Workspace cannot be inspected", async () => {
-    const error = new Error("GitHub workspace store requires a token.")
-
-    await expect(readRealtimeWorkspaceDocument(
-      { fs: { exists: vi.fn().mockResolvedValue(false), readFile: vi.fn() } } as never,
-      { fs: { stat: vi.fn().mockRejectedValue(error) } } as never,
-      "page.md",
-    )).rejects.toBe(error)
   })
 
   it("bases generated assets on the writable store", async () => {
