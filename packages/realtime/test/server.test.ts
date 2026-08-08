@@ -773,6 +773,16 @@ describe("realtime Workspace documents", () => {
     expect(readFile).not.toHaveBeenCalled()
   })
 
+  it("fails room initialization when the writable Workspace cannot be inspected", async () => {
+    const error = new Error("GitHub workspace store requires a token.")
+
+    await expect(readRealtimeWorkspaceDocument(
+      { fs: { exists: vi.fn().mockResolvedValue(false), readFile: vi.fn() } } as never,
+      { fs: { stat: vi.fn().mockRejectedValue(error) } } as never,
+      "page.md",
+    )).rejects.toBe(error)
+  })
+
   it("bases generated assets on the writable store", async () => {
     const result = await readRealtimeWorkspaceDocument(
       { fs: { exists: vi.fn().mockResolvedValue(true), readFile: vi.fn().mockResolvedValue("# Generated asset") } } as never,
