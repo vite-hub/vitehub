@@ -93,7 +93,8 @@ interface Room {
   key: string
   pendingCheckpoint?: {
     message: string
-    workspace: Pick<WritableWorkspaceFacade, "history">
+    submittedDocument: Y.Doc
+    workspace: Pick<WritableWorkspaceFacade, "fs" | "history">
   }
   peers: Set<WebSocketPeer>
   sql?: RealtimeRoomSql
@@ -143,10 +144,8 @@ export async function writeRealtimeDocument(
   documentId: string,
   document: Y.Doc,
   ifDigest: string | null,
-): Promise<string> {
-  const markdown = yDocToMarkdown(document)
-  await workspace.fs.writeFile(documentId, markdown, { ifDigest })
-  return await workspace.fs.readFile(documentId, { encoding: "utf8" })
+): Promise<void> {
+  await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
 }
 
 export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
@@ -411,26 +410,22 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       let pending = room.pendingCheckpoint
       if (!pending) {
         const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
+        const submittedDocument = new Y.Doc()
+        Y.applyUpdate(submittedDocument, Y.encodeStateAsUpdate(room.document))
         const message = typeof configured === "object" && configured.message
           ? configured.message
           : `docs: checkpoint ${documentId}`
         try {
-          const effectiveMarkdown = await writeRealtimeDocument(workspace, documentId, room.document, room.baselineDigest ?? null)
-          if (effectiveMarkdown !== yDocToMarkdown(room.document)) {
-            const update = replaceRealtimeDocument(room.document, effectiveMarkdown)
-            if (update.byteLength > 0) {
-              const message = encodeSyncUpdate(update)
-              for (const peer of room.peers) peer.send(message)
-            }
-          }
+          await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
         }
         catch (error) {
+          submittedDocument.destroy()
           if (isWorkspaceConflict(error)) {
             throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
           }
           throw error
         }
-        pending = { message, workspace }
+        pending = { message, submittedDocument, workspace }
         room.pendingCheckpoint = pending
       }
 
@@ -443,6 +438,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         throw error
       }
       if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
+      const effectiveMarkdown = await pending.workspace.fs.readFile(documentId, { encoding: "utf8" })
+      if (effectiveMarkdown !== yDocToMarkdown(pending.submittedDocument)) {
+        const update = replaceRealtimeDocument(pending.submittedDocument, effectiveMarkdown)
+        Y.applyUpdate(room.document, update)
+        if (update.byteLength > 0) {
+          const message = encodeSyncUpdate(update)
+          for (const peer of room.peers) peer.send(message)
+        }
+      }
+      pending.submittedDocument.destroy()
       room.baselineDigest = snapshot.entries[documentId]?.digest
       persistRoom(room)
       return snapshot

@@ -208,9 +208,6 @@ describe("tiptap-markdown documents", () => {
     const document = markdownToYDoc("# Shared draft")
     const workspace = {
       fs: {
-        async readFile() {
-          return "# Shared draft"
-        },
         async writeFile(path: string, content: string, options: { ifDigest: string }) {
           calls.push(`write:${path}:${content}:${options.ifDigest}`)
         },
@@ -218,21 +215,25 @@ describe("tiptap-markdown documents", () => {
     }
 
     await expect(writeRealtimeDocument(workspace as never, "docs/page.md", document, "baseline"))
-      .resolves.toBe("# Shared draft")
+      .resolves.toBeUndefined()
     expect(calls).toEqual([
       "write:docs/page.md:# Shared draft:baseline",
     ])
   })
 
-  it("reconciles Workspace-transformed Markdown into the live Yjs document", () => {
-    const document = markdownToYDoc("# Shared draft")
+  it("reconciles Workspace transformations without losing concurrent edits", () => {
+    const submitted = markdownToYDoc("# Shared draft")
+    const document = new Y.Doc()
+    Y.applyUpdate(document, Y.encodeStateAsUpdate(submitted))
     const client = new Y.Doc()
     Y.applyUpdate(client, Y.encodeStateAsUpdate(document))
+    replaceRealtimeDocument(document, "# Shared draft\n\nConcurrent edit")
 
-    const update = replaceRealtimeDocument(document, "# Normalized draft")
+    const update = replaceRealtimeDocument(submitted, "# Normalized draft")
+    Y.applyUpdate(document, update)
     Y.applyUpdate(client, update)
 
-    expect(yDocToMarkdown(document)).toBe("# Normalized draft")
+    expect(yDocToMarkdown(document)).toBe("# Normalized draft\n\nConcurrent edit")
     expect(yDocToMarkdown(client)).toBe("# Normalized draft")
   })
 
