@@ -1003,6 +1003,7 @@ export async function transformEveExtensionCapabilities(
   parse: (code: string) => unknown,
   resolveExtension: (specifier: string) => Promise<boolean | string>,
   agentImportBase: string = agentPackageName,
+  resolveExtensionIdentity: (specifier: string) => Promise<boolean | string> = resolveExtension,
 ): Promise<string | undefined> {
   const program = parse(code)
   if (!isPositionedNode(program)) return
@@ -1134,6 +1135,7 @@ export async function transformEveExtensionCapabilities(
       || node.type === "ForStatement"
       || node.type === "ForInStatement"
       || node.type === "ForOfStatement"
+      || node.type === "SwitchStatement"
       || node.type.includes("Function")
     )
       ? { end: node.end, start: node.start }
@@ -1264,7 +1266,7 @@ export async function transformEveExtensionCapabilities(
     if (!specifiers.some(specifier => !isPositionedNode(specifier) || specifier.importKind !== "type")) continue
     const source = statement.source
     if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") continue
-    const identity = await resolveExtension(source.value)
+    const identity = await resolveExtensionIdentity(source.value)
     if (identity) runtimeImportIdentities.set(statement, typeof identity === "string" ? identity : source.value)
   }
   for (const extension of extensions) {
@@ -1347,6 +1349,7 @@ async function resolveEveExtensionPackage(
   config: Pick<ResolvedConfig, "createResolver">,
   specifier: string,
   importer: string,
+  validate = true,
 ): Promise<false | string> {
   const entry = await config.createResolver()(specifier, importer)
   if (!entry) return false
@@ -1356,6 +1359,7 @@ async function resolveEveExtensionPackage(
     if (existsSync(packagePath)) {
       const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as EveExtensionPackageJson
       if (typeof packageJson.name === "string" && packageJson.eve?.extension) {
+        if (!validate) return packageJson.name
         const dist = packageJson.eve?.extension?.dist
         if (typeof dist !== "string") return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
@@ -2355,6 +2359,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             return identity
           },
           getAgentImportBase(agent, frameworkOptions),
+          specifier => resolveEveExtensionPackage(resolved!, specifier, normalizedId, false),
         ) ?? transformed
         if (transformed !== code) return transformed
       }
