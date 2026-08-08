@@ -227,7 +227,7 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
-  userAppEntry?: boolean
+  includeUserAppEntry?: boolean
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -261,7 +261,7 @@ interface CloudflareWorkflowNitroOptions {
   nitro: Record<string, unknown>
   rootDir: string
   serverDirs?: string[]
-  userAppEntry?: boolean
+  includeUserAppEntry?: boolean
   workflow: WorkflowModuleOptions | undefined
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
@@ -332,7 +332,7 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
     workflow: options.workflowImportBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs, options.userAppEntry)
+  }, options.serverDirs, options.includeUserAppEntry)
   if (!artifacts.providerDefinitions.length) return options.nitro
 
   const nitro = { ...options.nitro }
@@ -641,7 +641,7 @@ async function writeProviderEntries(
   workflow: WorkflowModuleOptions | undefined,
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
-  userAppEntryEnabled = true,
+  includeUserAppEntry = true,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
@@ -649,7 +649,7 @@ async function writeProviderEntries(
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir, serverDirs })
   const providerDefinitions = definitions
-  const userAppEntry = userAppEntryEnabled ? resolveWorkflowUserAppEntry(rootDir) : undefined
+  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(rootDir) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
   await writeFile(registryFile, createWorkflowRegistryContents(registryFile, definitions, importBases), "utf8")
@@ -786,7 +786,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs, options.userAppEntry)
+  }, options.serverDirs, options.includeUserAppEntry)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"

@@ -27,7 +27,7 @@ type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
   agentImportBase?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
-  userAppEntry?: boolean
+  includeUserAppEntry?: boolean
   workspaceDependencyRuntimeImports?: {
     sandbox?: string
     sandboxRuntimeState?: string
@@ -78,7 +78,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
             nitro,
             rootDir: projectRoot,
             serverDirs: nitroServerDirs,
-            userAppEntry: internalOptions?.userAppEntry,
+            includeUserAppEntry: internalOptions?.includeUserAppEntry,
             workflow,
             workflowImportBase: internalOptions?.importBase,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
@@ -102,7 +102,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         rootDir: resolved.root,
         serverDirs,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "workflow"),
-        userAppEntry: internalOptions?.userAppEntry,
+        includeUserAppEntry: internalOptions?.includeUserAppEntry,
         workflow,
         workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
         workspaceImportBase: internalOptions?.workspaceImportBase,
