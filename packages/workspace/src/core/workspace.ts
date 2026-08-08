@@ -24,6 +24,9 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
 
   const workspace: Workspace = {
     name: definition.name,
+    async capabilities() {
+      return { conditionalWrites: typeof store.writeFileConditional === "function" }
+    },
     async sync(options) {
       const { syncWorkspaceSources } = await import("../sources/sync.ts")
       return await syncWorkspaceSources(definition, store, options)

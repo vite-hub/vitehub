@@ -2,17 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
 const serverMocks = vi.hoisted(() => ({
+  assertAuthOrigin: vi.fn(),
   getSession: vi.fn(),
   useWorkspace: vi.fn(),
 }))
 
 vi.mock("@vite-hub/auth/server", () => ({
-  getAuthForRequest: () => ({ api: { getSession: serverMocks.getSession } }),
+  assertAuthOrigin: serverMocks.assertAuthOrigin,
 }))
 
 vi.mock("@vite-hub/workspace", async (importOriginal) => ({
@@ -23,6 +24,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => ({
 afterEach(() => vi.unstubAllGlobals())
 
 beforeEach(() => {
+  serverMocks.assertAuthOrigin.mockReset().mockResolvedValue({ api: { getSession: serverMocks.getSession } })
   serverMocks.getSession.mockReset()
   serverMocks.useWorkspace.mockReset()
 })
@@ -39,6 +41,10 @@ function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean } = {}
   } as never
 }
 
+function workspaceFacade(fs: Record<string, unknown>, capabilities = { conditionalWrites: true }) {
+  return { capabilities: vi.fn().mockResolvedValue(capabilities), fs }
+}
+
 describe("realtime server handler", () => {
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
@@ -53,16 +59,42 @@ describe("realtime server handler", () => {
     expect(serverMocks.useWorkspace).not.toHaveBeenCalled()
   })
 
+  it("uses the Auth Definition trusted-origin policy", async () => {
+    serverMocks.getSession.mockResolvedValue({ user: { id: "user" } })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+
+    await handler.fetch(new Request("https://api.example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { origin: "https://app.example.com", upgrade: "websocket" },
+    }))
+
+    expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/api/_vitehub/realtime/docs/page.md" }), expect.anything())
+  })
+
+  it("rejects checkpoints when the Workspace Store cannot write conditionally", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({}, { conditionalWrites: false }))
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(501)
+    expect(serverMocks.useWorkspace).toHaveBeenCalledTimes(1)
+  })
+
   it("rejects an unsynchronized checkpoint before writing to Workspace", async () => {
     const writeFile = vi.fn()
-    serverMocks.useWorkspace.mockReturnValue({
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn().mockResolvedValue("# Workspace version"),
-        stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
-        writeFile,
-      },
-    })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(true),
+      readFile: vi.fn().mockResolvedValue("# Workspace version"),
+      stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
+      writeFile,
+    }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = markdownToYDoc("# Unsynchronized client version")
 
@@ -78,13 +110,11 @@ describe("realtime server handler", () => {
   })
 
   it("accepts workspace changes only on the workspace room", async () => {
-    serverMocks.useWorkspace.mockReturnValue({
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn().mockResolvedValue(""),
-        stat: vi.fn().mockResolvedValue(undefined),
-      },
-    })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(true),
+      readFile: vi.fn().mockResolvedValue(""),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
     const handler = createRealtimeHandler(realtimeRegistry())
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
@@ -106,14 +136,12 @@ describe("realtime server handler", () => {
 
   it("treats an @workspace path as a document without the events selector", async () => {
     const readFile = vi.fn().mockResolvedValue("# Workspace document")
-    serverMocks.useWorkspace.mockReturnValue({
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile,
-        stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
-        writeFile: vi.fn(),
-      },
-    })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(true),
+      readFile,
+      stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
+      writeFile: vi.fn(),
+    }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = markdownToYDoc("# Unsynchronized client version")
 
@@ -155,19 +183,38 @@ describe("realtime server handler", () => {
     }
   })
 
+  it("replaces durable room state when the Workspace baseline changed", async () => {
+    const stale = markdownToYDoc("# Stale document")
+    const exec = vi.fn((query: string) => ({
+      toArray: () => query.startsWith("SELECT")
+        ? [{ baseline_digest: "stale", update_blob: Uint8Array.from(Y.encodeStateAsUpdate(stale)).buffer }]
+        : [],
+    }))
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(true),
+      readFile: vi.fn().mockResolvedValue("# Current document"),
+      stat: vi.fn().mockResolvedValue({ digest: "current" }),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+
+    await handler.fetch(request)
+
+    expect(exec).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT OR REPLACE"),
+      realtimeRoomKey("docs", "page.md"),
+      "current",
+      expect.any(ArrayBuffer),
+    )
+    stale.destroy()
+  })
+
 })
 
 describe("realtime transport boundaries", () => {
-  it("requires authenticated requests to use the application origin", () => {
-    expect(() => assertRealtimeOrigin(new Request("https://example.com/realtime", {
-      headers: { origin: "https://example.com" },
-    }))).not.toThrow()
-    expect(() => assertRealtimeOrigin(new Request("https://example.com/realtime", {
-      headers: { origin: "https://attacker.example" },
-    }))).toThrow()
-    expect(() => assertRealtimeOrigin(new Request("https://example.com/realtime"))).toThrow()
-  })
-
   it("rejects sync updates that exceed the cumulative room quota", () => {
     const room = new Y.Doc()
     const updateDocument = new Y.Doc()

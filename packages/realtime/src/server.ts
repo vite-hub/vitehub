@@ -4,7 +4,7 @@ import { TableKit } from "@tiptap/extension-table"
 import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
-import { getAuthForRequest } from "@vite-hub/auth/server"
+import { assertAuthOrigin } from "@vite-hub/auth/server"
 import { invalidateWorkspaceStore, isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
@@ -167,11 +167,6 @@ export function matchesRealtimeState(document: Y.Doc, expected: Uint8Array): boo
   return matchesBytes(actual, expected)
 }
 
-export function assertRealtimeOrigin(request: Pick<Request, "headers" | "url">): void {
-  const origin = request.headers.get("origin")
-  if (!origin || new URL(origin).origin !== new URL(request.url).origin) throw new HTTPError({ status: 403 })
-}
-
 export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, origin: unknown, maxStateBytes = maxRoomStateBytes): Uint8Array | undefined {
   const apply = (target: Y.Doc) => {
     const decoder = decoding.createDecoder(data)
@@ -242,6 +237,11 @@ export function restoreRealtimeDocument(markdown: string, baselineDigest: string
   return document
 }
 
+function canRestoreRealtimeDocument(baselineDigest: string | undefined, stored: Record<string, unknown> | undefined): boolean {
+  const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
+  return !!storedUpdate(stored?.update_blob) && storedDigest === baselineDigest
+}
+
 export async function readRealtimeWorkspaceDocument(
   readable: ReadonlyWorkspaceFacade,
   writable: WritableWorkspaceFacade,
@@ -282,8 +282,14 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
 
 async function authorize(request: Request, required: boolean | undefined, event: unknown): Promise<RealtimeIdentity | undefined> {
   if (!required) return
-  assertRealtimeOrigin(request)
-  const session = await getAuthForRequest(request, undefined, event).api.getSession({ headers: request.headers })
+  let auth
+  try {
+    auth = await assertAuthOrigin(request, event)
+  }
+  catch {
+    throw new HTTPError({ status: 403 })
+  }
+  const session = await auth.api.getSession({ headers: request.headers })
   if (!session?.user) throw new HTTPError({ status: 401 })
   return createRealtimeIdentity(session.user)
 }
@@ -374,7 +380,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
           }
         })
-        if (value.sql && !stored) persistRoom(value)
+        if (value.sql && !canRestoreRealtimeDocument(initial.baselineDigest, stored)) persistRoom(value)
         return value
       })()
       rooms.set(key, room)
@@ -508,6 +514,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events cannot be checkpointed." })
     const definition = await getDefinition(definitionName)
     await authorize(event.req, definition.auth, event)
+    const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
+    if (!(await workspace.capabilities()).conditionalWrites) {
+      throw new HTTPError({ status: 501, message: "Realtime checkpoints require a Workspace Store with conditional writes." })
+    }
     const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
     const contentLength = Number(event.req.headers.get("content-length") || 0)
     if (contentLength > maxRoomStateBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })

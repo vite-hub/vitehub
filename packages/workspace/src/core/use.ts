@@ -33,6 +33,7 @@ import type {
   WorkspaceAssetPath,
   WorkspaceAssets,
   WorkspaceContent,
+  WorkspaceCapabilities,
   WorkspaceEntry,
   WorkspaceSessionOptions,
   WorkspaceName,
@@ -119,6 +120,7 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 }
 
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
+  capabilities(): Promise<WorkspaceCapabilities>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
   history: History<WorkspaceSnapshot>
@@ -188,6 +190,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
 
   const workspace = {
     name,
+    async capabilities() {
+      const resolved = await resolveWorkspace()
+      return await resolved.capabilities?.() ?? { conditionalWrites: false }
+    },
     async [workspaceStoreTarget]() {
       const resolved = await resolveWorkspace() as Workspace & { [workspaceStoreTarget]?: () => unknown }
       return await resolved[workspaceStoreTarget]?.()
@@ -469,6 +475,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       [workspaceStoreTarget]: async () => {
         return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()
       },
+      capabilities: async () => await workspace.capabilities!(),
       diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
       history: {

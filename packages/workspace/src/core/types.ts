@@ -647,8 +647,13 @@ export interface ResolvedWorkspaceModuleOptions {
   store: Exclude<WorkspaceStoreOptions, WorkspaceStore>
 }
 
+export interface WorkspaceCapabilities {
+  conditionalWrites: boolean
+}
+
 export interface Workspace {
   name: string
+  capabilities?(): Promise<WorkspaceCapabilities>
   sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   materializeSources?(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   getMeta?(key: string): Promise<unknown>

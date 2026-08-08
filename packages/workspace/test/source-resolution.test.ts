@@ -107,6 +107,7 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
 
 function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
   return {
+    capabilities: async () => await workspace.capabilities?.() ?? { conditionalWrites: false },
     diff: async options => await workspace.diff(options),
     fs: {
       appendFile: async (path, content) => {
