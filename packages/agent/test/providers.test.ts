@@ -2445,10 +2445,12 @@ describe("server helpers", () => {
     })
 
     try {
+      const stateSet = vi.spyOn(state, "set")
       const requested = await handler(request(), { agentName: "support", state })
       expect(requested.status).toBe(201)
       expect(requested.headers.get("x-agent")).toBe("approval")
       await requested.text()
+      stateSet.mockClear()
 
       const otherUser = await handler(request("approval-1", "user-2"), { agentName: "support", state })
       expect(otherUser.status).toBe(400)
@@ -2461,6 +2463,11 @@ describe("server helpers", () => {
       const approved = await handler(request("approval-1"), { agentName: "support", state })
       expect(approved.status).toBe(200)
       await expect(approved.text()).resolves.toContain("approved")
+      expect(stateSet).toHaveBeenCalledWith(
+        expect.stringMatching(/^chat:support:http:invoker:user-1:session:.*:manual:session-1:boundary$/),
+        "session-1:manual:user-1",
+        24 * 60 * 60 * 1000,
+      )
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
 
       const continued = await handler(request("approval-1", "user-1", "session-1", true, false), { agentName: "support", state })

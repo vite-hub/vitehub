@@ -3876,11 +3876,11 @@ export function createChannelChatRouteHandler(
           if (!selectedSessionId || selectedSessionId === manualId) {
             selectedSessionId = `${manualId}:manual:${randomToken()}`
           }
-          await state.set(boundaryKey, selectedSessionId, agentChatApprovalTtlMs)
         }
         else {
           selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
         }
+        if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, agentChatApprovalTtlMs)
       }
       const approvalSessionId = sessionId && selectedSessionId
         ? `${sessionId}:chat-session:${selectedSessionId}`
