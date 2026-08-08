@@ -299,7 +299,9 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
       if (id !== resolvedModuleId) return
       return [
         `import { WorkflowEntrypoint } from "cloudflare:workers"`,
-        `import { runViteHubWorkflowDefinition } from ${JSON.stringify(entryFile)}`,
+        `import { installViteHubWorkflowRuntime, runViteHubWorkflowDefinition } from ${JSON.stringify(entryFile)}`,
+        "",
+        "installViteHubWorkflowRuntime()",
         "",
         ...definitions.map((definition) => {
           const className = getCloudflareWorkflowClassName(definition.name)
@@ -601,7 +603,7 @@ function renderProviderEntry(
 ) {
   const installVercelWorkflowRuntime = spec.name === "vercel" && framework
   const imports = [
-    `import { ${spec.factory}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
+    `import { ${spec.factory}${spec.name === "cloudflare" ? ", installWorkflowCloudflareRuntime" : ""}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import workflowRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
     ...(installVercelWorkflowRuntime ? [`import * as workflowApi from "workflow/api"`, `import * as workflowRuntime from "workflow/runtime"`] : []),
   ]
@@ -614,6 +616,10 @@ function renderProviderEntry(
 
   const cloudflareDispatcher = spec.name === "cloudflare"
     ? [
+        "",
+        "export function installViteHubWorkflowRuntime() {",
+        "  installWorkflowCloudflareRuntime({ registry: workflowRegistry, workflow: workflowConfig })",
+        "}",
         "",
         "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
         "  return await runCloudflareWorkflow({ config: workflowConfig, env: env || {}, event, name, registry: workflowRegistry, step })",
