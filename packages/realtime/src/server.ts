@@ -22,6 +22,7 @@ import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClient
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
+const maxRoomStateBytes = 8 * 1024 * 1024
 const memoryRoomGraceMs = 30_000
 const messageSync = 0
 const fragmentName = "default"
@@ -126,7 +127,7 @@ export async function writeRealtimeDocument(
   await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
 }
 
-function encodeSyncUpdate(update: Uint8Array): Uint8Array {
+export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageSync)
   syncProtocol.writeUpdate(encoder, update)
@@ -143,6 +144,29 @@ function encodeSyncStep1(document: Y.Doc): Uint8Array {
 export function matchesRealtimeStateVector(document: Y.Doc, expected: Uint8Array): boolean {
   const actual = Y.encodeStateVector(document)
   return matchesBytes(actual, expected)
+}
+
+export function assertRealtimeOrigin(request: Pick<Request, "headers" | "url">): void {
+  const origin = request.headers.get("origin")
+  if (!origin || new URL(origin).origin !== new URL(request.url).origin) throw new HTTPError({ status: 403 })
+}
+
+export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, origin: unknown, maxStateBytes = maxRoomStateBytes): Uint8Array | undefined {
+  const apply = (target: Y.Doc) => {
+    const decoder = decoding.createDecoder(data)
+    decoding.readVarUint(decoder)
+    const encoder = encoding.createEncoder()
+    encoding.writeVarUint(encoder, messageSync)
+    syncProtocol.readSyncMessage(decoder, encoder, target, origin)
+    return encoding.length(encoder) > 1 ? encoding.toUint8Array(encoder) : undefined
+  }
+  const candidate = new Y.Doc()
+  Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document))
+  apply(candidate)
+  const stateBytes = Y.encodeStateAsUpdate(candidate).byteLength
+  candidate.destroy()
+  if (stateBytes > maxStateBytes) throw new Error("Realtime document exceeds its 8 MiB room quota.")
+  return apply(document)
 }
 
 function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boolean {
@@ -203,6 +227,7 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
 
 async function authorize(request: Request, required: boolean | undefined, event: unknown): Promise<RealtimeIdentity | undefined> {
   if (!required) return
+  assertRealtimeOrigin(request)
   const session = await getAuthForRequest(request, undefined, event).api.getSession({ headers: request.headers })
   if (!session?.user) throw new HTTPError({ status: 401 })
   return createRealtimeIdentity(session.user)
@@ -487,10 +512,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType !== messageSync) return
-        const encoder = encoding.createEncoder()
-        encoding.writeVarUint(encoder, messageSync)
-        syncProtocol.readSyncMessage(decoder, encoder, room.document, peer)
-        if (encoding.length(encoder) > 1) peer.send(encoding.toUint8Array(encoder))
+        try {
+          const response = applyRealtimeSyncMessage(data, room.document, peer)
+          if (response) peer.send(response)
+        }
+        catch {
+          peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
+        }
       },
       close(peer) {
         leave(peer)

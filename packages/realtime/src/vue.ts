@@ -161,6 +161,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     const nextProvider = new WebsocketProvider(server, room, nextDocument, { disableBc: true })
     nextProvider.awareness.setLocalStateField("user", currentPerson(nextDocument.clientID))
     nextProvider.awareness.on("change", () => updatePeople(nextProvider))
+    updatePeople(nextProvider)
     nextProvider.on("status", (event: { status: RealtimeStatus }) => status.value = event.status)
     nextProvider.on("sync", (value: boolean) => synced.value = value)
     document.value = nextDocument

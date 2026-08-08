@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, markdownToYDoc, matchesRealtimeStateVector, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeStateVector, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -46,6 +46,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
 
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      headers: { origin: "https://example.com" },
       method: "POST",
     }))
 
@@ -127,6 +128,30 @@ describe("realtime server handler", () => {
     client.destroy()
   })
 
+})
+
+describe("realtime transport boundaries", () => {
+  it("requires authenticated requests to use the application origin", () => {
+    expect(() => assertRealtimeOrigin(new Request("https://example.com/realtime", {
+      headers: { origin: "https://example.com" },
+    }))).not.toThrow()
+    expect(() => assertRealtimeOrigin(new Request("https://example.com/realtime", {
+      headers: { origin: "https://attacker.example" },
+    }))).toThrow()
+    expect(() => assertRealtimeOrigin(new Request("https://example.com/realtime"))).toThrow()
+  })
+
+  it("rejects sync updates that exceed the cumulative room quota", () => {
+    const room = new Y.Doc()
+    const updateDocument = new Y.Doc()
+    updateDocument.getMap("ignored").set("payload", "x".repeat(1024))
+    const message = encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument))
+
+    expect(() => applyRealtimeSyncMessage(message, room, "peer", 512)).toThrow("room quota")
+    expect(room.getMap("ignored").size).toBe(0)
+    room.destroy()
+    updateDocument.destroy()
+  })
 })
 
 describe("realtime Workspace documents", () => {
