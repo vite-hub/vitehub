@@ -43,7 +43,7 @@ export function createEmail(options: EmailDefinition): EmailClient {
             driver: driverName,
           })
         }
-        return { driver: result.data.driver, id: result.data.id }
+        return { driver: driverName, id: result.data.id }
       } catch (error) {
         if (isEmailError(error)) throw error
         const providerError = unemailError(error)

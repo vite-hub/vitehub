@@ -115,6 +115,17 @@ describe("createEmail", () => {
     })
   })
 
+  it("uses the validated driver name in a successful result", async () => {
+    const client = createEmail({
+      driver: fixtureDriver(vi.fn(async () => ({
+        data: { at: new Date(), driver: "", id: "provider-1" },
+        error: null,
+      }))),
+    })
+
+    await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
+  })
+
   it("preserves ViteHub errors thrown while resolving the driver", async () => {
     const error = new ViteHubError("EMAIL_RATE_LIMITED", "Try again later.", {
       details: { driver: "fixture" },
