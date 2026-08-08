@@ -132,4 +132,28 @@ describe("useRealtimeTiptap", () => {
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
   })
+
+  it("rejects checkpoints without entering pending state while disabled", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { enabled: false }))!
+
+    await expect(realtime.history.checkpoint()).rejects.toThrow("Realtime is disabled.")
+    expect(realtime.history.pending.value).toBe(false)
+    scope.stop()
+  })
+
+  it("retries after a rejected checkpoint is reconciled", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } }), { status: 409 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    await expect(realtime.history.checkpoint()).resolves.toEqual({ content: "# Saved", snapshot: { entries: {}, id: "snapshot" } })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    scope.stop()
+  })
 })

@@ -490,7 +490,10 @@ describe("realtime server handler", () => {
     }))
 
     expect(first.status).toBe(409)
-    await expect(first.json()).resolves.toMatchObject({ message: "The Workspace document changed while creating its realtime checkpoint." })
+    await expect(first.json()).resolves.toMatchObject({
+      data: { code: "REALTIME_CHECKPOINT_REJECTED" },
+      message: "The Workspace document changed while creating its realtime checkpoint.",
+    })
     expect(peer.send).toHaveBeenCalledTimes(1)
     applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
 

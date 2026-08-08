@@ -101,6 +101,7 @@ interface Room {
     content: string
     digest: string
     message: string
+    path: string
     state: Uint8Array
     submittedDocument: Y.Doc
     workspace: WritableWorkspaceFacade
@@ -645,11 +646,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         let content: string
         let digest: string
         try {
-          await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
-          const written = await readRealtimeWorkspaceDocument(workspace, workspace, documentId)
+          const path = await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
+          const written = await readRealtimeWorkspaceDocument(workspace, workspace, path)
           if (!written.baselineDigest) throw new Error("Realtime checkpoints require Workspace file digests.")
           content = written.markdown
           digest = written.baselineDigest
+          pending = { content, digest, message, path, state: Uint8Array.from(state), submittedDocument, workspace }
         }
         catch (error) {
           submittedDocument.destroy()
@@ -664,7 +666,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           persistRoom(room)
           throw error
         }
-        pending = { content, digest, message, state: Uint8Array.from(state), submittedDocument, workspace }
         room.pendingCheckpoint = pending
       }
 
@@ -681,16 +682,20 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         schedulePendingCheckpointExpiry(room, pending, definition.document.workspace, documentId)
         throw error
       }
-      if (snapshot.entries[documentId]?.digest !== pending.digest) {
-        const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, documentId)
+      if (snapshot.entries[pending.path]?.digest !== pending.digest) {
+        const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
         room.baselineDigest = current.baselineDigest
         room.durableReady = !!room.sql || !!room.baselineDigest
         reconcilePendingCheckpoint(room, pending, current.markdown)
         persistRoom(room)
         clearPendingCheckpoint(room, pending)
-        throw new HTTPError({ status: 409, message: "The Workspace document changed while creating its realtime checkpoint." })
+        throw new HTTPError({
+          status: 409,
+          message: "The Workspace document changed while creating its realtime checkpoint.",
+          data: { code: "REALTIME_CHECKPOINT_REJECTED" },
+        })
       }
-      room.baselineDigest = snapshot.entries[documentId]?.digest
+      room.baselineDigest = snapshot.entries[pending.path]?.digest
       room.durableReady = !!room.sql || !!room.baselineDigest
       reconcilePendingCheckpoint(room, pending, pending.content)
       persistRoom(room)

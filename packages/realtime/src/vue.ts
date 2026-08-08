@@ -97,6 +97,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   }
 
   async function checkpoint(): Promise<RealtimeCheckpoint> {
+    if (!enabled()) throw new Error("Realtime is disabled.")
     checkpointRequests.value++
     try {
       const id = toValue(documentId)
@@ -111,7 +112,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
         })
         if (response.ok) return await response.json() as RealtimeCheckpoint
         const data = await response.json().catch(() => undefined) as { data?: { code?: string }, message?: string, statusMessage?: string } | undefined
-        if (response.status === 409 && data?.data?.code === "REALTIME_SYNC_PENDING" && attempt < 20) {
+        if (response.status === 409 && (data?.data?.code === "REALTIME_SYNC_PENDING" || data?.data?.code === "REALTIME_CHECKPOINT_REJECTED") && attempt < 20) {
           await new Promise(resolve => setTimeout(resolve, 50))
           continue
         }
