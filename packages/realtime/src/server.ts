@@ -13,7 +13,7 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
-import type { WorkspaceSnapshot, WritableWorkspaceFacade } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceSnapshot, WritableWorkspaceFacade } from "@vite-hub/workspace"
 import type { WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeDefinition, RealtimeRegistry } from "./types.ts"
@@ -163,6 +163,22 @@ export function restoreRealtimeDocument(markdown: string, baselineDigest: string
   return document
 }
 
+export async function readRealtimeWorkspaceDocument(
+  readable: ReadonlyWorkspaceFacade,
+  writable: WritableWorkspaceFacade,
+  documentId: string,
+): Promise<{ baselineDigest: string | undefined, markdown: string }> {
+  const [exists, writableExists] = await Promise.all([
+    readable.fs.exists(documentId),
+    writable.fs.exists(documentId),
+  ])
+  const [markdown, stat] = await Promise.all([
+    exists ? readable.fs.readFile(documentId, { encoding: "utf8" }) : "",
+    writableExists ? writable.fs.stat(documentId) : undefined,
+  ])
+  return { baselineDigest: stat?.digest, markdown }
+}
+
 function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageAwareness)
@@ -237,21 +253,23 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       room = (async () => {
         const workspaceDocument = !workspaceEvents
         const workspace = workspaceDocument ? useWorkspace(definition.document.workspace) : undefined
-        const stat = workspace ? await workspace.fs.stat(documentId) : undefined
-        const markdown = workspace ? await workspace.fs.readFile(documentId, { encoding: "utf8" }) : ""
+        const writableWorkspace = workspaceDocument ? useWorkspace(definition.document.workspace, { mode: "write" }) : undefined
+        const initial = workspace && writableWorkspace
+          ? await readRealtimeWorkspaceDocument(workspace, writableWorkspace, documentId)
+          : { baselineDigest: undefined, markdown: "" }
         if (workspaceDocument && sql) {
           sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL)")
         }
         const stored = workspaceDocument && sql
           ? sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
           : undefined
-        const document = workspaceDocument ? restoreRealtimeDocument(markdown, stat?.digest, stored) : new Y.Doc()
+        const document = workspaceDocument ? restoreRealtimeDocument(initial.markdown, initial.baselineDigest, stored) : new Y.Doc()
         const awareness = new awarenessProtocol.Awareness(document)
         awareness.setLocalState(null)
         const value: Room = {
           awareness,
           awarenessClientOwners: new Map(),
-          baselineDigest: stat?.digest,
+          baselineDigest: initial.baselineDigest,
           channel: `vitehub:realtime:${key}`,
           document,
           key,

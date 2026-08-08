@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, markdownToYDoc, matchesRealtimeStateVector, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, markdownToYDoc, matchesRealtimeStateVector, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -57,6 +57,7 @@ describe("realtime server handler", () => {
     const writeFile = vi.fn()
     serverMocks.useWorkspace.mockReturnValue({
       fs: {
+        exists: vi.fn().mockResolvedValue(true),
         readFile: vi.fn().mockResolvedValue("# Workspace version"),
         stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
         writeFile,
@@ -79,6 +80,7 @@ describe("realtime server handler", () => {
   it("accepts workspace changes only on the workspace room", async () => {
     serverMocks.useWorkspace.mockReturnValue({
       fs: {
+        exists: vi.fn().mockResolvedValue(true),
         readFile: vi.fn().mockResolvedValue(""),
         stat: vi.fn().mockResolvedValue(undefined),
       },
@@ -106,6 +108,7 @@ describe("realtime server handler", () => {
     const readFile = vi.fn().mockResolvedValue("# Workspace document")
     serverMocks.useWorkspace.mockReturnValue({
       fs: {
+        exists: vi.fn().mockResolvedValue(true),
         readFile,
         stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
         writeFile: vi.fn(),
@@ -122,6 +125,31 @@ describe("realtime server handler", () => {
     expect(response.status).toBe(409)
     expect(readFile).toHaveBeenCalledWith("@workspace", { encoding: "utf8" })
     client.destroy()
+  })
+
+})
+
+describe("realtime Workspace documents", () => {
+  it("opens a new path as an empty document", async () => {
+    const readFile = vi.fn()
+    const result = await readRealtimeWorkspaceDocument(
+      { fs: { exists: vi.fn().mockResolvedValue(false), readFile } } as never,
+      { fs: { exists: vi.fn().mockResolvedValue(false) } } as never,
+      "new.md",
+    )
+
+    expect(result).toEqual({ baselineDigest: undefined, markdown: "" })
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("bases generated assets on the writable store", async () => {
+    const result = await readRealtimeWorkspaceDocument(
+      { fs: { exists: vi.fn().mockResolvedValue(true), readFile: vi.fn().mockResolvedValue("# Generated asset") } } as never,
+      { fs: { exists: vi.fn().mockResolvedValue(false) } } as never,
+      "generated.md",
+    )
+
+    expect(result).toEqual({ baselineDigest: undefined, markdown: "# Generated asset" })
   })
 })
 
