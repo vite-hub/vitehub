@@ -135,6 +135,21 @@ describe("Agent model materialization", () => {
     await expect(materializeAgentModel(model, {} as never)).resolves.toBe(model)
   })
 
+  it("passes class-backed AI SDK models with an enumerable id through unchanged", async () => {
+    class ClassBackedModel {
+      id = "direct-id"
+      get modelId() { return "direct-model" }
+      get provider() { return "direct-provider" }
+      async doGenerate() { return generateResult }
+      async doStream() { return { stream: new ReadableStream() } }
+    }
+    const model = new ClassBackedModel() as unknown as AgentModelInput
+    const { materializeAgentModel } = await import("../src/internal/agent-model.ts")
+
+    expect(Object.keys(model as object)).toEqual(["id"])
+    await expect(materializeAgentModel(model, {} as never)).resolves.toBe(model)
+  })
+
   it("inspects Gateway declarations without exposing credentials", async () => {
     const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const agent = defineAgent({

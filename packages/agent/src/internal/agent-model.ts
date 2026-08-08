@@ -10,10 +10,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
+function isLanguageModel(value: Record<string, unknown>): boolean {
+  return typeof value.doGenerate === "function"
+    && typeof value.doStream === "function"
+    && typeof value.modelId === "string"
+    && typeof value.provider === "string"
+}
+
 export function gatewayModelDescriptor(model: AgentModelInput): AgentGatewayModel | undefined {
   if (typeof model === "string") return { id: model }
   if (!isRecord(model)) return
   const record = model as Record<string, unknown>
+  if (isLanguageModel(record)) return
   if (typeof record.id !== "string") return
   if (Object.keys(record).some(key => key !== "apiKey" && key !== "id")) return
   return record as unknown as AgentGatewayModel
