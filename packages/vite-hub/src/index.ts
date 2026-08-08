@@ -497,6 +497,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
+  const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -596,9 +597,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }
-  if (options.workflow) {
+  if (workflowEnabled) {
     plugins.push(hubWorkflow({
-      ...(options.workflow === true ? {} : options.workflow),
+      ...(options.workflow && options.workflow !== true ? options.workflow : {}),
       agentImportBase: `${generatedImportBase}/agent`,
       importBase: `${generatedImportBase}/workflow`,
       providerImportAliases,

@@ -136,6 +136,8 @@ describe("vitehub", () => {
       "vite-hub/types",
     ])
     expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
+    expect(pluginNames(vitehub({ agent: true, preset: "node" }))).toContain("@vite-hub/workflow/vite")
+    expect(pluginNames(vitehub({ agent: true, preset: "node", workflow: false }))).not.toContain("@vite-hub/workflow/vite")
 
     vitehub({
       agent: true,

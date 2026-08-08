@@ -223,6 +223,9 @@ export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
     throw new TypeError("[vitehub] messages.timeout must be a positive finite number.")
   }
+  if (options.durable && options.delivery !== "manual") {
+    throw new TypeError("[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply.")
+  }
 }
 
 export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(

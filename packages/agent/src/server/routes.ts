@@ -3043,7 +3043,24 @@ async function handleChatSdkMessage(
 
     assertChatDeliveryOptions(options || {})
     const manualDelivery = options?.delivery === "manual"
+    const durableDelivery = manualDelivery && options?.durable === true
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
+    run = invocation.run
+    const runContext = {
+      ...context,
+      ...(invocation.run ? { run: invocation.run } : {}),
+    }
+    const resolvedInvocationInput = invocation.input as AgentRunInput
+    if (durableDelivery) {
+      await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({
+        ...resolvedInvocationInput,
+        context: {
+          ...resolvedInvocationInput.context,
+          [finalChannelOutputContextKey]: true,
+        },
+      }, invoker) as never)
+      return
+    }
     typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && typeof thinkingFallback === "string") {
@@ -3060,16 +3077,10 @@ async function handleChatSdkMessage(
         invocationDeadlineAbort,
       )
     }
-    run = invocation.run
-    const runContext = {
-      ...context,
-      ...(invocation.run ? { run: invocation.run } : {}),
-    }
     const chatFinish = createChatFinishExtension(input, registration)
     progress = manualDelivery
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal)
       : undefined
-    const resolvedInvocationInput = invocation.input as AgentRunInput
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined
       ? undefined
       : Math.max(0, maximumInvocationDeadline - Date.now())

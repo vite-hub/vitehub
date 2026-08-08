@@ -43,7 +43,7 @@ import {
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
-import type { AgentMessagePhase } from "./messages.ts"
+import { materializeMessageAttachmentData, type AgentMessagePhase } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   normalizeAgentInvokerOptions,
@@ -643,6 +643,7 @@ interface ScheduleRunContextLike {
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
 const agentIdentityOwner = Symbol("vitehub.agentIdentityOwner")
+const portableWorkflowCapabilities = new Set(["blob", "db"])
 
 interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
   discoveryDefault: true
@@ -737,14 +738,15 @@ async function runAgentAsWorkflow<
   const disabledCapabilities = Object.fromEntries(
     Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
   ) as Record<string, false>
-  // ponytail: Host capability handles and registries cannot cross a Workflow payload without losing identity.
-  if ("discoveryDefault" in binding && capabilityNames.length) return undefined
+  if ("discoveryDefault" in binding && capabilityNames.some(name => !portableWorkflowCapabilities.has(name))) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   const workflowInput = { ...input }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
+  if (workflowInput.messages) workflowInput.messages = await materializeMessageAttachmentData(workflowInput.messages)
+  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await materializeMessageAttachmentData(workflowInput.prompt)
   const inheritedRun = options.fresh && context.run
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run

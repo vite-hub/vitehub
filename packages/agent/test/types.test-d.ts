@@ -1157,6 +1157,8 @@ describe("agent public types", () => {
     const messages: AgentMessageChannelSettings = {
       commentary: "hidden",
       concurrency: "queue",
+      delivery: "manual",
+      durable: true,
       sessions: true,
       triggerHistory: { maxMessages: 20, source: "thread" },
     }

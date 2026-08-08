@@ -59,6 +59,18 @@ const dbExecInputSchema = jsonObjectSchema({
   statement: { type: "string" },
 }, ["statement", "rationale"])
 
+const databasePackageName: string = "@vite-hub/database/drizzle"
+
+async function resolveDatabasePrimitive(context: Parameters<typeof requirePrimitive>[0]) {
+  if (context.capabilities?.db !== undefined) return requirePrimitive(context, "db")
+  try {
+    return ((await import(databasePackageName)) as { agentDb: unknown }).agentDb
+  }
+  catch (error) {
+    throw new Error(`[vitehub] Capability "db" requires the database primitive to be configured or @vite-hub/database to be installed. ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 function executeSql(database: unknown, statement: string): MaybePromise<unknown> {
   const handle = asAgentDatabaseHandle(database)
   if (handle && typeof handle.exec === "function") return handle.exec.call(handle, statement)
@@ -97,9 +109,9 @@ function selectAgentDatabase(handle: unknown, database = "default"): unknown {
 }
 
 function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, options: DBCapabilityOptions): AgentCapabilityDefinition["tools"] {
-  return (context) => {
+  return async (context) => {
     const databaseName = options.database || "default"
-    const database = selectAgentDatabase(requirePrimitive(context as never, "db"), databaseName)
+    const database = selectAgentDatabase(await resolveDatabasePrimitive(context as never), databaseName)
     const tools: AgentToolSet = {
       db_query: createTool<DbSqlInput>({
         description: "Run one read-only SQL query against the configured ViteHub database.",

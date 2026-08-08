@@ -10702,6 +10702,41 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("materializes lazy attachments before portable primitive Workflows", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: context => context.messages[0]?.parts[0] },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-attachments" },
+        capabilities: { blob: {}, db: {} },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {
+        messages: [{
+          id: "message-1",
+          parts: [{ fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" }],
+          role: "user",
+        }],
+      }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("portable-attachments", run.id)).resolves.toMatchObject({
+        result: {
+          data: new Uint8Array([1, 2, 3]),
+          mediaType: "image/jpeg",
+          type: "image",
+        },
+        status: "completed",
+      })
+    })
+
     it("reconstructs Agent Run Events inside workflow execution", async () => {
       const { defineAgent, defineCapability, runAgent, workflow } = await import("../src/index.ts")
       const { defineAgentRunEvents } = await import("../src/server.ts")
