@@ -24,21 +24,33 @@ import type {
 } from "../core/types.ts"
 
 async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
-  const { mkdir, rm, stat } = await import("node:fs/promises")
+  const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
   const { dirname } = await import("node:path")
   const lock = `${root}.vitehub-lock`
+  const owner = randomUUID()
+  const ownerPath = `${lock}/owner`
   await mkdir(dirname(lock), { recursive: true })
   const deadline = Date.now() + 10_000
   while (true) {
     try {
       await mkdir(lock)
+      const ownerFile = await open(ownerPath, "wx")
+      await ownerFile.writeFile(owner)
+      await ownerFile.close()
       break
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
       const info = await stat(lock).catch(() => undefined)
       // ponytail: local locks expire after five minutes; use a provider lease if writes can legitimately run longer.
-      if (info && Date.now() - info.mtimeMs > 300_000) await rm(lock, { force: true, recursive: true })
+      if (info && Date.now() - info.mtimeMs > 300_000) {
+        const stale = `${lock}.stale-${randomUUID()}`
+        const reclaimed = await rename(lock, stale).then(() => true, (renameError: NodeJS.ErrnoException) => {
+          if (renameError.code === "ENOENT") return false
+          throw renameError
+        })
+        if (reclaimed) await rm(stale, { force: true, recursive: true })
+      }
       else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace root: ${root}.`)
       else await delay(25)
     }
@@ -47,7 +59,8 @@ async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): 
     return await operation()
   }
   finally {
-    await rm(lock, { force: true, recursive: true })
+    const activeOwner = await readFile(ownerPath, "utf8").catch(() => undefined)
+    if (activeOwner === owner) await rm(lock, { force: true, recursive: true })
   }
 }
 

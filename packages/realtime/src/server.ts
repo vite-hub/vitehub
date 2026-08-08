@@ -214,6 +214,16 @@ export function applyRealtimeAwarenessUpdate(
   awarenessProtocol.applyAwarenessUpdate(awareness, update, origin)
 }
 
+export function compactRealtimeAwareness(awareness: awarenessProtocol.Awareness): awarenessProtocol.Awareness {
+  const clients = [...awareness.getStates().keys()]
+  const update = clients.length ? awarenessProtocol.encodeAwarenessUpdate(awareness, clients) : undefined
+  const compacted = new awarenessProtocol.Awareness(awareness.doc)
+  compacted.setLocalState(null)
+  if (update) awarenessProtocol.applyAwarenessUpdate(compacted, update, "compaction")
+  awareness.destroy()
+  return compacted
+}
+
 function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boolean {
   return !!actual && actual.length === expected.length && actual.every((byte, index) => byte === expected[index])
 }
@@ -507,6 +517,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         }
         awarenessProtocol.removeAwarenessStates(room.awareness, clients, peer)
         peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+        room.awareness = compactRealtimeAwareness(room.awareness)
       }
       peer.unsubscribe(room.channel)
       evictRoom(room)

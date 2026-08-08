@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -292,6 +292,26 @@ describe("workspace changes", () => {
 })
 
 describe("realtime awareness", () => {
+  it("compacts metadata for departed awareness clients", () => {
+    const document = new Y.Doc()
+    const awareness = new awarenessProtocol.Awareness(document)
+    awareness.setLocalState(null)
+    const senderDocument = new Y.Doc()
+    const sender = new awarenessProtocol.Awareness(senderDocument)
+    sender.setLocalState({ user: { id: "departed" } })
+    awarenessProtocol.applyAwarenessUpdate(awareness, awarenessProtocol.encodeAwarenessUpdate(sender, [senderDocument.clientID]), "peer")
+    awarenessProtocol.removeAwarenessStates(awareness, [senderDocument.clientID], "peer")
+
+    const compacted = compactRealtimeAwareness(awareness)
+
+    expect(compacted.getStates().size).toBe(0)
+    expect([...compacted.meta.keys()]).toEqual([document.clientID])
+    compacted.destroy()
+    document.destroy()
+    sender.destroy()
+    senderDocument.destroy()
+  })
+
   it("rejects updates that exceed the cumulative awareness quota", () => {
     const roomDocument = new Y.Doc()
     const room = new awarenessProtocol.Awareness(roomDocument)
