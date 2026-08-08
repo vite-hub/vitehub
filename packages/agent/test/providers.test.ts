@@ -2381,13 +2381,16 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const run = vi.fn(({ messages }) => {
-      expect(messages[0]?.parts).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: "call-1", input: { path: "README.md" }, name: "github__createOrUpdateFile", type: "tool-call" }),
-        expect.objectContaining({ id: "approval-1", toolCallId: "call-1", type: "approval-request" }),
-        expect.objectContaining({ approved: true, id: "approval-1", type: "approval-decision" }),
-      ]))
-      return "approved"
+    const run = vi.fn(({ input, messages }) => {
+      const hasApproval = messages.some((message: { parts?: Array<{ type?: string }> }) => message.parts?.some(part => part.type === "approval-decision"))
+      if (hasApproval) {
+        expect(messages[0]?.parts).toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: "call-1", input: { path: "README.md" }, name: "github__createOrUpdateFile", type: "tool-call" }),
+          expect.objectContaining({ id: "approval-1", toolCallId: "call-1", type: "approval-request" }),
+          expect.objectContaining({ approved: true, id: "approval-1", type: "approval-decision" }),
+        ]))
+      }
+      return input.context?.["vitehub.eve.approvedTools"] ? "approved" : "fresh"
     })
     const approvalResponse = createAgentUIMessageStreamResponse({
       headers: { "x-agent": "approval" },
@@ -2414,8 +2417,11 @@ describe("server helpers", () => {
       invoker: {
         resolve: ({ request }) => ({ id: request?.headers.get("x-user") || "anonymous" }),
       },
-    }) as never)
-    const request = (approvalId?: string, user = "user-1") => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+    }) as never, {
+      admission: { authenticate: () => true },
+      input: { trust: ["session"] },
+    })
+    const request = (approvalId?: string, user = "user-1", sessionId = "session-1", includeLaterMessage = false) => new Request("https://example.com/api/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         id: "portal-thread",
         messages: approvalId
@@ -2430,8 +2436,9 @@ describe("server helpers", () => {
                 type: "dynamic-tool",
               }],
               role: "assistant",
-            }]
+            }, ...(includeLaterMessage ? [{ id: "user-2", parts: [{ text: "continue", type: "text" }], role: "user" }] : [])]
           : [{ id: "user-1", parts: [{ text: "update the file", type: "text" }], role: "user" }],
+        session: { id: sessionId },
       }),
       headers: { "content-type": "application/json", "x-user": user },
       method: "POST",
@@ -2447,14 +2454,27 @@ describe("server helpers", () => {
       expect(otherUser.status).toBe(400)
       expect(run).not.toHaveBeenCalled()
 
+      const otherSession = await handler(request("approval-1", "user-1", "session-2"), { agentName: "support", state })
+      expect(otherSession.status).toBe(400)
+      expect(run).not.toHaveBeenCalled()
+
       const approved = await handler(request("approval-1"), { agentName: "support", state })
       expect(approved.status).toBe(200)
       await expect(approved.text()).resolves.toContain("approved")
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
 
+      const continued = await handler(request("approval-1", "user-1", "session-1", true), { agentName: "support", state })
+      expect(continued.status).toBe(200)
+      await expect(continued.text()).resolves.toContain("approved")
+
+      const freshSession = await handler(request(undefined, "user-1", "session-2"), { agentName: "support", state })
+      expect(freshSession.status).toBe(200)
+      await expect(freshSession.text()).resolves.toContain("fresh")
+      expect(run.mock.calls[2]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
+
       const replayed = await handler(request("approval-1"), { agentName: "support", state })
       expect(replayed.status).toBe(400)
-      expect(run).toHaveBeenCalledOnce()
+      expect(run).toHaveBeenCalledTimes(3)
     }
     finally {
       streamAgentTrigger.mockRestore()

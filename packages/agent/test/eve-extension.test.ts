@@ -299,6 +299,22 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain('EveExtensionCapability("@two/foo-extension", "two-foo"')
   })
 
+  it("disambiguates scoped and unscoped package identities that share a readable namespace", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import scoped from "@one/foo-extension"
+        import unscoped from "one-foo-extension"
+        export default defineAgent({ capabilities: [scoped(), unscoped()] })
+      `,
+      parseAst,
+      async specifier => specifier.endsWith("foo-extension"),
+    )
+
+    expect(transformed).toContain('EveExtensionCapability("@one/foo-extension", "pkg-_aone_sfoo-extension"')
+    expect(transformed).toContain('EveExtensionCapability("one-foo-extension", "pkg-one-foo-extension"')
+  })
+
   it("detects a default Eve factory imported with named imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)

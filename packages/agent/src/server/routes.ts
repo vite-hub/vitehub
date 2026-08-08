@@ -3576,6 +3576,10 @@ function agentChatApprovedToolsKey(invokerId: string, sessionId: string): string
   return `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:eve:approved-tools`
 }
 
+function agentChatConsumedApprovalKey(invokerId: string, sessionId: string, approvalId: string): string {
+  return `${agentChatApprovalKey(invokerId, sessionId, approvalId)}:consumed`
+}
+
 async function withAgentChatApprovalLock<T>(state: StateAdapter, invokerId: string, sessionId: string, callback: () => Promise<T>): Promise<T> {
   const lock = await state.acquireLock(`${agentChatApprovalKey(invokerId, sessionId)}:lock`, 10_000)
   if (!lock) throw createRouteError(409, "Agent chat session is already handling an approval response.")
@@ -3602,9 +3606,9 @@ async function authorizeAgentChatApprovals(
   sessionId: string,
   messages: UIMessageLike[],
 ): Promise<UIMessageLike[]> {
-  const submitted = messages.flatMap(message => (message.parts || []).flatMap(part => {
+  const submitted = messages.flatMap((message, messageIndex) => (message.parts || []).flatMap(part => {
     const approvalPart = uiApprovalPart(part)
-    return approvalPart ? [approvalPart] : []
+    return approvalPart ? [{ ...approvalPart, historical: messageIndex < messages.length - 1 }] : []
   }))
   if (!submitted.length) return messages
 
@@ -3613,14 +3617,18 @@ async function authorizeAgentChatApprovals(
       id,
       await state.get<AgentChatPendingApproval>(agentChatApprovalKey(invokerId, sessionId, id)),
     ] as const)))
+    const historical = new Map(await Promise.all([...new Set(submitted.filter(part => part.historical).map(part => part.approval.id as string))].map(async id => [
+      id,
+      await state.get<AgentChatPendingApproval>(agentChatConsumedApprovalKey(invokerId, sessionId, id)),
+    ] as const)))
     const consumed = new Set<string>()
-    const authorized = messages.map(message => ({
+    const authorized = messages.map((message, messageIndex) => ({
       ...message,
       parts: (message.parts || []).map((part) => {
         const submittedPart = uiApprovalPart(part)
         if (!submittedPart) return part
         const id = submittedPart.approval.id as string
-        const request = pending.get(id)
+        const request = pending.get(id) ?? (messageIndex < messages.length - 1 ? historical.get(id) : undefined)
         if (!request) throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} was not issued by this session.`)
         if (submittedPart.record.state === "approval-responded") {
           if (typeof submittedPart.approval.approved !== "boolean") {
@@ -3656,6 +3664,10 @@ async function authorizeAgentChatApprovals(
         agentChatApprovalTtlMs,
       )
     }
+    await Promise.all([...consumed].map(async (id) => {
+      const request = pending.get(id)
+      if (request) await state.set(agentChatConsumedApprovalKey(invokerId, sessionId, id), request, agentChatApprovalTtlMs)
+    }))
     await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(invokerId, sessionId, id))))
     return authorized
   })
@@ -3810,6 +3822,9 @@ export function createChannelChatRouteHandler(
         invoker,
       }
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
+      const approvalSessionId = sessionId && triggerInput.session?.id
+        ? `${sessionId}:chat-session:${triggerInput.session.id}`
+        : sessionId
       const registration = {
         channelId: routeOptions.channelId || "http",
         id: routeOptions.channelId || "http",
@@ -3817,9 +3832,9 @@ export function createChannelChatRouteHandler(
       }
       const { state } = await resolveChatState(getAgentChatOptions(agent), context, registration, handlerOptions)
       await state.connect()
-      if (sessionId) {
-        const messages = await authorizeAgentChatApprovals(state, invoker.id, sessionId, triggerInput.messages)
-        const approvedTools = await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, sessionId))
+      if (approvalSessionId) {
+        const messages = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages)
+        const approvedTools = await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, approvalSessionId))
         triggerInput = {
           ...triggerInput,
           context: {
@@ -3832,7 +3847,7 @@ export function createChannelChatRouteHandler(
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
-      if (sessionId) result = trackAgentChatApprovals(result, state, invoker.id, sessionId)
+      if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId)
       return await toAgentChatFetchResponse(result)
     }
     catch (error) {

@@ -1000,6 +1000,17 @@ function eveExtensionNamespace(specifier: string): string {
   return namespace || "extension"
 }
 
+function eveExtensionIdentityNamespace(specifier: string): string {
+  const encoded = [...specifier].map((character) => {
+    if (/[a-z0-9-]/i.test(character)) return character
+    if (character === "_") return "_u"
+    if (character === "@") return "_a"
+    if (character === "/") return "_s"
+    return `_x${character.codePointAt(0)!.toString(16)}_`
+  }).join("")
+  return `pkg-${encoded}`
+}
+
 export async function transformEveExtensionCapabilities(
   code: string,
   parse: (code: string) => unknown,
@@ -1188,6 +1199,12 @@ export async function transformEveExtensionCapabilities(
   }
   const duplicate = [...packageCounts].find(([, count]) => count > 1)
   if (duplicate) throw new Error(`[vitehub] Eve extension ${JSON.stringify(duplicate[0])} can only be mounted once per Agent Definition.`)
+  const namespaceCounts = new Map<string, number>()
+  for (const extension of extensions) {
+    const namespace = eveExtensionNamespace(extension.source)
+    namespaceCounts.set(namespace, (namespaceCounts.get(namespace) ?? 0) + 1)
+  }
+  const hasNamespaceCollision = [...namespaceCounts.values()].some(count => count > 1)
 
   const identifiers = new Set(references.keys())
   let helper = "__vitehubEveExtensionCapability"
@@ -1202,7 +1219,7 @@ export async function transformEveExtensionCapabilities(
     replacements.push({
       end: extension.call.end,
       start: extension.call.start,
-      value: `await ${helper}(${JSON.stringify(extension.source)}, ${JSON.stringify(eveExtensionNamespace(extension.source))}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
+      value: `await ${helper}(${JSON.stringify(extension.source)}, ${JSON.stringify(hasNamespaceCollision ? eveExtensionIdentityNamespace(extension.source) : eveExtensionNamespace(extension.source))}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
     })
     replacements.push({
       end: extension.declaration.end,
