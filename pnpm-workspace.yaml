@@ -56,7 +56,6 @@ catalogs:
   realtime:
     "@tiptap/core": ^3.29.2
     "@tiptap/extension-collaboration": ^3.29.2
-    "@tiptap/extension-collaboration-caret": ^3.29.2
     "@tiptap/extension-image": ^3.29.2
     "@tiptap/extension-table": ^3.29.2
     "@tiptap/markdown": ^3.29.2

@@ -1,10 +1,8 @@
 export interface RealtimeDefinition {
   auth?: boolean
   document: {
-    format: "tiptap-markdown"
     workspace: string
   }
-  engine: "yjs"
   history?: {
     checkpoint: true | { message?: string }
   }

@@ -42,7 +42,6 @@
   "dependencies": {
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-collaboration": "catalog:realtime",
-    "@tiptap/extension-collaboration-caret": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/markdown": "catalog:realtime",

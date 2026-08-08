@@ -1,5 +1,4 @@
 import Collaboration from "@tiptap/extension-collaboration"
-import CollaborationCaret from "@tiptap/extension-collaboration-caret"
 import Image from "@tiptap/extension-image"
 import { TableKit } from "@tiptap/extension-table"
 import { useUserSession } from "@vite-hub/auth/vue"
@@ -17,43 +16,6 @@ import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
-
-function renderCaret(user: Record<string, unknown>): HTMLElement {
-  const color = typeof user.color === "string" && /^#[\da-f]{6}$/i.test(user.color) ? user.color : "#64748B"
-  const name = typeof user.name === "string" ? user.name : "Collaborator"
-  const caret = document.createElement("span")
-  Object.assign(caret.style, {
-    borderLeft: `2px solid ${color}`,
-    marginLeft: "-1px",
-    marginRight: "-1px",
-    pointerEvents: "none",
-    position: "relative",
-    wordBreak: "normal",
-  })
-  caret.animate([{ borderColor: color }, { borderColor: "transparent" }, { borderColor: color }], {
-    duration: 1000,
-    iterations: Infinity,
-  })
-  const label = document.createElement("span")
-  label.textContent = name
-  Object.assign(label.style, {
-    backgroundColor: color,
-    borderRadius: "3px 3px 3px 0",
-    color: "white",
-    fontSize: "12px",
-    fontWeight: "600",
-    left: "-2px",
-    lineHeight: "1",
-    padding: "4px 6px",
-    position: "absolute",
-    top: "-24px",
-    userSelect: "none",
-    whiteSpace: "nowrap",
-  })
-  label.animate([{ opacity: 1 }, { opacity: 1, offset: 0.65 }, { opacity: 0 }], { duration: 2000, fill: "forwards" })
-  caret.append(label)
-  return caret
-}
 
 export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGetter<string | undefined>) {
   const { user } = useUserSession()
@@ -186,11 +148,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           Image,
           TableKit,
           markRaw(Collaboration.configure({ fragment: markRaw(document.value.getXmlFragment("default")) })),
-          markRaw(CollaborationCaret.configure({
-            provider: markRaw(provider.value),
-            render: renderCaret,
-            user: currentPerson(document.value.clientID),
-          })),
         ]
       : []),
     people,

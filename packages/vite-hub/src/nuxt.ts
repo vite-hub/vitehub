@@ -241,6 +241,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }, nuxt)
   }
   if (options.realtime) {
+    addVueImports(nuxt, "vite-hub/realtime", ["defineRealtime"])
     addVueImports(nuxt, "vite-hub/realtime/vue", ["useRealtimeTiptap"])
   }
   if (options.database) {

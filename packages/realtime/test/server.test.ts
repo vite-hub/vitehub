@@ -32,8 +32,7 @@ function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean } = {}
     docs: async () => ({
       default: {
         auth: options.auth,
-        document: { format: "tiptap-markdown", workspace: "test" },
-        engine: "yjs",
+        document: { workspace: "test" },
         history: options.checkpoint ? { checkpoint: true } : undefined,
       },
     }),
@@ -126,6 +125,34 @@ describe("realtime server handler", () => {
     expect(response.status).toBe(409)
     expect(readFile).toHaveBeenCalledWith("@workspace", { encoding: "utf8" })
     client.destroy()
+  })
+
+  it("reclaims inactive memory rooms when the retained-room limit is reached", async () => {
+    serverMocks.useWorkspace.mockReturnValue({
+      fs: {
+        exists: vi.fn().mockResolvedValue(true),
+        readFile: vi.fn().mockResolvedValue("# Workspace document"),
+        stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
+      },
+    })
+    const handler = createRealtimeHandler(realtimeRegistry())
+
+    for (let index = 0; index <= 128; index++) {
+      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/page-${index}.md`, {
+        headers: { upgrade: "websocket" },
+      })) as Response & { crossws?: { close(peer: object): void, open(peer: object): void } }
+      const peer = {
+        close: vi.fn(),
+        publish: vi.fn(),
+        send: vi.fn(),
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+      }
+
+      expect(response.crossws).toBeDefined()
+      response.crossws!.open(peer)
+      response.crossws!.close(peer)
+    }
   })
 
 })

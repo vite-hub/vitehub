@@ -289,6 +289,7 @@ async function authorize(request: Request, required: boolean | undefined, event:
 }
 
 export function createRealtimeHandler(registry: RealtimeRegistry) {
+  const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
@@ -323,9 +324,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     const module = await registry[definitionName]?.()
     if (!module) throw new HTTPError({ status: 404, message: `Unknown realtime definition ${JSON.stringify(definitionName)}.` })
     const definition = module.default
-    if (definition.engine !== "yjs" || definition.document.format !== "tiptap-markdown") {
-      throw new HTTPError({ status: 500, message: "Unsupported realtime definition." })
-    }
     return definition
   }
 
@@ -336,7 +334,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     let room = rooms.get(key)
     if (!room) {
       if (!sql && memoryRoomKeys.size >= maxMemoryRooms) {
-        throw new HTTPError({ status: 503, message: "The in-memory realtime authority reached its room limit." })
+        const inactiveKey = inactiveMemoryRoomKeys.values().next().value
+        const inactiveRoom = inactiveKey ? await rooms.get(inactiveKey) : undefined
+        if (inactiveRoom) destroyRoom(inactiveRoom)
+        if (memoryRoomKeys.size >= maxMemoryRooms) {
+          throw new HTTPError({ status: 503, message: "The in-memory realtime authority reached its active room limit." })
+        }
       }
       if (!sql) memoryRoomKeys.add(key)
       room = (async () => {
@@ -377,10 +380,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       rooms.set(key, room)
       room.catch(() => {
         rooms.delete(key)
+        inactiveMemoryRoomKeys.delete(key)
         memoryRoomKeys.delete(key)
       })
     }
     const value = await room
+    inactiveMemoryRoomKeys.delete(key)
     return value
   }
 
@@ -397,7 +402,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
 
   function evictRoom(room: Room): void {
     if (room.peers.size > 0 || room.checkpoint || room.pendingCheckpoint) return
-    if (!room.sql) return
+    if (!room.sql) {
+      inactiveMemoryRoomKeys.delete(room.key)
+      inactiveMemoryRoomKeys.add(room.key)
+      return
+    }
     destroyRoom(room)
   }
 
@@ -405,6 +414,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     room.awareness.destroy()
     room.document.destroy()
     rooms.delete(room.key)
+    inactiveMemoryRoomKeys.delete(room.key)
+    memoryRoomKeys.delete(room.key)
   }
 
   async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, state: Uint8Array): Promise<WorkspaceSnapshot> {
