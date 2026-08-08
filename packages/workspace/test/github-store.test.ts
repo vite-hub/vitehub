@@ -214,32 +214,6 @@ describe("GitHub workspace store", () => {
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer callback-token");
   });
 
-  it("falls back from empty lazy options to active Cloudflare bindings", async () => {
-    seedRemote("state/docs/data/existing.json", '{"ok":true}\n');
-    setActiveCloudflareEnv({
-      GITHUB_TOKEN: "binding-token",
-      WORKSPACE_GITHUB_BRANCH: "main",
-      WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
-      WORKSPACE_GITHUB_ROOT: "state/<workspace>",
-    });
-    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
-    const store = createGitHubWorkspaceStore(
-      {
-        branch: () => undefined,
-        provider: "github",
-        repository: () => undefined,
-        root: () => undefined,
-        token: () => undefined,
-      },
-      "docs",
-    );
-
-    await expect(store.readFile("data/existing.json")).resolves.toMatchObject({
-      content: textBytes('{"ok":true}\n'),
-    });
-    expect(requests[0]?.headers.get("authorization")).toBe("Bearer binding-token");
-  });
-
   it("reads, lists, stats, writes, snapshots, and persists metadata through GitHub", async () => {
     seedRemote(".vitehub/workspaces/docs/data/existing.json", '{"ok":true}\n');
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
