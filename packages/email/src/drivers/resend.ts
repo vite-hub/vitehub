@@ -58,7 +58,7 @@ function resendAddress(address: EmailAddress): string {
   return typeof address === "string"
     ? address
     : address.name
-      ? `${address.name} <${address.email}>`
+      ? `"${address.name.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}" <${address.email}>`
       : address.email
 }
 
