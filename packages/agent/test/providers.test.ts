@@ -2364,28 +2364,14 @@ describe("server helpers", () => {
 
   it("consumes only approval responses issued by the server session", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-approval-"))
-    const { defineAgent } = await import("../src/index.ts")
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const run = vi.fn(({ messages }) => {
-      if (run.mock.calls.length === 1) {
-        return createAgentUIMessageStreamResponse({
-          headers: { "x-agent": "approval" },
-          status: 201,
-          stream: new ReadableStream({
-            start(controller) {
-              controller.enqueue({ messageId: "assistant-1", type: "start" })
-              controller.enqueue({ input: { path: "README.md" }, toolCallId: "call-1", toolName: "github__createOrUpdateFile", type: "tool-input-available" })
-              controller.enqueue({ approvalId: "approval-1", toolCallId: "call-1", type: "tool-approval-request" })
-              controller.enqueue({ finishReason: "tool-calls", type: "finish" })
-              controller.close()
-            },
-          }),
-        })
-      }
       expect(messages[0]?.parts).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: "call-1", input: { path: "README.md" }, name: "github__createOrUpdateFile", type: "tool-call" }),
         expect.objectContaining({ id: "approval-1", toolCallId: "call-1", type: "approval-request" }),
@@ -2393,6 +2379,25 @@ describe("server helpers", () => {
       ]))
       return "approved"
     })
+    const approvalResponse = createAgentUIMessageStreamResponse({
+      headers: { "x-agent": "approval" },
+      status: 201,
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ messageId: "assistant-1", type: "start" })
+          controller.enqueue({ input: { path: "README.md" }, toolCallId: "call-1", toolName: "github__createOrUpdateFile", type: "tool-input-available" })
+          controller.enqueue({ approvalId: "approval-1", toolCallId: "call-1", type: "tool-approval-request" })
+          controller.enqueue({ finishReason: "tool-calls", type: "finish" })
+          controller.close()
+        },
+      }),
+    })
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockResolvedValueOnce({
+      body: approvalResponse.body,
+      headers: approvalResponse.headers,
+      status: approvalResponse.status,
+      statusText: approvalResponse.statusText,
+    } as never)
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: { run },
@@ -2430,18 +2435,19 @@ describe("server helpers", () => {
 
       const otherUser = await handler(request("approval-1", "user-2"), { agentName: "support", state })
       expect(otherUser.status).toBe(400)
-      expect(run).toHaveBeenCalledTimes(1)
+      expect(run).not.toHaveBeenCalled()
 
       const approved = await handler(request("approval-1"), { agentName: "support", state })
       expect(approved.status).toBe(200)
       await expect(approved.text()).resolves.toContain("approved")
-      expect(run.mock.calls[1]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
+      expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
 
       const replayed = await handler(request("approval-1"), { agentName: "support", state })
       expect(replayed.status).toBe(400)
-      expect(run).toHaveBeenCalledTimes(2)
+      expect(run).toHaveBeenCalledOnce()
     }
     finally {
+      streamAgentTrigger.mockRestore()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }

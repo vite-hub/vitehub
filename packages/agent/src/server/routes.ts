@@ -3735,9 +3735,9 @@ function trackAgentChatApprovals(result: unknown, state: StateAdapter, invokerId
     })
   }
 
-  if (result instanceof Response) {
+  if (result instanceof Response || isResponseLike(result)) {
     if (!result.body || !isUiMessageStreamResponse(result)) return result
-    const headers = new Headers(result.headers)
+    const headers = new Headers([...result.headers.entries()])
     headers.delete("content-encoding")
     headers.delete("content-length")
     return new Response(trackedStream(result.body, true) as ReadableStream<Uint8Array>, {
@@ -3746,7 +3746,7 @@ function trackAgentChatApprovals(result: unknown, state: StateAdapter, invokerId
       statusText: result.statusText,
     })
   }
-  if (!(result instanceof ReadableStream)) return result
+  if (!isReadableStreamLike(result)) return result
   return trackedStream(result)
 }
 
