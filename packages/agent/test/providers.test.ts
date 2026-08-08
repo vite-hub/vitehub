@@ -6922,6 +6922,60 @@ describe("server helpers", () => {
     }
   })
 
+  it("retries a rehydration-required delivery when replay handles the request", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-handled-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => new Response(null, { status: 204 }) } },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-rehydrate-handled",
+      enqueuedAt: Date.now(),
+      leaseTtlMs: 30_000,
+      rehydrate: true,
+      request: {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-rehydrate-handled",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      scope: "webhook:review:github:github:",
+      webhookId: "github",
+    })
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
+
+    try {
+      await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
+      expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      await stop()
+      consoleError.mockRestore()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("resumes persisted invocations after the final webhook registration is removed", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")

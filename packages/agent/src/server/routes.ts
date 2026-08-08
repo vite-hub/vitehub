@@ -1031,13 +1031,16 @@ async function executeQueuedWebhookDelivery(
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
         if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
         const input = await createAgentWebhookTriggerInput(request, match.registration)
-        let resolved = await resolveAgentTriggerInvocationWithResolvedContext(agent as never, resolveRuntimeContext(context as never) as never, match.trigger.id, input, { verifyWebhook: false })
-        if (!isResolvedAgentTriggerHandledInvocation(resolved) && delivery.rehydrate && !resolved.webhook?.rehydrate) {
+        const replayed = await resolveAgentTriggerInvocationWithResolvedContext(agent as never, resolveRuntimeContext(context as never) as never, match.trigger.id, input, { verifyWebhook: false })
+        if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
+          throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request.")
+        }
+        if (!isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && !replayed.webhook?.rehydrate) {
           throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger no longer provides a rehydrate callback.")
         }
-        if (!isResolvedAgentTriggerHandledInvocation(resolved) && delivery.rehydrate && resolved.webhook?.rehydrate) {
-          resolved = resolveAgentTriggerInvocationResult(await resolved.webhook.rehydrate(), resolved.trigger)
-        }
+        const resolved = !isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && replayed.webhook?.rehydrate
+          ? resolveAgentTriggerInvocationResult(await replayed.webhook.rehydrate(), replayed.trigger)
+          : replayed
         await context.flushWaitUntil?.()
         return resolved
       })
