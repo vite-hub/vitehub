@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest"
 
-import { createChatMessageTriggerInput } from "../src/chat-message-input.ts"
+import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
 
 describe("chat message trigger input", () => {
+  it("resolves metadata-selected manual Chat Sessions", () => {
+    expect(resolveChatSessionId([
+      { metadata: { sessionId: "metadata-session" }, parts: [], role: "user" },
+    ], true)).toBe("metadata-session")
+  })
+
+  it("resolves idle Chat Sessions from the selected history boundary", () => {
+    const messages = [
+      { createdAt: "2026-08-08T00:00:00.000Z", id: "old", parts: [], role: "user" },
+      { createdAt: "2026-08-08T01:00:00.000Z", id: "new", parts: [], role: "user" },
+      { createdAt: "2026-08-08T01:00:01.000Z", id: "latest", parts: [], role: "user" },
+    ]
+    expect(resolveChatSessionId(messages, { idleTimeoutMs: 60_000, strategy: "idle-timeout" })).toBe("idle:new")
+  })
+
   it("selects manual Chat Session history and carries chat context", () => {
     const result = createChatMessageTriggerInput({
       sessions: true,

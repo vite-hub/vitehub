@@ -9,7 +9,7 @@ import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } 
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
-import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatSessionId, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
@@ -3565,6 +3565,19 @@ interface AgentChatPendingApproval {
   toolCallId: string
 }
 
+interface AgentChatConsumedApproval extends AgentChatPendingApproval {
+  approved: boolean
+  reason?: string
+}
+
+function isAgentChatConsumedApproval(value: unknown): value is AgentChatConsumedApproval {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.name === "string"
+    && typeof value.toolCallId === "string"
+    && typeof value.approved === "boolean"
+}
+
 const agentChatApprovalTtlMs = 24 * 60 * 60 * 1000
 
 function agentChatApprovalKey(invokerId: string, sessionId: string, approvalId?: string): string {
@@ -3605,22 +3618,23 @@ async function authorizeAgentChatApprovals(
   invokerId: string,
   sessionId: string,
   messages: UIMessageLike[],
-): Promise<UIMessageLike[]> {
+  persistApprovedTools = true,
+): Promise<{ approvedTools: string[], messages: UIMessageLike[] }> {
   const submitted = messages.flatMap((message, messageIndex) => (message.parts || []).flatMap(part => {
     const approvalPart = uiApprovalPart(part)
     return approvalPart ? [{ ...approvalPart, historical: messageIndex < messages.length - 1 }] : []
   }))
-  if (!submitted.length) return messages
+  if (!submitted.length) return { approvedTools: [], messages }
 
   return await withAgentChatApprovalLock(state, invokerId, sessionId, async () => {
     const pending = new Map(await Promise.all([...new Set(submitted.map(part => part.approval.id as string))].map(async id => [
       id,
       await state.get<AgentChatPendingApproval>(agentChatApprovalKey(invokerId, sessionId, id)),
     ] as const)))
-    const historical = new Map(await Promise.all([...new Set(submitted.filter(part => part.historical).map(part => part.approval.id as string))].map(async id => [
-      id,
-      await state.get<AgentChatPendingApproval>(agentChatConsumedApprovalKey(invokerId, sessionId, id)),
-    ] as const)))
+    const historical = new Map(await Promise.all([...new Set(submitted.filter(part => part.historical).map(part => part.approval.id as string))].map(async id => {
+      const value = await state.get<AgentChatConsumedApproval>(agentChatConsumedApprovalKey(invokerId, sessionId, id))
+      return [id, isAgentChatConsumedApproval(value) ? value : undefined] as const
+    })))
     const consumed = new Set<string>()
     const authorized = messages.map((message, messageIndex) => ({
       ...message,
@@ -3633,7 +3647,8 @@ async function authorizeAgentChatApprovals(
         const submittedPart = uiApprovalPart(part)
         if (!submittedPart) return part
         const id = submittedPart.approval.id as string
-        const request = pending.get(id) ?? (messageIndex < messages.length - 1 ? historical.get(id) : undefined)
+        const historicalDecision = historical.get(id)
+        const request = pending.get(id) ?? (messageIndex < messages.length - 1 ? historicalDecision : undefined)
         if (!request) throw createRouteBodyError(`Agent chat approval ${JSON.stringify(id)} was not issued by this session.`)
         if (submittedPart.record.state === "approval-responded") {
           if (typeof submittedPart.approval.approved !== "boolean") {
@@ -3646,8 +3661,12 @@ async function authorizeAgentChatApprovals(
           ...submittedPart.record,
           approval: {
             id,
-            ...(typeof submittedPart.approval.approved === "boolean" ? { approved: submittedPart.approval.approved } : {}),
-            ...(typeof submittedPart.approval.reason === "string" ? { reason: submittedPart.approval.reason } : {}),
+            ...(typeof submittedPart.approval.approved === "boolean"
+              ? { approved: historicalDecision?.approved ?? submittedPart.approval.approved }
+              : {}),
+            ...(typeof (historicalDecision?.reason ?? submittedPart.approval.reason) === "string"
+              ? { reason: historicalDecision?.reason ?? submittedPart.approval.reason }
+              : {}),
           },
           input: request.input,
           toolCallId: request.toolCallId,
@@ -3661,7 +3680,7 @@ async function authorizeAgentChatApprovals(
       const request = pending.get(id)
       return part.record.state === "approval-responded" && part.approval.approved === true && request ? [request.name] : []
     })
-    if (newlyApproved.length) {
+    if (persistApprovedTools && newlyApproved.length) {
       const approved = await state.get<string[]>(agentChatApprovedToolsKey(invokerId, sessionId))
       await state.set(
         agentChatApprovedToolsKey(invokerId, sessionId),
@@ -3671,10 +3690,17 @@ async function authorizeAgentChatApprovals(
     }
     await Promise.all([...consumed].map(async (id) => {
       const request = pending.get(id)
-      if (request) await state.set(agentChatConsumedApprovalKey(invokerId, sessionId, id), request, agentChatApprovalTtlMs)
+      const decision = submitted.find(part => part.approval.id === id && part.record.state === "approval-responded")?.approval
+      if (request && typeof decision?.approved === "boolean") {
+        await state.set(agentChatConsumedApprovalKey(invokerId, sessionId, id), {
+          ...request,
+          approved: decision.approved,
+          ...(typeof decision.reason === "string" ? { reason: decision.reason } : {}),
+        } satisfies AgentChatConsumedApproval, agentChatApprovalTtlMs)
+      }
     }))
     await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(invokerId, sessionId, id))))
-    return authorized
+    return { approvedTools: [...new Set(newlyApproved)], messages: authorized }
   })
 }
 
@@ -3814,7 +3840,8 @@ export function createChannelChatRouteHandler(
         admittedInput,
         await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
       )
-      const invokerInput = createChatMessageTriggerInput(getAgentChatOptions(agent) || {}, triggerInput).input
+      const chatOptions = getAgentChatOptions(agent) || {}
+      const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
       const invoker = await resolveAgentInvoker(
         (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
         context,
@@ -3827,8 +3854,9 @@ export function createChannelChatRouteHandler(
         invoker,
       }
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
-      const approvalSessionId = sessionId && triggerInput.session?.id
-        ? `${sessionId}:chat-session:${triggerInput.session.id}`
+      const selectedSessionId = resolveChatSessionId(triggerInput.messages, chatOptions.sessions, triggerInput.session)
+      const approvalSessionId = sessionId && selectedSessionId
+        ? `${sessionId}:chat-session:${selectedSessionId}`
         : sessionId
       const registration = {
         channelId: routeOptions.channelId || "http",
@@ -3838,15 +3866,18 @@ export function createChannelChatRouteHandler(
       const { state } = await resolveChatState(getAgentChatOptions(agent), context, registration, handlerOptions)
       await state.connect()
       if (approvalSessionId) {
-        const messages = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages)
-        const approvedTools = await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, approvalSessionId))
+        const persistApprovedTools = invoker.kind !== "anonymous"
+        const authorized = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages, persistApprovedTools)
+        const approvedTools = persistApprovedTools
+          ? await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, approvalSessionId))
+          : authorized.approvedTools
         triggerInput = {
           ...triggerInput,
           context: {
             ...triggerInput.context,
             ...(approvedTools?.length ? { "vitehub.eve.approvedTools": approvedTools } : {}),
           },
-          messages,
+          messages: authorized.messages,
         }
       }
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {

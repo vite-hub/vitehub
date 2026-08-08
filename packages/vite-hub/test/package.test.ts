@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
+import * as ownerAgentEve from "@vite-hub/agent/eve"
 import * as ownerAgentVue from "@vite-hub/agent/vue"
 import ownerAuthHandler from "@vite-hub/auth/server"
 import * as ownerAuthVue from "@vite-hub/auth/vue"
@@ -14,6 +15,7 @@ import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/da
 import * as ownerRateLimit from "@vite-hub/rate-limit"
 import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
+import * as frameworkAgentEve from "vite-hub/_internal/agent/eve"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
 import * as frameworkAgentVue from "vite-hub/agent/vue"
 import frameworkAuthHandler from "vite-hub/auth/server"
@@ -134,6 +136,7 @@ describe("framework package contract", () => {
 
   it("forwards feature APIs from their owner packages", () => {
     expect(frameworkAgent.defineAgent).toBe(ownerAgent.defineAgent)
+    expect(frameworkAgentEve.eveExtensionCapability).toBe(ownerAgentEve.eveExtensionCapability)
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent)

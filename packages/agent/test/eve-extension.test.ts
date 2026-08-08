@@ -44,6 +44,21 @@ function capabilityContext(): AgentCapabilityContext {
 }
 
 describe("Eve extension capabilities", () => {
+  it("uses the injective generated namespace as the Eve configuration scope", async () => {
+    const scopes: string[] = []
+    const loadExtension = async () => ({
+      default: () => {
+        scopes.push((globalThis as Record<symbol, string>)[Symbol.for("eve.ext-config-scope")])
+        return { [Symbol.for("eve.mounted-extension")]: true }
+      },
+    })
+
+    await eveExtensionCapability("@one/foo-extension", "pkg-_aone_sfoo-extension", loadExtension, async () => ({}))
+    await eveExtensionCapability("one-foo-extension", "pkg-one-foo-extension", loadExtension, async () => ({}))
+
+    expect(scopes).toEqual(["pkg-_aone_sfoo-extension", "pkg-one-foo-extension"])
+  })
+
   it("detects the published GitHub Tools extension in a static capabilities array", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
@@ -208,6 +223,73 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it("does not lower calls to a shadowed imported defineAgent binding", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        {
+          const defineAgent = options => options
+          defineAgent({ capabilities: [github()] })
+        }
+      `,
+      parseAst,
+      async () => true,
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
+  it("does not lower calls to declaration- or destructuring-shadowed bindings", async () => {
+    for (const shadow of [
+      `function defineAgent(options) { return options }`,
+      `const { defineAgent } = local`,
+    ]) {
+      const transformed = await transformEveExtensionCapabilities(
+        `
+          import { defineAgent } from "@vite-hub/agent"
+          import github from "@github-tools/eve-extension"
+          {
+            ${shadow}
+            defineAgent({ capabilities: [github()] })
+          }
+        `,
+        parseAst,
+        async () => true,
+      )
+
+      expect(transformed).toBeUndefined()
+    }
+  })
+
+  it("rejects separate runtime imports from a mounted extension", async () => {
+    await expect(transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        import { defineConfig } from "@github-tools/eve-extension"
+        export default defineAgent({ capabilities: [github(defineConfig({}))] })
+      `,
+      parseAst,
+      async () => true,
+    )).rejects.toThrow("cannot be imported separately as a runtime value")
+  })
+
+  it("injects the configured Agent runtime import", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        export default defineAgent({ capabilities: [github()] })
+      `,
+      parseAst,
+      async () => true,
+      "vite-hub/_internal/agent",
+    )
+
+    expect(transformed).toContain(`from "vite-hub/_internal/agent/eve"`)
+  })
+
   it("detects Eve extensions in factored Agent Definition options", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
@@ -319,6 +401,32 @@ describe("Eve extension capabilities", () => {
 
     expect(transformed).toContain(`"@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`"$github"`)
+  })
+
+  it("resolves Vite aliases to the Eve package identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(
+        specifier === "github-tools" ? "@github-tools/eve-extension" : specifier,
+      )),
+      plugins: [],
+      root,
+    })
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      [
+        `import { defineAgent } from "@vite-hub/agent"`,
+        `import github from "github-tools"`,
+        `export default defineAgent({ capabilities: [github()] })`,
+      ].join("\n"),
+      join(root, "server", "agents", "reviewer.ts"),
+    )
+
+    expect(transformed).toContain(`"@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
+    expect(transformed).toContain(`() => import("github-tools")`)
   })
 
   it("includes package scopes when extension basenames collide", async () => {
@@ -443,6 +551,19 @@ describe("Eve extension capabilities", () => {
       { parse: parseAst },
       source,
       join(root, "capabilities.ts"),
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
+  })
+
+  it("lowers a named exported static Capability list", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import github from "@github-tools/eve-extension"
+        export const reviewCapabilities = [github()]
+      `,
+      parseAst,
+      async () => true,
     )
 
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
@@ -698,7 +819,7 @@ describe("Eve extension capabilities", () => {
     }
 
     expect(read).toMatchObject({ name: "github__getFileContent" })
-    expect(read.toModelOutput).toBeUndefined()
+    expect(typeof read.toModelOutput).toBe("function")
     expect(await write.needsApproval({}, { messages: [], toolCallId: "call-1" })).toBe(true)
 
     const messages = toAiSdkModelMessages([
@@ -727,7 +848,7 @@ describe("Eve extension capabilities", () => {
     expect(await persistedWrite.needsApproval({}, { messages: [], toolCallId: "call-3" })).toBe(false)
   })
 
-  it("converts Eve tool output before returning it to the Agent runtime", async () => {
+  it("preserves Eve tool output conversion for the model", async () => {
     const capability = await eveExtensionCapability(
       "example-extension",
       "example",
@@ -740,10 +861,13 @@ describe("Eve extension capabilities", () => {
       }),
     )
     const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext())
-    const count = tools.example__count as AgentToolDefinition & { execute: (input: unknown) => Promise<unknown>, toModelOutput?: unknown }
+    const count = tools.example__count as AgentToolDefinition & {
+      execute: (input: unknown) => Promise<unknown>
+      toModelOutput: (options: { output: unknown }) => Promise<unknown>
+    }
 
-    expect(count.toModelOutput).toBeUndefined()
-    expect(await count.execute({})).toEqual({ value: "1" })
+    expect(await count.execute({})).toBe(1n)
+    expect(await count.toModelOutput({ output: 1n })).toEqual({ value: "1" })
   })
 
   it("ignores dynamic event keys without handlers", async () => {

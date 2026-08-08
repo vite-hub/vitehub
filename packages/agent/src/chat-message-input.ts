@@ -262,6 +262,24 @@ function normalizeSessionOptions(sessions: AgentChatOptions["sessions"]): AgentC
   return sessions === true ? { strategy: "manual" } : sessions
 }
 
+export function resolveChatSessionId(
+  messages: UIMessageLike[],
+  sessions: AgentChatOptions["sessions"],
+  triggerSession?: AgentChatMessageTriggerInput["session"],
+): string | undefined {
+  const options = normalizeSessionOptions(sessions)
+  if (!options) return triggerSession?.id
+  const strategy = options.strategy || (options.idleTimeoutMs ? "idle-timeout" : "manual")
+  const manualId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, options.metadataKey)
+  if (strategy === "manual") return manualId
+  const selected = strategy === "idle-timeout"
+    ? selectIdleSession(messages, options)
+    : selectIdleSession(selectManualSession(messages, options, triggerSession), options)
+  const first = selected[0]
+  const boundary = first?.id || uiMessageTime(first || {})?.toString()
+  return boundary ? `${manualId ? `${manualId}:` : ""}idle:${boundary}` : manualId
+}
+
 function selectManualSession(messages: UIMessageLike[], sessions: AgentChatSessionOptions, triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
   if (triggerSession?.action === "new") return messages.slice(-1)
   const selectedId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, sessions.metadataKey)

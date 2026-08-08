@@ -40,15 +40,9 @@ interface ToolExecutionOptions {
 
 let extensionLoad = Promise.resolve()
 
-function packageNamespace(packageName: string): string {
-  return packageName
-    .replace(/^@/, "")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "extension"
-}
-
 async function loadMountedExtension(
   packageName: string,
+  namespace: string,
   loadExtension: () => Promise<Record<string, unknown>>,
   config: unknown,
 ): Promise<void> {
@@ -60,7 +54,7 @@ async function loadMountedExtension(
   const scope = Symbol.for("eve.ext-config-scope")
   const container = globalThis as Record<symbol, unknown>
   const existingScope = container[scope]
-  container[scope] = packageNamespace(packageName)
+  container[scope] = namespace
   try {
     const extension = (await loadExtension()).default
     if (typeof extension !== "function") {
@@ -102,12 +96,14 @@ function toViteHubTool(
   return {
     ...tool,
     name,
-    toModelOutput: undefined,
+    ...(toModelOutput
+      ? { toModelOutput: async ({ output }: { output: unknown }) => await toModelOutput(output) }
+      : { toModelOutput: undefined }),
     ...(execute
       ? {
           async execute(input: unknown, options: ToolExecutionOptions = {}) {
             const callId = options.toolCallId ?? `${name}-${Date.now()}`
-            const output = await execute(input, {
+            return await execute(input, {
               abortSignal: options.abortSignal ?? new AbortController().signal,
               callId,
               getSandbox: async () => unsupportedEveRuntimeFeature("ctx.getSandbox()"),
@@ -121,7 +117,6 @@ function toViteHubTool(
               },
               toolName: name,
             } as never)
-            return toModelOutput ? await toModelOutput(output) : output
           },
         }
       : {}),
@@ -237,7 +232,7 @@ export async function eveExtensionCapability(
   loadTools: () => Promise<Record<string, unknown>>,
   config?: unknown,
 ): Promise<AgentCapabilityDefinition> {
-  await loadMountedExtension(packageName, loadExtension, config)
+  await loadMountedExtension(packageName, namespace, loadExtension, config)
   const tools = await loadTools()
   return defineCapability({
     id: `eve.${namespace}`,

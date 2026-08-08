@@ -936,6 +936,7 @@ export function transformRepositoryHostContextMaterialization(
 interface EveExtensionImport {
   call: PositionedNode
   declaration: PositionedNode
+  identity?: string
   local: string
   source: string
 }
@@ -1000,7 +1001,8 @@ function eveExtensionIdentityNamespace(specifier: string): string {
 export async function transformEveExtensionCapabilities(
   code: string,
   parse: (code: string) => unknown,
-  resolveExtension: (specifier: string) => Promise<boolean>,
+  resolveExtension: (specifier: string) => Promise<boolean | string>,
+  agentImportBase: string = agentPackageName,
 ): Promise<string | undefined> {
   const program = parse(code)
   if (!isPositionedNode(program)) return
@@ -1028,7 +1030,7 @@ export async function transformEveExtensionCapabilities(
       if (!isPositionedNode(initializer)) continue
       if (initializer.type === "ArrayExpression") {
         staticArrays.set(identifier.name, initializer)
-        if (statement.type === "ExportNamedDeclaration" && identifier.name === "capabilities") exportedStaticArrays.add(initializer)
+        if (statement.type === "ExportNamedDeclaration" && /capabilities/i.test(identifier.name)) exportedStaticArrays.add(initializer)
       }
       if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
     }
@@ -1046,7 +1048,7 @@ export async function transformEveExtensionCapabilities(
           : isPositionedNode(exported) && exported.type === "Literal"
             ? exported.value
             : undefined
-        if (exportedName !== "capabilities") continue
+        if (typeof exportedName !== "string" || !/capabilities/i.test(exportedName)) continue
         const array = staticArrays.get(local.name)
         if (array) exportedStaticArrays.add(array)
       }
@@ -1099,6 +1101,30 @@ export async function transformEveExtensionCapabilities(
   })
   if (!imports.size) return
 
+  const shadowable = new Set([...imports.keys(), ...defineAgentImports, ...defineAgentNamespaces])
+  const bindingNames = (value: unknown): string[] => {
+    if (!isPositionedNode(value)) return []
+    if (value.type === "Identifier" && typeof value.name === "string") return [value.name]
+    if (value.type === "RestElement") return bindingNames(value.argument)
+    if (value.type === "AssignmentPattern") return bindingNames(value.left)
+    if (value.type === "ArrayPattern") return (Array.isArray(value.elements) ? value.elements : []).flatMap(bindingNames)
+    if (value.type === "ObjectPattern") {
+      return (Array.isArray(value.properties) ? value.properties : []).flatMap((property) => {
+        if (!isPositionedNode(property)) return []
+        return property.type === "RestElement" ? bindingNames(property.argument) : bindingNames(property.value)
+      })
+    }
+    return []
+  }
+  const recordShadows = (value: unknown, range?: { end: number, start: number }): void => {
+    if (!range) return
+    for (const name of bindingNames(value)) {
+      if (!shadowable.has(name)) continue
+      const ranges = shadowRanges.get(name) ?? []
+      ranges.push(range)
+      shadowRanges.set(name, ranges)
+    }
+  }
   const collectShadows = (value: unknown, scope?: { end: number, start: number }): void => {
     if (!value || typeof value !== "object") return
     const node = value as Record<string, unknown>
@@ -1106,22 +1132,16 @@ export async function transformEveExtensionCapabilities(
       ? { end: node.end, start: node.start }
       : scope
     if (nextScope && node.type === "VariableDeclarator") {
-      const id = node.id
-      if (isPositionedNode(id) && id.type === "Identifier" && typeof id.name === "string" && imports.has(id.name)) {
-        const ranges = shadowRanges.get(id.name) ?? []
-        ranges.push(nextScope)
-        shadowRanges.set(id.name, ranges)
-      }
+      recordShadows(node.id, nextScope)
     }
     if (nextScope && typeof node.type === "string" && node.type.includes("Function")) {
       for (const parameter of Array.isArray(node.params) ? node.params : []) {
-        if (isPositionedNode(parameter) && parameter.type === "Identifier" && typeof parameter.name === "string" && imports.has(parameter.name)) {
-          const ranges = shadowRanges.get(parameter.name) ?? []
-          ranges.push(nextScope)
-          shadowRanges.set(parameter.name, ranges)
-        }
+        recordShadows(parameter, nextScope)
       }
     }
+    if (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") recordShadows(node.id, scope)
+    if (node.type === "FunctionExpression" || node.type === "ClassExpression") recordShadows(node.id, nextScope)
+    if (node.type === "CatchClause") recordShadows(node.param, nextScope)
     for (const child of Object.values(node)) {
       if (Array.isArray(child)) child.forEach(item => collectShadows(item, nextScope))
       else collectShadows(child, nextScope)
@@ -1164,7 +1184,8 @@ export async function transformEveExtensionCapabilities(
     const callee = node.callee
     const isDefineAgentCall = isPositionedNode(callee)
       && (
-        (callee.type === "Identifier" && typeof callee.name === "string" && defineAgentImports.has(callee.name))
+        (callee.type === "Identifier" && typeof callee.name === "string" && defineAgentImports.has(callee.name)
+          && !shadowRanges.get(callee.name)?.some(range => node.start > range.start && node.end < range.end))
         || (
           callee.type === "MemberExpression"
           && callee.computed !== true
@@ -1172,6 +1193,7 @@ export async function transformEveExtensionCapabilities(
           && callee.object.type === "Identifier"
           && typeof callee.object.name === "string"
           && defineAgentNamespaces.has(callee.object.name)
+          && !shadowRanges.get(callee.object.name)?.some(range => node.start > range.start && node.end < range.end)
           && isPositionedNode(callee.property)
           && callee.property.type === "Identifier"
           && callee.property.name === "defineAgent"
@@ -1205,18 +1227,19 @@ export async function transformEveExtensionCapabilities(
 
   const extensions: EveExtensionImport[] = []
   for (const call of calls) {
-    if (!await resolveExtension(call.source)) continue
+    const resolvedIdentity = await resolveExtension(call.source)
+    if (!resolvedIdentity) continue
     const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
     if (args.length > 1 || args.some(argument => isPositionedNode(argument) && argument.type === "SpreadElement")) {
       throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.`)
     }
-    extensions.push(call)
+    extensions.push({ ...call, identity: typeof resolvedIdentity === "string" ? resolvedIdentity : call.source })
   }
   if (!extensions.length) return
 
   const packageCounts = new Map<string, number>()
   for (const extension of extensions) {
-    packageCounts.set(extension.source, (packageCounts.get(extension.source) ?? 0) + 1)
+    packageCounts.set(extension.identity!, (packageCounts.get(extension.identity!) ?? 0) + 1)
   }
   const duplicate = [...packageCounts].find(([, count]) => count > 1)
   if (duplicate) throw new Error(`[vitehub] Eve extension ${JSON.stringify(duplicate[0])} can only be mounted once per Agent Definition.`)
@@ -1228,6 +1251,17 @@ export async function transformEveExtensionCapabilities(
   )
   const replacements: Array<{ end: number, start: number, value: string }> = []
   for (const extension of extensions) {
+    const separateRuntimeImport = (Array.isArray(program.body) ? program.body : []).find((statement) => {
+      if (!isPositionedNode(statement) || statement.type !== "ImportDeclaration" || statement === extension.declaration) return false
+      const source = statement.source
+      if (!isPositionedNode(source) || source.type !== "Literal" || source.value !== extension.source) return false
+      if (statement.importKind === "type") return false
+      return (Array.isArray(statement.specifiers) ? statement.specifiers : [])
+        .some(specifier => !isPositionedNode(specifier) || specifier.importKind !== "type")
+    })
+    if (separateRuntimeImport) {
+      throw new Error(`[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot be imported separately as a runtime value.`)
+    }
     let hasSurvivingReference = false
     visitNodes(program, (node, parent) => {
       if (hasSurvivingReference || node.type !== "Identifier" || node.name !== extension.local) return
@@ -1246,7 +1280,7 @@ export async function transformEveExtensionCapabilities(
     replacements.push({
       end: extension.call.end,
       start: extension.call.start,
-      value: `await ${helper}(${JSON.stringify(extension.source)}, ${JSON.stringify(eveExtensionIdentityNamespace(extension.source))}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
+      value: `await ${helper}(${JSON.stringify(extension.identity)}, ${JSON.stringify(eveExtensionIdentityNamespace(extension.identity!))}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
     })
     const retainedSpecifiers = Array.isArray(extension.declaration.specifiers)
       ? extension.declaration.specifiers.filter((specifier) => {
@@ -1264,7 +1298,7 @@ export async function transformEveExtensionCapabilities(
       end: extension.declaration.end,
       start: extension.declaration.start,
       value: [
-        ...(extension === firstImport ? [`import { eveExtensionCapability as ${helper} } from "@vite-hub/agent/eve"`] : []),
+        ...(extension === firstImport ? [`import { eveExtensionCapability as ${helper} } from ${JSON.stringify(`${agentImportBase}/eve`)}`] : []),
         ...(retainedSpecifiers.length
           ? [`import type { ${retainedSpecifiers.map(specifier => code.slice(specifier.start, specifier.end).replace(/^type\s+/, "")).join(", ")} } from ${JSON.stringify(extension.source)}`]
           : []),
@@ -1296,7 +1330,7 @@ async function resolveEveExtensionPackage(
   config: Pick<ResolvedConfig, "createResolver">,
   specifier: string,
   importer: string,
-): Promise<boolean> {
+): Promise<false | string> {
   const entry = await config.createResolver()(specifier, importer)
   if (!entry) return false
   let directory = dirname(entry.split(/[?#]/, 1)[0]!)
@@ -1304,7 +1338,7 @@ async function resolveEveExtensionPackage(
     const packagePath = join(directory, "package.json")
     if (existsSync(packagePath)) {
       const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as EveExtensionPackageJson
-      if (packageJson.name === specifier) {
+      if (typeof packageJson.name === "string" && packageJson.eve?.extension) {
         const dist = packageJson.eve?.extension?.dist
         if (typeof dist !== "string") return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
@@ -1317,7 +1351,7 @@ async function resolveEveExtensionPackage(
             throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.`)
           }
         }
-        return true
+        return packageJson.name
       }
     }
     const parent = dirname(directory)
@@ -2294,14 +2328,16 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           transformed,
           value => this.parse(value),
           async (specifier) => {
-            if (!await resolveEveExtensionPackage(resolved!, specifier, normalizedId)) return false
-            const owner = eveExtensionOwners.get(specifier)
+            const identity = await resolveEveExtensionPackage(resolved!, specifier, normalizedId)
+            if (!identity) return false
+            const owner = eveExtensionOwners.get(identity)
             if (owner && owner !== normalizedId) {
               throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.`)
             }
-            eveExtensionOwners.set(specifier, normalizedId)
-            return true
+            eveExtensionOwners.set(identity, normalizedId)
+            return identity
           },
+          getAgentImportBase(agent, frameworkOptions),
         ) ?? transformed
         if (transformed !== code) return transformed
       }
