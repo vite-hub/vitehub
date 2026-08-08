@@ -62,6 +62,16 @@ describe("realtime server handler", () => {
     expect(response.status).toBe(400)
   })
 
+  it("ignores inherited realtime registry entries", async () => {
+    const handler = createRealtimeHandler(realtimeRegistry())
+
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/constructor/page.md", {
+      headers: { upgrade: "websocket" },
+    }))
+
+    expect(response.status).toBe(404)
+  })
+
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))

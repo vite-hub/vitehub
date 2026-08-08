@@ -27,6 +27,7 @@ const maxRoomAwarenessBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
 const awarenessQueryIntervalMs = 10_000
 const awarenessUpdateIntervalMs = 50
+const syncUpdateIntervalMs = 50
 const durableUpdateCompactionInterval = 128
 const messageSync = 0
 const fragmentName = "default"
@@ -352,6 +353,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
   const peerAwarenessQueryAt = new WeakMap<WebSocketPeer, number>()
   const peerAwarenessUpdateAt = new WeakMap<WebSocketPeer, number>()
+  const peerSyncUpdateAt = new WeakMap<WebSocketPeer, number>()
   const workspaceCheckpointQueues = new Map<string, Promise<void>>()
 
   async function serializeWorkspaceCheckpoint<T>(workspaceName: string, operation: () => Promise<T>): Promise<T> {
@@ -404,7 +406,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {
-    const module = await registry[definitionName]?.()
+    const loader = Object.hasOwn(registry, definitionName) ? registry[definitionName] : undefined
+    const module = await loader?.()
     if (!module) throw new HTTPError({ status: 404, message: `Unknown realtime definition ${JSON.stringify(definitionName)}.` })
     const definition = module.default
     return definition
@@ -756,6 +759,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         }
         if (messageType !== messageSync) return
         try {
+          const syncType = decoding.readVarUint(decoder)
+          if (syncType !== 0) {
+            const now = Date.now()
+            const previous = peerSyncUpdateAt.get(peer)
+            if (previous !== undefined && now - previous < syncUpdateIntervalMs) return
+            peerSyncUpdateAt.set(peer, now)
+          }
           const response = applyRealtimeSyncMessage(data, room.document, peer)
           if (response) peer.send(response)
         }
