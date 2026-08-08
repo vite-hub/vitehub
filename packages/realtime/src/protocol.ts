@@ -8,6 +8,12 @@ export const messageAwareness = 1
 export const messageQueryAwareness = 3
 export const workspaceRoomId = "@workspace"
 export const maxAwarenessClients = 1024
+export const realtimeCheckpointRejectedCode = "REALTIME_CHECKPOINT_REJECTED"
+export const realtimeSyncPendingCode = "REALTIME_SYNC_PENDING"
+
+export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
+  return value === realtimeSyncPendingCode || value === realtimeCheckpointRejectedCode
+}
 
 function validPath(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0")

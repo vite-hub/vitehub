@@ -18,7 +18,7 @@ import type { WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeCheckpoint, RealtimeDefinition, RealtimeRegistry } from "./types.ts"
 import { createRealtimeIdentity } from "./presence.ts"
-import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds } from "./protocol.ts"
+import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, realtimeCheckpointRejectedCode, realtimeSyncPendingCode } from "./protocol.ts"
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
@@ -692,7 +692,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         throw new HTTPError({
           status: 409,
           message: "The Workspace document changed while creating its realtime checkpoint.",
-          data: { code: "REALTIME_CHECKPOINT_REJECTED" },
+          data: { code: realtimeCheckpointRejectedCode },
         })
       }
       room.baselineDigest = snapshot.entries[pending.path]?.digest
@@ -738,7 +738,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       throw new HTTPError({
         status: 409,
         message: "The realtime document is still syncing.",
-        data: { code: "REALTIME_SYNC_PENDING" },
+        data: { code: realtimeSyncPendingCode },
       })
     }
     return await checkpointRoom(documentId, definition, room, state)

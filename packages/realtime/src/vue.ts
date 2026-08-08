@@ -14,7 +14,7 @@ import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeCheckpoint, RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
-import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
+import { decodeWorkspaceChangePayload, encodeWorkspaceChange, isRetryableRealtimeCheckpointCode, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
 
@@ -112,7 +112,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
         })
         if (response.ok) return await response.json() as RealtimeCheckpoint
         const data = await response.json().catch(() => undefined) as { data?: { code?: string }, message?: string, statusMessage?: string } | undefined
-        if (response.status === 409 && (data?.data?.code === "REALTIME_SYNC_PENDING" || data?.data?.code === "REALTIME_CHECKPOINT_REJECTED") && attempt < 20) {
+        if (response.status === 409 && isRetryableRealtimeCheckpointCode(data?.data?.code) && attempt < 20) {
           await new Promise(resolve => setTimeout(resolve, 50))
           continue
         }
