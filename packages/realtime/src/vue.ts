@@ -1,6 +1,8 @@
 import Collaboration from "@tiptap/extension-collaboration"
 import Image from "@tiptap/extension-image"
+import StarterKit from "@tiptap/starter-kit"
 import { TableKit } from "@tiptap/extension-table"
+import { Markdown } from "@tiptap/markdown"
 import { useUserSession } from "@vite-hub/auth/vue"
 import * as decoding from "lib0/decoding"
 import { computed, markRaw, onScopeDispose, ref, shallowRef, toValue, watch } from "vue"
@@ -145,8 +147,10 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     extensions: computed(() => document.value
       && provider.value
         ? [
+          StarterKit.configure({ undoRedo: false }),
           Image,
           TableKit,
+          Markdown,
           markRaw(Collaboration.configure({ fragment: markRaw(document.value.getXmlFragment("default")) })),
         ]
       : []),

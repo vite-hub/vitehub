@@ -92,6 +92,7 @@ interface Room {
   checkpoint?: Promise<WorkspaceSnapshot>
   checkpointState?: Uint8Array
   document: Y.Doc
+  durableReady: boolean
   key: string
   pendingCheckpoint?: {
     message: string
@@ -440,9 +441,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const initial = workspace && writableWorkspace
           ? await readRealtimeWorkspaceDocument(workspace, writableWorkspace, documentId)
           : { baselineDigest: undefined, markdown: "" }
-        if (workspaceDocument && sql && !initial.baselineDigest) {
-          throw new HTTPError({ status: 404, message: "Realtime documents must exist in Workspace before opening a durable room." })
-        }
         if (workspaceDocument && sql) {
           sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL)")
           sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL)")
@@ -467,6 +465,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           baselineDigest: initial.baselineDigest,
           channel: `vitehub:realtime:${key}`,
           document,
+          durableReady: !!initial.baselineDigest,
           key,
           peers: new Set(),
           persistedUpdates: storedUpdates.length,
@@ -494,7 +493,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   }
 
   function persistRoom(room: Room): void {
-    if (!room.sql) return
+    if (!room.sql || !room.durableReady) return
     // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
     room.sql.exec(
       "INSERT OR REPLACE INTO vitehub_realtime_rooms (room_key, baseline_digest, update_blob) VALUES (?, ?, ?)",
@@ -507,7 +506,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   }
 
   function persistRoomUpdate(room: Room, update: Uint8Array): void {
-    if (!room.sql) return
+    if (!room.sql || !room.durableReady) return
     room.sql.exec(
       "INSERT INTO vitehub_realtime_updates (room_key, update_blob) VALUES (?, ?)",
       room.key,
@@ -552,6 +551,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         pending.submittedDocument.destroy()
         const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
         room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
+        room.durableReady = !!room.baselineDigest
         pending = undefined
       }
       if (!pending) {
@@ -573,6 +573,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           // Refresh the baseline so a retry does not remain pinned to the stale digest.
           const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
           room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
+          room.durableReady = !!room.baselineDigest
           persistRoom(room)
           throw error
         }
@@ -595,6 +596,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       }
       if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
       room.baselineDigest = snapshot.entries[documentId]?.digest
+      room.durableReady = !!room.baselineDigest
       persistRoom(room)
       const effectiveMarkdown = await pending.workspace.fs.readFile(documentId, { encoding: "utf8" })
       if (effectiveMarkdown !== yDocToMarkdown(pending.submittedDocument)) {
@@ -631,6 +633,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events cannot be checkpointed." })
     const definition = await getDefinition(definitionName)
     await authorize(event.req, definition.auth, event)
+    if (!definition.history?.checkpoint) throw new HTTPError({ status: 404 })
     const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
     if (!(await workspace.capabilities()).conditionalWrites) {
       throw new HTTPError({ status: 501, message: "Realtime checkpoints require a Workspace Store with conditional writes." })
