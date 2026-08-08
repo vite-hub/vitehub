@@ -613,6 +613,7 @@ type AgentDefinitionWithBaseResolve<
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   capabilities?: Record<string, false>
   input: AgentRunInput<CALL_OPTIONS>
+  requestUrl?: string
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeContext["runtime"]
   runtimeConfig?: AgentRuntimeConfig
@@ -754,6 +755,7 @@ async function runAgentAsWorkflow<
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
     input: workflowInput,
+    ...(context.request ? { requestUrl: context.request.url } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(inheritedRun ? { run: inheritedRun } : {}),

@@ -32,6 +32,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
   capabilities?: Record<string, false>
   input?: AgentRunInput<CALL_OPTIONS>
+  requestUrl?: string
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeName
   runtimeConfig?: AgentRuntimeConfig
@@ -74,6 +75,7 @@ export async function runAgentWorkflowDefinition<
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
     ...(payload.capabilities ? { capabilities: payload.capabilities } : {}),
     ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
+    ...(payload.requestUrl ? { request: new Request(payload.requestUrl) } : {}),
     ...(runId
       ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } }
       : {}),

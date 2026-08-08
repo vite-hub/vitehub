@@ -10702,6 +10702,29 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("preserves the request URL across Agent Workflows", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({ driver: { run: context => context.request?.url } })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "request-url" },
+        memo: vi.fn(),
+        request: new Request("https://calories.example/messages?source=telegram"),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("request-url", run.id)).resolves.toMatchObject({
+        result: "https://calories.example/messages?source=telegram",
+        status: "completed",
+      })
+    })
+
     it("materializes lazy attachments before portable primitive Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
