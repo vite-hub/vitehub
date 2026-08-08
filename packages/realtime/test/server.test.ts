@@ -66,7 +66,7 @@ describe("realtime server handler", () => {
     const client = markdownToYDoc("# Unsynchronized client version")
 
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Y.encodeStateVector(client),
+      body: Uint8Array.from(Y.encodeStateVector(client)).buffer,
       method: "POST",
     }))
 
