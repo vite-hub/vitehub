@@ -785,6 +785,25 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it("keeps static block bindings scoped to the block", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        class AgentFactory {
+          static {
+            const github = () => ({ id: "local" })
+            defineAgent({ capabilities: [github()] })
+          }
+        }
+      `,
+      parseAst,
+      async () => true,
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
   it("does not lower a catch-parameter-shadowed extension factory", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `

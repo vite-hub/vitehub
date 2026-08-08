@@ -1145,6 +1145,7 @@ export async function transformEveExtensionCapabilities(
       || node.type === "ForStatement"
       || node.type === "ForInStatement"
       || node.type === "ForOfStatement"
+      || node.type === "StaticBlock"
       || node.type === "SwitchStatement"
       || node.type.includes("Function")
     )
