@@ -622,13 +622,27 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         const decoder = decoding.createDecoder(data)
-        const messageType = decoding.readVarUint(decoder)
+        let messageType: number
+        try {
+          messageType = decoding.readVarUint(decoder)
+        }
+        catch {
+          peer.close(4400, "Invalid realtime message.")
+          return
+        }
         if (messageType === messageWorkspaceChange) {
           if (!workspaceEvents) {
             peer.close(4400, "Workspace changes require the workspace room.")
             return
           }
-          const change = decodeWorkspaceChangePayload(decoder)
+          let change
+          try {
+            change = decodeWorkspaceChangePayload(decoder)
+          }
+          catch {
+            peer.close(4400, "Invalid workspace change.")
+            return
+          }
           if (!change) {
             peer.close(4400, "Invalid workspace change.")
             return
@@ -642,10 +656,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType === messageAwareness) {
-          let update = decoding.readVarUint8Array(decoder)
+          let update: Uint8Array
           let clients: number[]
           let claimed: number[] = []
           try {
+            update = decoding.readVarUint8Array(decoder)
             clients = readAwarenessClientIds(update)
             claimed = claimAwarenessClientIds(room.awarenessClientOwners as Map<number, object>, peer, clients)
             if (identity) update = bindAwarenessIdentity(update, identity)

@@ -4,7 +4,7 @@ import * as Y from "yjs"
 
 import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeCheckpointState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
-import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
+import { decodeWorkspaceChange, encodeWorkspaceChange, messageAwareness, readAwarenessClientIds } from "../src/protocol.ts"
 
 const serverMocks = vi.hoisted(() => ({
   assertAuthOrigin: vi.fn(),
@@ -135,6 +135,25 @@ describe("realtime server handler", () => {
 
     expect(peer.close).toHaveBeenCalledWith(4400, "Workspace changes require the workspace room.")
     expect(peer.publish).not.toHaveBeenCalled()
+  })
+
+  it("closes peers that send truncated realtime frames", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+
+    expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array() })).not.toThrow()
+    expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid realtime message.")
+
+    expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
+    expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
   })
 
   it("treats an @workspace path as a document without the events selector", async () => {
