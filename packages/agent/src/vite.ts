@@ -1030,7 +1030,7 @@ export async function transformEveExtensionCapabilities(
       if (!isPositionedNode(initializer)) continue
       if (initializer.type === "ArrayExpression") {
         staticArrays.set(identifier.name, initializer)
-        if (statement.type === "ExportNamedDeclaration") exportedStaticArrays.add(initializer)
+        if (statement.type === "ExportNamedDeclaration" && identifier.name === "capabilities") exportedStaticArrays.add(initializer)
       }
       if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
     }
@@ -1042,18 +1042,16 @@ export async function transformEveExtensionCapabilities(
         if (!isPositionedNode(specifier)) continue
         const local = specifier.local
         if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") continue
+        const exported = specifier.exported
+        const exportedName = isPositionedNode(exported) && exported.type === "Identifier"
+          ? exported.name
+          : isPositionedNode(exported) && exported.type === "Literal"
+            ? exported.value
+            : undefined
+        if (exportedName !== "capabilities") continue
         const array = staticArrays.get(local.name)
         if (array) exportedStaticArrays.add(array)
       }
-    }
-    if (statement.type === "ExportDefaultDeclaration" && isPositionedNode(statement.declaration)) {
-      const declaration = unwrapTypeScriptExpression(statement.declaration)
-      const array = declaration.type === "ArrayExpression"
-        ? declaration
-        : declaration.type === "Identifier" && typeof declaration.name === "string"
-          ? staticArrays.get(declaration.name)
-          : undefined
-      if (array) exportedStaticArrays.add(array)
     }
   }
   visitNodes(program, (node, parent) => {
@@ -2204,12 +2202,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
       const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
-      const projectModule = normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)
-        && /\.(?:c|m)?[jt]s$/i.test(normalizedId)
       const serverAgentDefinition = (serverDirs ?? [join(resolved.root, "server")]).some((directory) => {
         const agentRoot = `${resolve(directory, "agents").replace(/\\/g, "/")}/`
         return normalizedId.startsWith(agentRoot) && /\.(?:c|m)?[jt]s$/i.test(normalizedId.slice(agentRoot.length))
       })
+      const projectModule = (normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`) || serverAgentDefinition)
+        && /\.(?:c|m)?[jt]s$/i.test(normalizedId)
       const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
         || serverAgentDefinition
       let transformed = code

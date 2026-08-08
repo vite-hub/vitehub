@@ -3572,6 +3572,10 @@ function agentChatApprovalKey(sessionId: string, approvalId?: string): string {
   return approvalId ? `${session}:${encodeURIComponent(approvalId)}` : session
 }
 
+function agentChatApprovedToolsKey(sessionId: string): string {
+  return `session:${encodeURIComponent(sessionId)}:eve:approved-tools`
+}
+
 async function withAgentChatApprovalLock<T>(state: StateAdapter, sessionId: string, callback: () => Promise<T>): Promise<T> {
   const lock = await state.acquireLock(`${agentChatApprovalKey(sessionId)}:lock`, 10_000)
   if (!lock) throw createRouteError(409, "Agent chat session is already handling an approval response.")
@@ -3638,6 +3642,19 @@ async function authorizeAgentChatApprovals(
       }),
     }))
 
+    const newlyApproved = submitted.flatMap((part) => {
+      const id = part.approval.id as string
+      const request = pending.get(id)
+      return part.record.state === "approval-responded" && part.approval.approved === true && request ? [request.name] : []
+    })
+    if (newlyApproved.length) {
+      const approved = await state.get<string[]>(agentChatApprovedToolsKey(sessionId))
+      await state.set(
+        agentChatApprovedToolsKey(sessionId),
+        [...new Set([...(approved ?? []), ...newlyApproved])],
+        agentChatApprovalTtlMs,
+      )
+    }
     await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(sessionId, id))))
     return authorized
   })
@@ -3788,9 +3805,15 @@ export function createChannelChatRouteHandler(
       const { state } = await resolveChatState(getAgentChatOptions(agent), context, registration, handlerOptions)
       await state.connect()
       if (sessionId) {
+        const messages = await authorizeAgentChatApprovals(state, sessionId, triggerInput.messages)
+        const approvedTools = await state.get<string[]>(agentChatApprovedToolsKey(sessionId))
         triggerInput = {
           ...triggerInput,
-          messages: await authorizeAgentChatApprovals(state, sessionId, triggerInput.messages),
+          context: {
+            ...triggerInput.context,
+            ...(approvedTools?.length ? { "vitehub.eve.approvedTools": approvedTools } : {}),
+          },
+          messages,
         }
       }
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {

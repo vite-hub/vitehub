@@ -23,6 +23,7 @@ export type UIMessageLike = {
 
 export interface AgentChatMessageTriggerInput {
   abortSignal?: AbortSignal
+  context?: AgentRunInput["context"]
   invoker?: AgentInvoker
   invokerProfileId?: string
   meta?: Record<string, unknown>
@@ -365,6 +366,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     input: {
       abortSignal: triggerInput?.abortSignal,
       context: {
+        ...triggerInput?.context,
         ...(invoker ? { invoker } : {}),
         ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
         channel: {

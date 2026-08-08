@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { parseAst } from "vite"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { toAiSdkModelMessages } from "../src/ai-sdk.ts"
 import { eveExtensionCapability } from "../src/eve.ts"
@@ -391,6 +392,45 @@ describe("Eve extension capabilities", () => {
       { parse: parseAst },
       source,
       join(root, "capabilities.ts"),
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+  })
+
+  it("does not lower unrelated exported Eve arrays", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import github from "@github-tools/eve-extension"
+        export const extensions = [github()]
+      `,
+      parseAst,
+      async () => true,
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
+  it("lowers Agent Definitions in configured server directories outside the root", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(workspace)
+    const root = join(workspace, "app")
+    const serverDir = join(workspace, "server")
+    const plugin = hubAgent()
+    ;(plugin.config as unknown as (config: Record<PropertyKey, unknown>) => void)({ [VITEHUB_SERVER_DIRS]: [serverDir] })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        export default defineAgent({ capabilities: [github()] })
+      `,
+      join(serverDir, "agents", "reviewer.ts"),
     )
 
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)

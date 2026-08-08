@@ -2423,6 +2423,7 @@ describe("server helpers", () => {
       const approved = await handler(request("approval-1"), { agentName: "support", state })
       expect(approved.status).toBe(200)
       await expect(approved.text()).resolves.toContain("approved")
+      expect(run.mock.calls[1]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
 
       const replayed = await handler(request("approval-1"), { agentName: "support", state })
       expect(replayed.status).toBe(400)
