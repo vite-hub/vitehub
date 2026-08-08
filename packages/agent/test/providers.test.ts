@@ -9511,6 +9511,42 @@ describe("server helpers", () => {
     }
   })
 
+  it("keeps overlap-policy manual delivery inline when an Agent Workflow is active", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "internal output")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "drop", delivery: "manual" },
+        }),
+      },
+      driver: { run },
+      hooks: {
+        "agent:finish": event => event.reply("Inline reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await handler(chatWebhookRequest(91_105), "telegram", {
+        agentIdentity: { name: "calories" },
+      })
+
+      expect(response.status).toBe(200)
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Inline reply" })
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
   it("uses generate for manual delivery without progress summaries", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")

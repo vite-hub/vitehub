@@ -3054,7 +3054,8 @@ async function handleChatSdkMessage(
     }
     const durableDelivery = manualDelivery && options?.durable !== false && (
       options?.durable === true
-      || options?.concurrency !== "serial" && await hasActiveWorkflowRuntime(agent as never, runContext as never, true)
+      || (options?.concurrency === undefined || options.concurrency === "parallel")
+      && await hasActiveWorkflowRuntime(agent as never, runContext as never, true)
     )
     const resolvedInvocationInput = invocation.input as AgentRunInput
     if (durableDelivery) {
