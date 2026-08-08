@@ -1102,7 +1102,13 @@ export async function transformEveExtensionCapabilities(
   })
   if (!imports.size) return
 
-  const shadowable = new Set([...imports.keys(), ...defineAgentImports, ...defineAgentNamespaces])
+  const shadowable = new Set([
+    ...imports.keys(),
+    ...defineAgentImports,
+    ...defineAgentNamespaces,
+    ...staticArrays.keys(),
+    ...staticObjects.keys(),
+  ])
   const bindingNames = (value: unknown): string[] => {
     if (!isPositionedNode(value)) return []
     if (value.type === "Identifier" && typeof value.name === "string") return [value.name]
@@ -1181,6 +1187,7 @@ export async function transformEveExtensionCapabilities(
       if (element.type === "SpreadElement") {
         const argument = element.argument
         if (isPositionedNode(argument) && argument.type === "Identifier" && typeof argument.name === "string") {
+          if (shadowRanges.get(argument.name)?.some(range => argument.start > range.start && argument.end < range.end)) continue
           const spreadArray = staticArrays.get(argument.name)
           if (spreadArray) collectExtensionCalls(spreadArray)
         }
@@ -1227,7 +1234,8 @@ export async function transformEveExtensionCapabilities(
     const options = unwrappedOptions.type === "ObjectExpression"
       ? unwrappedOptions
       : unwrappedOptions.type === "Identifier" && typeof unwrappedOptions.name === "string"
-        ? staticObjects.get(unwrappedOptions.name)
+        && !shadowRanges.get(unwrappedOptions.name)?.some(range => node.start > range.start && node.end < range.end)
+          ? staticObjects.get(unwrappedOptions.name)
         : undefined
     if (!options) return
     const capabilities = staticObjectProperty(options, "capabilities", staticObjects)
@@ -1238,7 +1246,8 @@ export async function transformEveExtensionCapabilities(
     const array = value.type === "ArrayExpression"
       ? value
       : value.type === "Identifier" && typeof value.name === "string"
-        ? staticArrays.get(value.name)
+        && !shadowRanges.get(value.name)?.some(range => value.start > range.start && value.end < range.end)
+          ? staticArrays.get(value.name)
         : undefined
     if (!array) return
     collectExtensionCalls(array)
