@@ -587,6 +587,34 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("installs portable Capability loaders in generated Agent Workflow registries", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-capabilities-"))
+    try {
+      const plugin = hubAgent()
+      const configResolved = plugin.configResolved as unknown as (config: { command: "build", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      await configResolved({
+        command: "build",
+        createResolver: () => async id => `/app/node_modules/${id}`,
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }],
+        root,
+      })
+
+      const registry = await transform("const registry = {}\nexport default registry\n", "/virtual/.vitehub/workflow/registry.mjs")
+
+      expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(registry).toContain('import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from "@vite-hub/agent/server/internal"')
+      expect(registry).toContain("blob: () => vitehubBlob")
+      expect(registry).toContain("db: () => vitehubDb")
+      expect(registry).not.toContain("vitehubEmail")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("leaves Schedule virtual modules unchanged without discovered Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-empty-schedule-targets-"))
