@@ -28,6 +28,7 @@ const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
+const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 interface VercelWorkflowBuilders {
@@ -41,6 +42,27 @@ interface VercelWorkflowBuilders {
     workingDir: string
   }) => { build: () => Promise<void> }
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
+}
+
+function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
+  const require = createRequire(join(rootDir, "package.json"))
+  const namespace = "vitehub-optional-vite-devtools"
+  return {
+    name: namespace,
+    setup(build) {
+      build.onResolve({ filter: optionalViteDevtoolsPattern }, (args) => {
+        try {
+          require.resolve(args.path)
+          return
+        }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error
+          return { namespace, path: args.path }
+        }
+      })
+      build.onLoad({ filter: /.*/, namespace }, () => ({ contents: "export {}", loader: "js" }))
+    },
+  }
 }
 
 async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
@@ -587,6 +609,7 @@ function createCloudflareOutput(
       ],
       format: "esm",
       platform: "neutral",
+      plugins: [createOptionalViteDevtoolsPlugin(rootDir)],
     },
     bundleOutfileName: "worker.mjs",
     files: { "index.js": createCloudflareWorkflowWrapper(artifacts) },
@@ -623,6 +646,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
 }
 
 function createVercelOutput(
+  rootDir: string,
   artifacts: GeneratedWorkflowArtifacts,
   workflowTransformPlugin: Plugin | undefined,
   frameworkImportBase?: string,
@@ -642,7 +666,10 @@ function createVercelOutput(
       ],
       format: "esm",
       platform: "node",
-      plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
+      plugins: [
+        createOptionalViteDevtoolsPlugin(rootDir),
+        ...(workflowTransformPlugin ? [workflowTransformPlugin] : []),
+      ],
     },
     ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
@@ -664,7 +691,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-    ? createVercelOutput(artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases, options.serverFunctionName)
+    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases, options.serverFunctionName)
     : undefined
   const writeOutputs = async () => {
     await writeProviderDeploymentOutputs({
