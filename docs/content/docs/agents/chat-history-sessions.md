@@ -14,13 +14,12 @@ Chat History is not Agent Memory. Chat History is conversation-scoped message st
 The Chat Capability owns Chat History selection. Configure it on the Agent Definition when prior messages should be included in future `chat.message` invocations.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { chat } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: 'Answer support chat messages.',
   },
   capabilities: [

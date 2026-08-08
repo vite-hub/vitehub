@@ -3596,7 +3596,7 @@ describe("defineAgent workspace option", () => {
 
     expect(agentSettings.at(-1)).toMatchObject({
       instructions: "Answer from the driver.",
-      model,
+      model: { modelId: "driver-model" },
       stopWhen: { count: 4 },
       temperature: 0.3,
     })
@@ -4128,7 +4128,7 @@ describe("defineAgent workspace option", () => {
     expect(resolveModel).toHaveBeenCalledWith(expect.objectContaining({
       channel: { meta: { customer: "acme" } },
     }))
-    expect(agentSettings.at(-1)?.model).toEqual({ id: "model-acme" })
+    expect(agentSettings.at(-1)?.model).toMatchObject({ modelId: "model-acme" })
   })
 
   it("passes provider-defined capability tools to AI SDK agents", async () => {
@@ -4205,7 +4205,7 @@ describe("defineAgent workspace option", () => {
     } as never)
 
     expect(instrumentModel).toHaveBeenCalledWith(expect.objectContaining({
-      model: baseModel,
+      model: expect.objectContaining({ modelId: "base" }),
       run: expect.objectContaining({ runId: "run_123" }),
     }))
     expect(agentSettings.at(-1)).toMatchObject({
@@ -4267,7 +4267,9 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!(context())
 
-    expect(driverInstrumentModel).toHaveBeenCalledWith(expect.objectContaining({ model: baseModel }))
+    expect(driverInstrumentModel).toHaveBeenCalledWith(expect.objectContaining({
+      model: expect.objectContaining({ modelId: "base" }),
+    }))
     expect(capabilityInstrumentModel).toHaveBeenCalledWith(expect.objectContaining({ model: driverModel }))
     expect(driverInstrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
       callSettings: expect.objectContaining({ temperature: 0.2 }),
@@ -4326,7 +4328,7 @@ describe("defineAgent workspace option", () => {
 
     expect(instrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
       input: { messages: [] },
-      model,
+      model: expect.objectContaining({ modelId: "base" }),
       run: expect.objectContaining({ origin: "teams", runId: "run_123" }),
       callSettings: expect.objectContaining({ temperature: 0.2 }),
       tools: expect.objectContaining({ shell: expect.any(Object) }),

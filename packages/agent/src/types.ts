@@ -4,6 +4,7 @@ import type { Box, BoxDefinition, BoxRequirement } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
+import type { LanguageModel } from "ai"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -808,7 +809,7 @@ export interface AgentCapabilityRuntimeContext<
     finishEffect: (effect: AgentChannelDeliveryFinishEffect) => void
   }
   model: {
-    resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<AgentModelInput>
+    resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<unknown>
   }
   modelExecution: {
     instrument: (instrumentation: AgentModelExecutionInstrumentation<TRuntimeConfig>) => void
@@ -918,24 +919,38 @@ export type AgentAdapterInstructionsPart<
   | AgentAdapterInstructionsValue
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | undefined>)
 
-export type AgentModelInput = unknown
+export interface AgentGatewayModel {
+  apiKey?: string | { unseal: () => string }
+  id: string
+}
+
+export type AgentModelInput = AgentGatewayModel | LanguageModel | string
+
+export interface AgentModelResolverContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
+  runtimeConfig: TRuntimeConfig
+}
 
 export type AgentModelResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = MaybeResolvable<AgentModelInput, AgentAdapterMetadataContext<TRuntimeConfig, Name>>
+> = AgentModelInput | {
+  bivarianceHack(context: AgentModelResolverContext<TRuntimeConfig, Name>): MaybePromise<AgentModelInput>
+}["bivarianceHack"]
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
   actor: AgentActor
   context: AgentInvocationContextStore
   invoker: AgentInvoker
-  model: AgentModelInput
+  model: unknown
   run?: AgentRunMetadata
 }
 
 export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  (context: AgentModelInstrumentationContext<TRuntimeConfig>) => MaybePromise<AgentModelInput>
+  (context: AgentModelInstrumentationContext<TRuntimeConfig>) => MaybePromise<unknown>
 
 export interface AgentCallSettingsInstrumentationContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -946,7 +961,7 @@ export interface AgentCallSettingsInstrumentationContext<
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
-  model: AgentModelInput
+  model: unknown
   run?: AgentRunMetadata
   tools?: AgentToolSet
 }
@@ -1706,6 +1721,7 @@ export interface AgentInspectionModelMetadata {
   dynamic?: boolean
   id?: string
   provider?: string
+  transport?: string
 }
 
 export interface AgentInspectionModelExecutionMetadata {
@@ -1780,11 +1796,10 @@ export interface AgentUsage {
 }
 
 export interface AgentUsageCost {
-  amount: string
-  currency: "USD" | (string & {})
+  display: string
   estimated: boolean
-  formatted?: string
   source: "custom" | "estimated" | "provider" | "vercel-ai-gateway" | (string & {})
+  usd: string
 }
 
 export interface AgentUsageCredentialSource {
@@ -1800,10 +1815,7 @@ export interface AgentUsageRecord {
     timeToFirstTokenMs?: number
     tokensPerSecond?: number
   }
-  model?: {
-    id?: string
-    provider?: string
-  }
+  model?: string
   raw?: unknown
   response?: {
     finishReason?: unknown
@@ -1811,6 +1823,7 @@ export interface AgentUsageRecord {
     timestamp?: Date | string
   }
   run?: Partial<AgentRunMetadata>
+  transport?: "gateway" | (string & {})
   usage?: AgentUsage
 }
 

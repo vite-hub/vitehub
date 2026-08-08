@@ -43,14 +43,13 @@ export default defineConfig({
 ```
 
 ```ts [server/agents/docs/agent.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
 import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: [
       'Answer from the docs Source before using outside knowledge.',
       'Say when the docs do not cover the answer.',

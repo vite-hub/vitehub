@@ -4,6 +4,7 @@ import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
+import { materializeAgentUsageCost } from "./internal/usage-pricing.ts"
 
 import type { AgentMessagePhase, StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -165,7 +166,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
   if (!isRecord(value)) return false
-  return ["cost", "credentialSource", "latency", "model", "raw", "response", "run", "usage"].some(key => key in value)
+  return ["cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"].some(key => key in value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -217,16 +218,27 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value
 }
 
-function modelFromResult(result: unknown): AgentUsageRecord["model"] | undefined {
+function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model" | "transport"> | undefined {
   if (!isRecord(result)) return
   const response = isRecord(result.response) ? result.response : undefined
-  const id = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
+  const rawModel = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
-  if (id === undefined && provider === undefined) return
+  if (rawModel === undefined && provider !== "gateway") return
+  const scope = rawModel && provider && provider !== "gateway" ? modelVendorScope(provider, rawModel) : undefined
+  const model = scope && rawModel && !rawModel.includes("/")
+    ? `${scope}/${rawModel}`
+    : rawModel
   return {
-    ...(id !== undefined ? { id } : {}),
-    ...(provider !== undefined ? { provider } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(provider === "gateway" ? { transport: "gateway" as const } : {}),
   }
+}
+
+function modelVendorScope(provider: string, model: string): string {
+  const normalized = provider.toLowerCase()
+  if (normalized.includes("anthropic") || model.startsWith("claude-")) return "anthropic"
+  if (normalized.startsWith("google") || model.startsWith("gemini-")) return "google"
+  return provider.includes(".") ? provider.split(".", 1)[0]! : provider
 }
 
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
@@ -281,14 +293,14 @@ function usageRecordFromUsage(
     if (!Object.keys(rawUsage).length) return
     usage.details = rawUsage
   }
-  const model = modelFromResult(metadataSource) ?? modelFromResult(fallbackMetadataSource)
+  const modelMetadata = modelMetadataFromResult(metadataSource) ?? modelMetadataFromResult(fallbackMetadataSource)
   const response = responseFromResult(metadataSource) ?? responseFromResult(fallbackMetadataSource)
   const latency = latencyFromResult(metadataSource) ?? latencyFromResult(fallbackMetadataSource)
   const credentialSource = credentialSourceFromMetadata(readAgentUsageMetadata(metadataSource, fallbackMetadataSource))
   return {
     ...(credentialSource ? { credentialSource } : {}),
     ...(latency ? { latency } : {}),
-    ...(model ? { model } : {}),
+    ...modelMetadata,
     ...(response ? { response } : {}),
     ...(run ? { run } : {}),
     usage,
@@ -300,19 +312,24 @@ function withFallbackUsageMetadata(
   fallbackMetadataSource: unknown,
   run?: Partial<AgentRunMetadata>,
 ): AgentUsageRecord {
-  const model = record.model ?? modelFromResult(fallbackMetadataSource)
+  const modelMetadata = modelMetadataFromResult(fallbackMetadataSource)
+  const model = record.model ?? modelMetadata?.model
+  const transport = record.transport ?? modelMetadata?.transport
+  const cost = record.cost ? materializeAgentUsageCost(record.cost) : undefined
   const response = record.response ?? responseFromResult(fallbackMetadataSource)
   const latency = record.latency ?? latencyFromResult(fallbackMetadataSource)
   const credentialSource = record.credentialSource ?? credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource))
   const runMetadata = record.run ?? run
-  return model || response || latency || credentialSource || runMetadata
+  return model || transport || cost || response || latency || credentialSource || runMetadata
     ? {
         ...record,
+        ...(cost ? { cost } : {}),
         ...(credentialSource ? { credentialSource } : {}),
         ...(latency ? { latency } : {}),
         ...(model ? { model } : {}),
         ...(response ? { response } : {}),
         ...(runMetadata ? { run: runMetadata } : {}),
+        ...(transport ? { transport } : {}),
       }
     : record
 }

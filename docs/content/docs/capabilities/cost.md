@@ -1,24 +1,24 @@
 ---
-title: Usage cost
-description: Enrich Agent Usage Records with best-effort monetary cost.
-navigation.title: Usage cost
+title: Cost
+description: Enrich Agent Usage Records with exact, display-ready USD cost.
+navigation.title: Cost
 navigation.order: 230
 navigation.group: Decisions and output
 icon: i-lucide-coins
 ---
 
-`usageCost()` enriches ViteHub's canonical Agent Usage Record with monetary cost before Agent Finish Hooks run and before streamed usage is emitted to clients. Raw usage capture remains part of the Agent Invocation whether or not you install this Capability.
+`cost()` enriches ViteHub's canonical Agent Usage Record with monetary cost before Agent Finish Hooks run and before streamed usage is emitted to clients. Raw usage capture remains part of the Agent Invocation whether or not you install this Capability.
 
-## Add usage cost
+## Add cost
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
-import { usageCost } from '@vite-hub/agent/capabilities'
+import { cost } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model },
+  driver: { model: 'zai/glm-5v-turbo' },
   capabilities: [
-    usageCost(),
+    cost(),
   ],
 })
 ```
@@ -30,7 +30,7 @@ Pricing is best-effort. A missing model match, unavailable catalog, timeout, inv
 Import `vercelAiGatewayPricing()` when application-owned work adds usage after the Capability runs and must reprice the canonical record with the same catalog behavior.
 
 ```ts
-import { usageCost, vercelAiGatewayPricing } from '@vite-hub/agent/capabilities'
+import { cost, vercelAiGatewayPricing } from '@vite-hub/agent/capabilities'
 
 const pricing = vercelAiGatewayPricing()
 ```
@@ -42,11 +42,11 @@ Finish Hooks read the canonical record from `event.invocation.usage`. The Capabi
 ```ts [server/agents/support.ts]
 defineAgent({
   driver: { model },
-  capabilities: [usageCost()],
+  capabilities: [cost()],
   hooks: {
     'agent:finish'(event) {
       const usage = event.invocation.usage
-      const enrichedUsage = event.extensions.get('usage-cost')
+      const enrichedUsage = event.extensions.get('cost')
 
       console.log(usage?.cost, enrichedUsage?.cost)
     },
@@ -54,7 +54,23 @@ defineAgent({
 })
 ```
 
-Agent output keeps its existing usage shape. For streams, ViteHub waits to resolve pricing until the usage record becomes available during consumption, then enriches it before client emission and Finish Hooks.
+The canonical record keeps the full model identifier and Gateway transport separate, preserves exact USD for arithmetic, and includes a ready-to-render display value.
+
+```ts
+{
+  model: 'zai/glm-5v-turbo',
+  transport: 'gateway',
+  usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
+  cost: {
+    usd: '0.00125',
+    display: '~$0.00125',
+    estimated: true,
+    source: 'vercel-ai-gateway',
+  },
+}
+```
+
+For streams, ViteHub waits to resolve pricing until the usage record becomes available during consumption, then enriches it before client emission and Finish Hooks.
 
 ## Provide application pricing
 
@@ -64,11 +80,10 @@ Pass `pricing` when the application owns its catalog or provider mapping. The ca
 import type { AgentUsagePricing } from '@vite-hub/agent/capabilities'
 
 const pricing: AgentUsagePricing = ({ model, usage }) => {
-  if (model?.id !== 'internal/support-model') return
+  if (model !== 'internal/support-model') return
 
   return {
-    amount: String((usage.totalTokens ?? 0) / 1_000_000),
-    currency: 'USD',
+    usd: String((usage.totalTokens ?? 0) / 1_000_000),
     estimated: true,
     source: 'custom',
   }
@@ -76,22 +91,21 @@ const pricing: AgentUsagePricing = ({ model, usage }) => {
 
 defineAgent({
   driver: { model },
-  capabilities: [usageCost({ pricing })],
+  capabilities: [cost({ pricing })],
 })
 ```
 
-Return `undefined` when pricing is unavailable. Keep the callback deterministic for the supplied model and usage record; ViteHub may call it while a stream is being consumed.
+Return `undefined` when pricing is unavailable. Pricing results are always USD; ViteHub adds `cost.display` so custom pricing and catalog pricing produce the same canonical record. Keep the callback deterministic for the supplied model and usage record because ViteHub may call it while a stream is being consumed.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `format` | `"usd"` | None | Adds a display-ready USD value at `invocation.usage.cost.formatted`, using six decimals for costs below one cent. |
 | `pricing` | `AgentUsagePricing` | Vercel AI Gateway catalog pricing | Resolves a cost from the model, response metadata, Agent Run metadata, and token usage. |
 
 ## Verify it
 
-Invoke the Agent with a model that reports token usage. Confirm that `event.invocation.usage` is present without the Capability, then install `usageCost()` and confirm a matched model adds `cost`. Test missing and failing pricing callbacks too: both must preserve the successful Agent Invocation and raw usage.
+Invoke the Agent with a model that reports token usage. Confirm that `event.invocation.usage` is present without the Capability, then install `cost()` and confirm a matched model adds `cost`. Test missing and failing pricing callbacks too: both must preserve the successful Agent Invocation and raw usage.
 
 ## Related
 

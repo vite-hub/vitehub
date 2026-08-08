@@ -76,13 +76,12 @@ Harness Agent Drivers receive a JSON-only output instruction. When the validator
 Capabilities add named abilities. They are the public way to expose model-facing tools, triggers, policy, metadata, and context values. Put free-form guidance for those abilities in Agent Driver Instructions or deterministic imported instruction Markdown.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { webSearch, workspaceShell } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: [
       'Answer from project context first.',
       'Use web search only when the workspace does not contain the answer.',
@@ -116,14 +115,13 @@ The callback also receives the invocation input and runtime handles. Capabilitie
 Workspace context gives the Agent a file tree and Sources. The Workspace owns file visibility, while Capabilities decide whether the active Agent Driver receives model-facing tools or other driver-compatible inputs.
 
 ```ts [server/agents/docs/agent.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
 import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: [
       'Answer from the docs workspace.',
       'Use the docs Source for public product behavior.',
@@ -150,12 +148,11 @@ Use a writable Workspace Capability only when the product expects the Agent to c
 An Agent Actor carries trusted caller identity for one invocation. The current configuration field and helper are named `invoker` and `defineAgentInvoker()`. Resolved callbacks receive the same Actor as both `actor` and `invoker`.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent, defineAgentInvoker } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: 'Answer support requests.',
   },
   invoker: defineAgentInvoker({

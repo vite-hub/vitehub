@@ -28,12 +28,11 @@ When sources do not answer the question, say that directly.
 ```
 
 ```ts [server/agents/support/agent.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
   },
   workspace: {
     sources: {},
@@ -44,12 +43,11 @@ export default defineAgent({
 Use strings, string arrays, or instruction callbacks when the instruction text is short or generated from trusted runtime data.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: [
       'You are a support engineer.',
       'Answer from inspected workspace evidence before using outside knowledge.',
@@ -96,12 +94,11 @@ The value must already exist in invocation context. Missing `context.*` bindings
 Use Workspace bindings when instruction text should read explicit Workspace-owned values. Bind scalar values with `{{ workspace.<name> }}`.
 
 ```ts [server/agents/support/agent.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: [
       'Use {{ workspace.tone }} tone.',
       'Follow this policy:',

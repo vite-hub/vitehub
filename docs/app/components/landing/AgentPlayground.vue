@@ -316,7 +316,7 @@ const agentPropertyOrder = Object.keys(agentProperties) as AgentPropertyKey[]
 const driverOptions = [
   { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex harness" },
   { code: "{ kind: 'claude-code', sandbox: false }", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code harness" },
-  { code: "{ model: gateway('openai/gpt-5.1-mini') }", icon: "i-simple-icons-vercel", key: "model", label: "Bare model" },
+  { code: "{ model: 'openai/gpt-5.1-mini' }", icon: "i-simple-icons-vercel", key: "model", label: "Bare model" },
   { code: "{ run: customAgent }", icon: "i-lucide-braces", key: "custom", label: "Custom runner" },
 ] satisfies PlaygroundOption[]
 
@@ -366,7 +366,7 @@ const capabilityOptions = [
   { code: "chatSummary()", icon: "i-lucide-message-square-text", key: "chat-summary", label: "Chat summary" },
   { code: "progressSummary()", icon: "i-lucide-list-collapse", key: "progress-summary", label: "Progress summary" },
   { code: "papercuts({ report })", icon: "i-lucide-bug", key: "papercuts", label: "Papercut reports" },
-  { code: "usageCost()", icon: "i-lucide-receipt", key: "usage-cost", label: "Usage cost" },
+  { code: "cost()", icon: "i-lucide-receipt", key: "cost", label: "Cost" },
 ] satisfies PlaygroundOption[]
 
 const channelOptions = [

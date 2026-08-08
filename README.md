@@ -55,11 +55,7 @@ export default defineConfig({
 });
 ```
 
-For model-backed agents, add a model provider such as AI Gateway.
-
-```bash
-pnpm add @ai-sdk/gateway
-```
+Model strings use AI Gateway automatically. Set `AI_GATEWAY_API_KEY` in the server environment, or pass an explicit key with `{ id, apiKey }`.
 
 Requirements: Node 24 or newer, Vite 8 or newer, and a server app with `vite.config.ts`.
 
@@ -68,12 +64,11 @@ Requirements: Node 24 or newer, Vite 8 or newer, and a server app with `vite.con
 Create an Agent Definition.
 
 ```ts
-import { gateway } from "@ai-sdk/gateway";
 import { defineAgent } from "vite-hub/agent";
 
 export default defineAgent({
   driver: {
-    model: gateway("openai/gpt-5.1-mini"),
+    model: "openai/gpt-5.1-mini",
     instructions: "Answer support questions with short, concrete replies.",
   },
 });

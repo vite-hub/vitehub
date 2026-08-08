@@ -39,7 +39,7 @@ import {
   skills,
   subagents,
   transcribe,
-  usageCost,
+  cost,
   webSearch,
   workspaceShell,
 } from '@vite-hub/agent/capabilities'
@@ -100,7 +100,7 @@ import {
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | A summary command should replace explicit input with a conversation summary. |
 | Progress summary | [`progressSummary()`](/docs/capabilities/progress-summary) | A streaming Agent should explain its current reasoning and tool activity in one user-facing sentence. |
 | Papercut reports | [`papercuts()`](/docs/capabilities/papercuts) | An Agent should report small runtime or developer-experience friction to an application-owned sink. |
-| Usage cost | [`usageCost()`](/docs/capabilities/usage-cost) | Agent Usage Records should include a best-effort monetary cost before Finish Hooks and client usage emission. |
+| Cost | [`cost()`](/docs/capabilities/cost) | Agent Usage Records should include exact and display-ready USD cost before Finish Hooks and client usage emission. |
 
 ## Read capability pages first
 

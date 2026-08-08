@@ -32,7 +32,7 @@ describe("agent output helpers", () => {
       finishReason: "tool-calls",
       raw,
       text: "",
-      usageRecord: { model: { id: "rendered-model" }, usage: { inputTokens: 1 } },
+      usageRecord: { model: "rendered-model", usage: { inputTokens: 1 } },
       warnings: ["rendered warning"],
     })
   })
@@ -49,6 +49,18 @@ describe("agent output helpers", () => {
         usage: { inputTokens: 1 },
       },
       warnings: [],
+    })
+  })
+
+  it("separates Gateway transport from canonical model identity", () => {
+    expect(toAgentRunResult({
+      modelId: "zai/glm-5v-turbo",
+      provider: "gateway",
+      usage: { inputTokens: 1 },
+    }).usageRecord).toEqual({
+      model: "zai/glm-5v-turbo",
+      transport: "gateway",
+      usage: { inputTokens: 1 },
     })
   })
 
@@ -569,10 +581,7 @@ describe("agent output helpers", () => {
           latency: {
             durationMs: 1000,
           },
-          model: {
-            id: "claude-opus-4-8",
-            provider: "googleVertex.anthropic.messages",
-          },
+          model: "anthropic/claude-opus-4-8",
           response: {
             id: "resp_1",
             timestamp: "2026-06-22T20:00:00.000Z",
@@ -787,10 +796,7 @@ describe("agent output helpers", () => {
       {
         type: "usage",
         usageRecord: {
-          model: {
-            id: "claude-opus-4-8",
-            provider: "googleVertex.anthropic.messages",
-          },
+          model: "anthropic/claude-opus-4-8",
           usage: {
             inputTokens: 16,
             outputTokens: 4,
