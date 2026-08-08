@@ -97,15 +97,17 @@ function toViteHubTool(
 ): AgentToolDefinition & Record<string, unknown> {
   const sessionId = eveSessionId(context)
   const execute = tool.execute
+  const toModelOutput = tool.toModelOutput
   const approval = tool.approval
   return {
     ...tool,
     name,
+    toModelOutput: undefined,
     ...(execute
       ? {
           async execute(input: unknown, options: ToolExecutionOptions = {}) {
             const callId = options.toolCallId ?? `${name}-${Date.now()}`
-            return await execute(input, {
+            const output = await execute(input, {
               abortSignal: options.abortSignal ?? new AbortController().signal,
               callId,
               getSandbox: async () => unsupportedEveRuntimeFeature("ctx.getSandbox()"),
@@ -119,6 +121,7 @@ function toViteHubTool(
               },
               toolName: name,
             } as never)
+            return toModelOutput ? await toModelOutput(output) : output
           },
         }
       : {}),

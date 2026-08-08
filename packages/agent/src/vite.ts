@@ -1228,6 +1228,19 @@ export async function transformEveExtensionCapabilities(
   )
   const replacements: Array<{ end: number, start: number, value: string }> = []
   for (const extension of extensions) {
+    let hasSurvivingReference = false
+    visitNodes(program, (node, parent) => {
+      if (hasSurvivingReference || node.type !== "Identifier" || node.name !== extension.local) return
+      if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
+      if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
+      if (node.start >= extension.declaration.start && node.end <= extension.declaration.end) return
+      if (extensions.some(candidate => candidate.local === extension.local && node.start >= candidate.call.start && node.end <= candidate.call.end)) return
+      if (shadowRanges.get(extension.local)?.some(range => node.start > range.start && node.end < range.end)) return
+      hasSurvivingReference = true
+    })
+    if (hasSurvivingReference) {
+      throw new Error(`[vitehub] Eve extension factory ${JSON.stringify(extension.local)} cannot be referenced outside its static Capability mount.`)
+    }
     const args = Array.isArray(extension.call.arguments) ? extension.call.arguments : []
     const config = isPositionedNode(args[0]) ? code.slice(args[0].start, args[0].end) : "undefined"
     replacements.push({

@@ -579,6 +579,19 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it("rejects surviving extension factory references", async () => {
+    await expect(transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        const integration = github
+        export default defineAgent({ capabilities: [github()], metadata: { integration } })
+      `,
+      parseAst,
+      async () => true,
+    )).rejects.toThrow("cannot be referenced outside its static Capability mount")
+  })
+
   it("detects Eve extensions in a spread static capabilities array", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
@@ -685,7 +698,7 @@ describe("Eve extension capabilities", () => {
     }
 
     expect(read).toMatchObject({ name: "github__getFileContent" })
-    expect(typeof read.toModelOutput).toBe("function")
+    expect(read.toModelOutput).toBeUndefined()
     expect(await write.needsApproval({}, { messages: [], toolCallId: "call-1" })).toBe(true)
 
     const messages = toAiSdkModelMessages([
@@ -712,6 +725,25 @@ describe("Eve extension capabilities", () => {
       needsApproval: (input: unknown, options: { messages: ModelMessage[], toolCallId: string }) => Promise<boolean>
     }
     expect(await persistedWrite.needsApproval({}, { messages: [], toolCallId: "call-3" })).toBe(false)
+  })
+
+  it("converts Eve tool output before returning it to the Agent runtime", async () => {
+    const capability = await eveExtensionCapability(
+      "example-extension",
+      "example",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        count: {
+          execute: () => 1n,
+          toModelOutput: (output: unknown) => ({ value: String(output) }),
+        },
+      }),
+    )
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext())
+    const count = tools.example__count as AgentToolDefinition & { execute: (input: unknown) => Promise<unknown>, toModelOutput?: unknown }
+
+    expect(count.toModelOutput).toBeUndefined()
+    expect(await count.execute({})).toEqual({ value: "1" })
   })
 
   it("ignores dynamic event keys without handlers", async () => {
