@@ -4,6 +4,7 @@ import {
   createEmail,
   defineEmail,
   type EmailAddress,
+  type EmailAddressList,
   type EmailClient,
   type EmailDefinition,
   type EmailDriver,
@@ -21,16 +22,18 @@ const lazyDriver = (() => resend({ apiKey: "secret" })) satisfies EmailDriverFac
 defineEmail({ driver: lazyDriver })
 declare const message: EmailMessage
 
+// @ts-expect-error EmailAddress represents one mailbox, not a recipient list.
+const address: EmailAddress = ["hello@example.com"]
+void address
+
 it("exports the portable Email contract", () => {
-  expectTypeOf<EmailAddress>().toEqualTypeOf<
-    string | { email: string; name?: string } | readonly (string | { email: string; name?: string })[]
-  >()
+  expectTypeOf<EmailAddress>().toEqualTypeOf<string | { email: string; name?: string }>()
   expectTypeOf(createEmail).parameters.toEqualTypeOf<[options: EmailDefinition]>()
   expectTypeOf(createEmail).returns.toEqualTypeOf<EmailClient>()
   expectTypeOf(defineEmail).parameters.toEqualTypeOf<[definition: EmailDefinition]>()
   expectTypeOf(email.send).parameters.toEqualTypeOf<[message: EmailMessage]>()
   expectTypeOf(email.send).returns.toEqualTypeOf<Promise<EmailSendResult>>()
-  expectTypeOf(message.to).toEqualTypeOf<EmailAddress>()
+  expectTypeOf(message.to).toEqualTypeOf<EmailAddressList>()
 })
 
 it("exports Markdown and test helpers from dedicated entrypoints", () => {

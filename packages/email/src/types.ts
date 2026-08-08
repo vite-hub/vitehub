@@ -1,8 +1,8 @@
-import type { Attachment, EmailDriver, EmailMessage, MaybePromise } from "unemail"
+import type { Attachment, EmailAddressInput, EmailDriver, EmailMessage, MaybePromise } from "unemail"
 
-export type { EmailAddressInput as EmailAddress } from "unemail"
 export type { EmailDriver, EmailMessage }
 export type { EmailAddressInput as EmailAddressList } from "unemail"
+export type EmailAddress = Exclude<EmailAddressInput, readonly unknown[]>
 export type EmailAttachment = Attachment
 
 export type EmailDriverFactory = () => MaybePromise<EmailDriver>
