@@ -3873,9 +3873,7 @@ export function createChannelChatRouteHandler(
         const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
         const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)
         if (triggerInput.session?.action === "new") {
-          if (!selectedSessionId || selectedSessionId === manualId) {
-            selectedSessionId = `${manualId}:manual:${randomToken()}`
-          }
+          selectedSessionId = `${manualId}:manual:${randomToken()}`
         }
         else {
           selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId

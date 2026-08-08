@@ -2465,8 +2465,13 @@ describe("server helpers", () => {
       await expect(approved.text()).resolves.toContain("approved")
       expect(stateSet).toHaveBeenCalledWith(
         expect.stringMatching(/^chat:support:http:invoker:user-1:session:.*:manual:session-1:boundary$/),
-        "session-1:manual:user-1",
+        expect.stringMatching(/^session-1:manual:[A-Za-z0-9_-]+$/),
         24 * 60 * 60 * 1000,
+      )
+      expect(stateSet).not.toHaveBeenCalledWith(
+        expect.any(String),
+        "session-1:manual:user-1",
+        expect.any(Number),
       )
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
 
