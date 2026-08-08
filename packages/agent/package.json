@@ -133,7 +133,6 @@
     "@ai-sdk/gateway": "catalog:ai",
     "@ai-sdk/harness": "catalog:ai",
     "@ai-sdk/harness-codex": "catalog:ai",
-    "@ai-sdk/vue": "catalog:ai",
     "@chat-adapter/telegram": "catalog:chat",
     "@libsql/client": "catalog:database",
     "@openai/codex-sdk": "0.144.5",
@@ -171,7 +170,8 @@
     "vue": "catalog:ui"
   },
   "optionalDependencies": {
-    "@ai-sdk/mcp": "catalog:ai"
+    "@ai-sdk/mcp": "catalog:ai",
+    "@ai-sdk/vue": "catalog:ai"
   },
   "peerDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
