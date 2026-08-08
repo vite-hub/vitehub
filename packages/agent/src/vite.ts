@@ -2352,12 +2352,17 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
       const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
-      const serverAgentDefinition = (serverDirs ?? [join(resolved.root, "server")]).some((directory) => {
+      const typescriptModule = /\.(?:c|m)?[jt]s$/i.test(normalizedId)
+      const definitionServerDirs = serverDirs ?? [join(resolved.root, "server")]
+      const serverProjectModule = definitionServerDirs.some(directory =>
+        normalizedId.startsWith(`${resolve(directory).replace(/\\/g, "/")}/`),
+      )
+      const serverAgentDefinition = definitionServerDirs.some((directory) => {
         const agentRoot = `${resolve(directory, "agents").replace(/\\/g, "/")}/`
-        return normalizedId.startsWith(agentRoot) && /\.(?:c|m)?[jt]s$/i.test(normalizedId.slice(agentRoot.length))
+        return normalizedId.startsWith(agentRoot) && typescriptModule
       })
-      const projectModule = (normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`) || serverAgentDefinition)
-        && /\.(?:c|m)?[jt]s$/i.test(normalizedId)
+      const projectModule = typescriptModule
+        && (normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`) || serverProjectModule)
       const agentDefinition = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
         || serverAgentDefinition
       let transformed = code

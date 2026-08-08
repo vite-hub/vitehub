@@ -668,6 +668,31 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
+  it("lowers Capability modules in configured server directories outside the root", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(workspace)
+    const root = join(workspace, "app")
+    const serverDir = join(workspace, "server")
+    const plugin = hubAgent()
+    ;(plugin.config as unknown as (config: Record<PropertyKey, unknown>) => void)({ [VITEHUB_SERVER_DIRS]: [serverDir] })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      `
+        import github from "@github-tools/eve-extension"
+        export const capabilities = [github()]
+      `,
+      join(serverDir, "capabilities.ts"),
+    )
+
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
+  })
+
   it("does not count same-named metadata keys as Eve factory uses", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
