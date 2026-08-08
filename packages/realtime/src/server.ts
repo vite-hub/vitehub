@@ -23,6 +23,7 @@ import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClient
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
 const maxRoomStateBytes = 8 * 1024 * 1024
+const maxRoomAwarenessBytes = 8 * 1024 * 1024
 const memoryRoomGraceMs = 30_000
 const messageSync = 0
 const fragmentName = "default"
@@ -167,6 +168,30 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
   candidate.destroy()
   if (stateBytes > maxStateBytes) throw new Error("Realtime document exceeds its 8 MiB room quota.")
   return apply(document)
+}
+
+export function applyRealtimeAwarenessUpdate(
+  awareness: awarenessProtocol.Awareness,
+  update: Uint8Array,
+  origin: unknown,
+  maxStateBytes = maxRoomAwarenessBytes,
+): void {
+  const candidateDocument = new Y.Doc()
+  const candidate = new awarenessProtocol.Awareness(candidateDocument)
+  candidate.setLocalState(null)
+  const currentClients = [...awareness.getStates().keys()]
+  if (currentClients.length) {
+    awarenessProtocol.applyAwarenessUpdate(candidate, awarenessProtocol.encodeAwarenessUpdate(awareness, currentClients), origin)
+  }
+  awarenessProtocol.applyAwarenessUpdate(candidate, update, origin)
+  const candidateClients = [...candidate.getStates().keys()]
+  const stateBytes = candidateClients.length
+    ? awarenessProtocol.encodeAwarenessUpdate(candidate, candidateClients).byteLength
+    : 0
+  candidate.destroy()
+  candidateDocument.destroy()
+  if (stateBytes > maxStateBytes) throw new Error("Realtime awareness exceeds its 8 MiB room quota.")
+  awarenessProtocol.applyAwarenessUpdate(awareness, update, origin)
 }
 
 function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boolean {
@@ -499,7 +524,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
             for (const client of clients) ownedClients.add(client)
             peerAwarenessClients.set(peer, ownedClients)
-            awarenessProtocol.applyAwarenessUpdate(room.awareness, update, peer)
+            applyRealtimeAwarenessUpdate(room.awareness, update, peer)
           }
           catch (error) {
             for (const client of claimed) {

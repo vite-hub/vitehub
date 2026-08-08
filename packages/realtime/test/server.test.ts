@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeStateVector, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeStateVector, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -269,6 +269,23 @@ describe("workspace changes", () => {
 })
 
 describe("realtime awareness", () => {
+  it("rejects updates that exceed the cumulative awareness quota", () => {
+    const roomDocument = new Y.Doc()
+    const room = new awarenessProtocol.Awareness(roomDocument)
+    room.setLocalState(null)
+    const senderDocument = new Y.Doc()
+    const sender = new awarenessProtocol.Awareness(senderDocument)
+    sender.setLocalState({ payload: "x".repeat(1024) })
+    const update = awarenessProtocol.encodeAwarenessUpdate(sender, [senderDocument.clientID])
+
+    expect(() => applyRealtimeAwarenessUpdate(room, update, "peer", 512)).toThrow("room quota")
+    expect(room.getStates().size).toBe(0)
+    room.destroy()
+    roomDocument.destroy()
+    sender.destroy()
+    senderDocument.destroy()
+  })
+
   it("prevents a peer from claiming another peer's client id", () => {
     const owners = new Map<number, object>()
     const firstPeer = {}
