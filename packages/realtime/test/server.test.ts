@@ -208,8 +208,8 @@ describe("tiptap-markdown documents", () => {
     const document = markdownToYDoc("# Shared draft")
     const workspace = {
       fs: {
-        async writeFile(path: string, content: string, options: { ifDigest: string }) {
-          calls.push(`write:${path}:${content}:${options.ifDigest}`)
+        async writeFile(path: string, content: string, options: { ifDigest: string, preservePath: boolean }) {
+          calls.push(`write:${path}:${content}:${options.ifDigest}:${options.preservePath}`)
           return path
         },
       },
@@ -218,7 +218,7 @@ describe("tiptap-markdown documents", () => {
     await expect(writeRealtimeDocument(workspace as never, "docs/page.md", document, "baseline"))
       .resolves.toBe("docs/page.md")
     expect(calls).toEqual([
-      "write:docs/page.md:# Shared draft:baseline",
+      "write:docs/page.md:# Shared draft:baseline:true",
     ])
   })
 

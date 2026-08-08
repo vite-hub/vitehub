@@ -145,7 +145,7 @@ export async function writeRealtimeDocument(
   document: Y.Doc,
   ifDigest: string | null,
 ): Promise<string> {
-  return await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
+  return await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest, preservePath: true })
 }
 
 export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
@@ -430,10 +430,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           ? configured.message
           : `docs: checkpoint ${documentId}`
         try {
-          const effectivePath = await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
-          if (effectivePath !== documentId) {
-            throw new Error(`[vitehub] Realtime Workspace validators cannot rewrite document paths: ${documentId} -> ${effectivePath}.`)
-          }
+          await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
         }
         catch (error) {
           submittedDocument.destroy()
@@ -451,7 +448,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         snapshot = await pending.workspace.history.checkpoint({ message: pending.message })
       }
       catch (error) {
-        if (isWorkspaceConflict(error)) throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
+        if (isWorkspaceConflict(error)) {
+          if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
+          pending.submittedDocument.destroy()
+          throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
+        }
         throw error
       }
       if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined

@@ -21,6 +21,7 @@ export interface WriteFileOptions {
   ifDigest?: string | null
   mediaType?: string
   metadata?: Record<string, unknown>
+  preservePath?: boolean
 }
 
 export interface ListOptions {

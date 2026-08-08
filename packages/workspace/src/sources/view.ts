@@ -360,6 +360,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         workspace: definition.name,
       })
       try {
+        if (options?.preservePath && input.path !== resolution.workspacePath) {
+          throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${resolution.workspacePath} -> ${input.path}.`)
+        }
         const file = { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata }
         if (options?.ifDigest !== undefined) {
           if (!store.writeFileConditional) throw workspaceError("[vitehub] This Workspace Store does not support conditional writes.")

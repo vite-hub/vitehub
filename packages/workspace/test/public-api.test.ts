@@ -232,6 +232,24 @@ describe("workspace public API", () => {
     await expect(first.fs.readFile("docs/page.md")).resolves.toBe("second")
   })
 
+  it("rejects validator path rewrites before mutating a preserved path", async () => {
+    registerWorkspace("preserved-path", defineWorkspace({
+      rules: {
+        "**": {
+          validate: input => ({ ...input, path: "redirected.md" }),
+          write: true,
+        },
+      },
+      store: { provider: "memory" },
+    }))
+    const workspace = useWorkspace("preserved-path", { mode: "write" })
+
+    await expect(workspace.fs.writeFile("document.md", "draft", { preservePath: true }))
+      .rejects.toThrow("cannot rewrite preserved path")
+    await expect(workspace.fs.exists("document.md")).resolves.toBe(false)
+    await expect(workspace.fs.exists("redirected.md")).resolves.toBe(false)
+  })
+
   it("exposes source materialization on the writable facade", async () => {
     registerWorkspace("materialize-api", defineWorkspace({
       store: { provider: "memory" },
