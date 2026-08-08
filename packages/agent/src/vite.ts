@@ -275,7 +275,8 @@ function transformGeneratedAgentWorkflowRegistry(
 }
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
-  return id.includes("/.vitehub/") && id.endsWith("/workflow/registry.mjs")
+  const normalizedId = id.replaceAll("\\", "/")
+  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry.mjs")
 }
 
 function getScheduleRuntimeImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {

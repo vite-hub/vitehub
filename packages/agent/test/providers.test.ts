@@ -606,6 +606,10 @@ describe("agent Vite plugin", () => {
         "const registry = {}\nexport default registry\n",
         join(root, ".vitehub", "workflow", "registry.mjs"),
       )
+      const windowsProviderRegistry = plugin.vitehub?.agent?.transformWorkflowRegistry(
+        "const registry = {}\nexport default registry\n",
+        "C:\\app\\.vitehub\\workflow\\registry.mjs",
+      )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
       expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
@@ -614,6 +618,7 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain("db: () => vitehubDb")
       expect(registry).not.toContain("vitehubEmail")
       expect(providerRegistry).toBe(registry)
+      expect(windowsProviderRegistry).toBe(registry)
     }
     finally {
       await rm(root, { force: true, recursive: true })
