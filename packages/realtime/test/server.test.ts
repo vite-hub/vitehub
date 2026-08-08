@@ -52,6 +52,16 @@ function workspaceFacade(fs: Record<string, unknown>, capabilities = { condition
 }
 
 describe("realtime server handler", () => {
+  it("rejects malformed encoded room paths", async () => {
+    const handler = createRealtimeHandler(realtimeRegistry())
+
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%E0%A4%A", {
+      headers: { upgrade: "websocket" },
+    }))
+
+    expect(response.status).toBe(400)
+  })
+
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
@@ -366,7 +376,7 @@ describe("realtime server handler", () => {
   it("replaces durable room state when the Workspace baseline changed", async () => {
     const stale = markdownToYDoc("# Stale document")
     const exec = vi.fn((query: string) => ({
-      toArray: () => query.startsWith("SELECT")
+      toArray: () => query.startsWith("SELECT baseline_digest")
         ? [{ baseline_digest: "stale", update_blob: Uint8Array.from(Y.encodeStateAsUpdate(stale)).buffer }]
         : [],
     }))
@@ -381,7 +391,7 @@ describe("realtime server handler", () => {
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
 
-    await handler.fetch(request as never)
+    const response = await handler.fetch(request as never) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
 
     expect(exec).toHaveBeenCalledWith(
       expect.stringContaining("INSERT OR REPLACE"),
@@ -389,6 +399,20 @@ describe("realtime server handler", () => {
       "current",
       expect.any(ArrayBuffer),
     )
+    exec.mockClear()
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(peer)
+    const updateDocument = new Y.Doc()
+    updateDocument.getMap("edits").set("value", true)
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument)) })
+
+    expect(exec).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO vitehub_realtime_updates"),
+      realtimeRoomKey("docs", "page.md"),
+      expect.any(ArrayBuffer),
+    )
+    expect(exec).not.toHaveBeenCalledWith(expect.stringContaining("INSERT OR REPLACE"), expect.anything(), expect.anything(), expect.anything())
+    updateDocument.destroy()
     stale.destroy()
   })
 

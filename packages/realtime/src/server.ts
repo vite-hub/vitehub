@@ -26,6 +26,7 @@ const maxRoomStateBytes = 8 * 1024 * 1024
 const maxRoomAwarenessBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
 const awarenessQueryIntervalMs = 10_000
+const durableUpdateCompactionInterval = 128
 const messageSync = 0
 const fragmentName = "default"
 
@@ -98,6 +99,7 @@ interface Room {
     workspace: Pick<WritableWorkspaceFacade, "fs" | "history">
   }
   peers: Set<WebSocketPeer>
+  persistedUpdates: number
   sql?: RealtimeRoomSql
 }
 
@@ -309,7 +311,14 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
   const parsed = new URL(url)
   const path = parsed.pathname
   if (!path.startsWith(routePrefix)) throw new HTTPError({ status: 404 })
-  const [definitionName, ...documentParts] = path.slice(routePrefix.length).split("/").map(decodeURIComponent)
+  let parts: string[]
+  try {
+    parts = path.slice(routePrefix.length).split("/").map(decodeURIComponent)
+  }
+  catch {
+    throw new HTTPError({ status: 400, message: "Realtime route components must be valid URL encoding." })
+  }
+  const [definitionName, ...documentParts] = parts
   if (!definitionName || documentParts.length === 0 || documentParts.some(part => !part)) {
     throw new HTTPError({ status: 400, message: "Realtime definition and document path are required." })
   }
@@ -418,11 +427,19 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         }
         if (workspaceDocument && sql) {
           sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL)")
+          sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL)")
         }
         const stored = workspaceDocument && sql
           ? sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
           : undefined
         const document = workspaceDocument ? restoreRealtimeDocument(initial.markdown, initial.baselineDigest, stored) : new Y.Doc()
+        const storedUpdates = workspaceDocument && sql
+          ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+          : []
+        for (const row of storedUpdates) {
+          const update = storedUpdate(row.update_blob)
+          if (update) Y.applyUpdate(document, update)
+        }
         const awareness = new awarenessProtocol.Awareness(document)
         awareness.setLocalState(null)
         const value: Room = {
@@ -433,10 +450,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           document,
           key,
           peers: new Set(),
+          persistedUpdates: storedUpdates.length,
           sql: workspaceDocument ? sql : undefined,
         }
         value.document.on("update", (update: Uint8Array, origin: unknown) => {
-          persistRoom(value)
+          persistRoomUpdate(value, update)
           if (origin && typeof origin === "object" && "publish" in origin) {
             (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
           }
@@ -465,6 +483,19 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       room.baselineDigest ?? null,
       Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer,
     )
+    room.sql.exec("DELETE FROM vitehub_realtime_updates WHERE room_key = ?", room.key)
+    room.persistedUpdates = 0
+  }
+
+  function persistRoomUpdate(room: Room, update: Uint8Array): void {
+    if (!room.sql) return
+    room.sql.exec(
+      "INSERT INTO vitehub_realtime_updates (room_key, update_blob) VALUES (?, ?)",
+      room.key,
+      Uint8Array.from(update).buffer,
+    )
+    room.persistedUpdates++
+    if (room.persistedUpdates >= durableUpdateCompactionInterval) persistRoom(room)
   }
 
   function evictRoom(room: Room): void {
