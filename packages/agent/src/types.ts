@@ -4,6 +4,7 @@ import type { Box, BoxDefinition, BoxRequirement } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
+import type { MountedExtension } from "eve/extension"
 import type { LanguageModel } from "ai"
 import type {
   MaybePromise,
@@ -879,6 +880,11 @@ export type AgentCapabilitiesList<
   Name extends WorkspaceName = WorkspaceName,
 > = readonly AgentCapabilityInput<TRuntimeConfig, Name>[]
 
+export type AgentStaticCapabilitiesList<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | MountedExtension)[]
+
 export interface AgentCapabilitiesResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -901,7 +907,7 @@ export type AgentCapabilitiesInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-> = AgentCapabilitiesList<TRuntimeConfig, Name> | AgentCapabilitiesResolver<TRuntimeConfig, Name, CALL_OPTIONS>
+> = AgentStaticCapabilitiesList<TRuntimeConfig, Name> | AgentCapabilitiesResolver<TRuntimeConfig, Name, CALL_OPTIONS>
 
 export type AgentAdapterInstructionsValue = string | string[]
 

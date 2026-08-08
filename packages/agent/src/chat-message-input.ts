@@ -23,6 +23,7 @@ export type UIMessageLike = {
 
 export interface AgentChatMessageTriggerInput {
   abortSignal?: AbortSignal
+  context?: AgentRunInput["context"]
   invoker?: AgentInvoker
   invokerProfileId?: string
   meta?: Record<string, unknown>
@@ -145,6 +146,39 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
     }
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
       const state = typeof record.state === "string" ? record.state : undefined
+      const approval = typeof record.approval === "object" && record.approval !== null
+        ? record.approval as Record<string, unknown>
+        : undefined
+      if ((state === "approval-requested" || state === "approval-responded") && typeof approval?.id === "string") {
+        const name = uiToolName(record)
+        const toolCallId = uiToolId(record, name, index)
+        const call = {
+          id: toolCallId,
+          input: record.input,
+          name,
+          state: "proposed",
+          type: "tool-call",
+        } satisfies MessagePart
+        const request = {
+          id: approval.id,
+          input: record.input,
+          name,
+          toolCallId,
+          type: "approval-request",
+        } satisfies MessagePart
+        if (state === "approval-requested") return [call, request]
+        if (typeof approval.approved !== "boolean") return []
+        return [
+          call,
+          request,
+          {
+            approved: approval.approved,
+            id: approval.id,
+            ...(typeof approval.reason === "string" ? { reason: approval.reason } : {}),
+            type: "approval-decision",
+          },
+        ]
+      }
       const errorText = typeof record.errorText === "string" ? record.errorText : undefined
       const hasToolError = errorText !== undefined
       const hasToolOutput = state === "output-available" || state === "output-denied" || state === "output-error" || record.output !== undefined || hasToolError
@@ -226,6 +260,37 @@ function uiMessageTime(message: UIMessageLike): number | undefined {
 function normalizeSessionOptions(sessions: AgentChatOptions["sessions"]): AgentChatSessionOptions | undefined {
   if (!sessions) return undefined
   return sessions === true ? { strategy: "manual" } : sessions
+}
+
+export function resolveChatSessionId(
+  messages: UIMessageLike[],
+  sessions: AgentChatOptions["sessions"],
+  triggerSession?: AgentChatMessageTriggerInput["session"],
+): string | undefined {
+  const options = normalizeSessionOptions(sessions)
+  if (!options) return triggerSession?.id
+  const strategy = options.strategy || (options.idleTimeoutMs ? "idle-timeout" : "manual")
+  const manualId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, options.metadataKey)
+  if (strategy === "manual") {
+    const first = selectManualSession(messages, options, triggerSession)[0]
+    const boundary = first?.id || uiMessageTime(first || {})?.toString()
+    return boundary ? `${manualId ? `${manualId}:` : ""}manual:${boundary}` : manualId
+  }
+  const selected = strategy === "idle-timeout"
+    ? selectIdleSession(messages, options)
+    : selectIdleSession(selectManualSession(messages, options, triggerSession), options)
+  const first = selected[0]
+  const boundary = first?.id || uiMessageTime(first || {})?.toString()
+  return boundary ? `${manualId ? `${manualId}:` : ""}idle:${boundary}` : manualId
+}
+
+export function resolveChatSessionBaseId(
+  messages: UIMessageLike[],
+  sessions: AgentChatOptions["sessions"],
+  triggerSession?: AgentChatMessageTriggerInput["session"],
+): string | undefined {
+  const options = normalizeSessionOptions(sessions)
+  return triggerSession?.id || (options ? uiMessageSessionId(messages.at(-1) || {}, options.metadataKey) : undefined)
 }
 
 function selectManualSession(messages: UIMessageLike[], sessions: AgentChatSessionOptions, triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
@@ -332,6 +397,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     input: {
       abortSignal: triggerInput?.abortSignal,
       context: {
+        ...triggerInput?.context,
         ...(invoker ? { invoker } : {}),
         ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
         channel: {

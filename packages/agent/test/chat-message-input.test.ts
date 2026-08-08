@@ -1,8 +1,33 @@
 import { describe, expect, it } from "vitest"
 
-import { createChatMessageTriggerInput } from "../src/chat-message-input.ts"
+import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
 
 describe("chat message trigger input", () => {
+  it("keeps a fresh approval boundary stable for a new manual Chat Session", () => {
+    const messages = [
+      { id: "message-new", metadata: { sessionId: "chat" }, parts: [], role: "user" as const },
+      { id: "approval-response", metadata: { sessionId: "chat" }, parts: [], role: "assistant" as const },
+    ]
+
+    expect(resolveChatSessionId(messages.slice(0, 1), true, { action: "new", id: "chat" })).toBe("chat:manual:message-new")
+    expect(resolveChatSessionId(messages, true, { id: "chat" })).toBe("chat:manual:message-new")
+  })
+
+  it("resolves metadata-selected manual Chat Sessions", () => {
+    expect(resolveChatSessionId([
+      { id: "message-new", metadata: { sessionId: "metadata-session" }, parts: [], role: "user" },
+    ], true)).toBe("metadata-session:manual:message-new")
+  })
+
+  it("resolves idle Chat Sessions from the selected history boundary", () => {
+    const messages = [
+      { createdAt: "2026-08-08T00:00:00.000Z", id: "old", parts: [], role: "user" },
+      { createdAt: "2026-08-08T01:00:00.000Z", id: "new", parts: [], role: "user" },
+      { createdAt: "2026-08-08T01:00:01.000Z", id: "latest", parts: [], role: "user" },
+    ]
+    expect(resolveChatSessionId(messages, { idleTimeoutMs: 60_000, strategy: "idle-timeout" })).toBe("idle:new")
+  })
+
   it("selects manual Chat Session history and carries chat context", () => {
     const result = createChatMessageTriggerInput({
       sessions: true,
@@ -195,6 +220,74 @@ describe("chat message trigger input", () => {
       { id: "tool-1", input: { query: "users" }, name: "search", state: "proposed", type: "tool-call" },
       { id: "tool-1", name: "search", output: "42", state: "completed", type: "tool-result" },
     ])
+  })
+
+  it("preserves requested UI tool approvals", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [{
+        parts: [{
+          approval: { id: "approval-1" },
+          input: { command: "write" },
+          state: "approval-requested",
+          toolCallId: "tool-1",
+          toolName: "shell",
+          type: "dynamic-tool",
+        }],
+        role: "assistant",
+      }],
+    })
+
+    expect(result.input.messages?.[0]?.parts).toEqual([
+      { id: "tool-1", input: { command: "write" }, name: "shell", state: "proposed", type: "tool-call" },
+      { id: "approval-1", input: { command: "write" }, name: "shell", toolCallId: "tool-1", type: "approval-request" },
+    ])
+  })
+
+  it("preserves responded UI tool approvals", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [{
+        parts: [{
+          approval: { approved: false, id: "approval-1", reason: "Use read-only mode." },
+          input: { command: "write" },
+          state: "approval-responded",
+          toolCallId: "tool-1",
+          type: "tool-shell",
+        }],
+        role: "assistant",
+      }],
+    })
+
+    expect(result.input.messages?.[0]?.parts).toEqual([
+      { id: "tool-1", input: { command: "write" }, name: "shell", state: "proposed", type: "tool-call" },
+      { id: "approval-1", input: { command: "write" }, name: "shell", toolCallId: "tool-1", type: "approval-request" },
+      { approved: false, id: "approval-1", reason: "Use read-only mode.", type: "approval-decision" },
+    ])
+  })
+
+  it("does not trust client approval decisions outside the model history window", () => {
+    const result = createChatMessageTriggerInput({
+      triggerHistory: { maxMessages: 1, source: "thread" },
+    }, {
+      messages: [
+        {
+          id: "approved-tool",
+          parts: [{
+            approval: { approved: true, id: "approval-1" },
+            input: { command: "write" },
+            state: "output-available",
+            toolCallId: "tool-1",
+            toolName: "shell",
+            type: "dynamic-tool",
+          }],
+          role: "assistant",
+        },
+        { id: "latest", parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+    })
+
+    expect(result.input.messages).toHaveLength(1)
+    expect(result.input.messages?.[0]?.id).toBe("latest")
+    expect(result.input.context).not.toHaveProperty("vitehub.eve.approvedTools")
   })
 
   it("preserves UI data parts in follow-up history", () => {

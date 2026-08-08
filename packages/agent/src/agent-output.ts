@@ -447,6 +447,11 @@ export function toAgentStreamEvent(
   if (type === "approval-request") {
     return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-request" }
   }
+  if (type === "tool-approval-request") {
+    const id = String(value.approvalId ?? value.id)
+    const toolCallId = String(value.toolCallId ?? id)
+    return { id, ...optionalMessageId(messageId), name: String(value.toolName ?? toolNames?.get(toolCallId) ?? "tool"), toolCallId, type: "approval-request" }
+  }
   if (type === "approval-decision") {
     return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-decision" }
   }

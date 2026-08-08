@@ -36,6 +36,7 @@
     "./_internal/agent": "./dist/_internal/agent.js",
     "./_internal/agent/cloudflare": "./dist/_internal/agent/cloudflare.js",
     "./_internal/agent/cloudflare/state": "./dist/_internal/agent/cloudflare/state.js",
+    "./_internal/agent/eve": "./dist/_internal/agent/eve.js",
     "./_internal/agent/runtime/workflow": "./dist/_internal/agent/runtime/workflow.js",
     "./_internal/agent/server": "./dist/_internal/agent/server.js",
     "./_internal/agent/server/internal": "./dist/_internal/agent/server/internal.js",
