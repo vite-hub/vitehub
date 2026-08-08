@@ -138,6 +138,7 @@
     "@openai/codex-sdk": "0.144.5",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
+    "@vercel/connect": "0.6.1",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",

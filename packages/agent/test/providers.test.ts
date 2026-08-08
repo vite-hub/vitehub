@@ -2363,11 +2363,14 @@ describe("server helpers", () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const run = vi.fn(({ messages }) => {
       if (run.mock.calls.length === 1) {
-        return {
-          toUIMessageStream: () => new ReadableStream({
+        return createAgentUIMessageStreamResponse({
+          headers: { "x-agent": "approval" },
+          status: 201,
+          stream: new ReadableStream({
             start(controller) {
               controller.enqueue({ messageId: "assistant-1", type: "start" })
               controller.enqueue({ input: { path: "README.md" }, toolCallId: "call-1", toolName: "github__createOrUpdateFile", type: "tool-input-available" })
@@ -2376,7 +2379,7 @@ describe("server helpers", () => {
               controller.close()
             },
           }),
-        }
+        })
       }
       expect(messages[0]?.parts).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: "call-1", input: { path: "README.md" }, name: "github__createOrUpdateFile", type: "tool-call" }),
@@ -2413,7 +2416,8 @@ describe("server helpers", () => {
 
     try {
       const requested = await handler(request(), { agentName: "support", state })
-      expect(requested.status).toBe(200)
+      expect(requested.status).toBe(201)
+      expect(requested.headers.get("x-agent")).toBe("approval")
       await requested.text()
 
       const approved = await handler(request("approval-1"), { agentName: "support", state })

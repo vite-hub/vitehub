@@ -541,6 +541,9 @@ importers:
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
+      '@vercel/connect':
+        specifier: 0.6.1
+        version: 0.6.1(07a77adfa9df22b031f7885b44c76498)
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.10.2(rollup@4.62.2)

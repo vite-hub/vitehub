@@ -3644,53 +3644,92 @@ async function authorizeAgentChatApprovals(
 }
 
 function trackAgentChatApprovals(result: unknown, state: StateAdapter, sessionId: string): unknown {
-  if (result instanceof Response || !(result instanceof ReadableStream)) return result
-  const reader = result.getReader()
   const toolInputs = new Map<string, { input?: unknown, name?: string }>()
-  return new ReadableStream({
-    async pull(controller) {
-      try {
-        const chunk = await reader.read()
-        if (chunk.done) {
-          controller.close()
-          return
-        }
-        if (isRecord(chunk.value)) {
-          const type = chunk.value.type
-          const toolCallId = firstString(chunk.value.toolCallId, chunk.value.id)
-          if ((type === "tool-input-available" || type === "tool-call") && toolCallId) {
-            toolInputs.set(toolCallId, {
-              input: chunk.value.input,
-              name: firstString(chunk.value.toolName, chunk.value.name),
-            })
+
+  async function trackChunk(value: unknown): Promise<void> {
+    if (!isRecord(value)) return
+    const type = value.type
+    const toolCallId = firstString(value.toolCallId, value.id)
+    if ((type === "tool-input-available" || type === "tool-call") && toolCallId) {
+      toolInputs.set(toolCallId, {
+        input: value.input,
+        name: firstString(value.toolName, value.name),
+      })
+    }
+    if (type !== "tool-approval-request" || !toolCallId) return
+    const id = firstString(value.approvalId, value.id)
+    if (!id) return
+    const tool = toolInputs.get(toolCallId)
+    await state.set(
+      agentChatApprovalKey(sessionId, id),
+      {
+        id,
+        input: tool?.input ?? value.input,
+        name: firstString(value.toolName, tool?.name) || "tool",
+        toolCallId,
+      } satisfies AgentChatPendingApproval,
+      agentChatApprovalTtlMs,
+    )
+  }
+
+  function trackedStream(stream: ReadableStream<unknown>, framed = false): ReadableStream<unknown> {
+    const reader = stream.getReader()
+    const decoder = framed ? new TextDecoder() : undefined
+    let pending = ""
+    return new ReadableStream({
+      async pull(controller) {
+        try {
+          const chunk = await reader.read()
+          if (chunk.done) {
+            if (decoder) pending += decoder.decode()
+            controller.close()
+            return
           }
-          if (type === "tool-approval-request" && toolCallId) {
-            const id = firstString(chunk.value.approvalId, chunk.value.id)
-            if (id) {
-              const tool = toolInputs.get(toolCallId)
-              await state.set(
-                agentChatApprovalKey(sessionId, id),
-                {
-                  id,
-                  input: tool?.input ?? chunk.value.input,
-                  name: firstString(chunk.value.toolName, tool?.name) || "tool",
-                  toolCallId,
-                } satisfies AgentChatPendingApproval,
-                agentChatApprovalTtlMs,
-              )
+          if (decoder) {
+            pending += decoder.decode(chunk.value as Uint8Array, { stream: true })
+            const events = pending.split(/\r?\n\r?\n/)
+            pending = events.pop() || ""
+            for (const event of events) {
+              const data = event.split(/\r?\n/)
+                .filter(line => line.startsWith("data:"))
+                .map(line => line.slice(5).trimStart())
+                .join("\n")
+              if (data && data !== "[DONE]") {
+                try {
+                  await trackChunk(JSON.parse(data))
+                }
+                catch (error) {
+                  if (!(error instanceof SyntaxError)) throw error
+                }
+              }
             }
           }
+          else await trackChunk(chunk.value)
+          controller.enqueue(chunk.value)
         }
-        controller.enqueue(chunk.value)
-      }
-      catch (error) {
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      await reader.cancel(reason)
-    },
-  })
+        catch (error) {
+          controller.error(error)
+        }
+      },
+      async cancel(reason) {
+        await reader.cancel(reason)
+      },
+    })
+  }
+
+  if (result instanceof Response) {
+    if (!result.body || !isUiMessageStreamResponse(result)) return result
+    const headers = new Headers(result.headers)
+    headers.delete("content-encoding")
+    headers.delete("content-length")
+    return new Response(trackedStream(result.body, true) as ReadableStream<Uint8Array>, {
+      headers,
+      status: result.status,
+      statusText: result.statusText,
+    })
+  }
+  if (!(result instanceof ReadableStream)) return result
+  return trackedStream(result)
 }
 
 function agentChatFetchErrorResponse(error: unknown): Response {
