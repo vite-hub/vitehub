@@ -1130,6 +1130,7 @@ export async function transformEveExtensionCapabilities(
     const node = value as Record<string, unknown>
     const nextScope = isPositionedNode(node) && (
       node.type === "BlockStatement"
+      || node.type === "CatchClause"
       || node.type === "ForStatement"
       || node.type === "ForInStatement"
       || node.type === "ForOfStatement"
