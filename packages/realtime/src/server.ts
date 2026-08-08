@@ -705,7 +705,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         throw error
       }
       if (snapshot.entries[pending.path]?.digest !== pending.digest) {
-        const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
+        let current: Awaited<ReturnType<typeof readRealtimeWorkspaceDocument>>
+        try {
+          current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
+        }
+        catch (error) {
+          pending.content = undefined
+          pending.digest = undefined
+          schedulePendingCheckpointExpiry(room, pending)
+          throw error
+        }
         room.baselineDigest = current.baselineDigest
         room.durableReady = !!room.sql || !!room.baselineDigest
         reconcilePendingCheckpoint(room, pending, current.markdown)

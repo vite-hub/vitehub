@@ -442,6 +442,7 @@ describe("realtime server handler", () => {
     let content = ""
     let digest = "baseline"
     let checkpoints = 0
+    let failedMismatchReads = 0
     const writeFile = vi.fn(async (_path: string, nextContent: string, options: { ifDigest: string | null }) => {
       if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
       content = nextContent
@@ -452,7 +453,10 @@ describe("realtime server handler", () => {
       capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
       fs: {
         exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn(async () => content),
+        readFile: vi.fn(async () => {
+          if (checkpoints === 1 && failedMismatchReads++ < 1) throw new Error("canonical read unavailable")
+          return content
+        }),
         stat: vi.fn(async () => ({ digest })),
         writeFile,
       },
@@ -491,10 +495,18 @@ describe("realtime server handler", () => {
       method: "POST",
     }))
 
-    expect(first.status).toBe(409)
-    await expect(first.json()).resolves.toMatchObject({
+    expect(first.status).toBe(500)
+    expect(peer.send).not.toHaveBeenCalled()
+
+    const recovery = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    }))
+
+    expect(recovery.status).toBe(409)
+    await expect(recovery.json()).resolves.toMatchObject({
       data: { code: "REALTIME_CHECKPOINT_REJECTED" },
-      message: "The Workspace document changed while creating its realtime checkpoint.",
+      message: "The Workspace document changed while recovering its realtime checkpoint.",
     })
     expect(peer.send).toHaveBeenCalledTimes(1)
     applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
