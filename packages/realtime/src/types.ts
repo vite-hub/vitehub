@@ -21,6 +21,7 @@ export interface RealtimeModuleOptions {
 }
 
 export interface RealtimePerson {
+  clientId: number
   color: string
   id: string
   image?: string

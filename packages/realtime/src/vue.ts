@@ -9,8 +9,10 @@ import * as Y from "yjs"
 
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
 import type { MaybeRefOrGetter } from "vue"
+import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
+import { getRealtimePeople } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
@@ -21,15 +23,6 @@ function personColor(id: string): string {
   let hash = 0
   for (let index = 0; index < id.length; index++) hash = Math.imul(31, hash) + id.charCodeAt(index) | 0
   return personColors[Math.abs(hash) % personColors.length]!
-}
-
-function isRealtimePerson(value: unknown): value is RealtimePerson {
-  if (!value || typeof value !== "object") return false
-  const person = value as Record<string, unknown>
-  return typeof person.id === "string" && person.id.length > 0 && person.id.length <= 256
-    && typeof person.name === "string" && person.name.length > 0 && person.name.length <= 256
-    && typeof person.color === "string" && /^#[\da-f]{6}$/i.test(person.color)
-    && (person.image === undefined || typeof person.image === "string" && person.image.length <= 2048)
 }
 
 function renderCaret(user: Record<string, unknown>): HTMLElement {
@@ -90,7 +83,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     synced.value = false
   }
 
-  function currentPerson(clientId: number): RealtimePerson {
+  function currentPerson(clientId: number): RealtimeIdentity {
     const value = user.value
     const id = value?.id || `guest:${clientId}`
     return {
@@ -102,11 +95,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   }
 
   function updatePeople(current: WebsocketProvider) {
-    const active = new Map<string, RealtimePerson>()
-    for (const state of current.awareness.getStates().values()) {
-      if (isRealtimePerson(state.user)) active.set(state.user.id, state.user)
-    }
-    people.value = [...active.values()]
+    people.value = getRealtimePeople(current.awareness.getStates())
   }
 
   function flushWorkspaceChanges() {
