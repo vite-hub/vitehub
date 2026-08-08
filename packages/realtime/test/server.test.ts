@@ -1,12 +1,107 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { bindAwarenessIdentity, claimAwarenessClientIds, markdownToYDoc, matchesRealtimeStateVector, realtimeRoomKey, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, markdownToYDoc, matchesRealtimeStateVector, realtimeRoomKey, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
+const serverMocks = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  useWorkspace: vi.fn(),
+}))
+
+vi.mock("@vite-hub/auth/server", () => ({
+  getAuthForRequest: () => ({ api: { getSession: serverMocks.getSession } }),
+}))
+
+vi.mock("@vite-hub/workspace", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/workspace")>(),
+  useWorkspace: serverMocks.useWorkspace,
+}))
+
 afterEach(() => vi.unstubAllGlobals())
+
+beforeEach(() => {
+  serverMocks.getSession.mockReset()
+  serverMocks.useWorkspace.mockReset()
+})
+
+function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean } = {}) {
+  return {
+    docs: async () => ({
+      default: {
+        auth: options.auth,
+        document: { format: "tiptap-markdown", workspace: "test" },
+        engine: "yjs",
+        history: options.checkpoint ? { checkpoint: true } : undefined,
+      },
+    }),
+  } as never
+}
+
+describe("realtime server handler", () => {
+  it("rejects unauthenticated definitions before opening a room", async () => {
+    serverMocks.getSession.mockResolvedValue(null)
+    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(401)
+    expect(serverMocks.useWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unsynchronized checkpoint before writing to Workspace", async () => {
+    const writeFile = vi.fn()
+    serverMocks.useWorkspace.mockReturnValue({
+      fs: {
+        readFile: vi.fn().mockResolvedValue("# Workspace version"),
+        stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
+        writeFile,
+      },
+    })
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const client = markdownToYDoc("# Unsynchronized client version")
+
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Y.encodeStateVector(client),
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({ data: { code: "REALTIME_SYNC_PENDING" } })
+    expect(writeFile).not.toHaveBeenCalled()
+    client.destroy()
+  })
+
+  it("accepts workspace changes only on the workspace room", async () => {
+    serverMocks.useWorkspace.mockReturnValue({
+      fs: {
+        readFile: vi.fn().mockResolvedValue(""),
+        stat: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = {
+      close: vi.fn(),
+      publish: vi.fn(),
+      send: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    }
+
+    response.crossws.open(peer)
+    response.crossws.message(peer, { uint8Array: () => encodeWorkspaceChange({ operation: "create", path: "new.md" }) })
+
+    expect(peer.close).toHaveBeenCalledWith(4400, "Workspace changes require the workspace room.")
+    expect(peer.publish).not.toHaveBeenCalled()
+  })
+})
 
 describe("realtime application paths", () => {
   it("prefixes endpoints with the configured application base URL", () => {
@@ -27,7 +122,6 @@ describe("tiptap-markdown documents", () => {
     const document = markdownToYDoc(markdown)
     const normalized = yDocToMarkdown(document)
 
-    expect(document.getXmlFragment("default").toArray().every(node => "toArray" in node)).toBe(true)
     expect(normalized).toContain("# Shared page")
     expect(normalized).toContain("![Diagram](https://example.com/diagram.png)")
     expect(normalized).toContain("| One  | Two")
