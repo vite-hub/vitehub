@@ -58,7 +58,16 @@ type WorkflowNitroConfigHandler = (options: {
   nitro: Record<string, unknown>
   projectRoot: string
   serverDirs?: string[]
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
 }) => Promise<Record<string, unknown>>
+
+type WorkflowRegistryTransform = (code: string, id: string) => string | Promise<string>
+
+function agentWorkflowRegistryTransform(plugin: Plugin): WorkflowRegistryTransform | undefined {
+  return (plugin as Plugin & {
+    vitehub?: { agent?: { transformWorkflowRegistry?: (code: string, id: string) => string | Promise<string> } }
+  }).vitehub?.agent?.transformWorkflowRegistry
+}
 
 function flattenPlugins(options: readonly unknown[]): Plugin[] {
   const plugins: Plugin[] = []
@@ -130,6 +139,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   config.build ??= {}
   config.nitro = nitroConfig
   config.server ??= {}
+  const transformWorkflowRegistry = plugins.map(agentWorkflowRegistryTransform).find(Boolean)
 
   for (const plugin of plugins) {
     const handler = configHandler(plugin)
@@ -164,6 +174,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
         nitro: config.nitro || {},
         projectRoot,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        transformRegistry: transformWorkflowRegistry,
       })
     }
   }

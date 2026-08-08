@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
       modules: ["agent-module"],
     },
   })),
+  agentWorkflowRegistryTransform: vi.fn((code: string) => `// transformed\n${code}`),
   queueNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
     unexpectedQueue: true,
@@ -90,6 +91,7 @@ describe("ViteHub Nuxt integration", () => {
   beforeEach(() => {
     mocks.objectHook.mockClear()
     mocks.agentHook.mockClear()
+    mocks.agentWorkflowRegistryTransform.mockClear()
     mocks.existingQueueConfig.mockClear()
     mocks.existingQueueNitroConfig.mockClear()
     mocks.existingOwnerConfig.mockClear()
@@ -124,6 +126,11 @@ describe("ViteHub Nuxt integration", () => {
       {
         name: "@vite-hub/agent/vite",
         config: mocks.agentHook,
+        vitehub: {
+          agent: {
+            transformWorkflowRegistry: mocks.agentWorkflowRegistryTransform,
+          },
+        },
       },
       {
         name: "@vite-hub/queue/vite",
@@ -236,6 +243,7 @@ describe("ViteHub Nuxt integration", () => {
       nitro: expect.objectContaining({ preset: "cloudflare_module" }),
       projectRoot: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+      transformRegistry: mocks.agentWorkflowRegistryTransform,
     })
     expect(mocks.queueNitroConfig).not.toHaveBeenCalled()
     expect(mocks.existingOwnerConfig).toHaveBeenCalledOnce()

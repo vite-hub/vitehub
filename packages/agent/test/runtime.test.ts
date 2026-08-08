@@ -5838,18 +5838,20 @@ describe("agent message protocol", () => {
     })).toThrow(error)
   })
 
-  it("rejects serial concurrency with durable message delivery", async () => {
+  it("rejects overlap-policy concurrency with durable message delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
-    expect(() => defineAgent({
-      channels: { telegram: telegram({ adapter: () => ({}) as never }) },
-      driver: { run: () => "ok" },
-      messages: {
-        concurrency: "serial",
-        delivery: "manual",
-        durable: true,
-      },
-    })).toThrow("messages.durable cannot be combined with concurrency: \"serial\"")
+    for (const concurrency of ["drop", "queue", "reject", "serial", "tenant-policy"] as const) {
+      expect(() => defineAgent({
+        channels: { telegram: telegram({ adapter: () => ({}) as never }) },
+        driver: { run: () => "ok" },
+        messages: {
+          concurrency,
+          delivery: "manual",
+          durable: true,
+        },
+      })).toThrow(`messages.durable cannot be combined with concurrency: ${JSON.stringify(concurrency)}`)
+    }
   })
 
   it("rejects invalid message timeouts", async () => {

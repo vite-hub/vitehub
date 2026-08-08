@@ -11,6 +11,7 @@ interface WorkflowNitroConfigOptions {
   nitro: Record<string, unknown>
   projectRoot: string
   serverDirs?: string[]
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
 }
 
 export type WorkflowVitePlugin = Plugin & {
@@ -80,7 +81,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     },
     vitehub: {
       workflow: {
-        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs }: WorkflowNitroConfigOptions) {
+        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry }: WorkflowNitroConfigOptions) {
           return await createCloudflareWorkflowNitroConfig({
             agentImportBase: internalOptions?.agentImportBase,
             nitro,
@@ -91,6 +92,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
             workflowImportBase: internalOptions?.importBase,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
             workspaceImportBase: internalOptions?.workspaceImportBase,
+            transformRegistry,
           })
         },
       },

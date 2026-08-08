@@ -267,6 +267,7 @@ interface CloudflareWorkflowNitroOptions {
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -336,7 +337,7 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
     workflow: options.workflowImportBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs, options.includeUserAppEntry)
+  }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry)
   if (!artifacts.providerDefinitions.length) return options.nitro
 
   const nitro = { ...options.nitro }
