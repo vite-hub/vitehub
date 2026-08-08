@@ -10,13 +10,14 @@ import { resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
+import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { WorkspaceSnapshot, WritableWorkspaceFacade } from "@vite-hub/workspace"
 import type { WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeDefinition, RealtimeRegistry } from "./types.ts"
-import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
+import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, workspaceRoomId } from "./protocol.ts"
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
@@ -58,6 +59,7 @@ export function yDocToMarkdown(document: Y.Doc): string {
 }
 
 interface Room {
+  awareness: awarenessProtocol.Awareness
   baselineDigest?: string
   channel: string
   checkpoint?: Promise<WorkspaceSnapshot>
@@ -89,6 +91,13 @@ function encodeSyncState(document: Y.Doc): Uint8Array {
   return encoding.toUint8Array(encoder)
 }
 
+function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, messageAwareness)
+  encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
+  return encoding.toUint8Array(encoder)
+}
+
 function parseRoomPath(url: string): { definitionName: string, documentId: string } {
   const path = new URL(url).pathname
   if (!path.startsWith(routePrefix)) throw new HTTPError({ status: 404 })
@@ -107,6 +116,7 @@ async function authorize(request: Request, required: boolean | undefined, event:
 
 export function createRealtimeHandler(registry: RealtimeRegistry) {
   const rooms = new Map<string, Promise<Room>>()
+  const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
 
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
     const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
@@ -140,10 +150,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const workspace = workspaceDocument ? useWorkspace(definition.document.workspace) : undefined
         const stat = workspace ? await workspace.fs.stat(documentId) : undefined
         const markdown = workspace ? await workspace.fs.readFile(documentId, { encoding: "utf8" }) : ""
+        const document = workspaceDocument ? markdownToYDoc(markdown) : new Y.Doc()
+        const awareness = new awarenessProtocol.Awareness(document)
+        awareness.setLocalState(null)
         const value: Room = {
+          awareness,
           baselineDigest: stat?.digest,
           channel: `vitehub:realtime:${key}`,
-          document: workspaceDocument ? markdownToYDoc(markdown) : new Y.Doc(),
+          document,
           version: 0,
         }
         value.document.on("update", (update: Uint8Array, origin: unknown) => {
@@ -213,10 +227,22 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     await authorize(event.req, definition.auth, event)
     const room = await getRoom(definitionName, documentId, definition)
 
+    function leave(peer: WebSocketPeer) {
+      const clients = [...(peerAwarenessClients.get(peer) || [])]
+      peerAwarenessClients.delete(peer)
+      if (clients.length) {
+        awarenessProtocol.removeAwarenessStates(room.awareness, clients, peer)
+        peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+      }
+      peer.unsubscribe(room.channel)
+    }
+
     return {
       open(peer) {
         peer.subscribe(room.channel)
         peer.send(encodeSyncState(room.document))
+        const clients = [...room.awareness.getStates().keys()]
+        if (clients.length) peer.send(encodeAwarenessState(room.awareness, clients))
       },
       message(peer, message: WebSocketMessage) {
         const data = message.uint8Array()
@@ -240,6 +266,28 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           peer.publish(room.channel, encodeWorkspaceChange(change))
           return
         }
+        if (messageType === messageQueryAwareness) {
+          const clients = [...room.awareness.getStates().keys()]
+          if (clients.length) peer.send(encodeAwarenessState(room.awareness, clients))
+          return
+        }
+        if (messageType === messageAwareness) {
+          const update = decoding.readVarUint8Array(decoder)
+          let clients: number[]
+          try {
+            clients = readAwarenessClientIds(update)
+            awarenessProtocol.applyAwarenessUpdate(room.awareness, update, peer)
+          }
+          catch {
+            peer.close(4400, "Invalid awareness update.")
+            return
+          }
+          const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
+          for (const client of clients) ownedClients.add(client)
+          peerAwarenessClients.set(peer, ownedClients)
+          peer.publish(room.channel, data)
+          return
+        }
         if (messageType !== messageSync) return
         const encoder = encoding.createEncoder()
         encoding.writeVarUint(encoder, messageSync)
@@ -247,10 +295,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         if (encoding.length(encoder) > 1) peer.send(encoding.toUint8Array(encoder))
       },
       close(peer) {
-        peer.unsubscribe(room.channel)
+        leave(peer)
       },
       error(peer) {
-        peer.unsubscribe(room.channel)
+        leave(peer)
       },
     }
   })

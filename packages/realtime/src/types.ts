@@ -20,6 +20,13 @@ export interface RealtimeModuleOptions {
   projectRoot?: string
 }
 
+export interface RealtimePerson {
+  color: string
+  id: string
+  image?: string
+  name: string
+}
+
 export type RealtimeWorkspaceChange =
   | { operation: "create" | "delete" | "update", path: string }
   | { operation: "move", from: string, to: string }

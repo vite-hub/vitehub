@@ -240,6 +240,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       nitro: false,
     }, nuxt)
   }
+  if (options.realtime) {
+    nuxt.options.imports ??= {}
+    nuxt.options.imports.imports ??= []
+    if (!nuxt.options.imports.imports.some(entry => entry.name === "useRealtimeTiptap")) {
+      nuxt.options.imports.imports.push({ from: "vite-hub/realtime/vue", name: "useRealtimeTiptap" })
+    }
+  }
   if (options.database) {
     const nuxtAlias = (nuxt.options.alias ??= {})
     nuxtAlias["@vite-hub/database/runtime/state"] ??= databaseRuntimeState

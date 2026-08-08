@@ -4,7 +4,10 @@ import * as encoding from "lib0/encoding"
 import type { RealtimeWorkspaceChange } from "./types.ts"
 
 export const messageWorkspaceChange = 4
+export const messageAwareness = 1
+export const messageQueryAwareness = 3
 export const workspaceRoomId = "@workspace"
+const maxAwarenessClients = 1024
 
 function validPath(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0")
@@ -34,4 +37,17 @@ export function encodeWorkspaceChange(change: RealtimeWorkspaceChange): Uint8Arr
   encoding.writeVarUint(encoder, messageWorkspaceChange)
   encoding.writeVarString(encoder, JSON.stringify(change))
   return encoding.toUint8Array(encoder)
+}
+
+export function readAwarenessClientIds(update: Uint8Array): number[] {
+  const decoder = decoding.createDecoder(update)
+  const length = decoding.readVarUint(decoder)
+  if (length > maxAwarenessClients) throw new TypeError("Awareness update contains too many clients.")
+  const clients: number[] = []
+  for (let index = 0; index < length; index++) {
+    clients.push(decoding.readVarUint(decoder))
+    decoding.readVarUint(decoder)
+    decoding.readVarString(decoder)
+  }
+  return clients
 }

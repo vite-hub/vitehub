@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
+import * as awarenessProtocol from "y-protocols/awareness"
+import * as Y from "yjs"
 
 import { checkpointRealtimeDocument, markdownToYDoc, yDocToMarkdown } from "../src/server.ts"
-import { decodeWorkspaceChange, encodeWorkspaceChange } from "../src/protocol.ts"
+import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
 describe("tiptap-markdown documents", () => {
   it("creates an empty shared document without a browser DOM", () => {
@@ -54,5 +56,19 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs/new.md" })))
       .toEqual({ operation: "move", from: "docs/old.md", to: "docs/new.md" })
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
+  })
+})
+
+describe("realtime awareness", () => {
+  it("reads the clients represented by a Yjs awareness update", () => {
+    const document = new Y.Doc()
+    const awareness = new awarenessProtocol.Awareness(document)
+    awareness.setLocalStateField("user", { color: "#2563EB", id: "user-1", name: "Max" })
+
+    const update = awarenessProtocol.encodeAwarenessUpdate(awareness, [document.clientID])
+
+    expect(readAwarenessClientIds(update)).toEqual([document.clientID])
+    awareness.destroy()
+    document.destroy()
   })
 })
