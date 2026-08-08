@@ -10,6 +10,7 @@ const serverMocks = vi.hoisted(() => ({
   assertAuthOrigin: vi.fn(),
   getSession: vi.fn(),
   invalidateWorkspaceStore: vi.fn(),
+  resolveWorkspaceStoreTarget: vi.fn(),
   useWorkspace: vi.fn(),
 }))
 
@@ -20,6 +21,7 @@ vi.mock("@vite-hub/auth/server", () => ({
 vi.mock("@vite-hub/workspace", async (importOriginal) => ({
   ...await importOriginal<typeof import("@vite-hub/workspace")>(),
   invalidateWorkspaceStore: serverMocks.invalidateWorkspaceStore,
+  resolveWorkspaceStoreTarget: serverMocks.resolveWorkspaceStoreTarget,
   useWorkspace: serverMocks.useWorkspace,
 }))
 
@@ -29,6 +31,7 @@ beforeEach(() => {
   serverMocks.assertAuthOrigin.mockReset().mockResolvedValue({ api: { getSession: serverMocks.getSession } })
   serverMocks.getSession.mockReset()
   serverMocks.invalidateWorkspaceStore.mockReset().mockResolvedValue(undefined)
+  serverMocks.resolveWorkspaceStoreTarget.mockReset().mockResolvedValue(undefined)
   serverMocks.useWorkspace.mockReset()
 })
 
@@ -318,6 +321,7 @@ describe("realtime server handler", () => {
   })
 
   it("refreshes the baseline when a post-write failure follows a committed write", async () => {
+    serverMocks.resolveWorkspaceStoreTarget.mockResolvedValue({ provider: "memory" })
     let digest = "baseline"
     const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
       if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
@@ -355,7 +359,7 @@ describe("realtime server handler", () => {
     expect((await handler.fetch(request())).status).toBe(500)
     expect((await handler.fetch(request())).status).toBe(200)
     expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", "written-1"])
-    expect(serverMocks.invalidateWorkspaceStore).toHaveBeenCalledWith("test")
+    expect(serverMocks.invalidateWorkspaceStore).not.toHaveBeenCalled()
     document.destroy()
   })
 
@@ -440,6 +444,7 @@ describe("realtime server handler", () => {
     })
     response.crossws.close(firstPeer)
     secondPeer.send.mockClear()
+    response.crossws.message(secondPeer, { uint8Array: () => new Uint8Array([3]) })
     response.crossws.message(secondPeer, { uint8Array: () => new Uint8Array([3]) })
 
     expect(secondPeer.send).toHaveBeenCalledOnce()

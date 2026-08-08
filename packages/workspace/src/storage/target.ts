@@ -1,4 +1,4 @@
-export const workspaceStoreTarget = Symbol.for("vitehub.workspace.storeTarget")
+export const workspaceStoreTarget: unique symbol = Symbol.for("vitehub.workspace.storeTarget")
 
 export interface WorkspaceStoreTarget {
   provider: string

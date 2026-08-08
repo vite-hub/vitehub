@@ -5,7 +5,7 @@ import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { invalidateWorkspaceStore, isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
+import { invalidateWorkspaceStore, isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -25,6 +25,7 @@ const maxMessageBytes = 1024 * 1024
 const maxRoomStateBytes = 8 * 1024 * 1024
 const maxRoomAwarenessBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
+const awarenessQueryIntervalMs = 10_000
 const messageSync = 0
 const fragmentName = "default"
 
@@ -338,6 +339,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
+  const peerAwarenessQueryAt = new WeakMap<WebSocketPeer, number>()
+
+  async function refreshWritableWorkspace(workspaceName: string): Promise<WritableWorkspaceFacade> {
+    const current = useWorkspace(workspaceName, { mode: "write" })
+    const target = await resolveWorkspaceStoreTarget(current)
+    if (target?.provider === "memory") return current
+    await invalidateWorkspaceStore(workspaceName)
+    return useWorkspace(workspaceName, { mode: "write" })
+  }
 
   function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
     const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
@@ -490,8 +500,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       if (pending && !matchesBytes(pending.state, state)) {
         room.pendingCheckpoint = undefined
         pending.submittedDocument.destroy()
-        await invalidateWorkspaceStore(definition.document.workspace)
-        const refreshedWorkspace = useWorkspace(definition.document.workspace, { mode: "write" })
+        const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
         room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
         pending = undefined
       }
@@ -512,8 +521,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           }
           // A write:after hook can fail after the conditional store write committed.
           // Refresh the baseline so a retry does not remain pinned to the stale digest.
-          await invalidateWorkspaceStore(definition.document.workspace)
-          const refreshedWorkspace = useWorkspace(definition.document.workspace, { mode: "write" })
+          const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
           room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
           persistRoom(room)
           throw error
@@ -530,7 +538,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         if (isWorkspaceConflict(error)) {
           if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
           pending.submittedDocument.destroy()
-          await invalidateWorkspaceStore(definition.document.workspace)
+          await refreshWritableWorkspace(definition.document.workspace)
           throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
         }
         throw error
@@ -657,6 +665,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType === messageQueryAwareness) {
+          const now = Date.now()
+          const previous = peerAwarenessQueryAt.get(peer)
+          if (previous !== undefined && now - previous < awarenessQueryIntervalMs) return
+          peerAwarenessQueryAt.set(peer, now)
           const clients = [...room.awareness.getStates().keys()]
           if (clients.length) peer.send(encodeAwarenessState(room.awareness, clients))
           return
