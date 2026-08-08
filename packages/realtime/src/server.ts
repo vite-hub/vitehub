@@ -258,7 +258,7 @@ export async function readRealtimeWorkspaceDocument(
   return { baselineDigest: stat?.digest, markdown }
 }
 
-function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
+export function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageAwareness)
   encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
@@ -342,7 +342,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       if (!sql && memoryRoomKeys.size >= maxMemoryRooms) {
         const inactiveKey = inactiveMemoryRoomKeys.values().next().value
         const inactiveRoom = inactiveKey ? await rooms.get(inactiveKey) : undefined
-        if (inactiveRoom) destroyRoom(inactiveRoom)
+        if (
+          inactiveRoom
+          && inactiveKey
+          && inactiveMemoryRoomKeys.has(inactiveKey)
+          && inactiveRoom.peers.size === 0
+          && !inactiveRoom.checkpoint
+          && !inactiveRoom.pendingCheckpoint
+        ) {
+          destroyRoom(inactiveRoom)
+        }
         if (memoryRoomKeys.size >= maxMemoryRooms) {
           throw new HTTPError({ status: 503, message: "The in-memory realtime authority reached its active room limit." })
         }
@@ -601,10 +610,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             clients = readAwarenessClientIds(update)
             claimed = claimAwarenessClientIds(room.awarenessClientOwners as Map<number, object>, peer, clients)
             if (identity) update = bindAwarenessIdentity(update, identity)
+            applyRealtimeAwarenessUpdate(room.awareness, update, peer)
             const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
             for (const client of clients) ownedClients.add(client)
             peerAwarenessClients.set(peer, ownedClients)
-            applyRealtimeAwarenessUpdate(room.awareness, update, peer)
           }
           catch (error) {
             for (const client of claimed) {

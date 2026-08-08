@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeSyncStep1, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -186,6 +186,36 @@ describe("realtime server handler", () => {
     }
   })
 
+  it("does not evict an inactive room while it is reconnecting", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+
+    for (let index = 0; index < 128; index++) {
+      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/page-${index}.md`, {
+        headers: { upgrade: "websocket" },
+      })) as Response & { crossws: { close(peer: object): void, open(peer: object): void } }
+      const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+      response.crossws.open(peer)
+      response.crossws.close(peer)
+    }
+
+    const [reconnecting, overflow] = await Promise.all([
+      handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page-0.md", {
+        headers: { upgrade: "websocket" },
+      })),
+      handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/overflow.md", {
+        headers: { upgrade: "websocket" },
+      })),
+    ])
+
+    expect((reconnecting as Response & { crossws?: unknown }).crossws).toBeDefined()
+    expect(overflow.status).toBe(503)
+  })
+
   it("does not retain rooms for rejected checkpoints", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
@@ -295,6 +325,48 @@ describe("realtime server handler", () => {
       expect.any(ArrayBuffer),
     )
     stale.destroy()
+  })
+
+  it("does not retain awareness clients from a rejected update", async () => {
+    serverMocks.getSession.mockResolvedValue({ user: { id: "user" } })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { origin: "https://example.com", upgrade: "websocket" },
+    })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
+    const firstPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const secondPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(firstPeer)
+    response.crossws.open(secondPeer)
+    const rejectedDocument = new Y.Doc()
+    const rejected = new awarenessProtocol.Awareness(rejectedDocument)
+    rejected.setLocalState(42 as never)
+    const clientId = rejectedDocument.clientID
+    response.crossws.message(firstPeer, {
+      uint8Array: () => encodeAwarenessState(rejected, [clientId]),
+    })
+    expect(firstPeer.close).toHaveBeenCalledWith(4400, "Invalid awareness update.")
+
+    const acceptedDocument = new Y.Doc()
+    acceptedDocument.clientID = clientId
+    const accepted = new awarenessProtocol.Awareness(acceptedDocument)
+    accepted.setLocalState({ cursor: { anchor: 1 } })
+    response.crossws.message(secondPeer, {
+      uint8Array: () => encodeAwarenessState(accepted, [clientId]),
+    })
+    response.crossws.close(firstPeer)
+    secondPeer.send.mockClear()
+    response.crossws.message(secondPeer, { uint8Array: () => new Uint8Array([3]) })
+
+    expect(secondPeer.send).toHaveBeenCalledOnce()
+    rejected.destroy()
+    rejectedDocument.destroy()
+    accepted.destroy()
+    acceptedDocument.destroy()
   })
 
 })
