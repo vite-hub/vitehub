@@ -7,7 +7,7 @@ navigation.group: Decisions and output
 icon: i-lucide-coins
 ---
 
-`cost()` enriches ViteHub's canonical Agent Usage Record with monetary cost before Agent Finish Hooks run and before streamed usage is emitted to clients. Raw usage capture remains part of the Agent Invocation whether or not you install this Capability.
+Add `cost()` when an application needs exact USD for arithmetic and a ready-to-render value for display. The Capability enriches the Agent Usage Record before Agent Finish Hooks run and before streamed usage is emitted to clients; raw usage capture works without it.
 
 ## Add cost
 
@@ -23,35 +23,36 @@ export default defineAgent({
 })
 ```
 
-The default pricing callback fetches Vercel AI Gateway's public model catalog. It uses exact decimal arithmetic for regular input, cache-read, cache-write, and output tokens, caches successful catalog responses for five minutes, and bounds each catalog request to ten seconds.
+By default, `cost()` prices regular input, cache-read, cache-write, and output tokens from Vercel AI Gateway's public model catalog. ViteHub uses exact decimal arithmetic, caches successful catalog responses for five minutes, and bounds each request to ten seconds.
 
 Pricing is best-effort. A missing model match, unavailable catalog, timeout, invalid price, or pricing callback error leaves the usage record and successful Agent Invocation unchanged. A cost already reported by the provider remains authoritative.
 
-Import `vercelAiGatewayPricing()` when application-owned work adds usage after the Capability runs and must reprice the canonical record with the same catalog behavior.
-
-```ts
-import { cost, vercelAiGatewayPricing } from '@vite-hub/agent/capabilities'
-
-const pricing = vercelAiGatewayPricing()
-```
-
 ## Read the enriched record
 
-Finish Hooks read the canonical record from `event.invocation.usage`. The Capability also returns that same object from its typed finish extension.
+Finish Hooks read the canonical record from `event.invocation.usage`. Use `cost.usd` for arithmetic or persistence and `cost.display` for UI; consumers do not need to format the value themselves. The Capability's typed `cost` finish extension returns the same record.
 
 ```ts [server/agents/support.ts]
-defineAgent({
-  driver: { model },
+import { defineAgent } from '@vite-hub/agent'
+import { cost } from '@vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: { model: 'zai/glm-5v-turbo' },
   capabilities: [cost()],
   hooks: {
     'agent:finish'(event) {
-      const usage = event.invocation.usage
-      const enrichedUsage = event.extensions.get('cost')
+      const usageCost = event.invocation.usage?.cost
+      if (!usageCost) return
 
-      console.log(usage?.cost, enrichedUsage?.cost)
+      console.log(usageCost.usd)
+      console.log(usageCost.display)
     },
   },
 })
+```
+
+```txt [Output]
+0.00125
+~$0.00125
 ```
 
 The canonical record keeps the full model identifier and Gateway transport separate, preserves exact USD for arithmetic, and includes a ready-to-render display value.
@@ -74,28 +75,37 @@ For streams, ViteHub waits to resolve pricing until the usage record becomes ava
 
 ## Provide application pricing
 
-Pass `pricing` when the application owns its catalog or provider mapping. The callback uses ViteHub types and does not require a provider SDK.
+Pass `pricing` when the application owns its catalog or provider mapping. Return exact USD as a decimal string; ViteHub derives the display value.
 
 ```ts [server/agents/support.ts]
-import type { AgentUsagePricing } from '@vite-hub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { cost, type AgentUsagePricing } from '@vite-hub/agent/capabilities'
 
-const pricing: AgentUsagePricing = ({ model, usage }) => {
+const pricing: AgentUsagePricing = ({ model }) => {
   if (model !== 'internal/support-model') return
 
   return {
-    usd: String((usage.totalTokens ?? 0) / 1_000_000),
+    usd: '0.00125',
     estimated: true,
     source: 'custom',
   }
 }
 
-defineAgent({
-  driver: { model },
+export default defineAgent({
+  driver: { model: 'internal/support-model' },
   capabilities: [cost({ pricing })],
 })
 ```
 
-Return `undefined` when pricing is unavailable. Pricing results are always USD; ViteHub adds `cost.display` so custom pricing and catalog pricing produce the same canonical record. Keep the callback deterministic for the supplied model and usage record because ViteHub may call it while a stream is being consumed.
+Return `undefined` when pricing is unavailable. Custom pricing receives the model, response metadata, Agent Run metadata, and token usage, and can return a provider quote or a calculation from an application-owned decimal library. Keep it deterministic for those inputs because ViteHub may call it while a stream is consumed.
+
+Import `vercelAiGatewayPricing()` when application-owned work adds usage after the Capability runs and must reprice the record with the same catalog behavior.
+
+```ts
+import { vercelAiGatewayPricing } from '@vite-hub/agent/capabilities'
+
+const pricing = vercelAiGatewayPricing()
+```
 
 ## Options
 

@@ -44,7 +44,42 @@ export default defineAgent({
 })
 ```
 
-ViteHub materializes model strings through AI Gateway and discovers `AI_GATEWAY_API_KEY` from the process or Cloudflare Server Env. Use `{ id, apiKey }` for explicit credentials, return that descriptor from the model callback for tenant-aware credentials, or pass a concrete compatible AI SDK model as the provider escape hatch. Inspection reports the model id and Gateway transport without exposing the key.
+Model strings are the normal declaration. ViteHub materializes them through AI Gateway and discovers `AI_GATEWAY_API_KEY` from the process or Cloudflare Server Env.
+
+Use a descriptor when the Agent Definition supplies the Gateway credential explicitly:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+const apiKey = process.env.SUPPORT_AI_GATEWAY_API_KEY
+if (!apiKey) throw new Error('SUPPORT_AI_GATEWAY_API_KEY is required')
+
+export default defineAgent({
+  driver: {
+    model: {
+      id: 'zai/glm-5v-turbo',
+      apiKey,
+    },
+  },
+})
+```
+
+The whole model can resolve for each Agent Invocation, so runtime configuration can select tenant-specific credentials:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent<{ gatewayKey: string }>({
+  driver: {
+    model: ({ runtimeConfig }) => ({
+      id: 'zai/glm-5v-turbo',
+      apiKey: runtimeConfig.gatewayKey,
+    }),
+  },
+})
+```
+
+Pass a concrete compatible AI SDK model when an application needs a provider SDK directly. Inspection reports a declarative model's id and Gateway transport without exposing its key.
 
 Capability Driver Contributions such as model-facing tools are filtered for the selected Agent Driver before the model call. Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown.
 
