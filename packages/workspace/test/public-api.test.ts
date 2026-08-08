@@ -10,6 +10,7 @@ import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
@@ -279,6 +280,10 @@ describe("workspace public API", () => {
 
     expect(snapshot).toHaveBeenCalledWith({ name: "docs: save draft" })
     expect(checkpoint.name).toBe("docs: save draft")
+  })
+
+  it("identifies memory workspace stores", async () => {
+    await expect(resolveWorkspaceStoreTarget(createMemoryWorkspaceStore())).resolves.toEqual({ provider: "memory" })
   })
 
   it("publishes from the writable facade without running definition sync", async () => {
