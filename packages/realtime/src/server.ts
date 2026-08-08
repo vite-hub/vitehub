@@ -209,6 +209,12 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
     syncProtocol.readSyncMessage(decoder, encoder, target, origin)
     return encoding.length(encoder) > 1 ? encoding.toUint8Array(encoder) : undefined
   }
+  const messageDecoder = decoding.createDecoder(data)
+  decoding.readVarUint(messageDecoder)
+  const syncType = decoding.readVarUint(messageDecoder)
+  // Sync step 1 only reads the document to produce a response. Avoid cloning and
+  // serializing the whole room for a frame that cannot increase its state.
+  if (syncType === 0) return apply(document)
   const candidate = new Y.Doc()
   Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document))
   apply(candidate)

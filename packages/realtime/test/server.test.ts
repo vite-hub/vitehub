@@ -585,6 +585,16 @@ describe("tiptap-markdown documents", () => {
     server.destroy()
   })
 
+  it("answers read-only sync frames without applying the room state quota", () => {
+    const document = markdownToYDoc("# Shared draft")
+    const client = new Y.Doc()
+
+    expect(applyRealtimeSyncMessage(encodeSyncStep1(client), document, "peer", 0)).toBeDefined()
+
+    client.destroy()
+    document.destroy()
+  })
+
   it("restores durable Yjs identities only for the matching Workspace version", () => {
     const original = markdownToYDoc("# Shared draft")
     const stored = {

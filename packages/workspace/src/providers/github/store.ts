@@ -218,9 +218,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
-    const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true });
-    await this.#ensure({ refresh: true });
-    return await this.#listEntries(normalizedPrefix, options);
+    return await this.#mutate(async () => {
+      const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true });
+      await this.#ensure({ refresh: true });
+      return await this.#listEntries(normalizedPrefix, options);
+    });
   }
 
   async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
@@ -232,11 +234,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
-    const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: true });
-    const file = this.#files.get(normalized);
-    if (file && !isReservedWorkspacePath(normalized)) return this.#fileEntry(file);
-    if (this.#directoryExists(normalized)) return { path: normalized, type: "directory" };
+    return await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: true });
+      const file = this.#files.get(normalized);
+      if (file && !isReservedWorkspacePath(normalized)) return this.#fileEntry(file);
+      if (this.#directoryExists(normalized)) return { path: normalized, type: "directory" };
+    });
   }
 
   async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
@@ -346,17 +350,21 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async diff(options: DiffOptions = {}): Promise<WorkspaceDiff> {
-    await this.#ensure({ refresh: true });
-    const from = options.from || this.#baseline;
-    const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }));
-    return diffSnapshots(from, to);
+    return await this.#mutate(async () => {
+      await this.#ensure({ refresh: true });
+      const from = options.from || this.#baseline;
+      const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }));
+      return diffSnapshots(from, to);
+    });
   }
 
   async getMeta(key: string): Promise<unknown> {
-    await this.#ensure({ refresh: true });
-    const file = await this.#readWorkspaceFile(this.#metaPath(key));
-    if (!file) return undefined;
-    return JSON.parse(new TextDecoder().decode(file.bytes));
+    return await this.#mutate(async () => {
+      await this.#ensure({ refresh: true });
+      const file = await this.#readWorkspaceFile(this.#metaPath(key));
+      if (!file) return undefined;
+      return JSON.parse(new TextDecoder().decode(file.bytes));
+    });
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
