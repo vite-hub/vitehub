@@ -3868,7 +3868,7 @@ export function createChannelChatRouteHandler(
       await state.connect()
       const sessionOptions = chatOptions.sessions
       const manualSessions = sessionOptions === true
-        || Boolean(sessionOptions && (sessionOptions.strategy === "manual" || (!sessionOptions.strategy && !sessionOptions.idleTimeoutMs)))
+        || Boolean(sessionOptions && (sessionOptions.strategy === "manual" || sessionOptions.strategy === "hybrid" || (!sessionOptions.strategy && !sessionOptions.idleTimeoutMs)))
       if (sessionId && manualSessions) {
         const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
         const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)

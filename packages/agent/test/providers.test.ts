@@ -2412,7 +2412,7 @@ describe("server helpers", () => {
       statusText: approvalResponse.statusText,
     } as never)
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [defineChatCapability({ sessions: true })],
+      capabilities: [defineChatCapability({ sessions: { idleTimeoutMs: 60_000, strategy: "hybrid" } })],
       driver: { run },
       invoker: {
         resolve: ({ request }) => ({ id: request?.headers.get("x-user") || "anonymous" }),
