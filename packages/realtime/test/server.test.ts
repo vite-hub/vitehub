@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { bindAwarenessIdentity, checkpointRealtimeDocument, claimAwarenessClientIds, markdownToYDoc, yDocToMarkdown } from "../src/server.ts"
+import { bindAwarenessIdentity, claimAwarenessClientIds, markdownToYDoc, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -34,29 +34,21 @@ describe("tiptap-markdown documents", () => {
     expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
   })
 
-  it("writes the live document before checkpointing Workspace history", async () => {
+  it("conditionally writes the live document for a Workspace checkpoint", async () => {
     const calls: string[] = []
     const document = markdownToYDoc("# Shared draft")
-    const checkpoint = { createdAt: new Date(0).toISOString(), entries: {}, id: "checkpoint" }
     const workspace = {
       fs: {
         async writeFile(path: string, content: string, options: { ifDigest: string }) {
           calls.push(`write:${path}:${content}:${options.ifDigest}`)
         },
       },
-      history: {
-        async checkpoint(options?: { message?: string }) {
-          calls.push(`checkpoint:${options?.message}`)
-          return checkpoint
-        },
-      },
     }
 
-    await expect(checkpointRealtimeDocument(workspace as never, "docs/page.md", document, "docs: save page", "baseline"))
-      .resolves.toBe(checkpoint)
+    await expect(writeRealtimeDocument(workspace as never, "docs/page.md", document, "baseline"))
+      .resolves.toBeUndefined()
     expect(calls).toEqual([
       "write:docs/page.md:# Shared draft:baseline",
-      "checkpoint:docs: save page",
     ])
   })
 })

@@ -68,6 +68,10 @@ interface Room {
   checkpoint?: Promise<WorkspaceSnapshot>
   document: Y.Doc
   key: string
+  pendingCheckpoint?: {
+    message: string
+    workspace: Pick<WritableWorkspaceFacade, "history">
+  }
   peers: Set<WebSocketPeer>
 }
 
@@ -93,15 +97,13 @@ export function bindAwarenessIdentity(update: Uint8Array, identity: RealtimeIden
   })
 }
 
-export async function checkpointRealtimeDocument(
-  workspace: Pick<WritableWorkspaceFacade, "fs" | "history">,
+export async function writeRealtimeDocument(
+  workspace: Pick<WritableWorkspaceFacade, "fs">,
   documentId: string,
   document: Y.Doc,
-  message: string,
   ifDigest: string | null,
-): Promise<WorkspaceSnapshot> {
+): Promise<void> {
   await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
-  return await workspace.history.checkpoint({ message })
 }
 
 function encodeSyncUpdate(update: Uint8Array): Uint8Array {
@@ -204,7 +206,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   }
 
   function evictRoom(room: Room): void {
-    if (room.peers.size > 0 || room.checkpoint) return
+    if (room.peers.size > 0 || room.checkpoint || room.pendingCheckpoint) return
     room.awareness.destroy()
     room.document.destroy()
     rooms.delete(room.key)
@@ -216,20 +218,34 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (room.checkpoint) return await room.checkpoint
 
     const checkpoint = (async () => {
-      const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
-      const message = typeof configured === "object" && configured.message
-        ? configured.message
-        : `docs: checkpoint ${documentId}`
+      let pending = room.pendingCheckpoint
+      if (!pending) {
+        const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
+        const message = typeof configured === "object" && configured.message
+          ? configured.message
+          : `docs: checkpoint ${documentId}`
+        try {
+          await writeRealtimeDocument(workspace, documentId, room.document, room.baselineDigest ?? null)
+        }
+        catch (error) {
+          if (isWorkspaceConflict(error)) {
+            throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
+          }
+          throw error
+        }
+        pending = { message, workspace }
+        room.pendingCheckpoint = pending
+      }
+
       let snapshot: WorkspaceSnapshot
       try {
-        snapshot = await checkpointRealtimeDocument(workspace, documentId, room.document, message, room.baselineDigest ?? null)
+        snapshot = await pending.workspace.history.checkpoint({ message: pending.message })
       }
       catch (error) {
-        if (isWorkspaceConflict(error)) {
-          throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
-        }
+        if (isWorkspaceConflict(error)) throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
         throw error
       }
+      if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
       room.baselineDigest = snapshot.entries[documentId]?.digest
       return snapshot
     })()
