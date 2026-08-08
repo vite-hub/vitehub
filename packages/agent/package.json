@@ -157,7 +157,6 @@
     "@chat-adapter/discord": "catalog:chat",
     "@github-tools/eve-extension": "0.3.0",
     "@types/node": "catalog:tooling",
-    "@vercel/connect": "0.6.1",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
