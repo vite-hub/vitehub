@@ -556,6 +556,46 @@ describe("realtime server handler", () => {
     document.destroy()
   })
 
+  it("preserves the baseline when the canonical reread never stabilizes", async () => {
+    let unstable = false
+    let stats = 0
+    const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
+      if (options.ifDigest !== "baseline") throw new Error(`stale digest: ${options.ifDigest}`)
+      if (writeFile.mock.calls.length > 1) throw new Error("external Workspace change")
+      unstable = true
+      return "page.md"
+    })
+    const workspace = {
+      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
+      fs: {
+        exists: vi.fn().mockResolvedValue(true),
+        readFile: vi.fn().mockResolvedValue("# External change"),
+        stat: vi.fn(async () => ({ digest: unstable ? `external-${++stats}` : "baseline" })),
+        writeFile,
+      },
+      history: { checkpoint: vi.fn() },
+    }
+    serverMocks.useWorkspace.mockReturnValue(workspace)
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const document = new Y.Doc()
+    websocket.crossws.open(peer)
+    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(document) })
+    applyRealtimeSyncMessage(peer.send.mock.calls.at(-1)![0], document, "server")
+    const request = () => new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(document)).buffer,
+      method: "POST",
+    })
+
+    expect((await handler.fetch(request())).status).toBe(409)
+    expect((await handler.fetch(request())).status).toBe(500)
+    expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", "baseline"])
+    document.destroy()
+  })
+
   it("replaces durable room state when the Workspace baseline changed", async () => {
     const stale = markdownToYDoc("# Stale document")
     const exec = vi.fn((query: string) => ({

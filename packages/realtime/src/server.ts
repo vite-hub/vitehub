@@ -649,15 +649,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const message = typeof configured === "object" && configured.message
           ? configured.message
           : `docs: checkpoint ${documentId}`
-        let content: string
-        let digest: string
+        let path: string
         try {
-          const path = await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
-          const written = await readRealtimeWorkspaceDocument(workspace, workspace, path)
-          if (!written.baselineDigest) throw new Error("Realtime checkpoints require Workspace file digests.")
-          content = written.markdown
-          digest = written.baselineDigest
-          pending = { content, digest, message, path, state: Uint8Array.from(state), submittedDocument, workspace }
+          path = await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
         }
         catch (error) {
           submittedDocument.destroy()
@@ -670,6 +664,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
           room.durableReady = !!room.sql || !!room.baselineDigest
           persistRoom(room)
+          throw error
+        }
+        try {
+          const written = await readRealtimeWorkspaceDocument(workspace, workspace, path)
+          if (!written.baselineDigest) throw new Error("Realtime checkpoints require Workspace file digests.")
+          pending = { content: written.markdown, digest: written.baselineDigest, message, path, state: Uint8Array.from(state), submittedDocument, workspace }
+        }
+        catch (error) {
+          submittedDocument.destroy()
           throw error
         }
         room.pendingCheckpoint = pending
