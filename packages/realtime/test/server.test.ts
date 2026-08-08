@@ -203,6 +203,30 @@ describe("realtime server handler", () => {
     second.destroy()
   })
 
+  it("accepts the initial sync response followed by the first update", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const server = new Y.Doc()
+    const client = new Y.Doc()
+    const syncStep2 = applyRealtimeSyncMessage(encodeSyncStep1(client), server, "server")!
+    client.getMap("edits").set("first", true)
+
+    response.crossws.message(peer, { uint8Array: () => syncStep2 })
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
+
+    expect(peer.close).not.toHaveBeenCalled()
+    server.destroy()
+    client.destroy()
+  })
+
   it("treats an @workspace path as a document without the events selector", async () => {
     const readFile = vi.fn().mockResolvedValue("# Workspace document")
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({

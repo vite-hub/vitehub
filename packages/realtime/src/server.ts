@@ -844,7 +844,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         if (messageType !== messageSync) return
         try {
           const syncType = decoding.readVarUint(decoder)
-          if (syncType !== 0) {
+          if (syncType === syncProtocol.messageYjsUpdate) {
             const now = Date.now()
             const previous = peerSyncUpdateAt.get(peer)
             if (previous !== undefined && now - previous < syncUpdateIntervalMs) {
