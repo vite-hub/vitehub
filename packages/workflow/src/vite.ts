@@ -1,10 +1,11 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
+import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
 interface WorkflowNitroConfigOptions {
@@ -57,9 +58,15 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 
 export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin {
   const internalOptions = options as InternalWorkflowModuleOptions | undefined
+  let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = options
   let serverDirs: string[] | undefined
+
+  function providerRuntimeImportAliases(provider: "cloudflare" | "vercel"): Record<string, string> {
+    const database = getProviderRuntimeModule(providerOutput, "database", provider)
+    return database ? { "@vite-hub/database/drizzle": database } : {}
+  }
 
   return {
     name: "@vite-hub/workflow/vite",
@@ -69,6 +76,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     },
     configResolved(config) {
       resolved = config
+      providerOutput = useComposedProviderOutput(config)
       workflow = config.workflow ?? workflow
     },
     configEnvironment(name, config) {
@@ -108,6 +116,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         providerImportAliases: {
           ...resolveStringAliases(resolved),
           ...internalOptions?.providerImportAliases,
+        },
+        providerRuntimeImportAliases: {
+          cloudflare: providerRuntimeImportAliases("cloudflare"),
+          vercel: providerRuntimeImportAliases("vercel"),
         },
         rootDir: resolved.root,
         serverDirs,

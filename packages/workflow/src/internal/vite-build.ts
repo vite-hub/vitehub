@@ -224,6 +224,7 @@ interface GenerateProviderOutputsOptions {
   clientOutDir: string
   importBase?: string
   providerImportAliases?: Record<string, string>
+  providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
@@ -801,13 +802,19 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
-    ? createCloudflareOutput(options.rootDir, artifacts, options.providerImportAliases)
+    ? createCloudflareOutput(options.rootDir, artifacts, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.cloudflare,
+      })
     : undefined
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases, options.serverFunctionName)
+    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.vercel,
+      }, options.serverFunctionName)
     : undefined
   const writeOutputs = async () => {
     await writeProviderDeploymentOutputs({
@@ -819,7 +826,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
       ...(vercelOutput ? { vercel: vercelOutput } : {}),
     })
-    if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, options.providerImportAliases)
+    if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
+      ...options.providerImportAliases,
+      ...options.providerRuntimeImportAliases?.vercel,
+    })
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()
