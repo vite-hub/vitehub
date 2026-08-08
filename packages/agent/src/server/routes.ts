@@ -3872,7 +3872,10 @@ export function createChannelChatRouteHandler(
       if (sessionId && manualSessions) {
         const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
         const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)
-        if (triggerInput.session?.action === "new" && selectedSessionId) {
+        if (triggerInput.session?.action === "new") {
+          if (!selectedSessionId || selectedSessionId === manualId) {
+            selectedSessionId = `${manualId}:manual:${randomToken()}`
+          }
           await state.set(boundaryKey, selectedSessionId, agentChatApprovalTtlMs)
         }
         else {
@@ -3884,6 +3887,9 @@ export function createChannelChatRouteHandler(
         : sessionId
       if (approvalSessionId) {
         const persistApprovedTools = invoker.kind !== "anonymous"
+        if (!persistApprovedTools && triggerInput.messages.some(message => message.parts?.some(part => uiApprovalPart(part)?.record.state === "approval-responded"))) {
+          throw createRouteBodyError("Agent chat approval responses require an authenticated invoker.")
+        }
         const authorized = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages, persistApprovedTools)
         const approvedTools = persistApprovedTools
           ? await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, approvalSessionId))

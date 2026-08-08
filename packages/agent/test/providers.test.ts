@@ -2521,6 +2521,25 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       await expect(response.text()).resolves.toContain("fresh")
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
+
+      const approvalResponse = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          id: "portal-thread",
+          messages: [{
+            parts: [{
+              approval: { approved: true, id: "shared-approval" },
+              state: "approval-responded",
+              type: "dynamic-tool",
+            }],
+            role: "assistant",
+          }],
+          session: { id: "session-1" },
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }), { agentName: "support", state })
+      expect(approvalResponse.status).toBe(400)
+      expect(run).toHaveBeenCalledOnce()
     }
     finally {
       await state.disconnect()
