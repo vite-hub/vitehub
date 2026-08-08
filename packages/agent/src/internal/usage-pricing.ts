@@ -113,7 +113,7 @@ function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undef
   addModelIdCandidate(candidates, modelId)
 
   const unscoped = modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId
-  const isAnthropic = modelId.startsWith("anthropic/") || unscoped.startsWith("claude-")
+  const isAnthropic = modelId.startsWith("anthropic/") || (!modelId.includes("/") && unscoped.startsWith("claude-"))
   if (isAnthropic) {
     addModelIdCandidate(candidates, `anthropic/${unscoped}`)
     addModelIdCandidate(candidates, `anthropic/${normalizeAnthropicGatewayModelId(unscoped)}`)

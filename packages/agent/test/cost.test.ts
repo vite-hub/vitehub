@@ -327,6 +327,26 @@ describe("cost Capability", () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it("does not discard an explicit model scope for Anthropic pricing fallback", async () => {
+    const fetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "anthropic/claude-custom",
+        pricing: {
+          input: "0.000001",
+          output: "0.000002",
+        },
+      }],
+    }))
+    const { vercelAiGatewayPricing } = await import("../src/capabilities.ts")
+    const pricing = vercelAiGatewayPricing({ fetch })
+
+    await expect(pricing({
+      model: "custom-provider/claude-custom",
+      usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+    })).resolves.toBeUndefined()
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("enriches canonical usage without requiring a finish hook", async () => {
     const { cost } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
