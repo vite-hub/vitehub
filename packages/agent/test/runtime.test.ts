@@ -5838,6 +5838,20 @@ describe("agent message protocol", () => {
     })).toThrow(error)
   })
 
+  it("rejects serial concurrency with durable message delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    expect(() => defineAgent({
+      channels: { telegram: telegram({ adapter: () => ({}) as never }) },
+      driver: { run: () => "ok" },
+      messages: {
+        concurrency: "serial",
+        delivery: "manual",
+        durable: true,
+      },
+    })).toThrow("messages.durable cannot be combined with concurrency: \"serial\"")
+  })
+
   it("rejects invalid message timeouts", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -10700,6 +10714,91 @@ describe("agent message protocol", () => {
         result: false,
         status: "completed",
       })
+    })
+
+    it("preserves only the request URL across Agent Workflows", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({ driver: { run: context => ({
+        method: context.request?.method,
+        tenant: context.request?.headers.get("x-tenant"),
+        url: context.request?.url,
+      }) } })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "request-url" },
+        memo: vi.fn(),
+        request: new Request("https://calories.example/messages?source=telegram", {
+          headers: { "x-tenant": "acme" },
+          method: "POST",
+        }),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("request-url", run.id)).resolves.toMatchObject({
+        result: {
+          method: "GET",
+          tenant: null,
+          url: "https://calories.example/messages?source=telegram",
+        },
+        status: "completed",
+      })
+    })
+
+    it("materializes a lazy message attachment before Workflows", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: context => context.messages[0]?.parts[0] },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-attachments" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {
+        message: {
+          id: "message-1",
+          parts: [{ fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" }],
+          role: "user",
+        },
+      }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("portable-attachments", run.id)).resolves.toMatchObject({
+        result: {
+          data: new Uint8Array([1, 2, 3]),
+          mediaType: "image/jpeg",
+          type: "image",
+        },
+        status: "completed",
+      })
+    })
+
+    it("rejects required Workflow delivery instead of falling back inline", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
+      const run = vi.fn(() => "inline")
+      const agent = defineAgent({ driver: { run } })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        context: { [requireAgentWorkflowContextKey]: true },
+        prompt: "hello",
+      })).rejects.toThrow("requires this Agent invocation to start a Workflow")
+      expect(run).not.toHaveBeenCalled()
     })
 
     it("reconstructs Agent Run Events inside workflow execution", async () => {

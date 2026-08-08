@@ -1570,6 +1570,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   concurrency?: AgentMessageConcurrency
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
+  durable?: boolean
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   filter?: AgentMessageFilter<TRuntimeConfig>

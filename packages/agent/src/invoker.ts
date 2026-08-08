@@ -166,6 +166,37 @@ export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
   }
 }
 
+export function hasResolvedAgentInvokerInput(input: AgentRunInput): boolean {
+  return (input.context as { [resolvedAgentInvokerInputKey]?: unknown } | undefined)?.[resolvedAgentInvokerInputKey] === true
+}
+
+export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
+  if (!hasResolvedAgentInvokerInput(input)) return input
+  const context = contextRecord(input.context)
+  const invoker = normalizeAgentInvoker(context[agentInvokerContextKey] ?? context[agentActorContextKey])
+  const portableMeta = invoker.meta === undefined
+    ? undefined
+    : JSON.parse(JSON.stringify(invoker.meta, (_key, value) => {
+        return typeof value === "bigint" || typeof value === "function" || typeof value === "symbol" ? undefined : value
+      })) as Record<string, unknown>
+  const portableInvoker = {
+    ...invoker,
+    ...(portableMeta ? { meta: portableMeta } : {}),
+  }
+  return {
+    ...input,
+    context: {
+      ...context,
+      [agentActorContextKey]: portableInvoker,
+      [agentInvokerContextKey]: portableInvoker,
+    },
+  }
+}
+
+export function restoreResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
+  return { ...input, context: { ...input.context, [resolvedAgentInvokerInputKey]: true } }
+}
+
 function selectedProfileId(inputContext: object | undefined): string | undefined {
   const context = contextRecord(inputContext)
   for (const key of profileSelectorKeys) {

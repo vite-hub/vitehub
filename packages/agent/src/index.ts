@@ -43,10 +43,12 @@ import {
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
-import type { AgentMessagePhase } from "./messages.ts"
+import { materializeMessageAttachmentData, type AgentMessagePhase } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
+  hasResolvedAgentInvokerInput,
   normalizeAgentInvokerOptions,
+  portableResolvedAgentInvokerInput,
   resolveAgentInvoker,
 } from "./invoker.ts"
 import {
@@ -55,7 +57,7 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
-import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, requireAgentWorkflowContextKey, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
@@ -614,6 +616,8 @@ type AgentDefinitionWithBaseResolve<
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   capabilities?: Record<string, false>
   input: AgentRunInput<CALL_OPTIONS>
+  requestUrl?: string
+  resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeContext["runtime"]
   runtimeConfig?: AgentRuntimeConfig
@@ -738,14 +742,17 @@ async function runAgentAsWorkflow<
   const disabledCapabilities = Object.fromEntries(
     Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
   ) as Record<string, false>
-  // ponytail: Host capability handles and registries cannot cross a Workflow payload without losing identity.
+  if (input.context?.[requireAgentWorkflowContextKey] === true && capabilityNames.length) return undefined
   if ("discoveryDefault" in binding && capabilityNames.length) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
-  const workflowInput = { ...input }
+  const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
+  if (workflowInput.messages) workflowInput.messages = await materializeMessageAttachmentData(workflowInput.messages)
+  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await materializeMessageAttachmentData([workflowInput.message])
+  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await materializeMessageAttachmentData(workflowInput.prompt)
   const inheritedRun = options.fresh && context.run
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
@@ -753,6 +760,9 @@ async function runAgentAsWorkflow<
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
     input: workflowInput,
+    // Headers and bodies may contain webhook credentials and remain process-local by design.
+    ...(context.request ? { requestUrl: context.request.url } : {}),
+    ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(inheritedRun ? { run: inheritedRun } : {}),
@@ -4025,6 +4035,9 @@ export async function runAgent<
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflow) return workflow.run
+  if (input.context?.[requireAgentWorkflowContextKey] === true) {
+    throw new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+  }
   return await runAgentInline(agent, invocationContext, input)
 }
 

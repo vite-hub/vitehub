@@ -5,6 +5,7 @@ import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 
 import type {
   AgentHostIdentity,
@@ -32,6 +33,8 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
   capabilities?: Record<string, false>
   input?: AgentRunInput<CALL_OPTIONS>
+  requestUrl?: string
+  resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   runtime?: AgentRuntimeName
   runtimeConfig?: AgentRuntimeConfig
@@ -74,6 +77,7 @@ export async function runAgentWorkflowDefinition<
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
     ...(payload.capabilities ? { capabilities: payload.capabilities } : {}),
     ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
+    ...(payload.requestUrl ? { request: new Request(payload.requestUrl) } : {}),
     ...(runId
       ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } }
       : {}),
@@ -85,6 +89,8 @@ export async function runAgentWorkflowDefinition<
   return await runAgentInline(
     agent,
     runtimeContext,
-    (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
+    payload.resolvedInvoker
+      ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
+      : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
   )
 }

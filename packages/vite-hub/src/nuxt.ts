@@ -54,6 +54,12 @@ type QueueNitroConfigHandler = (options: {
   serverDirs?: string[]
 }) => Promise<Record<string, unknown>>
 
+type WorkflowNitroConfigHandler = (options: {
+  nitro: Record<string, unknown>
+  projectRoot: string
+  serverDirs?: string[]
+}) => Promise<Record<string, unknown>>
+
 function flattenPlugins(options: readonly unknown[]): Plugin[] {
   const plugins: Plugin[] = []
   for (const option of options) {
@@ -76,6 +82,16 @@ function queueNitroConfigHandler(plugin: Plugin): QueueNitroConfigHandler | unde
       }
     }
   }).vitehub?.queue?.createNitroConfig
+}
+
+function workflowNitroConfigHandler(plugin: Plugin): WorkflowNitroConfigHandler | undefined {
+  return (plugin as Plugin & {
+    vitehub?: {
+      workflow?: {
+        createNitroConfig?: WorkflowNitroConfigHandler
+      }
+    }
+  }).vitehub?.workflow?.createNitroConfig
 }
 
 function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
@@ -137,6 +153,16 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
         nitro: config.nitro || {},
         projectRoot,
         root: projectRoot,
+        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      })
+    }
+
+    const createWorkflowNitroConfig = workflowNitroConfigHandler(plugin)
+    if (createWorkflowNitroConfig) {
+      const projectRoot = nuxt.options.rootDir || process.cwd()
+      config.nitro = await createWorkflowNitroConfig({
+        nitro: config.nitro || {},
+        projectRoot,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
       })
     }

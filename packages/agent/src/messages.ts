@@ -166,6 +166,23 @@ export function memoizeMessageAttachmentData(messages: Message[]): Message[] {
   return changed ? memoized : messages
 }
 
+export async function materializeMessageAttachmentData(messages: Message[]): Promise<Message[]> {
+  let changed = false
+  const materialized = await Promise.all(messages.map(async (message) => {
+    let messageChanged = false
+    const parts = await Promise.all(message.parts.map(async (part) => {
+      if (!isAttachmentPart(part) || typeof part.fetchData !== "function") return part
+      changed = true
+      messageChanged = true
+      const { fetchData: _fetchData, ...resolved } = part
+      const data = await resolveAttachmentData(part)
+      return data === undefined ? resolved : { ...resolved, data }
+    }))
+    return messageChanged ? { ...message, parts } : message
+  }))
+  return changed ? materialized : messages
+}
+
 export function attachmentStringBytes(value: string, mediaType: string): Uint8Array {
   const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
   if (dataUrl) {

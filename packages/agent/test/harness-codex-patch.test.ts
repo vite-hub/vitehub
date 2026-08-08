@@ -103,7 +103,10 @@ describe("ViteHub Codex harness", () => {
     try {
       await build({
         bundle: true,
-        define: { __VITEHUB_CODEX_BRIDGE_ASSETS__: JSON.stringify(embeddedAssets) },
+        define: {
+          __VITEHUB_CODEX_BRIDGE_ASSETS__: JSON.stringify(embeddedAssets),
+          "import.meta.url": "undefined",
+        },
         format: "esm",
         outfile: output,
         platform: "node",
