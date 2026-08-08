@@ -203,7 +203,7 @@ describe("realtime server handler", () => {
     second.destroy()
   })
 
-  it("accepts the initial sync response followed by the first update", async () => {
+  it("accepts only the initial sync response outside the update throttle", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
@@ -223,6 +223,8 @@ describe("realtime server handler", () => {
     response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
 
     expect(peer.close).not.toHaveBeenCalled()
+    response.crossws.message(peer, { uint8Array: () => syncStep2 })
+    expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
     server.destroy()
     client.destroy()
   })

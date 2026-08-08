@@ -380,6 +380,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
   const peerAwarenessQueryAt = new WeakMap<WebSocketPeer, number>()
   const peerAwarenessUpdateAt = new WeakMap<WebSocketPeer, number>()
+  const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
   const peerSyncUpdateAt = new WeakMap<WebSocketPeer, number>()
   const workspaceCheckpointQueues = new Map<string, Promise<void>>()
 
@@ -849,7 +850,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         if (messageType !== messageSync) return
         try {
           const syncType = decoding.readVarUint(decoder)
-          if (syncType === syncProtocol.messageYjsUpdate) {
+          const initialSyncStep2 = syncType === syncProtocol.messageYjsSyncStep2 && !peerInitialSyncStep2.has(peer)
+          if (initialSyncStep2) peerInitialSyncStep2.add(peer)
+          else if (syncType === syncProtocol.messageYjsSyncStep2 || syncType === syncProtocol.messageYjsUpdate) {
             const now = Date.now()
             const previous = peerSyncUpdateAt.get(peer)
             if (previous !== undefined && now - previous < syncUpdateIntervalMs) {
