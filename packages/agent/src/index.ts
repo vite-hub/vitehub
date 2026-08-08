@@ -739,7 +739,7 @@ async function runAgentAsWorkflow<
   const disabledCapabilities = Object.fromEntries(
     Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
   ) as Record<string, false>
-  const hasNonportableCapabilities = !hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)
+  const hasNonportableCapabilities = !await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 

@@ -123,6 +123,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
   const serverDirs = nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined
   const generatedRoot = join(nuxt.options.buildDir, "vitehub")
   let config = mergeConfig({
+    plugins,
     resolve: {
       alias: nuxt.options.alias,
     },

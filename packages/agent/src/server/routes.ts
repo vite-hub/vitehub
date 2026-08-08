@@ -889,7 +889,7 @@ async function hasActiveWorkflowRuntime(
   requireAvailable = false,
 ): Promise<boolean> {
   if (!isRecord(agent) || !isRecord(agent.runtime) || agent.runtime.kind !== "workflow") return false
-  if (!hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)) return false
+  if (!await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)) return false
   if (agent.runtime.discoveryDefault !== true && !requireAvailable) return true
   if (agent.runtime.discoveryDefault === true && !context.agentIdentity) return false
   try {

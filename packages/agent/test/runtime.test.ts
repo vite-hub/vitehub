@@ -10789,8 +10789,10 @@ describe("agent message protocol", () => {
     it("reconstructs Blob and Database tools inside required Workflows", async () => {
       const blobList = vi.fn(async () => ({ blobs: [{ pathname: "workflow/input.jpg" }] }))
       const dbSchema = vi.fn(async () => ({ meals: true }))
-      vi.doMock("@vite-hub/blob", () => ({ blob: { list: blobList } }))
-      vi.doMock("@vite-hub/database/drizzle", () => ({ agentDb: { schema: dbSchema } }))
+      const blobPrimitive = { list: blobList }
+      const databasePrimitive = { schema: dbSchema }
+      vi.doMock("@vite-hub/blob", () => ({ blob: blobPrimitive }))
+      vi.doMock("@vite-hub/database/drizzle", () => ({ agentDb: databasePrimitive }))
       const { blob, db } = await import("../src/capabilities.ts")
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
@@ -10809,7 +10811,7 @@ describe("agent message protocol", () => {
         })
         const run = await runAgent(agent, {
           agentIdentity: { name: "portable-storage" },
-          capabilities: { blob: {}, db: {} },
+          capabilities: { blob: blobPrimitive, db: databasePrimitive },
           memo: vi.fn(),
           runtime: "vercel",
           waitUntil: promise => waitUntilTasks.push(promise),
@@ -10833,6 +10835,13 @@ describe("agent message protocol", () => {
         vi.doUnmock("@vite-hub/blob")
         vi.doUnmock("@vite-hub/database/drizzle")
       }
+    })
+
+    it("does not treat caller-supplied Blob and Database handles as Workflow-portable", async () => {
+      const { hasOnlyPortableAgentWorkflowCapabilities } = await import("../src/internal/final-channel-output.ts")
+
+      await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
+      await expect(hasOnlyPortableAgentWorkflowCapabilities({ db: {} })).resolves.toBe(false)
     })
 
     it("rejects required Workflow delivery instead of falling back inline", async () => {

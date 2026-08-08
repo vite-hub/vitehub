@@ -610,6 +610,17 @@ describe("agent Vite plugin", () => {
         "const registry = {}\nexport default registry\n",
         "C:\\app\\.vitehub\\workflow\\registry.mjs",
       )
+      const nitroPlugin = hubAgent()
+      const nitroConfig = nitroPlugin.config as (config: Record<string | symbol, unknown>, environment: { command: "build", mode: string }) => Promise<unknown>
+      await nitroConfig({
+        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }],
+        root,
+      }, { command: "build", mode: "production" } as never)
+      const nitroRegistry = nitroPlugin.vitehub?.agent?.transformWorkflowRegistry(
+        "const registry = {}\nexport default registry\n",
+        join(root, ".vitehub", "workflow", "registry.mjs"),
+      )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
       expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
@@ -619,6 +630,7 @@ describe("agent Vite plugin", () => {
       expect(registry).not.toContain("vitehubEmail")
       expect(providerRegistry).toBe(registry)
       expect(windowsProviderRegistry).toBe(registry)
+      expect(nitroRegistry).toBe(registry)
     }
     finally {
       await rm(root, { force: true, recursive: true })

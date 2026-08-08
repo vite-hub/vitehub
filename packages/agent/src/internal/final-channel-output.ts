@@ -5,6 +5,24 @@ export const responseTitleFallbackContextKey = "vitehub.title.response-fallback"
 
 const portableAgentWorkflowCapabilities = new Set(["blob", "db"])
 
-export function hasOnlyPortableAgentWorkflowCapabilities(capabilities: Record<string, unknown> | undefined): boolean {
-  return Object.entries(capabilities || {}).every(([name, capability]) => capability === false || portableAgentWorkflowCapabilities.has(name))
+export function isPortableAgentWorkflowCapability(name: string): boolean {
+  return portableAgentWorkflowCapabilities.has(name)
+}
+
+export async function hasOnlyPortableAgentWorkflowCapabilities(capabilities: Record<string, unknown> | undefined): Promise<boolean> {
+  for (const [name, capability] of Object.entries(capabilities || {})) {
+    if (capability === false) continue
+    if (!isPortableAgentWorkflowCapability(name)) return false
+    try {
+      const { loadAgentWorkflowBlobPrimitive, loadAgentWorkflowDatabasePrimitive } = await import("./workflow-runtime-loaders.ts")
+      const primitive = name === "blob"
+        ? await loadAgentWorkflowBlobPrimitive()
+        : await loadAgentWorkflowDatabasePrimitive()
+      if (capability !== primitive) return false
+    }
+    catch {
+      return false
+    }
+  }
+  return true
 }
