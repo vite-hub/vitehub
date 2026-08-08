@@ -284,6 +284,15 @@ export function resolveChatSessionId(
   return boundary ? `${manualId ? `${manualId}:` : ""}idle:${boundary}` : manualId
 }
 
+export function resolveChatSessionBaseId(
+  messages: UIMessageLike[],
+  sessions: AgentChatOptions["sessions"],
+  triggerSession?: AgentChatMessageTriggerInput["session"],
+): string | undefined {
+  const options = normalizeSessionOptions(sessions)
+  return triggerSession?.id || (options ? uiMessageSessionId(messages.at(-1) || {}, options.metadataKey) : undefined)
+}
+
 function selectManualSession(messages: UIMessageLike[], sessions: AgentChatSessionOptions, triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
   if (triggerSession?.action === "new") return messages.slice(-1)
   const selectedId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, sessions.metadataKey)

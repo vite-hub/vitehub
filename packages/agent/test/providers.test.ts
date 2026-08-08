@@ -2412,7 +2412,7 @@ describe("server helpers", () => {
       statusText: approvalResponse.statusText,
     } as never)
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [defineChatCapability()],
+      capabilities: [defineChatCapability({ sessions: true })],
       driver: { run },
       invoker: {
         resolve: ({ request }) => ({ id: request?.headers.get("x-user") || "anonymous" }),
@@ -2438,7 +2438,7 @@ describe("server helpers", () => {
               role: "assistant",
             }, ...(includeLaterMessage ? [{ id: "user-2", parts: [{ text: "continue", type: "text" }], role: "user" }] : [])]
           : [{ id: "user-1", parts: [{ text: "update the file", type: "text" }], role: "user" }],
-        session: { id: sessionId },
+        session: { action: approvalId ? "continue" : "new", id: sessionId },
       }),
       headers: { "content-type": "application/json", "x-user": user },
       method: "POST",

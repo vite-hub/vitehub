@@ -429,6 +429,31 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain(`() => import("github-tools")`)
   })
 
+  it("rejects canonical eager imports beside an aliased mount", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(
+        specifier === "github-tools" ? "@github-tools/eve-extension" : specifier,
+      )),
+      plugins: [],
+      root,
+    })
+
+    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse: parseAst },
+      [
+        `import { defineAgent } from "@vite-hub/agent"`,
+        `import github from "github-tools"`,
+        `import { defineConfig } from "@github-tools/eve-extension"`,
+        `export default defineAgent({ capabilities: [github(defineConfig({}))] })`,
+      ].join("\n"),
+      join(root, "server", "agents", "reviewer.ts"),
+    )).rejects.toThrow("cannot be imported separately as a runtime value")
+  })
+
   it("includes package scopes when extension basenames collide", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `

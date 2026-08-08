@@ -9,7 +9,7 @@ import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } 
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
-import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatSessionId, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatSessionBaseId, resolveChatSessionId, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
@@ -3589,6 +3589,10 @@ function agentChatApprovedToolsKey(invokerId: string, sessionId: string): string
   return `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:eve:approved-tools`
 }
 
+function agentChatSessionBoundaryKey(invokerId: string, sessionId: string, manualId: string): string {
+  return `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:manual:${encodeURIComponent(manualId)}:boundary`
+}
+
 function agentChatConsumedApprovalKey(invokerId: string, sessionId: string, approvalId: string): string {
   return `${agentChatApprovalKey(invokerId, sessionId, approvalId)}:consumed`
 }
@@ -3854,10 +3858,7 @@ export function createChannelChatRouteHandler(
         invoker,
       }
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
-      const selectedSessionId = resolveChatSessionId(triggerInput.messages, chatOptions.sessions, triggerInput.session)
-      const approvalSessionId = sessionId && selectedSessionId
-        ? `${sessionId}:chat-session:${selectedSessionId}`
-        : sessionId
+      let selectedSessionId = resolveChatSessionId(triggerInput.messages, chatOptions.sessions, triggerInput.session)
       const registration = {
         channelId: routeOptions.channelId || "http",
         id: routeOptions.channelId || "http",
@@ -3865,6 +3866,22 @@ export function createChannelChatRouteHandler(
       }
       const { state } = await resolveChatState(getAgentChatOptions(agent), context, registration, handlerOptions)
       await state.connect()
+      const sessionOptions = chatOptions.sessions
+      const manualSessions = sessionOptions === true
+        || Boolean(sessionOptions && (sessionOptions.strategy === "manual" || (!sessionOptions.strategy && !sessionOptions.idleTimeoutMs)))
+      if (sessionId && manualSessions) {
+        const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
+        const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)
+        if (triggerInput.session?.action === "new" && selectedSessionId) {
+          await state.set(boundaryKey, selectedSessionId, agentChatApprovalTtlMs)
+        }
+        else {
+          selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
+        }
+      }
+      const approvalSessionId = sessionId && selectedSessionId
+        ? `${sessionId}:chat-session:${selectedSessionId}`
+        : sessionId
       if (approvalSessionId) {
         const persistApprovedTools = invoker.kind !== "anonymous"
         const authorized = await authorizeAgentChatApprovals(state, invoker.id, approvalSessionId, triggerInput.messages, persistApprovedTools)

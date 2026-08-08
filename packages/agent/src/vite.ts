@@ -1256,15 +1256,19 @@ export async function transformEveExtensionCapabilities(
     extension.declaration.start < first.declaration.start ? extension : first
   )
   const replacements: Array<{ end: number, start: number, value: string }> = []
+  const runtimeImportIdentities = new Map<PositionedNode, string>()
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isPositionedNode(statement) || statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+    const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : []
+    if (!specifiers.some(specifier => !isPositionedNode(specifier) || specifier.importKind !== "type")) continue
+    const source = statement.source
+    if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") continue
+    const identity = await resolveExtension(source.value)
+    if (identity) runtimeImportIdentities.set(statement, typeof identity === "string" ? identity : source.value)
+  }
   for (const extension of extensions) {
-    const separateRuntimeImport = (Array.isArray(program.body) ? program.body : []).find((statement) => {
-      if (!isPositionedNode(statement) || statement.type !== "ImportDeclaration" || statement === extension.declaration) return false
-      const source = statement.source
-      if (!isPositionedNode(source) || source.type !== "Literal" || source.value !== extension.source) return false
-      if (statement.importKind === "type") return false
-      return (Array.isArray(statement.specifiers) ? statement.specifiers : [])
-        .some(specifier => !isPositionedNode(specifier) || specifier.importKind !== "type")
-    })
+    const separateRuntimeImport = [...runtimeImportIdentities]
+      .find(([statement, identity]) => statement !== extension.declaration && identity === extension.identity)?.[0]
     if (separateRuntimeImport) {
       throw new Error(`[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot be imported separately as a runtime value.`)
     }
