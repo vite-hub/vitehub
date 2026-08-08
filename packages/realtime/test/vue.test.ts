@@ -7,6 +7,8 @@ const providers = vi.hoisted(() => [] as Array<{
   connect: ReturnType<typeof vi.fn>
   destroy: ReturnType<typeof vi.fn>
   disconnect: ReturnType<typeof vi.fn>
+  statusHandler?: (event: { status: string }) => void
+  syncHandler?: (value: boolean) => void
   ws: { send: ReturnType<typeof vi.fn> }
 }>)
 
@@ -30,10 +32,12 @@ vi.mock("y-websocket", () => ({
     destroy = vi.fn()
     disconnect = vi.fn(() => this.wsconnected = false)
     messageHandlers: unknown[] = []
-    on = vi.fn((event: string, handler: (event: { status: string }) => void) => {
-      if (event === "status") this.statusHandler = handler
+    on = vi.fn((event: string, handler: (value: unknown) => void) => {
+      if (event === "status") this.statusHandler = handler as (event: { status: string }) => void
+      if (event === "sync") this.syncHandler = handler as (value: boolean) => void
     })
     statusHandler?: (event: { status: string }) => void
+    syncHandler?: (value: boolean) => void
     ws = { OPEN: 1, readyState: 1, send: vi.fn() }
     wsconnected = false
 
@@ -81,6 +85,31 @@ describe("useRealtimeTiptap", () => {
     scope.stop()
     expect(providers[0]!.destroy).toHaveBeenCalledOnce()
     expect(providers[2]!.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("ignores lifecycle events from replaced document providers", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const documentId = ref("first.md")
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", documentId))!
+    const first = providers[1]!
+
+    first.statusHandler?.({ status: "connected" })
+    first.syncHandler?.(true)
+    expect(realtime.status.value).toBe("connected")
+    expect(realtime.synced.value).toBe(true)
+
+    documentId.value = "second.md"
+    await nextTick()
+    const second = providers[2]!
+    second.statusHandler?.({ status: "connected" })
+    second.syncHandler?.(true)
+    first.statusHandler?.({ status: "disconnected" })
+    first.syncHandler?.(false)
+
+    expect(realtime.status.value).toBe("connected")
+    expect(realtime.synced.value).toBe(true)
+    scope.stop()
   })
 
   it("keeps checkpoint pending state honest across overlapping failures", async () => {
