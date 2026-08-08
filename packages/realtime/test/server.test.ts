@@ -104,6 +104,14 @@ describe("realtime awareness", () => {
     expect(owners.has(1024)).toBe(false)
   })
 
+  it("reports newly claimed awareness clients for rollback", () => {
+    const owners = new Map<number, object>()
+    const peer = {}
+
+    expect(claimAwarenessClientIds(owners, peer, [1, 2])).toEqual([1, 2])
+    expect(claimAwarenessClientIds(owners, peer, [2, 3])).toEqual([3])
+  })
+
   it("reads the clients represented by a Yjs awareness update", () => {
     const document = new Y.Doc()
     const awareness = new awarenessProtocol.Awareness(document)
