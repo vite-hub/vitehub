@@ -67,7 +67,7 @@ describe("Eve extension capabilities", () => {
     )
 
     expect(transformed).toContain(`from "@vite-hub/agent/eve"`)
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`import github from`)
 
     await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
@@ -127,7 +127,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`import github from`)
   })
 
@@ -165,7 +165,7 @@ describe("Eve extension capabilities", () => {
       async () => true,
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`import github from`)
   })
 
@@ -230,7 +230,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("detects Eve extensions in spread-composed Agent Definition options", async () => {
@@ -255,7 +255,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("does not lower capabilities that a later unresolved spread can override", async () => {
@@ -293,7 +293,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("derives the Eve namespace from the package instead of its local alias", async () => {
@@ -317,7 +317,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`"@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`"@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`"$github"`)
   })
 
@@ -333,8 +333,8 @@ describe("Eve extension capabilities", () => {
       async specifier => specifier.endsWith("/foo-extension"),
     )
 
-    expect(transformed).toContain('EveExtensionCapability("@one/foo-extension", "one-foo"')
-    expect(transformed).toContain('EveExtensionCapability("@two/foo-extension", "two-foo"')
+    expect(transformed).toContain('EveExtensionCapability("@one/foo-extension", "pkg-_aone_sfoo-extension"')
+    expect(transformed).toContain('EveExtensionCapability("@two/foo-extension", "pkg-_atwo_sfoo-extension"')
   })
 
   it("disambiguates scoped and unscoped package identities that share a readable namespace", async () => {
@@ -353,7 +353,7 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain('EveExtensionCapability("one-foo-extension", "pkg-one-foo-extension"')
   })
 
-  it("detects a default Eve factory imported with named imports", async () => {
+  it("rejects an Eve factory imported with named runtime values", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
     const plugin = hubAgent()
@@ -369,14 +369,11 @@ describe("Eve extension capabilities", () => {
       `const config = defineConfig({})`,
       `export default defineAgent({ capabilities: [github(config)] })`,
     ].join("\n")
-    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
       { parse: parseAst },
       source,
       join(root, "server", "agents", "reviewer.ts"),
-    )
-
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
-    expect(transformed).toContain(`import github, { defineConfig }`)
+    )).rejects.toThrow("cannot share its import with named runtime values")
   })
 
   it("detects Eve extensions in an exported static capabilities array", async () => {
@@ -401,7 +398,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("detects Eve extensions in a separately exported static capabilities array", async () => {
@@ -425,7 +422,7 @@ describe("Eve extension capabilities", () => {
       join(root, "capabilities.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("lowers an exported static capabilities array imported by an Agent Definition", async () => {
@@ -448,7 +445,7 @@ describe("Eve extension capabilities", () => {
       join(root, "capabilities.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("does not lower unrelated exported Eve arrays", async () => {
@@ -487,7 +484,7 @@ describe("Eve extension capabilities", () => {
       join(serverDir, "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("does not count same-named metadata keys as Eve factory uses", async () => {
@@ -511,7 +508,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("does not count same-named member properties as Eve factory uses", async () => {
@@ -536,10 +533,10 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
-  it("retains an Eve import used by a shadowed binding", async () => {
+  it("removes an Eve import when only a shadowed binding remains", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(root)
     const plugin = hubAgent()
@@ -561,8 +558,25 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
-    expect(transformed).toContain(`import github from "@github-tools/eve-extension"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
+    expect(transformed).not.toContain(`import github from "@github-tools/eve-extension"`)
+  })
+
+  it("does not lower a lexically shadowed extension factory", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        {
+          const github = () => ({ id: "local" })
+          defineAgent({ capabilities: [github()] })
+        }
+      `,
+      parseAst,
+      async () => true,
+    )
+
+    expect(transformed).toBeUndefined()
   })
 
   it("detects Eve extensions in a spread static capabilities array", async () => {
@@ -587,7 +601,7 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "reviewer.ts"),
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
     expect(transformed).not.toContain(`import github from`)
   })
 
@@ -632,7 +646,7 @@ describe("Eve extension capabilities", () => {
       { parse: (code: string) => parseWithWrapper(code, "TSAsExpression", "property") },
       inline,
       join(root, "server", "agents", "inline.ts"),
-    )).resolves.toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    )).resolves.toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
 
     await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
       file: join(root, "server", "agents", "inline.ts"),
@@ -648,7 +662,7 @@ describe("Eve extension capabilities", () => {
       { parse: (code: string) => parseWithWrapper(code, "TSSatisfiesExpression", "variable") },
       factored,
       join(root, "server", "agents", "factored.ts"),
-    )).resolves.toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "github"`)
+    )).resolves.toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
   it("loads GitHub tools and preserves once-per-session approval", async () => {

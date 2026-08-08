@@ -3666,7 +3666,7 @@ async function authorizeAgentChatApprovals(
     }
     await Promise.all([...consumed].map(async (id) => {
       const request = pending.get(id)
-      if (request) await state.set(agentChatConsumedApprovalKey(invokerId, sessionId, id), request, agentChatApprovalTtlMs)
+      if (request) await state.set(agentChatConsumedApprovalKey(invokerId, sessionId, id), request)
     }))
     await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(invokerId, sessionId, id))))
     return authorized
