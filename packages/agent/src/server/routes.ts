@@ -3624,7 +3624,12 @@ async function authorizeAgentChatApprovals(
     const consumed = new Set<string>()
     const authorized = messages.map((message, messageIndex) => ({
       ...message,
-      parts: (message.parts || []).map((part) => {
+      parts: (message.parts || []).filter((part) => {
+        const submittedPart = uiApprovalPart(part)
+        if (!submittedPart || messageIndex === messages.length - 1) return true
+        const id = submittedPart.approval.id as string
+        return Boolean(pending.get(id) || historical.get(id))
+      }).map((part) => {
         const submittedPart = uiApprovalPart(part)
         if (!submittedPart) return part
         const id = submittedPart.approval.id as string
@@ -3649,7 +3654,7 @@ async function authorizeAgentChatApprovals(
           toolName: request.name,
         }
       }),
-    }))
+    })).filter(message => message.parts.length > 0)
 
     const newlyApproved = submitted.flatMap((part) => {
       const id = part.approval.id as string
@@ -3666,7 +3671,7 @@ async function authorizeAgentChatApprovals(
     }
     await Promise.all([...consumed].map(async (id) => {
       const request = pending.get(id)
-      if (request) await state.set(agentChatConsumedApprovalKey(invokerId, sessionId, id), request)
+      if (request) await state.set(agentChatConsumedApprovalKey(invokerId, sessionId, id), request, agentChatApprovalTtlMs)
     }))
     await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(invokerId, sessionId, id))))
     return authorized

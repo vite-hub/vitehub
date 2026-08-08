@@ -2467,14 +2467,18 @@ describe("server helpers", () => {
       expect(continued.status).toBe(200)
       await expect(continued.text()).resolves.toContain("approved")
 
+      const expiredHistorical = await handler(request("expired-approval", "user-1", "session-1", true), { agentName: "support", state })
+      const expiredBody = await expiredHistorical.text()
+      expect({ body: expiredBody, status: expiredHistorical.status }).toEqual({ body: expect.stringContaining("approved"), status: 200 })
+
       const freshSession = await handler(request(undefined, "user-1", "session-2"), { agentName: "support", state })
       expect(freshSession.status).toBe(200)
       await expect(freshSession.text()).resolves.toContain("fresh")
-      expect(run.mock.calls[2]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
+      expect(run.mock.calls[3]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
 
       const replayed = await handler(request("approval-1"), { agentName: "support", state })
       expect(replayed.status).toBe(400)
-      expect(run).toHaveBeenCalledTimes(3)
+      expect(run).toHaveBeenCalledTimes(4)
     }
     finally {
       streamAgentTrigger.mockRestore()
