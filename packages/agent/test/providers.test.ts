@@ -2868,6 +2868,42 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalled()
   })
 
+  it("uses route Channel chat state for webChat approvals", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-chat-state-"))
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const resolveState = vi.fn(() => state)
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({ messages: { state: resolveState } }),
+      },
+      driver: { run: () => "ok" },
+    }) as never, { channelId: "portal" })
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }), { agentName: "support" })
+
+      expect(response.status).toBe(200)
+      expect(resolveState).toHaveBeenCalledOnce()
+      expect(resolveState).toHaveBeenCalledWith(expect.objectContaining({
+        chat: expect.objectContaining({ agentName: "support" }),
+      }))
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("serves webChat routes with admission callbacks", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")

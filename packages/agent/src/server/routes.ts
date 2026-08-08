@@ -3844,7 +3844,7 @@ export function createChannelChatRouteHandler(
         admittedInput,
         await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
       )
-      const chatOptions = getAgentChatOptions(agent) || {}
+      const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
       const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
       const invoker = await resolveAgentInvoker(
         (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -3864,7 +3864,7 @@ export function createChannelChatRouteHandler(
         id: routeOptions.channelId || "http",
         provider: routeOptions.origin || "http",
       }
-      const { state } = await resolveChatState(getAgentChatOptions(agent), context, registration, handlerOptions)
+      const { state } = await resolveChatState(chatOptions, context, registration, handlerOptions)
       await state.connect()
       const sessionOptions = chatOptions.sessions
       const manualSessions = sessionOptions === true
