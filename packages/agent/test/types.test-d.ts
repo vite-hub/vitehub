@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, usageCost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type UsageCostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -48,6 +48,54 @@ describe("agent public types", () => {
       capabilities: [githubExtension({ preset: "code-review" })],
       driver: { run: () => "ok" },
     })
+  })
+
+  it("preserves call options through queued webhook rehydration", () => {
+    type Options = { mode: "fresh" }
+    type Webhook = NonNullable<AgentTriggerRunInvokeResult<Options>["webhook"]>
+    type Rehydrate = NonNullable<Webhook["rehydrate"]>
+
+    expectTypeOf<Awaited<ReturnType<Rehydrate>>>().toMatchTypeOf<AgentTriggerInvokeResult<Options>>()
+
+    const queuedInvocation: AgentTriggerRunInvokeResult<Options> = {
+      input: { prompt: "stale", options: { mode: "fresh" } },
+      webhook: {
+        concurrencyLimit: 1,
+        deliveryId: "delivery-queued",
+        // @ts-expect-error A refreshed run result must preserve webhook ownership.
+        rehydrate: () => ({ input: { prompt: "fresh", options: { mode: "fresh" } } }),
+      },
+    }
+    expectTypeOf(queuedInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
+
+    const steeringInvocation: AgentTriggerRunInvokeResult<Options> = {
+      input: { prompt: "stale", options: { mode: "fresh" } },
+      webhook: {
+        busy: "steer",
+        concurrencyKey: "pull-request:1",
+        concurrencyLimit: 1,
+        deliveryId: "delivery-steer",
+        // @ts-expect-error Successful busy steering bypasses queue-time rehydration.
+        rehydrate: () => ({
+          input: { prompt: "fresh", options: { mode: "fresh" } },
+          webhook: { concurrencyLimit: 1, deliveryId: "delivery-steer" },
+        }),
+      },
+    }
+    expectTypeOf(steeringInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
+
+    const inlineInvocation: AgentTriggerRunInvokeResult<Options> = {
+      input: { prompt: "stale", options: { mode: "fresh" } },
+      // @ts-expect-error Rehydration runs only for invocations persisted with concurrencyLimit.
+      webhook: {
+        deliveryId: "delivery-inline",
+        rehydrate: () => ({
+          input: { prompt: "fresh", options: { mode: "fresh" } },
+          webhook: { concurrencyLimit: 1, deliveryId: "delivery-inline" },
+        }),
+      },
+    }
+    expectTypeOf(inlineInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
   })
 
   it("types bounded driver capacity", () => {

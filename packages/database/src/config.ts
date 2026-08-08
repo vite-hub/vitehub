@@ -48,14 +48,19 @@ function objectLiteralBody(value: string | undefined) {
   return closeIndex === undefined ? undefined : trimmed.slice(1, closeIndex)
 }
 
+function stripLeadingEntryComments(entry: string) {
+  return entry.replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
+}
+
 function readEntryKey(entry: string): string | undefined {
-  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["'])\s*(?::|$)/.exec(entry)
-  return match?.[1] || match?.[2]
+  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
+  return match?.[1] || match?.[2] || match?.[3]
 }
 
 function readEntryValue(entry: string): string | undefined {
-  const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["'])\s*:/.exec(entry)
-  return match ? entry.slice(match[0].length).trim() : undefined
+  const normalized = stripLeadingEntryComments(entry)
+  const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/.exec(normalized)
+  return match ? normalized.slice(match[0].length).trim() : undefined
 }
 
 function readObjectPropertyValue(body: string | undefined, property: string): string | undefined {
@@ -132,9 +137,26 @@ function readStringValue(body: string | undefined, property: string): string | u
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
 }
 
-function readDefinitionCloudflareConfig(file: string): CloudflareD1BindingConfig | undefined {
-  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
-  if (!body) return
+function readDefinitionCloudflareConfig(file: string): { configured: boolean, value?: CloudflareD1BindingConfig } {
+  const definitionBody = readDefinitionObjectBody(file)
+  const definitionEntries = typeof definitionBody === "undefined"
+    ? []
+    : splitTopLevel(definitionBody).map(stripLeadingEntryComments)
+  const cloudflareEntries = definitionEntries.filter(entry => readEntryKey(entry) === "cloudflare")
+  const expression = cloudflareEntries.length ? readEntryValue(cloudflareEntries.at(-1)!) : undefined
+  let configured = typeof definitionBody === "undefined"
+  for (const entry of definitionEntries) {
+    if (!entry.trim()) continue
+    const key = readEntryKey(entry)
+    if (entry.trimStart().startsWith("...") || !key) {
+      configured = true
+    }
+    else if (key === "cloudflare") {
+      configured = readEntryValue(entry)?.trim() !== "undefined"
+    }
+  }
+  const body = objectLiteralBody(expression)
+  if (!body) return { configured }
   const httpExpression = readObjectPropertyValue(body, "http")?.trim()
   const httpBody = objectLiteralBody(httpExpression)
   const http = httpExpression === "true"
@@ -153,7 +175,10 @@ function readDefinitionCloudflareConfig(file: string): CloudflareD1BindingConfig
     migrationsTable: readStringValue(body, "migrationsTable"),
     previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
   } satisfies CloudflareD1BindingConfig
-  return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
+  return {
+    configured: true,
+    ...(Object.values(value).some(item => typeof item !== "undefined") ? { value } : {}),
+  }
 }
 
 function readDefinitionConnectionConfig(file: string) {
@@ -313,15 +338,18 @@ export function resolveDBViteConfig(
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {}
+  const definitionCloudflareConfigured: Record<string, boolean> = {}
   const generatedDrizzleConfigFilesByDatabase: Record<string, string> = {}
   const generatedSchemaFilesByDatabase: Record<string, string> = {}
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition)
+    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
+    definitionCloudflareConfigured[definition.name] = definitionCloudflare.configured
     const generatedSchemaFile = createGeneratedSchemaFile(rootDir, definition.name)
     generatedDrizzleConfigFilesByDatabase[definition.name] = createGeneratedDrizzleConfigFile(rootDir, definition.name)
     generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
     databases[definition.name] = {
-      cloudflare: normalizeCloudflareConfig(readDefinitionCloudflareConfig(definition.handler), definition.name, migrationsDir),
+      cloudflare: normalizeCloudflareConfig(definitionCloudflare.value, definition.name, migrationsDir),
       connection: resolveDefinitionConnection(definition.handler, definition.name, options?.connection),
       dialect: "sqlite",
       drizzle: {},
@@ -336,6 +364,7 @@ export function resolveDBViteConfig(
   return {
     databaseNames: definitions.map(definition => definition.name),
     databases,
+    definitionCloudflareConfigured,
     definitionDefaults: {
       ...(options && options.driver === "d1"
         ? { cloudflare: { binding: options.binding } }

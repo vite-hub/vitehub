@@ -1,10 +1,13 @@
 import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { PluginOption } from "vite"
+
+const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
 const mocks = vi.hoisted(() => ({
   objectHook: vi.fn((config: { nitro?: Record<string, unknown> }) => ({
@@ -299,26 +302,33 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toContainEqual(
       expect.objectContaining({ name: "@vite-hub/database/vite" }),
     )
+    expect((nuxt.options.alias as Record<string, string>)["@vite-hub/database/runtime/state"])
+      .toBe(databaseRuntimeState)
     expect(nitroConfig).toMatchObject({
       alias: {
         "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/custom-vite-root/.vitehub/database/cloudflare-runtime.mjs",
-        "@vite-hub/database/runtime/state": "vite-hub/_internal/database/runtime/state",
+        "@vite-hub/database/runtime/state": databaseRuntimeState,
       },
     })
   })
 
-  it("keeps the Database Nuxt runtime alias out of development", async () => {
+  it("keeps the Database Nitro runtime alias out of development", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt(true)
 
     await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
     const nitroConfig = {}
     await runNitroConfigHook(nitroConfig)
 
+    expect((nuxt.options.alias as Record<string, string>)["@vite-hub/database/runtime/state"])
+      .toBe(databaseRuntimeState)
     expect(nitroConfig).not.toHaveProperty("alias.@vite-hub/database/runtime/state")
   })
 
   it("preserves an explicitly configured Database runtime alias", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options.alias, {
+      "@vite-hub/database/runtime/state": "./custom-nuxt-database-state.ts",
+    })
 
     await viteHubNuxtModule({ database: true, preset: "cloudflare" }, nuxt)
     const nitroConfig = {
@@ -328,6 +338,8 @@ describe("ViteHub Nuxt integration", () => {
     }
     await runNitroConfigHook(nitroConfig)
 
+    expect((nuxt.options.alias as Record<string, string>)["@vite-hub/database/runtime/state"])
+      .toBe("./custom-nuxt-database-state.ts")
     expect(nitroConfig.alias["@vite-hub/database/runtime/state"]).toBe("./custom-database-state.ts")
   })
 

@@ -111,7 +111,7 @@ const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 const harnessAttachmentDirectory = ".vitehub/attachments"
 const harnessAttachmentMaxBytes = 25 * 1024 * 1024
-const harnessAgentPackage = "@ai-sdk/harness/agent"
+const harnessAttachmentResolutionTimeoutMs = 15_000
 const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
@@ -582,17 +582,31 @@ async function resolveHarnessAttachmentData(
     throw abortSignalError(abortSignal, "[vitehub] Harness attachment resolution aborted.")
   }
   const fetchedPromise = resolveAttachmentData(part)
-  const fetched = abortSignal
-    ? await new Promise<AttachmentData | undefined>((resolve, reject) => {
-        const onAbort = () => {
-          abortSignal.removeEventListener("abort", onAbort)
-          reject(abortSignalError(abortSignal, "[vitehub] Harness attachment resolution aborted."))
-        }
-        if (abortSignal.aborted) return onAbort()
-        abortSignal.addEventListener("abort", onAbort, { once: true })
-        fetchedPromise.then(resolve, reject).finally(() => abortSignal.removeEventListener("abort", onAbort))
-      })
-    : await fetchedPromise
+  const fetched = await new Promise<AttachmentData | undefined>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout)
+      abortSignal?.removeEventListener("abort", onAbort)
+    }
+    const onAbort = () => {
+      cleanup()
+      reject(abortSignalError(abortSignal!, "[vitehub] Harness attachment resolution aborted."))
+    }
+    const timeout = setTimeout(() => {
+      cleanup()
+      reject(new Error(`[vitehub] Harness attachment resolution timed out after ${harnessAttachmentResolutionTimeoutMs}ms.`))
+    }, harnessAttachmentResolutionTimeoutMs)
+    abortSignal?.addEventListener("abort", onAbort, { once: true })
+    fetchedPromise.then(
+      (value) => {
+        cleanup()
+        resolve(value)
+      },
+      (error) => {
+        cleanup()
+        reject(error)
+      },
+    )
+  })
   return isAttachmentData(fetched) ? fetched : undefined
 }
 
@@ -959,7 +973,7 @@ async function createHarnessAgent<
   ) => Promise<void>,
 ): Promise<{ agent: HarnessAgentLike, instructions?: string, workDir?: string }> {
   assertSupportedHarnessDriverContributions(context)
-  const { HarnessAgent } = await import(/* @vite-ignore */ harnessAgentPackage) as unknown as { HarnessAgent: HarnessAgentConstructor }
+  const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
   const globalSkillsDirectory = resolveHarnessGlobalSkillsDirectory(harness, context, invocation)
   if (context.globalSkills?.length && !isHarnessRelativeDirectory(globalSkillsDirectory)) {

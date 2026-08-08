@@ -135,6 +135,7 @@
     "@ai-sdk/harness-codex": "catalog:ai",
     "@chat-adapter/telegram": "catalog:chat",
     "@libsql/client": "catalog:database",
+    "@openai/codex-sdk": "0.144.5",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
     "@vercel/nft": "catalog:vercel",
@@ -147,7 +148,8 @@
     "chat": "catalog:chat",
     "comark": "catalog:ui",
     "esbuild": "catalog:esbuild-v27",
-    "effect": "catalog:effect"
+    "effect": "catalog:effect",
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
@@ -155,6 +157,7 @@
     "@chat-adapter/discord": "catalog:chat",
     "@github-tools/eve-extension": "0.3.0",
     "@types/node": "catalog:tooling",
+    "@vercel/connect": "0.6.1",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
@@ -168,9 +171,11 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
+  "optionalDependencies": {
+    "@ai-sdk/mcp": "catalog:ai"
+  },
   "peerDependencies": {
     "@ai-sdk/harness-claude-code": "catalog:ai",
-    "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
@@ -183,9 +188,6 @@
   },
   "peerDependenciesMeta": {
     "@ai-sdk/harness-claude-code": {
-      "optional": true
-    },
-    "@ai-sdk/mcp": {
       "optional": true
     },
     "@chat-adapter/discord": {

@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Message } from "chat"
-import { VITEHUB_GENERATED_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
@@ -1062,6 +1062,25 @@ describe("agent Vite plugin", () => {
     expect((result as { nitro?: unknown } | undefined)?.nitro).toBeUndefined()
   })
 
+  it("inlines Agent runtimes in Nitro output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+          nitro: { externals: { inline: ["existing"] } },
+        } as never, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        externals: {
+          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
+        },
+      },
+    })
+  })
+
   it("registers configured Discord Gateway routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes: { discordGateway: true } })
@@ -1660,7 +1679,7 @@ export default defineAgent({
     }
   })
 
-  it("writes local SQLite state when automatic state runs in Vite development", async () => {
+  it("writes local SQLite state in Vite development with a Cloudflare production preset", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-local-state-routes-"))
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -1669,12 +1688,16 @@ export default defineAgent({
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
+      const result = typeof plugin.config === "function"
+        ? await plugin.config.call({} as never, { preset: "cloudflare", root } as never, { command: "serve", mode: "development" })
+        : undefined
       if (typeof plugin.configResolved === "function") {
-        await plugin.configResolved.call({} as never, { command: "serve", root } as never)
+        await plugin.configResolved.call({} as never, { command: "serve", preset: "cloudflare", root } as never)
       }
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
+      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeUndefined()
       expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
       expect(webhookRoute).toContain(`const viteHubChatStateOptions = {"url":${JSON.stringify(pathToFileURL(join(root, ".data/vitehub-agent-state.sqlite")).href)}}`)
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
@@ -5794,6 +5817,78 @@ describe("server helpers", () => {
     }
   })
 
+  it("rehydrates queued webhook invocations before running the agent", async () => {
+    const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
+    const rehydrationWork = vi.fn()
+    let triggerContext!: { waitUntil: (task: Promise<unknown>) => void }
+    const run = vi.fn(() => {
+      expect(rehydrationWork).toHaveBeenCalledOnce()
+      return "accepted"
+    })
+    const rehydrate = vi.fn(() => {
+      expect(getActiveCloudflareEnv()?.SOURCE_TOKEN).toBe("fresh-token")
+      triggerContext.waitUntil(Promise.resolve().then(rehydrationWork))
+      return {
+        input: { prompt: "fresh source data" },
+        webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate" },
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (context) => {
+                triggerContext = context
+                return {
+                  input: { prompt: "stale source data" },
+                  webhook: { concurrencyLimit: 1, deliveryId: "delivery-rehydrate", rehydrate },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-rehydrate",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", {
+        agentName: "review",
+        cloudflare: { env: { SOURCE_TOKEN: "fresh-token" } },
+        webhookState: state,
+      })
+
+      expect(response.status).toBe(200)
+      expect(enqueue.mock.calls[0]?.[0].invocation).toBeUndefined()
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(rehydrate).toHaveBeenCalledOnce()
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        input: expect.objectContaining({ prompt: "fresh source data" }),
+      }))
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -6895,6 +6990,60 @@ describe("server helpers", () => {
     }
     finally {
       await stop()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("retries a rehydration-required delivery when replay handles the request", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-rehydrate-handled-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const retry = vi.spyOn(state, "retryWebhookDelivery")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => new Response(null, { status: 204 }) } },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    await state.connect()
+    await state.enqueueWebhookDelivery({
+      concurrencyGroup: "review:default",
+      concurrencyLimit: 1,
+      deliveryId: "delivery-rehydrate-handled",
+      enqueuedAt: Date.now(),
+      leaseTtlMs: 30_000,
+      rehydrate: true,
+      request: {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-rehydrate-handled",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      scope: "webhook:review:github:github:",
+      webhookId: "github",
+    })
+    const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
+
+    try {
+      await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce())
+      expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      await stop()
+      consoleError.mockRestore()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }

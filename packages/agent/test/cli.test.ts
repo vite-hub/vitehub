@@ -941,7 +941,7 @@ describe("agent CLI", () => {
     }
   })
 
-  it("prints concise resolved Agent information from the running Vite server", async () => {
+  it("prints Agent information when the Vite server root is nested under the project root", async () => {
     const stdout = stream()
     const fetchAgentInfo = vi.fn(async () => Response.json({
       inspection: {
@@ -974,7 +974,7 @@ describe("agent CLI", () => {
         tools: [{ name: "search" }, { name: "shell" }],
         warnings: [],
       },
-      root: "/repo",
+      root: "/repo/app",
     }))
 
     const exitCode = await runAgentInfoCli([], {
@@ -1184,7 +1184,7 @@ describe("agent CLI", () => {
     expect(stderr.output()).toBe("Compatible Vite Development Server root mismatch: /other-repo\n")
   })
 
-  it("streams a one-shot Agent Dev Loop message through the Vite endpoint", async () => {
+  it("streams an Agent Dev Loop message when the Vite server root is nested under the project root", async () => {
     const stdout = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
@@ -1197,7 +1197,7 @@ describe("agent CLI", () => {
       }
       return Response.json({
         agents: [{ name: "support", triggers: ["chat.message"] }],
-        root: "/repo",
+        root: "/repo/app",
       })
     })
 
@@ -1347,12 +1347,13 @@ describe("agent CLI", () => {
     })
   })
 
-  it("runs ! commands through the selected Agent Workspace command surface", async () => {
+  it("runs ! commands with the nested Vite server root's Workspace token", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
+    const serverRoot = join(rootDir, "app")
     const stdout = stream()
     const stderr = stream()
     const tokenServerId = "pid-1:5173"
-    const token = await refreshWorkspaceDevToken(rootDir, { serverId: tokenServerId })
+    const token = await refreshWorkspaceDevToken(serverRoot, { serverId: tokenServerId })
     try {
       const payloadPath = join(rootDir, "payload.json")
       await writeFile(payloadPath, JSON.stringify({ tenant: "api" }), "utf8")
@@ -1368,7 +1369,7 @@ describe("agent CLI", () => {
         }
         return Response.json({
           agents: [{ name: "chat", triggers: ["chat.message"] }],
-          root: rootDir,
+          root: serverRoot,
           workspaceDevTokenServerId: tokenServerId,
         })
       })

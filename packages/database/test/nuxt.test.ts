@@ -293,6 +293,86 @@ describe("Database Nuxt integration", () => {
     })
   })
 
+  it("keeps the discovered migration directory in Nitro's D1 binding", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-migrations-"))
+    const definition = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, [
+      'import { defineDatabase } from "@vite-hub/database"',
+      "export default defineDatabase({ schema: {} })",
+      "",
+    ].join("\n"))
+
+    try {
+      const { hooks, nuxt } = createNuxt({
+        database: {
+          driver: "d1",
+          databaseId: "content-id",
+          databaseName: "content-db",
+        },
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+
+      await hubDb()(undefined, nuxt)
+      const nitroConfig = {}
+      await callHook(hooks, "nitro:config", nitroConfig)
+
+      expect(nitroConfig).toHaveProperty(
+        "cloudflare.wrangler.d1_databases.0.migrations_dir",
+        join(rootDir, "server/databases/migrations"),
+      )
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("does not assign migrations from a definition with its own D1 resource to the Nuxt binding", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-separate-migrations-"))
+    const definition = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, [
+      'import { defineDatabase } from "@vite-hub/database"',
+      "const appDatabase = {",
+      "  cloudflare: { binding: 'APP_DB', databaseId: 'app-id', databaseName: 'app-db' },",
+      "}",
+      "export default defineDatabase({",
+      "  // The application database is a separate D1 resource.",
+      "  ...appDatabase,",
+      "  schema: {},",
+      "})",
+      "",
+    ].join("\n"))
+
+    try {
+      const { hooks, nuxt } = createNuxt({
+        database: {
+          driver: "d1",
+          databaseId: "content-id",
+          databaseName: "content-db",
+        },
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+
+      await hubDb()(undefined, nuxt)
+      const nitroConfig = {}
+      await callHook(hooks, "nitro:config", nitroConfig)
+
+      expect(nitroConfig).not.toHaveProperty(
+        "cloudflare.wrangler.d1_databases.0.migrations_dir",
+      )
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("maintains the discovered database runtime for Nitro development", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-"))
     const buildDir = join(rootDir, ".nuxt")

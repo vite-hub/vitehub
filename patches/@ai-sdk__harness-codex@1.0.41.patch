@@ -1,0 +1,310 @@
+diff --git a/dist/index.js b/dist/index.js
+index 99eca92075fed634678059855b7c8990fcdf0cc6..3adf1bd185987b7a1e00fbec18c9648ddb72accd 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -106,7 +106,24 @@ import {
+ } from "@ai-sdk/harness";
+ import { z } from "zod/v4";
+ var outboundMessageSchema = harnessV1BridgeOutboundMessageSchema;
++function isSandboxLocalImagePath(value) {
++  return value.startsWith("/") || value.startsWith("./") || value.startsWith("../");
++}
++var codexUserInputSchema = z.array(
++  z.discriminatedUnion("type", [
++    z.object({ type: z.literal("text"), text: z.string() }),
++    z.object({
++      type: z.literal("local_image"),
++      path: z.string().refine(
++        isSandboxLocalImagePath,
++        "Codex local image paths must begin with '/', './', or '../'."
++      )
++    })
++  ])
++);
++var codexPromptInputSchema = z.union([z.string(), codexUserInputSchema]);
+ var startMessageSchema = harnessV1BridgeStartBaseSchema.extend({
++  prompt: codexPromptInputSchema,
+   reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
+   webSearch: z.boolean().optional(),
+   // Resume signal. When supplied, the bridge calls
+@@ -608,22 +625,22 @@ function createSession({
+         description: t.description,
+         inputSchema: t.inputSchema
+       }));
+-      let promptText = extractUserText(promptOpts.prompt);
++      let promptInput = extractUserInput(promptOpts.prompt);
+       if (!instructionsApplied) {
+         const instructions = (promptOpts.instructions ? promptOpts.instructions + "\n\n" : "") + "Only respond with your `final` message once you have fully addressed the user request.";
+-        promptText = frameInitialPromptGuidance({
++        promptInput = frameInitialPromptInput({
+           instructions,
++          prompt: promptInput,
+           toolUsageBlock: tools.length > 0 ? composeToolUsageInstructions({
+             tools,
+             cliShimPath
+-          }) : void 0,
+-          userText: promptText
++          }) : void 0
+         });
+       }
+       instructionsApplied = true;
+       const startMessage = {
+         type: "start",
+-        prompt: promptText,
++        prompt: promptInput,
+         tools,
+         model,
+         reasoningEffort,
+@@ -819,10 +836,10 @@ function createSession({
+     }
+   };
+ }
+-function frameInitialPromptGuidance({
++function frameInitialPromptInput({
+   instructions,
+-  toolUsageBlock,
+-  userText
++  prompt,
++  toolUsageBlock
+ }) {
+   const blocks = [];
+   if (instructions) {
+@@ -835,12 +852,15 @@ ${instructions}
+     );
+   }
+   if (toolUsageBlock) blocks.push(toolUsageBlock);
+-  if (blocks.length === 0) return userText;
+-  return `${blocks.join("\n\n")}
+-
+-<user-message>
+-${userText}
+-</user-message>`;
++  if (blocks.length === 0) return prompt;
++  const prefix = `${blocks.join("\n\n")}\n\n<user-message>\n`;
++  const suffix = "\n</user-message>";
++  if (typeof prompt === "string") return `${prefix}${prompt}${suffix}`;
++  return [
++    { type: "text", text: prefix },
++    ...prompt,
++    { type: "text", text: suffix }
++  ];
+ }
+ function composeToolUsageInstructions({
+   tools,
+@@ -867,21 +887,29 @@ function composeToolUsageInstructions({
+   lines.push("</host-tool-instructions>");
+   return lines.join("\n");
+ }
+-function extractUserText(prompt) {
++function extractUserInput(prompt) {
+   if (typeof prompt === "string") return prompt;
+   const { content } = prompt;
+   if (typeof content === "string") return content;
++  if (content.every((part) => part.type === "text")) {
++    return content.map((part) => part.text).join("\n\n");
++  }
+   const parts = [];
+   for (const part of content) {
+-    if (part.type !== "text") {
+-      throw new HarnessCapabilityUnsupportedError({
+-        harnessId: "codex",
+-        message: `The codex harness does not yet support user message parts of type '${part.type}'. Pass a string or a user message whose content contains only text parts.`
+-      });
++    if (part.type === "text") {
++      parts.push({ type: "text", text: part.text });
++      continue;
+     }
+-    parts.push(part.text);
++    if (part.type === "image" && typeof part.image === "string" && isSandboxLocalImagePath(part.image)) {
++      parts.push({ type: "local_image", path: part.image });
++      continue;
++    }
++    throw new HarnessCapabilityUnsupportedError({
++      harnessId: "codex",
++      message: `The codex harness cannot send user message parts of type '${part.type}' as native Codex input. Images must be materialized to a sandbox-local path beginning with '/', './', or '../'.`
++    });
+   }
+-  return parts.join("\n\n");
++  return parts;
+ }
+
+ // src/index.ts
+diff --git a/src/codex-bridge-protocol.ts b/src/codex-bridge-protocol.ts
+index e53d0f89ffb0b0b8fdadeb90fcbdf6a5d91913b3..da3d9439e3e31d478f6e63cffde2452cc216f489 100644
+--- a/src/codex-bridge-protocol.ts
++++ b/src/codex-bridge-protocol.ts
+@@ -16,7 +16,32 @@ import { z } from 'zod/v4';
+ export const outboundMessageSchema = harnessV1BridgeOutboundMessageSchema;
+ export type OutboundMessage = z.infer<typeof outboundMessageSchema>;
+
++export function isSandboxLocalImagePath(value: string): boolean {
++  return (
++    value.startsWith('/') || value.startsWith('./') || value.startsWith('../')
++  );
++}
++
++const codexUserInputSchema = z.array(
++  z.discriminatedUnion('type', [
++    z.object({ type: z.literal('text'), text: z.string() }),
++    z.object({
++      type: z.literal('local_image'),
++      path: z
++        .string()
++        .refine(
++          isSandboxLocalImagePath,
++          "Codex local image paths must begin with '/', './', or '../'.",
++        ),
++    }),
++  ]),
++);
++export type CodexUserInput = z.infer<typeof codexUserInputSchema>[number];
++const codexPromptInputSchema = z.union([z.string(), codexUserInputSchema]);
++export type CodexPromptInput = z.infer<typeof codexPromptInputSchema>;
++
+ export const startMessageSchema = harnessV1BridgeStartBaseSchema.extend({
++  prompt: codexPromptInputSchema,
+   reasoningEffort: z.enum(['low', 'medium', 'high']).optional(),
+   webSearch: z.boolean().optional(),
+   // Resume signal. When supplied, the bridge calls
+diff --git a/src/codex-harness.ts b/src/codex-harness.ts
+index ae51a7b3106de24ae72a4cfb5e6bbaf5c0ce68fe..66f0511bb4b5d49d003eab4d5777a28c9db1488d 100644
+--- a/src/codex-harness.ts
++++ b/src/codex-harness.ts
+@@ -41,7 +41,10 @@ import { WebSocket } from 'ws';
+ import { z } from 'zod/v4';
+ import { resolveCodexEnv, type CodexAuthOptions } from './codex-auth';
+ import {
++  isSandboxLocalImagePath,
+   outboundMessageSchema,
++  type CodexPromptInput,
++  type CodexUserInput,
+   type InboundMessage,
+   type OutboundMessage,
+ } from './codex-bridge-protocol';
+@@ -773,13 +776,14 @@ function createSession({
+         description: t.description,
+         inputSchema: t.inputSchema,
+       }));
+-      let promptText = extractUserText(promptOpts.prompt);
++      let promptInput = extractUserInput(promptOpts.prompt);
+       if (!instructionsApplied) {
+         const instructions =
+           (promptOpts.instructions ? promptOpts.instructions + '\n\n' : '') +
+           'Only respond with your `final` message once you have fully addressed the user request.';
+-        promptText = frameInitialPromptGuidance({
++        promptInput = frameInitialPromptInput({
+           instructions,
++          prompt: promptInput,
+           toolUsageBlock:
+             tools.length > 0
+               ? composeToolUsageInstructions({
+@@ -787,14 +791,13 @@ function createSession({
+                   cliShimPath,
+                 })
+               : undefined,
+-          userText: promptText,
+         });
+       }
+       instructionsApplied = true;
+
+       const startMessage = {
+         type: 'start' as const,
+-        prompt: promptText,
++        prompt: promptInput,
+         tools,
+         model,
+         reasoningEffort,
+@@ -1042,19 +1045,19 @@ function createSession({
+ }
+
+ /*
+- * Frame session instructions, host-tool relay guidance, and the user's text so
++ * Frame session instructions, host-tool relay guidance, and the user's input so
+  * Codex treats the prepended blocks as operating guidance rather than user
+  * prose. Applied only to the first user message of a fresh session.
+  */
+-function frameInitialPromptGuidance({
++function frameInitialPromptInput({
+   instructions,
++  prompt,
+   toolUsageBlock,
+-  userText,
+ }: {
+   instructions: string | undefined;
++  prompt: CodexPromptInput;
+   toolUsageBlock: string | undefined;
+-  userText: string;
+-}): string {
++}): CodexPromptInput {
+   const blocks: string[] = [];
+   if (instructions) {
+     blocks.push(
+@@ -1065,8 +1068,17 @@ function frameInitialPromptGuidance({
+     );
+   }
+   if (toolUsageBlock) blocks.push(toolUsageBlock);
+-  if (blocks.length === 0) return userText;
+-  return `${blocks.join('\n\n')}\n\n<user-message>\n${userText}\n</user-message>`;
++  if (blocks.length === 0) return prompt;
++
++  const prefix = `${blocks.join('\n\n')}\n\n<user-message>\n`;
++  const suffix = '\n</user-message>';
++  if (typeof prompt === 'string') return `${prefix}${prompt}${suffix}`;
++
++  return [
++    { type: 'text', text: prefix },
++    ...prompt,
++    { type: 'text', text: suffix },
++  ];
+ }
+
+ function composeToolUsageInstructions({
+@@ -1102,26 +1114,32 @@ function composeToolUsageInstructions({
+   return lines.join('\n');
+ }
+
+-/*
+- * Reduce a `HarnessV1Prompt` to the plain user text the bridge forwards
+- * to the Codex SDK. File and image parts on the message are not yet
+- * supported by the underlying runtime — throw rather than silently drop
+- * them so callers learn about the gap instead of seeing mysteriously
+- * truncated prompts.
+- */
+-function extractUserText(prompt: HarnessV1Prompt): string {
++function extractUserInput(prompt: HarnessV1Prompt): CodexPromptInput {
+   if (typeof prompt === 'string') return prompt;
+   const { content } = prompt;
+   if (typeof content === 'string') return content;
+-  const parts: string[] = [];
++  if (content.every(part => part.type === 'text')) {
++    return content.map(part => part.text).join('\n\n');
++  }
++
++  const parts: CodexUserInput[] = [];
+   for (const part of content) {
+-    if (part.type !== 'text') {
+-      throw new HarnessCapabilityUnsupportedError({
+-        harnessId: 'codex',
+-        message: `The codex harness does not yet support user message parts of type '${part.type}'. Pass a string or a user message whose content contains only text parts.`,
+-      });
++    if (part.type === 'text') {
++      parts.push({ type: 'text', text: part.text });
++      continue;
++    }
++    if (
++      part.type === 'image' &&
++      typeof part.image === 'string' &&
++      isSandboxLocalImagePath(part.image)
++    ) {
++      parts.push({ type: 'local_image', path: part.image });
++      continue;
+     }
+-    parts.push(part.text);
++    throw new HarnessCapabilityUnsupportedError({
++      harnessId: 'codex',
++      message: `The codex harness cannot send user message parts of type '${part.type}' as native Codex input. Images must be materialized to a sandbox-local path beginning with '/', './', or '../'.`,
++    });
+   }
+-  return parts.join('\n\n');
++  return parts;
+ }

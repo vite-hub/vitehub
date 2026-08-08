@@ -1759,6 +1759,81 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("provides generated runtime Capabilities to Agent Dev Loop invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-dev-runtime-capabilities-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "calories.ts"), "export default {}", "utf8")
+
+    const { db } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const initialAgentDb = { query: vi.fn() }
+    let agentDb = initialAgentDb
+    const runtimeDbs: unknown[] = []
+    const schedules = { create: vi.fn() }
+    const setScheduleRuntimeRegistry = vi.fn()
+    let runtimeSchedule: unknown
+    const agent = defineAgent({
+      capabilities: [db()],
+      driver: {
+        run: ({ capabilities }) => {
+          runtimeDbs.push(capabilities?.db)
+          runtimeSchedule = capabilities?.schedule
+          return "ok"
+        },
+      },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => {
+      if (args[0] === "@vite-hub/database/drizzle") return { agentDb }
+      if (args[0] === "#vitehub/schedule/registry") return { default: { reminders: vi.fn() } }
+      if (args[0] === "@vite-hub/schedule/runtime") return { schedules, setScheduleRuntimeRegistry }
+      return { default: agent }
+    })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+    if (typeof plugin.configResolved === "function") {
+      await plugin.configResolved.call({} as never, {
+        command: "serve",
+        plugins: [{ name: "@vite-hub/database/vite" }, { name: "@vite-hub/schedule/vite" }],
+        root,
+      } as never)
+    }
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.body.trim().split("\n").map(line => JSON.parse(line))).toEqual([
+      expect.objectContaining({ agent: "calories", type: "start" }),
+      { text: "ok", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/drizzle")
+    expect(runtimeDbs).toEqual([initialAgentDb])
+    expect(runtimeSchedule).toEqual({ schedules })
+    expect(setScheduleRuntimeRegistry).toHaveBeenCalledOnce()
+
+    const refreshedAgentDb = { query: vi.fn() }
+    agentDb = refreshedAgentDb
+    await invokeMiddleware(handlers[0]!, {
+      messages: [{ id: "user-2", parts: [{ text: "again", type: "text" }], role: "user" }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    expect(runtimeDbs).toEqual([initialAgentDb, refreshedAgentDb])
+    expect(setScheduleRuntimeRegistry).toHaveBeenCalledTimes(2)
+  })
+
 
   it("consumes Response outputs from the Agent Invocation Stream endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-response-")

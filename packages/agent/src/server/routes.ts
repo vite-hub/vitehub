@@ -20,7 +20,7 @@ import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
-import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
+import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext, resolveAgentTriggerInvocationResult, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
@@ -688,6 +688,7 @@ function persistedWebhookRequest(
   scope: string,
   agentName: string,
   invocation?: { input: unknown, run?: unknown },
+  rehydrate?: boolean,
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
   const concurrencyGroup = `${encodeURIComponent(agentName)}:${encodeURIComponent(ownership.concurrencyGroup?.trim() || "default")}`
@@ -699,6 +700,7 @@ function persistedWebhookRequest(
     enqueuedAt,
     ...(invocation ? { invocation } : {}),
     leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
+    ...(rehydrate ? { rehydrate: true as const } : {}),
     request: {
       body,
       headers: requestHeaders(request),
@@ -1026,10 +1028,23 @@ async function executeQueuedWebhookDelivery(
     }
     let invocation = delivery.invocation as PersistedInvocation | undefined
     if (!invocation) {
-      const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-      if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
-      const input = await createAgentWebhookTriggerInput(request, match.registration)
-      const resolved = await resolveAgentTriggerInvocationWithResolvedContext(agent as never, resolveRuntimeContext(context as never) as never, match.trigger.id, input, { verifyWebhook: false })
+      const resolved = await runWithRuntimeCloudflareEnv(context, async () => {
+        const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+        if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
+        const input = await createAgentWebhookTriggerInput(request, match.registration)
+        const replayed = await resolveAgentTriggerInvocationWithResolvedContext(agent as never, resolveRuntimeContext(context as never) as never, match.trigger.id, input, { verifyWebhook: false })
+        if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
+          throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request.")
+        }
+        if (!isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && !replayed.webhook?.rehydrate) {
+          throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger no longer provides a rehydrate callback.")
+        }
+        const resolved = !isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && replayed.webhook?.rehydrate
+          ? resolveAgentTriggerInvocationResult(await replayed.webhook.rehydrate(), replayed.trigger)
+          : replayed
+        await context.flushWaitUntil?.()
+        return resolved
+      })
       if (!isResolvedAgentTriggerHandledInvocation(resolved)) {
         if (!resolved.webhook || resolved.webhook.deliveryId !== delivery.deliveryId) {
           throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
@@ -3934,6 +3949,9 @@ export function createChannelWebhookRouteHandler(
             if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
               return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured.")
             }
+            if (invocation.webhook.busy === "steer" && invocation.webhook.rehydrate) {
+              return createJsonErrorResponse(500, "Webhook delivery ownership cannot combine busy steering with rehydration.")
+            }
             const concurrencyLimit = positiveWebhookConcurrencyLimit(invocation.webhook.concurrencyLimit)!
             if (!hasAgentWebhookQueue(webhookState.state)) {
               return createJsonErrorResponse(503, "Persistent webhook concurrency requires a queue-capable Agent state provider.")
@@ -3948,7 +3966,8 @@ export function createChannelWebhookRouteHandler(
               { ...invocation.webhook, concurrencyLimit },
               webhookState.keyPrefix,
               routeAgentIdentity(handlerOptions)?.name || "agent",
-              isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
+              !invocation.webhook.rehydrate && isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
+              Boolean(invocation.webhook.rehydrate),
             )
             if (invocation.webhook.busy === "steer") {
               const webhookQueueState = webhookState.state
