@@ -17,6 +17,7 @@ export interface DiscoveredRealtimeDefinition {
 }
 
 export interface RealtimeModuleOptions {
+  authority?: "auto" | "cloudflare" | "memory"
   projectRoot?: string
 }
 

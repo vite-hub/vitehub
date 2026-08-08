@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, markdownToYDoc, matchesRealtimeStateVector, realtimeRoomKey, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, markdownToYDoc, matchesRealtimeStateVector, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -158,6 +158,23 @@ describe("tiptap-markdown documents", () => {
 
     client.destroy()
     server.destroy()
+  })
+
+  it("restores durable Yjs identities only for the matching Workspace version", () => {
+    const original = markdownToYDoc("# Shared draft")
+    const stored = {
+      baseline_digest: "baseline",
+      update_blob: Uint8Array.from(Y.encodeStateAsUpdate(original)).buffer,
+    }
+    const restored = restoreRealtimeDocument("# Shared draft", "baseline", stored)
+    const replaced = restoreRealtimeDocument("# Workspace replacement", "changed", stored)
+
+    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
+    expect(yDocToMarkdown(replaced)).toBe("# Workspace replacement")
+
+    original.destroy()
+    restored.destroy()
+    replaced.destroy()
   })
 })
 

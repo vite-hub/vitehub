@@ -26,9 +26,6 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function configureCloudflareRealtime(nitro: NitroConfig): void {
-  const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  if (getHostingProvider(configuredPreset) !== "cloudflare") return
-
   nitro.preset = "cloudflare-durable"
   const cloudflare = record(nitro.cloudflare)
   const wrangler = record(cloudflare.wrangler)
@@ -59,7 +56,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
-    async config(config) {
+    async config(config, environment) {
       const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), options)
       const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       const definitions = discoverRealtimeDefinitions(root, serverDirs)
@@ -90,7 +87,21 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
       ])
 
       const nitro = { ...((config as { nitro?: NitroConfig }).nitro || {}) }
-      configureCloudflareRealtime(nitro)
+      const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
+      const provider = getHostingProvider(configuredPreset)
+      const authority = options.authority || "auto"
+      if (authority === "cloudflare" && provider && provider !== "cloudflare") {
+        throw new Error(`[vitehub] Realtime authority "cloudflare" conflicts with the ${provider} deployment preset.`)
+      }
+      if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
+        configureCloudflareRealtime(nitro)
+      }
+      else if (environment?.command === "build" && authority === "auto") {
+        throw new Error("[vitehub] Realtime production builds require one room authority. Deploy to Cloudflare Durable Objects or explicitly set realtime.authority to \"memory\" for a single-process server.")
+      }
+      else if (authority === "memory" && provider) {
+        throw new Error(`[vitehub] Realtime authority "memory" is single-process only and cannot use the ${provider} deployment preset.`)
+      }
       nitro.features = { ...nitro.features, websocket: true }
       nitro.handlers = [
         ...(nitro.handlers || []),

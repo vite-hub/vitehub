@@ -22,6 +22,7 @@ import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClient
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
+const memoryRoomGraceMs = 30_000
 const messageSync = 0
 const fragmentName = "default"
 
@@ -67,12 +68,18 @@ interface Room {
   checkpoint?: Promise<WorkspaceSnapshot>
   checkpointStateVector?: Uint8Array
   document: Y.Doc
+  evictionTimer?: ReturnType<typeof setTimeout>
   key: string
   pendingCheckpoint?: {
     message: string
     workspace: Pick<WritableWorkspaceFacade, "history">
   }
   peers: Set<WebSocketPeer>
+  sql?: RealtimeRoomSql
+}
+
+interface RealtimeRoomSql {
+  exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
 }
 
 export function claimAwarenessClientIds(owners: Map<number, object>, peer: object, clients: number[]): number[] {
@@ -142,6 +149,20 @@ function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boo
   return !!actual && actual.length === expected.length && actual.every((byte, index) => byte === expected[index])
 }
 
+function storedUpdate(value: unknown): Uint8Array | undefined {
+  if (value instanceof ArrayBuffer) return new Uint8Array(value)
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+}
+
+export function restoreRealtimeDocument(markdown: string, baselineDigest: string | undefined, stored: Record<string, unknown> | undefined): Y.Doc {
+  const update = storedUpdate(stored?.update_blob)
+  const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
+  if (!update || storedDigest !== baselineDigest) return markdownToYDoc(markdown)
+  const document = new Y.Doc()
+  Y.applyUpdate(document, update)
+  return document
+}
+
 function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageAwareness)
@@ -170,10 +191,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const rooms = new Map<string, Promise<Room>>()
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
 
-  async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
+  function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
     const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
     const platform = (event.context._platform as { cloudflare?: Record<string, unknown> } | undefined)?.cloudflare
-    const cloudflare = platform || runtime
+    return platform || runtime
+  }
+
+  async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
+    const cloudflare = resolveCloudflare(event)
     const context = cloudflare?.context
     const binding = (cloudflare?.env as Record<string, unknown> | undefined)?.$DurableObject as {
       get(id: unknown): { fetch(request: Request): Promise<Response> }
@@ -181,6 +206,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     } | undefined
     if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
     return await binding.get(binding.idFromName("server")).fetch(event.req)
+  }
+
+  function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
+    const context = resolveCloudflare(event)?.context as { storage?: { sql?: RealtimeRoomSql } } | undefined
+    return context?.storage?.sql
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {
@@ -193,7 +223,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     return definition
   }
 
-  async function getRoom(definitionName: string, documentId: string, definition: RealtimeDefinition): Promise<Room> {
+  async function getRoom(definitionName: string, documentId: string, definition: RealtimeDefinition, sql?: RealtimeRoomSql): Promise<Room> {
     const key = realtimeRoomKey(definitionName, documentId)
     let room = rooms.get(key)
     if (!room) {
@@ -202,7 +232,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const workspace = workspaceDocument ? useWorkspace(definition.document.workspace) : undefined
         const stat = workspace ? await workspace.fs.stat(documentId) : undefined
         const markdown = workspace ? await workspace.fs.readFile(documentId, { encoding: "utf8" }) : ""
-        const document = workspaceDocument ? markdownToYDoc(markdown) : new Y.Doc()
+        if (workspaceDocument && sql) {
+          sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL)")
+        }
+        const stored = workspaceDocument && sql
+          ? sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
+          : undefined
+        const document = workspaceDocument ? restoreRealtimeDocument(markdown, stat?.digest, stored) : new Y.Doc()
         const awareness = new awarenessProtocol.Awareness(document)
         awareness.setLocalState(null)
         const value: Room = {
@@ -213,8 +249,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           document,
           key,
           peers: new Set(),
+          sql: workspaceDocument ? sql : undefined,
         }
         value.document.on("update", (update: Uint8Array, origin: unknown) => {
+          persistRoom(value)
           if (origin && typeof origin === "object" && "publish" in origin) {
             (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
           }
@@ -224,11 +262,40 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       rooms.set(key, room)
       room.catch(() => rooms.delete(key))
     }
-    return await room
+    const value = await room
+    if (value.evictionTimer) {
+      clearTimeout(value.evictionTimer)
+      value.evictionTimer = undefined
+    }
+    return value
+  }
+
+  function persistRoom(room: Room): void {
+    if (!room.sql) return
+    // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
+    room.sql.exec(
+      "INSERT OR REPLACE INTO vitehub_realtime_rooms (room_key, baseline_digest, update_blob) VALUES (?, ?, ?)",
+      room.key,
+      room.baselineDigest ?? null,
+      Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer,
+    )
   }
 
   function evictRoom(room: Room): void {
     if (room.peers.size > 0 || room.checkpoint || room.pendingCheckpoint) return
+    if (!room.sql && !room.evictionTimer) {
+      room.evictionTimer = setTimeout(() => {
+        room.evictionTimer = undefined
+        if (room.peers.size === 0 && !room.checkpoint && !room.pendingCheckpoint) destroyRoom(room)
+      }, memoryRoomGraceMs)
+      return
+    }
+    if (!room.sql) return
+    destroyRoom(room)
+  }
+
+  function destroyRoom(room: Room): void {
+    if (room.evictionTimer) clearTimeout(room.evictionTimer)
     room.awareness.destroy()
     room.document.destroy()
     rooms.delete(room.key)
@@ -274,6 +341,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       }
       if (room.pendingCheckpoint === pending) room.pendingCheckpoint = undefined
       room.baselineDigest = snapshot.entries[documentId]?.digest
+      persistRoom(room)
       return snapshot
     })()
 
@@ -299,7 +367,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (documentId === workspaceRoomId) throw new HTTPError({ status: 400, message: "Workspace events cannot be checkpointed." })
     const definition = await getDefinition(definitionName)
     await authorize(event.req, definition.auth, event)
-    const room = await getRoom(definitionName, documentId, definition)
+    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event))
     const contentLength = Number(event.req.headers.get("content-length") || 0)
     if (contentLength > maxMessageBytes) throw new HTTPError({ status: 413, message: "Realtime state vector exceeds 1 MiB." })
     const stateVector = new Uint8Array(await event.req.arrayBuffer())
@@ -319,7 +387,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     const { definitionName, documentId } = parseRoomPath(event.req.url)
     const definition = await getDefinition(definitionName)
     const identity = await authorize(event.req, definition.auth, event)
-    const room = await getRoom(definitionName, documentId, definition)
+    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event))
 
     function leave(peer: WebSocketPeer) {
       if (!room.peers.delete(peer)) return
