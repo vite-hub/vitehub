@@ -219,6 +219,19 @@ describe("workspace public API", () => {
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
   })
 
+  it("rejects a conditional write after the Workspace file changes", async () => {
+    registerWorkspace("conditional-write", defineWorkspace({ store: { provider: "memory" } }))
+    const first = useWorkspace("conditional-write", { mode: "write" })
+    const second = useWorkspace("conditional-write", { mode: "write" })
+    await first.fs.writeFile("docs/page.md", "first")
+    const baseline = await first.fs.stat("docs/page.md")
+    await second.fs.writeFile("docs/page.md", "second")
+
+    await expect(first.fs.writeFile("docs/page.md", "stale", { ifDigest: baseline.digest! }))
+      .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    await expect(first.fs.readFile("docs/page.md")).resolves.toBe("second")
+  })
+
   it("exposes source materialization on the writable facade", async () => {
     registerWorkspace("materialize-api", defineWorkspace({
       store: { provider: "memory" },

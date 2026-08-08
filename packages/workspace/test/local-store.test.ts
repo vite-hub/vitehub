@@ -106,6 +106,20 @@ describe("local workspace store", () => {
     })
   })
 
+  it("rejects a conditional write from a stale local store", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    const second = createLocalWorkspaceStore(root)
+    await first.writeFile("docs/page.md", { path: "docs/page.md", content: "first" })
+    const baseline = await first.stat("docs/page.md")
+    await second.writeFile("docs/page.md", { path: "docs/page.md", content: "second" })
+
+    await expect(first.writeFileConditional?.("docs/page.md", { path: "docs/page.md", content: "stale" }, baseline?.digest || null))
+      .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    await expect(readFile(join(root, "docs/page.md"), "utf8")).resolves.toBe("second")
+  })
+
   it("replaces metadata atomically through a temporary file", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)

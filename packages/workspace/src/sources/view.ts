@@ -360,7 +360,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         workspace: definition.name,
       })
       try {
-        await store.writeFile(input.path, { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata })
+        const file = { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata }
+        if (options?.ifDigest !== undefined) {
+          if (!store.writeFileConditional) throw workspaceError("[vitehub] This Workspace Store does not support conditional writes.")
+          await store.writeFileConditional(input.path, file, options.ifDigest)
+        }
+        else await store.writeFile(input.path, file)
         await writePolicy.after(input)
       }
       catch (error) {

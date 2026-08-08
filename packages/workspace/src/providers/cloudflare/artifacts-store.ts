@@ -1,6 +1,6 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import { workspaceError } from "../../core/errors.ts"
+import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts"
 import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
@@ -138,15 +138,16 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
+    await this.#mutate(() => this.#writeFile(normalized, file))
+  }
+
+  async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
+    await this.#ensure()
     await this.#mutate(async () => {
-      await this.#fs!.promises.writeFile(this.#absolute(normalized), contentToBytes(file.content))
-      if (file.mediaType !== undefined || file.metadata !== undefined) {
-        this.#files.set(normalized, { mediaType: file.mediaType, metadata: file.metadata })
-      }
-      else {
-        this.#files.delete(normalized)
-      }
-      await this.#writeFileMetadata()
+      const current = await this.stat(normalized).catch(() => undefined)
+      assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
+      await this.#writeFile(normalized, file)
     })
   }
 
@@ -287,7 +288,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       }
       catch (error) {
         if (isNonFastForward(error)) {
-          throw workspaceError(
+          throw workspaceConflict(
             `[vitehub] Workspace "${this.workspaceName}" changed remotely while snapshotting branch "${this.#branch}". Reload the Workspace before retrying.`,
             { cause: error },
           )
@@ -322,6 +323,15 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const path = this.#metaAbsolute(key)
     await this.#ensure()
     await this.#mutate(() => this.#fs!.promises.writeFile(path, contentToBytes(JSON.stringify(value))))
+  }
+
+  async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    await this.#fs!.promises.writeFile(this.#absolute(path), contentToBytes(file.content))
+    if (file.mediaType !== undefined || file.metadata !== undefined) {
+      this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
+    }
+    else this.#files.delete(path)
+    await this.#writeFileMetadata()
   }
 
   #absolute(path: string) {

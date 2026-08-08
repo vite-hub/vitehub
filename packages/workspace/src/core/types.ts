@@ -18,6 +18,7 @@ export type ReadFileResult<TOptions extends ReadFileOptions | undefined = undefi
   TOptions extends { encoding: "binary" } ? Uint8Array : string
 
 export interface WriteFileOptions {
+  ifDigest?: string | null
   mediaType?: string
   metadata?: Record<string, unknown>
 }
@@ -299,6 +300,7 @@ export interface WorkspaceAutoCommitPlan {
 export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
+  writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
   writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>

@@ -5,7 +5,7 @@ import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { getAuthForRequest } from "@vite-hub/auth/server"
-import { useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
 import { resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
@@ -16,7 +16,9 @@ import * as Y from "yjs"
 
 import type { WorkspaceSnapshot, WritableWorkspaceFacade } from "@vite-hub/workspace"
 import type { WebSocketMessage, WebSocketPeer } from "h3"
+import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeDefinition, RealtimeRegistry } from "./types.ts"
+import { createRealtimeIdentity } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, workspaceRoomId } from "./protocol.ts"
 
 const routePrefix = "/api/_vitehub/realtime/"
@@ -72,9 +74,23 @@ interface Room {
 export function claimAwarenessClientIds(owners: Map<number, object>, peer: object, clients: number[]): void {
   for (const client of clients) {
     const owner = owners.get(client)
-    if (owner && owner !== peer) throw new TypeError("Awareness client id is already owned by another peer.")
+    if (owner && owner !== peer) throw new AwarenessOwnershipConflict()
   }
   for (const client of clients) owners.set(client, peer)
+}
+
+class AwarenessOwnershipConflict extends TypeError {
+  constructor() {
+    super("Awareness client id is already owned by another peer.")
+  }
+}
+
+export function bindAwarenessIdentity(update: Uint8Array, identity: RealtimeIdentity): Uint8Array {
+  return awarenessProtocol.modifyAwarenessUpdate(update, (state: unknown) => {
+    if (state === null) return null
+    if (!state || typeof state !== "object" || Array.isArray(state)) throw new TypeError("Invalid awareness state.")
+    return { ...state, user: identity }
+  })
 }
 
 export async function checkpointRealtimeDocument(
@@ -82,8 +98,9 @@ export async function checkpointRealtimeDocument(
   documentId: string,
   document: Y.Doc,
   message: string,
+  ifDigest: string | null,
 ): Promise<WorkspaceSnapshot> {
-  await workspace.fs.writeFile(documentId, yDocToMarkdown(document))
+  await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
   return await workspace.history.checkpoint({ message })
 }
 
@@ -118,10 +135,11 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
   return { definitionName, documentId: documentParts.join("/") }
 }
 
-async function authorize(request: Request, required: boolean | undefined, event: unknown): Promise<void> {
+async function authorize(request: Request, required: boolean | undefined, event: unknown): Promise<RealtimeIdentity | undefined> {
   if (!required) return
   const session = await getAuthForRequest(request, undefined, event).api.getSession({ headers: request.headers })
   if (!session?.user) throw new HTTPError({ status: 401 })
+  return createRealtimeIdentity(session.user)
 }
 
 export function createRealtimeHandler(registry: RealtimeRegistry) {
@@ -199,15 +217,19 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
 
     const checkpoint = (async () => {
       const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
-      const current = await workspace.fs.stat(documentId)
-      if (room.baselineDigest && current.digest !== room.baselineDigest) {
-        throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
-      }
-
       const message = typeof configured === "object" && configured.message
         ? configured.message
         : `docs: checkpoint ${documentId}`
-      const snapshot = await checkpointRealtimeDocument(workspace, documentId, room.document, message)
+      let snapshot: WorkspaceSnapshot
+      try {
+        snapshot = await checkpointRealtimeDocument(workspace, documentId, room.document, message, room.baselineDigest ?? null)
+      }
+      catch (error) {
+        if (isWorkspaceConflict(error)) {
+          throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
+        }
+        throw error
+      }
       room.baselineDigest = snapshot.entries[documentId]?.digest
       return snapshot
     })()
@@ -237,7 +259,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const websocketHandler = defineWebSocketHandler(async (event) => {
     const { definitionName, documentId } = parseRoomPath(event.req.url)
     const definition = await getDefinition(definitionName)
-    await authorize(event.req, definition.auth, event)
+    const identity = await authorize(event.req, definition.auth, event)
     const room = await getRoom(definitionName, documentId, definition)
 
     function leave(peer: WebSocketPeer) {
@@ -291,21 +313,22 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType === messageAwareness) {
-          const update = decoding.readVarUint8Array(decoder)
+          let update = decoding.readVarUint8Array(decoder)
           let clients: number[]
           try {
             clients = readAwarenessClientIds(update)
             claimAwarenessClientIds(room.awarenessClientOwners as Map<number, object>, peer, clients)
+            if (identity) update = bindAwarenessIdentity(update, identity)
             const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
             for (const client of clients) ownedClients.add(client)
             peerAwarenessClients.set(peer, ownedClients)
             awarenessProtocol.applyAwarenessUpdate(room.awareness, update, peer)
           }
-          catch {
-            peer.close(4400, "Invalid awareness update.")
+          catch (error) {
+            peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
             return
           }
-          peer.publish(room.channel, data)
+          peer.publish(room.channel, identity ? encodeAwarenessState(room.awareness, clients) : data)
           return
         }
         if (messageType !== messageSync) return

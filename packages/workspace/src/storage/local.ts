@@ -2,8 +2,9 @@ import { createHash, randomUUID } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
 import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import { setTimeout as delay } from "node:timers/promises"
 
-import { workspaceError } from "../core/errors.ts"
+import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
@@ -21,6 +22,34 @@ import type {
   WorkspaceStreamFile,
   WorkspaceStore,
 } from "../core/types.ts"
+
+async function withWorkspaceLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  const { mkdir, rm, stat } = await import("node:fs/promises")
+  const { dirname } = await import("node:path")
+  const lock = `${root}.vitehub-lock`
+  await mkdir(dirname(lock), { recursive: true })
+  const deadline = Date.now() + 10_000
+  while (true) {
+    try {
+      await mkdir(lock)
+      break
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      const info = await stat(lock).catch(() => undefined)
+      // ponytail: local locks expire after five minutes; use a provider lease if writes can legitimately run longer.
+      if (info && Date.now() - info.mtimeMs > 300_000) await rm(lock, { force: true, recursive: true })
+      else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace root: ${root}.`)
+      else await delay(25)
+    }
+  }
+  try {
+    return await operation()
+  }
+  finally {
+    await rm(lock, { force: true, recursive: true })
+  }
+}
 
 async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
@@ -98,6 +127,19 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    await withWorkspaceLock(this.root, () => this.#writeFile(path, file))
+  }
+
+  async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
+    await withWorkspaceLock(this.root, async () => {
+      const normalized = normalizeWorkspacePath(path)
+      const current = await this.stat(normalized)
+      assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
+      await this.#writeFile(normalized, file)
+    })
+  }
+
+  async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
     const { mkdir, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
@@ -121,6 +163,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
+    return await withWorkspaceLock(this.root, () => this.#writeFileStream(path, file))
+  }
+
+  async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
@@ -231,6 +277,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
+    await withWorkspaceLock(this.root, () => this.#rm(path, options))
+  }
+
+  async #rm(path: string, options: RmOptions = {}): Promise<void> {
     const { rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     await rm(resolveInside(this.root, path), {

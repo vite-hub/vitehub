@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 
-import { workspaceError } from "../../core/errors.ts";
+import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts";
 import {
   contentStreamToBytes,
   matchesAny,
@@ -111,6 +111,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   #branch: string;
   #dirty = false;
   #files = new Map<string, GitHubWorkspaceStoreFile>();
+  #mutationQueue: Promise<void> = Promise.resolve();
   #ready: Promise<void> | undefined;
   #remoteFiles = new Map<string, GitHubTreeEntry>();
   #repository: string;
@@ -142,8 +143,23 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: false });
+    await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: false });
+      await this.#writeFile(normalized, file);
+    });
+  }
+
+  async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
+    await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: true });
+      assertWorkspaceDigest(normalized, ifDigest, this.#files.get(normalized)?.gitSha);
+      await this.#writeFile(normalized, file);
+    });
+  }
+
+  async #writeFile(normalized: string, file: WorkspaceFile): Promise<void> {
     const current = this.#files.get(normalized);
     const metadata = inheritedGitHubFileMetadata(file, current);
     const content = gitHubFileMode(metadata) === "120000" && typeof metadata?.symlinkTarget === "string"
@@ -176,6 +192,12 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       uploaded: true,
     });
     this.#dirty = true;
+  }
+
+  #mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#mutationQueue.then(operation);
+    this.#mutationQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
@@ -265,7 +287,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       token: this.#token,
     });
     if (this.#baselineRefSha && remote.refSha !== this.#baselineRefSha) {
-      throw workspaceError(
+      throw workspaceConflict(
         `[vitehub] GitHub Workspace Store conflict for ${this.#repository}@${this.#branch}: the branch changed after this Workspace Store loaded. Snapshotting requires a Workspace Store loaded from the current branch head.`,
       );
     }

@@ -40,6 +40,7 @@ export type {
 } from "./session/harness.ts"
 export type * from "./ai.ts"
 export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
+export { isWorkspaceConflict } from "./core/errors.ts"
 export type { WorkspaceErrorCode } from "./core/errors.ts"
 export { resolveRegisteredWorkspaceDefinition } from "./core/registry.ts"
 export { useWorkspace } from "./core/use.ts"

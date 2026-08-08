@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { checkpointRealtimeDocument, claimAwarenessClientIds, markdownToYDoc, yDocToMarkdown } from "../src/server.ts"
+import { bindAwarenessIdentity, checkpointRealtimeDocument, claimAwarenessClientIds, markdownToYDoc, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -40,8 +40,8 @@ describe("tiptap-markdown documents", () => {
     const checkpoint = { createdAt: new Date(0).toISOString(), entries: {}, id: "checkpoint" }
     const workspace = {
       fs: {
-        async writeFile(path: string, content: string) {
-          calls.push(`write:${path}:${content}`)
+        async writeFile(path: string, content: string, options: { ifDigest: string }) {
+          calls.push(`write:${path}:${content}:${options.ifDigest}`)
         },
       },
       history: {
@@ -52,10 +52,10 @@ describe("tiptap-markdown documents", () => {
       },
     }
 
-    await expect(checkpointRealtimeDocument(workspace as never, "docs/page.md", document, "docs: save page"))
+    await expect(checkpointRealtimeDocument(workspace as never, "docs/page.md", document, "docs: save page", "baseline"))
       .resolves.toBe(checkpoint)
     expect(calls).toEqual([
-      "write:docs/page.md:# Shared draft",
+      "write:docs/page.md:# Shared draft:baseline",
       "checkpoint:docs: save page",
     ])
   })
@@ -93,5 +93,25 @@ describe("realtime awareness", () => {
     expect(readAwarenessClientIds(update)).toEqual([document.clientID])
     awareness.destroy()
     document.destroy()
+  })
+
+  it("replaces authenticated identity before broadcasting awareness", () => {
+    const document = new Y.Doc()
+    const awareness = new awarenessProtocol.Awareness(document)
+    awareness.setLocalState({ cursor: { anchor: 1 }, user: { id: "forged", name: "Forged" } })
+    const update = awarenessProtocol.encodeAwarenessUpdate(awareness, [document.clientID])
+    const secured = bindAwarenessIdentity(update, { color: "#2563EB", id: "user-1", name: "Maxi" })
+    const receiverDocument = new Y.Doc()
+    const receiver = new awarenessProtocol.Awareness(receiverDocument)
+    awarenessProtocol.applyAwarenessUpdate(receiver, secured, "server")
+
+    expect(receiver.getStates().get(document.clientID)).toEqual({
+      cursor: { anchor: 1 },
+      user: { color: "#2563EB", id: "user-1", name: "Maxi" },
+    })
+    awareness.destroy()
+    document.destroy()
+    receiver.destroy()
+    receiverDocument.destroy()
   })
 })

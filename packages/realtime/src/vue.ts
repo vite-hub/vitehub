@@ -12,18 +12,10 @@ import type { MaybeRefOrGetter } from "vue"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
-import { getRealtimePeople } from "./presence.ts"
+import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
-
-const personColors = ["#E11D48", "#D97706", "#059669", "#0891B2", "#2563EB", "#7C3AED", "#C026D3"]
-
-function personColor(id: string): string {
-  let hash = 0
-  for (let index = 0; index < id.length; index++) hash = Math.imul(31, hash) + id.charCodeAt(index) | 0
-  return personColors[Math.abs(hash) % personColors.length]!
-}
 
 function renderCaret(user: Record<string, unknown>): HTMLElement {
   const color = typeof user.color === "string" && /^#[\da-f]{6}$/i.test(user.color) ? user.color : "#64748B"
@@ -86,12 +78,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   function currentPerson(clientId: number): RealtimeIdentity {
     const value = user.value
     const id = value?.id || `guest:${clientId}`
-    return {
-      color: personColor(id),
-      id,
-      ...(value?.image ? { image: value.image } : {}),
-      name: value?.name || value?.email || "Anonymous",
-    }
+    return createRealtimeIdentity({ ...value, id })
   }
 
   function updatePeople(current: WebsocketProvider) {
