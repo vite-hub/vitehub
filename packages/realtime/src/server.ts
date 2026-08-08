@@ -475,7 +475,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           baselineDigest: initial.baselineDigest,
           channel: `vitehub:realtime:${key}`,
           document,
-          durableReady: !!initial.baselineDigest,
+          durableReady: !!sql || !!initial.baselineDigest,
           key,
           peers: new Set(),
           persistedUpdates: storedUpdates.length,

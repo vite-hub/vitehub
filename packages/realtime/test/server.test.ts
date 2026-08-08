@@ -451,7 +451,7 @@ describe("realtime server handler", () => {
     stale.destroy()
   })
 
-  it("opens missing durable documents without persisting state before their first checkpoint", async () => {
+  it("persists missing durable documents before their first checkpoint", async () => {
     const exec = vi.fn(() => ({ toArray: () => [] }))
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
@@ -467,7 +467,12 @@ describe("realtime server handler", () => {
     const response = await handler.fetch(request as never)
 
     expect((response as Response & { crossws?: unknown }).crossws).toBeDefined()
-    expect(exec).not.toHaveBeenCalledWith(expect.stringContaining("INSERT"), expect.anything(), expect.anything())
+    expect(exec).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT OR REPLACE"),
+      realtimeRoomKey("docs", "missing.md"),
+      null,
+      expect.any(ArrayBuffer),
+    )
   })
 
   it("does not retain awareness clients from a rejected update", async () => {
