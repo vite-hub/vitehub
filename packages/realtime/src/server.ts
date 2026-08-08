@@ -60,11 +60,19 @@ export function yDocToMarkdown(document: Y.Doc): string {
 
 interface Room {
   awareness: awarenessProtocol.Awareness
+  awarenessClientOwners: Map<number, WebSocketPeer>
   baselineDigest?: string
   channel: string
   checkpoint?: Promise<WorkspaceSnapshot>
   document: Y.Doc
-  version: number
+}
+
+export function claimAwarenessClientIds(owners: Map<number, object>, peer: object, clients: number[]): void {
+  for (const client of clients) {
+    const owner = owners.get(client)
+    if (owner && owner !== peer) throw new TypeError("Awareness client id is already owned by another peer.")
+  }
+  for (const client of clients) owners.set(client, peer)
 }
 
 export async function checkpointRealtimeDocument(
@@ -155,13 +163,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         awareness.setLocalState(null)
         const value: Room = {
           awareness,
+          awarenessClientOwners: new Map(),
           baselineDigest: stat?.digest,
           channel: `vitehub:realtime:${key}`,
           document,
-          version: 0,
         }
         value.document.on("update", (update: Uint8Array, origin: unknown) => {
-          value.version++
           if (origin && typeof origin === "object" && "publish" in origin) {
             (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
           }
@@ -186,15 +193,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
       }
 
-      const version = room.version
       const message = typeof configured === "object" && configured.message
         ? configured.message
         : `docs: checkpoint ${documentId}`
       const snapshot = await checkpointRealtimeDocument(workspace, documentId, room.document, message)
       room.baselineDigest = snapshot.entries[documentId]?.digest
-      if (version !== room.version) {
-        throw new HTTPError({ status: 409, message: "The document changed while its checkpoint was being written. Save again." })
-      }
       return snapshot
     })()
 
@@ -231,6 +234,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       const clients = [...(peerAwarenessClients.get(peer) || [])]
       peerAwarenessClients.delete(peer)
       if (clients.length) {
+        for (const client of clients) {
+          if (room.awarenessClientOwners.get(client) === peer) room.awarenessClientOwners.delete(client)
+        }
         awarenessProtocol.removeAwarenessStates(room.awareness, clients, peer)
         peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
       }
@@ -276,15 +282,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           let clients: number[]
           try {
             clients = readAwarenessClientIds(update)
+            claimAwarenessClientIds(room.awarenessClientOwners as Map<number, object>, peer, clients)
+            const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
+            for (const client of clients) ownedClients.add(client)
+            peerAwarenessClients.set(peer, ownedClients)
             awarenessProtocol.applyAwarenessUpdate(room.awareness, update, peer)
           }
           catch {
             peer.close(4400, "Invalid awareness update.")
             return
           }
-          const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
-          for (const client of clients) ownedClients.add(client)
-          peerAwarenessClients.set(peer, ownedClients)
           peer.publish(room.channel, data)
           return
         }

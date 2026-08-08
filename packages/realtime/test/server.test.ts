@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { checkpointRealtimeDocument, markdownToYDoc, yDocToMarkdown } from "../src/server.ts"
+import { checkpointRealtimeDocument, claimAwarenessClientIds, markdownToYDoc, yDocToMarkdown } from "../src/server.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
 describe("tiptap-markdown documents", () => {
@@ -60,6 +60,17 @@ describe("workspace changes", () => {
 })
 
 describe("realtime awareness", () => {
+  it("prevents a peer from claiming another peer's client id", () => {
+    const owners = new Map<number, object>()
+    const firstPeer = {}
+    const secondPeer = {}
+
+    claimAwarenessClientIds(owners, firstPeer, [1])
+
+    expect(() => claimAwarenessClientIds(owners, secondPeer, [1])).toThrow("already owned")
+    expect(owners.get(1)).toBe(firstPeer)
+  })
+
   it("reads the clients represented by a Yjs awareness update", () => {
     const document = new Y.Doc()
     const awareness = new awarenessProtocol.Awareness(document)
