@@ -391,7 +391,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
     const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
     const platform = (event.context._platform as { cloudflare?: Record<string, unknown> } | undefined)?.cloudflare
-    return platform || runtime
+    if (!runtime) return platform
+    if (!platform) return runtime
+    return {
+      ...runtime,
+      ...platform,
+      context: runtime.context ?? platform.context,
+      env: platform.env ?? runtime.env,
+    }
   }
 
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
@@ -559,6 +566,33 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     pending.submittedDocument.destroy()
   }
 
+  function schedulePendingCheckpointExpiry(
+    room: Room,
+    pending: NonNullable<Room["pendingCheckpoint"]>,
+    workspaceName: string,
+    documentId: string,
+  ): void {
+    if (room.pendingCheckpoint !== pending || room.pendingCheckpointTimer) return
+    const expire = () => {
+      room.pendingCheckpointTimer = undefined
+      void (async () => {
+        try {
+          const refreshedWorkspace = await refreshWritableWorkspace(workspaceName)
+          room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
+          room.durableReady = !!room.sql || !!room.baselineDigest
+          persistRoom(room)
+        }
+        catch {
+          if (room.pendingCheckpoint === pending) room.pendingCheckpointTimer = setTimeout(expire, pendingCheckpointRetentionMs)
+          return
+        }
+        clearPendingCheckpoint(room, pending)
+        evictRoom(room)
+      })()
+    }
+    room.pendingCheckpointTimer = setTimeout(expire, pendingCheckpointRetentionMs)
+  }
+
   async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, state: Uint8Array): Promise<WorkspaceSnapshot> {
     const configured = definition.history?.checkpoint
     if (!configured) throw new HTTPError({ status: 404 })
@@ -615,12 +649,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           await refreshWritableWorkspace(definition.document.workspace)
           throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
         }
-        if (!room.pendingCheckpointTimer) {
-          room.pendingCheckpointTimer = setTimeout(() => {
-            clearPendingCheckpoint(room, pending)
-            evictRoom(room)
-          }, pendingCheckpointRetentionMs)
-        }
+        schedulePendingCheckpointExpiry(room, pending, definition.document.workspace, documentId)
         throw error
       }
       if (room.pendingCheckpoint === pending) {
