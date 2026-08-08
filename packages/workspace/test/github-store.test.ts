@@ -152,6 +152,52 @@ afterEach(() => {
 });
 
 describe("GitHub workspace store", () => {
+  it.each([
+    ["Workspace", {
+      WORKSPACE_GITHUB_BRANCH: "release",
+      WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
+      WORKSPACE_GITHUB_ROOT: "state/<workspace>",
+      WORKSPACE_GITHUB_TOKEN: "binding-token",
+    }],
+    ["ViteHub Workspace", {
+      VITEHUB_WORKSPACE_GITHUB_BRANCH: "release",
+      VITEHUB_WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
+      VITEHUB_WORKSPACE_GITHUB_ROOT: "state/<workspace>",
+      VITEHUB_WORKSPACE_GITHUB_TOKEN: "binding-token",
+    }],
+    ["GitHub with GITHUB_TOKEN", {
+      GITHUB_BRANCH: "release",
+      GITHUB_REPOSITORY: "onmax/repo",
+      VITEHUB_WORKSPACE_GITHUB_ROOT: "state/<workspace>",
+      GITHUB_TOKEN: "binding-token",
+    }],
+    ["GitHub with GH_TOKEN", {
+      GITHUB_BRANCH: "release",
+      GITHUB_REPOSITORY: "onmax/repo",
+      WORKSPACE_GITHUB_ROOT: "state/<workspace>",
+      GH_TOKEN: "binding-token",
+    }],
+  ] as const)("resolves %s active Cloudflare binding aliases", async (_label, bindings) => {
+    setActiveCloudflareEnv(bindings);
+    const {
+      resolveGitHubBranchOption,
+      resolveGitHubRepositoryOption,
+      resolveGitHubRootOption,
+      resolveGitHubTokenOption,
+    } = await import("../src/providers/github/shared.ts");
+    const options = {
+      branch: () => undefined,
+      repository: () => undefined,
+      root: () => undefined,
+      token: () => undefined,
+    };
+
+    expect(resolveGitHubRepositoryOption(options, {})).toBe("onmax/repo");
+    expect(resolveGitHubBranchOption(options, {})).toBe("release");
+    expect(resolveGitHubRootOption(options, "docs", {})).toBe("state/docs");
+    expect(resolveGitHubTokenOption(options, {})).toBe("binding-token");
+  });
+
   it.each(["********", "<redacted>", "[redacted]"])(
     "falls back to env credentials for masked token %s",
     async (maskedToken) => {
@@ -212,6 +258,32 @@ describe("GitHub workspace store", () => {
     await expect(store.list("", { recursive: true })).resolves.toEqual([]);
 
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer callback-token");
+  });
+
+  it("falls back from empty lazy options to active Cloudflare bindings", async () => {
+    seedRemote("state/docs/data/existing.json", '{"ok":true}\n');
+    setActiveCloudflareEnv({
+      WORKSPACE_GITHUB_BRANCH: "main",
+      WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
+      WORKSPACE_GITHUB_ROOT: "state/<workspace>",
+      WORKSPACE_GITHUB_TOKEN: "binding-token",
+    });
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        branch: () => undefined,
+        provider: "github",
+        repository: () => undefined,
+        root: () => undefined,
+        token: () => undefined,
+      },
+      "docs",
+    );
+
+    await expect(store.readFile("data/existing.json")).resolves.toMatchObject({
+      content: textBytes('{"ok":true}\n'),
+    });
+    expect(requests[0]?.headers.get("authorization")).toBe("Bearer binding-token");
   });
 
   it("reads, lists, stats, writes, snapshots, and persists metadata through GitHub", async () => {
