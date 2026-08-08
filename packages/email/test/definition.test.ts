@@ -7,13 +7,18 @@ import type { EmailDriver } from "../src/index.ts"
 const driver: EmailDriver = {
   name: "fixture",
   async send() {
-    return { id: "message-1" }
+    return { data: { at: new Date(), driver: "fixture", id: "message-1" }, error: null }
   },
 }
 
 describe("defineEmail", () => {
   it("keeps the driver-bearing definition intact", () => {
     const definition = { driver }
+    expect(defineEmail(definition)).toBe(definition)
+  })
+
+  it("accepts a lazy driver factory", () => {
+    const definition = { driver: async () => driver }
     expect(defineEmail(definition)).toBe(definition)
   })
 

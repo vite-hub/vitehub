@@ -1,4 +1,4 @@
-import type { EmailDefinition, EmailDriver } from "./types.ts"
+import type { EmailDefinition, EmailDriver, EmailDriverSource } from "./types.ts"
 
 export function assertEmailDriver(value: unknown): asserts value is EmailDriver {
   if (!value || typeof value !== "object") {
@@ -18,6 +18,13 @@ export function defineEmail(definition: EmailDefinition): EmailDefinition {
   if (!definition || typeof definition !== "object") {
     throw new TypeError("`defineEmail()` expects an object with a driver.")
   }
-  assertEmailDriver(definition.driver)
+  if (typeof definition.driver !== "function") assertEmailDriver(definition.driver)
   return definition
+}
+
+export function resolveEmailDriver(source: EmailDriverSource): Promise<EmailDriver> {
+  return Promise.resolve(typeof source === "function" ? source() : source).then((driver) => {
+    assertEmailDriver(driver)
+    return driver
+  })
 }
