@@ -7,7 +7,7 @@ icon: i-lucide-mail
 
 Email sends outbound transactional messages through one stable Runtime Helper. ViteHub owns the portable message, result, error, Definition, and driver boundaries, while the Email Definition owns the active delivery provider and its server-only credentials.
 
-The examples below use the canonical `vite-hub` application imports. SMTP, test utilities, and direct Vite Integration control remain explicit `@vite-hub/email` owner-package imports.
+The examples below use the canonical `vite-hub` application imports. SMTP, test utilities, and direct Vite Integration control remain explicit `@vite-hub/email` owner-package imports; the dependency-free Resend adapter is also available from the framework distribution.
 
 ## Before you begin
 
@@ -119,6 +119,7 @@ Applications should use the canonical `vite-hub` paths for framework and provide
 | `@vite-hub/runtime` | `ViteHubError`, `getViteHubErrorShape` | Shared operational error contract. |
 | `vite-hub/email/server` | `email` | — |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
+| `vite-hub/email/drivers/resend` | `resend` | `ResendApiKey`, `ResendOptions` |
 | `@vite-hub/email/drivers/smtp` | `smtp` | Nodemailer owns the accepted SMTP option types. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail` | `EmailVitePluginOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
@@ -139,7 +140,7 @@ The direct `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/mar
 | `headers` | `Readonly<Record<string, string>>` | No | Provider-neutral custom headers with string values. |
 | `attachments` | `readonly EmailAttachment[]` | No | In-memory string or `Uint8Array` content with a non-empty filename. |
 
-`EmailAttachment` also accepts optional `contentType`, `cid`, and `contentDisposition: 'attachment' | 'inline'`. The package does not read attachment paths or URLs.
+`EmailAttachment` also accepts optional `contentType`, `cid`, and `contentDisposition: 'attachment' | 'inline'`. The package does not read attachment paths or URLs. Resend supports in-memory content, `contentType`, and `cid`, but its send API has no `contentDisposition` field, so the Resend driver rejects attachments that set it instead of silently dropping the value.
 
 The core validates portable structure but does not parse mailbox syntax. Delivery providers retain ownership of address validation, SMTP envelope rules, message size, accepted content, and sender authorization.
 
@@ -192,6 +193,24 @@ export async function sendWelcome(name: string, to: string) {
 ::warning
 `renderEmailMarkdown()` does not sanitize authored HTML, trusted Markdown fragments, or imported templates, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `{{{ fragment }}}` binding or an imported template.
 ::
+
+## Configure Resend
+
+The Resend driver uses native `fetch`, so it works without the Resend SDK or another email abstraction. Its API-key getter runs for every send, which keeps request-scoped Worker bindings out of module-singleton state.
+
+```ts [server/email.ts]
+import { useServerEnv } from '#vitehub/env/server'
+import { defineEmail } from 'vite-hub/email'
+import { resend } from 'vite-hub/email/drivers/resend'
+
+export default defineEmail({
+  driver: resend({
+    apiKey: () => useServerEnv().resendApiKey.unseal(),
+  }),
+})
+```
+
+Declare `resendApiKey` as secret Server Env sourced from `RESEND_API_KEY`, or return a credential from another server-only secret store. A successful result has `driver: 'resend'`. Provider failures expose stable `EMAIL_*` codes; protected `cause` diagnostics retain Resend's error name, status, message, and allowlisted retry or request headers.
 
 ## Configure SMTP
 
@@ -319,15 +338,15 @@ Inspect `cause` only in protected server-side diagnostics because provider error
 
 | Code | Produced by | Meaning | Retry guidance |
 | --- | --- | --- | --- |
-| `EMAIL_INVALID_MESSAGE` | Core client | A portable field, body, or attachment is invalid. | Fix the message; do not retry unchanged. |
-| `EMAIL_NOT_CONFIGURED` | Discovered Runtime Helper | No Email Definition was discovered. | Fix discovery; do not retry unchanged. |
-| `EMAIL_AUTHENTICATION` | SMTP or a custom driver | Delivery credentials were rejected. | Fix credentials before retrying. |
-| `EMAIL_RATE_LIMITED` | SMTP or a custom driver | The provider reported throttling. | Apply an application-owned retry policy. |
-| `EMAIL_TIMEOUT` | SMTP or a custom driver | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
-| `EMAIL_NETWORK` | SMTP or a custom driver | The driver could not reach its provider. | Treat the outcome as uncertain before retrying. |
-| `EMAIL_PROVIDER_FAILED` | Core client, SMTP, or a custom driver | Delivery failed outside a more specific portable category. | Inspect protected diagnostics and provider delivery logs. |
+| `EMAIL_INVALID_MESSAGE` | Core client or Resend | A portable field, body, or attachment is invalid. | Fix the message; do not retry unchanged. |
+| `EMAIL_NOT_CONFIGURED` | Discovered Runtime Helper or Resend | No Email Definition or Resend API key is available. | Fix configuration; do not retry unchanged. |
+| `EMAIL_AUTHENTICATION` | SMTP, Resend, or a custom driver | Delivery credentials were rejected. | Fix credentials before retrying. |
+| `EMAIL_RATE_LIMITED` | SMTP, Resend, or a custom driver | The provider reported throttling. | Apply an application-owned retry policy. |
+| `EMAIL_TIMEOUT` | SMTP, Resend, or a custom driver | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
+| `EMAIL_NETWORK` | SMTP, Resend, or a custom driver | The driver could not reach its provider. | Treat the outcome as uncertain before retrying. |
+| `EMAIL_PROVIDER_FAILED` | Core client, SMTP, Resend, or a custom driver | Delivery failed outside a more specific portable category. | Inspect protected diagnostics and provider delivery logs. |
 
-The core client itself produces `EMAIL_INVALID_MESSAGE` and `EMAIL_PROVIDER_FAILED`; the discovered Runtime Helper also produces `EMAIL_NOT_CONFIGURED`. SMTP maps common Nodemailer signals into the other codes. A custom driver should throw `ViteHubError` when it can classify a failure more precisely.
+The core client itself produces `EMAIL_INVALID_MESSAGE` and `EMAIL_PROVIDER_FAILED`; the discovered Runtime Helper also produces `EMAIL_NOT_CONFIGURED`. SMTP maps common Nodemailer signals into the other codes. Resend maps an unavailable API key to `EMAIL_NOT_CONFIGURED`, unsupported attachment disposition to `EMAIL_INVALID_MESSAGE`, credential rejection to `EMAIL_AUTHENTICATION`, HTTP 429 to `EMAIL_RATE_LIMITED`, HTTP 408 to `EMAIL_TIMEOUT`, transport failures to `EMAIL_NETWORK`, and all other rejected or invalid responses to `EMAIL_PROVIDER_FAILED`. A custom driver should throw `ViteHubError` when it can classify a failure more precisely.
 
 The package does not retry automatically. A timeout or disconnected response can occur after a provider accepted the message, so a blind retry can send a duplicate. Put retry and idempotency policy in Queue, Workflow, or the provider adapter that has enough information to make that decision.
 

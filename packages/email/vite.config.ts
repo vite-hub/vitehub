@@ -15,6 +15,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/drivers/resend.ts",
       "src/drivers/smtp.ts",
       "src/index.ts",
       "src/markdown.ts",

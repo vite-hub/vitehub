@@ -10,11 +10,16 @@ import {
   type EmailMessage,
   type EmailSendResult,
 } from "../src/index.ts"
+import { resend } from "../src/drivers/resend.ts"
 import { renderEmailMarkdown } from "../src/markdown.ts"
 import { email } from "../src/server.ts"
 import { createTestEmail, type TestEmailClient } from "../src/test.ts"
 
 declare const driver: EmailDriver
+
+resend({ apiKey: "secret" }) satisfies EmailDriver
+resend({ apiKey: () => "secret" }) satisfies EmailDriver
+resend({ apiKey: async () => "secret" }) satisfies EmailDriver
 declare const message: EmailMessage
 
 // @ts-expect-error An EmailMessage requires an HTML or text body.

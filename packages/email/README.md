@@ -2,12 +2,13 @@
 
 `@vite-hub/email` sends outbound transactional email through one portable message and driver contract. Use the discovered `email` Runtime Helper in a ViteHub app, create an explicit client for manual integration, or provide your own delivery driver.
 
-Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` for the provider-neutral APIs. Provider adapters, test utilities, and direct Vite Integration control stay on this owner package.
+Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, `vite-hub/email/markdown`, and the dependency-free `vite-hub/email/drivers/resend` adapter. SMTP, test utilities, and direct Vite Integration control stay on this owner package.
 
 ## Requirements
 
 - Node.js 24 or later.
 - Vite 8 or later when you use Email Definition discovery.
+- A Resend API key when you use the dependency-free Resend driver.
 - Nodemailer 9 only when you use the optional SMTP driver.
 
 The package does not choose an email provider or read credentials from Vite config. Your Email Definition owns the driver and its server-only credentials.
@@ -49,6 +50,20 @@ export default defineEmail({
 
 Keep `SMTP_URL` in a local or deployment secret store. Do not expose it through a `VITE_`-prefixed environment variable.
 
+For Resend, no provider package is required. Pass a string or a sync/async getter; getters are resolved for every send so request-scoped Worker secrets are not cached:
+
+```ts
+// server/email.ts
+import { defineEmail } from "@vite-hub/email"
+import { resend } from "@vite-hub/email/drivers/resend"
+
+export default defineEmail({
+  driver: resend({
+    apiKey: () => process.env.RESEND_API_KEY ?? "",
+  }),
+})
+```
+
 Server code can now use the discovered Runtime Helper:
 
 ```ts
@@ -62,7 +77,7 @@ const result = await email.send({
 })
 ```
 
-A successful send returns `{ id, driver: "smtp" }`; the provider supplies `id`. Invalid messages and delivery failures throw `ViteHubError` with a stable `EMAIL_*` code. SMTP and core-wrapped provider failures keep the raw failure in `cause` while exposing a safe message. Custom drivers should use the same shared contract when they classify a failure directly.
+A successful send returns `{ id, driver }`; the provider supplies `id`. Invalid messages and delivery failures throw `ViteHubError` with a stable `EMAIL_*` code. SMTP, Resend, and core-wrapped provider failures keep protected diagnostics in `cause` while exposing a safe message. Custom drivers should use the same shared contract when they classify a failure directly.
 
 ## Grant an Agent permission to send
 
