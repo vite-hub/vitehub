@@ -35,14 +35,13 @@ An Agent Definition keeps the execution boundary visible in one file. The Agent 
 Define the driver first, then attach the abilities and context the Agent needs.
 
 ```ts [server/agents/support/agent.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
 import { file } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: [
       'Answer support questions from the connected workspace.',
       'Use the support Source for support policies and known answers.',

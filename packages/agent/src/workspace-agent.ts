@@ -27,10 +27,10 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "./internal/agent-driver.ts"
+import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 
 import type {
-  AgentAdapterMetadataContext,
   AgentAdapterInstructions,
   AgentCapabilitiesInput,
   AgentCapabilityDefinition,
@@ -55,6 +55,7 @@ import type {
   AgentInvokerProfile,
   AgentInput,
   AgentModelInput,
+  AgentModelResolverContext,
   AgentRunCallbackContext,
   AgentRunInput,
   AgentRuntimeConfig,
@@ -572,14 +573,28 @@ function modelProviderFromId(id: string | undefined): string | undefined {
   return provider && provider !== id ? provider : undefined
 }
 
-function modelMetadata(model: AgentModelInput, dynamic = false): AgentInspectionModelMetadata {
+function modelMetadata(model: AgentModelInput | undefined, dynamic = false): AgentInspectionModelMetadata {
+  if (model === undefined) return dynamic ? { dynamic: true } : {}
+  const gateway = gatewayModelDescriptor(model)
+  if (gateway) {
+    const id = gateway.id.trim()
+    const provider = modelProviderFromId(id)
+    return {
+      ...(dynamic ? { dynamic: true } : {}),
+      ...(id ? { id, transport: "gateway" } : {}),
+      ...(provider ? { provider } : {}),
+    }
+  }
   const record = isRecord(model) ? model : undefined
   const id = record ? stringField(record, ["modelId", "id", "model", "name"]) : undefined
-  const provider = record ? stringField(record, ["provider", "providerId"]) || modelProviderFromId(id) : undefined
+  const rawProvider = record ? stringField(record, ["provider", "providerId"]) : undefined
+  const transport = rawProvider === "gateway" ? "gateway" : undefined
+  const provider = transport ? modelProviderFromId(id) : rawProvider || modelProviderFromId(id)
   return {
     ...(dynamic ? { dynamic: true } : {}),
     ...(id ? { id } : {}),
     ...(provider ? { provider } : {}),
+    ...(transport ? { transport } : {}),
   }
 }
 
@@ -669,7 +684,7 @@ function staticDriverMetadata<
       executionAuthority: noExecutionAuthority,
       ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
       kind: "model",
-      model: modelMetadata(typeof driver.model === "function" ? undefined : driver.model, typeof driver.model === "function"),
+      model: modelMetadata(typeof driver.model === "function" ? undefined : driver.model as AgentModelInput, typeof driver.model === "function"),
     }
   }
   if (driver.kind === "harness") {
@@ -690,15 +705,15 @@ async function resolvedDriverMetadata<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
   settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined,
-  context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
+  context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentInspectionDriverMetadata | undefined> {
   if (!settings) return
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "model") {
     const dynamic = typeof driver.model === "function"
     const model = dynamic
-      ? await (driver.model as (context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => AgentModelInput | Promise<AgentModelInput>)(context)
-      : driver.model
+      ? await (driver.model as (context: AgentModelResolverContext<TRuntimeConfig, Name>) => AgentModelInput | Promise<AgentModelInput>)(context)
+      : driver.model as AgentModelInput
     return {
       executionAuthority: noExecutionAuthority,
       ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
@@ -735,7 +750,7 @@ async function resolvedUiMessageStreamProjection<
   Name extends WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
+  context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentUIMessageStreamProjection | undefined> {
   const uiMessageStream = agentSettings(definition)?.uiMessageStream
   return typeof uiMessageStream === "function"
@@ -748,7 +763,7 @@ async function resolvedConfigMetadata<
   Name extends WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
+  context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentInspectionConfigMetadata | undefined> {
   const driver = await resolvedDriverMetadata(agentSettings(definition), context)
   const capacity = inspectAgentCapacity(definition as object)
@@ -1423,8 +1438,9 @@ async function resolveWorkspaceMetadataCapabilityContext<
       fs: metadataWorkspace.fs,
       input,
       invoker,
+      runtimeConfig: runtime.runtimeConfig,
       workspace: metadataWorkspace,
-    } satisfies AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
+    } satisfies AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
     options: {
       ...workspaceOptionsFromDefinition(options, resolvedDefinition),
       capabilities: capabilityDefinitions,
@@ -1501,7 +1517,8 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       driver: { kind: selection.driverKind },
       input: selection.input,
       invoker: selection.invoker,
-    } as AgentAdapterMetadataContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>
+      runtimeConfig: selection.runtime.runtimeConfig,
+    } as AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>
     const staticConfig = staticConfigMetadata(definition)
     const uiMessageStream = await resolvedUiMessageStreamProjection(definition, context)
     const config = staticConfig && {

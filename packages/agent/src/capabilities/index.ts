@@ -83,15 +83,16 @@ export {
   elevenLabsScribe,
 } from "./transcription-elevenlabs.ts"
 export {
-  usageCost,
+  cost,
   vercelAiGatewayPricing,
-} from "./usage-cost.ts"
+} from "./cost.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
-  UsageCostOptions,
+  AgentUsagePrice,
+  CostOptions,
   VercelAiGatewayPricingOptions,
-} from "./usage-cost.ts"
+} from "./cost.ts"
 export {
   workspaceShell,
 } from "./workspace-shell.ts"

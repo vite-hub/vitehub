@@ -33,13 +33,12 @@ This route is a direct Agent Invocation consumer. It does not register an Agent 
 Capabilities can register Agent Trigger behavior when an ability owns a product event. The Chat Capability registers `chat.message`.
 
 ```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { chat } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: 'Answer support messages.',
   },
   capabilities: [
@@ -91,13 +90,12 @@ The route is an Agent Trigger Consumer. It does not declare Chat Capability beha
 Use a custom Channel for app-owned product events that need a named trigger but have not earned a more specific Channel Kind.
 
 ```ts [server/agents/tickets.ts]
-import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { defineChannel } from '@vite-hub/agent/channels'
 
 export default defineAgent({
   driver: {
-    model: gateway('openai/gpt-5.1-mini'),
+    model: 'openai/gpt-5.1-mini',
     instructions: 'Triage incoming tickets.',
   },
   channels: {

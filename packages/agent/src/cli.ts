@@ -7,7 +7,7 @@ import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
-import { vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
+import { materializeAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -297,9 +297,7 @@ function formatUsageDuration(durationMs: unknown): string | undefined {
 }
 
 function formatUsageCost(cost: AgentUsageRecord["cost"]): string | undefined {
-  if (!cost?.amount) return
-  const amount = cost.amount.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "")
-  return `${cost.estimated ? "~" : ""}${cost.currency === "USD" ? `$${amount}` : `${amount} ${cost.currency}`}`
+  return cost?.display
 }
 
 function formatUsageSpeed(record: AgentUsageRecord, durationMs?: number): string | undefined {
@@ -345,15 +343,16 @@ function formatUsageNote(summary: string): string {
 }
 
 async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageRecord> {
-  if (record.cost || !record.usage) return record
   try {
+    if (record.cost) return { ...record, cost: materializeAgentUsageCost(record.cost) }
+    if (!record.usage) return record
     const cost = await defaultDevUsagePricing()({
       model: record.model,
       response: record.response,
       run: record.run,
       usage: record.usage,
     })
-    return cost ? { ...record, cost } : record
+    return cost ? { ...record, cost: materializeAgentUsageCost(cost) } : record
   }
   catch {
     return record

@@ -586,7 +586,7 @@ describe("agent test runner", () => {
     await runner.run({ prompt: "hello" })
 
     expect(agentInstrumentation).toHaveBeenCalledWith(expect.objectContaining({
-      model: baseModel,
+      model: expect.objectContaining({ modelId: "base" }),
     }))
     expect(testInstrumentation).toHaveBeenCalledWith(expect.objectContaining({
       model: agentWrappedModel,

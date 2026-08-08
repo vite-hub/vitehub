@@ -1797,8 +1797,9 @@ describe("agent CLI", () => {
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
-          { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
-          { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
+          { type: "usage", usageRecord: { cost: { amount: "0.01", currency: "USD" }, usage: { totalTokens: 17 } } },
+          { type: "usage", usageRecord: { cost: { usd: "0.00000400", display: "~$0.000004", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
+          { type: "usage", usageRecord: { cost: { usd: "0.00000400", display: "~$0.000004", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "finish" },
           { type: "done" },
         ])
@@ -1914,7 +1915,7 @@ describe("agent CLI", () => {
           return ndjson([
             { agent: "support", trigger: "chat.message", type: "start" },
             { text: "done", type: "text-delta" },
-            { type: "usage", usageRecord: { latency: { durationMs: 1000 }, model: { id: "claude-opus-4-8", provider: "googleVertex.anthropic.messages" }, usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } },
+            { type: "usage", usageRecord: { latency: { durationMs: 1000 }, model: "claude-opus-4-8", usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } },
             { type: "finish" },
           ])
         }

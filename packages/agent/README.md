@@ -34,14 +34,14 @@ pnpm add @ai-sdk/harness-claude-code
 
 ```ts
 // server/agents/support/agent.ts
-import { defineAgent, gateway } from "@vite-hub/agent"
+import { defineAgent } from "@vite-hub/agent"
 import { workspaceShell } from "@vite-hub/agent/capabilities"
 import { webChat } from "@vite-hub/agent/channels"
 import { file } from "@vite-hub/workspace"
 
 export default defineAgent({
   driver: {
-    model: gateway("openai/gpt-5.1-mini"),
+    model: "openai/gpt-5.1-mini",
     instructions: [
       "Answer support questions from the workspace.",
       "Use the support Source for support policies and known answers.",
