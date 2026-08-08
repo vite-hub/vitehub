@@ -80,6 +80,12 @@ function isMaskedGitHubTokenOption(value: string): boolean {
   return value === "********" || value === "<redacted>" || value === "[redacted]";
 }
 
+function activeCloudflareEnv(...keys: string[]): string | undefined {
+  return keys
+    .map((key) => getActiveCloudflareBinding<unknown>(key))
+    .find((value): value is string => typeof value === "string" && value.length > 0);
+}
+
 export function requireGitHubOption(
   kind: "publisher" | "store",
   label: string,
@@ -162,6 +168,11 @@ export function resolveGitHubRepositoryOption(
   return (
     resolveGitHubOption(options.repository) ||
     resolveGitHubOption(options.repo) ||
+    activeCloudflareEnv(
+      "WORKSPACE_GITHUB_REPOSITORY",
+      "VITEHUB_WORKSPACE_GITHUB_REPOSITORY",
+      "GITHUB_REPOSITORY",
+    ) ||
     processEnv(
       env,
       "WORKSPACE_GITHUB_REPOSITORY",
@@ -177,6 +188,11 @@ export function resolveGitHubBranchOption(
 ): string {
   return (
     resolveGitHubOption(options.branch) ||
+    activeCloudflareEnv(
+      "WORKSPACE_GITHUB_BRANCH",
+      "VITEHUB_WORKSPACE_GITHUB_BRANCH",
+      "GITHUB_BRANCH",
+    ) ||
     processEnv(
       env,
       "WORKSPACE_GITHUB_BRANCH",
@@ -194,6 +210,7 @@ export function resolveGitHubRootOption(
 ): string {
   return resolveGitHubWorkspaceRoot(
     resolveGitHubOption(options.root) ||
+      activeCloudflareEnv("WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ||
       processEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ||
       ".vitehub/workspaces/<workspace>",
     workspaceName,
