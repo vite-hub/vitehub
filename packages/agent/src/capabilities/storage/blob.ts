@@ -72,8 +72,6 @@ interface BlobEditInput {
 
 const defaultListLimit = 25
 const maxListLimit = 100
-const blobPackageName: string = "@vite-hub/blob"
-
 const blobReadInputSchema = jsonObjectSchema({
   cursor: { type: "string" },
   folded: { type: "boolean" },
@@ -231,7 +229,7 @@ function normalizeListLimit(limit: unknown): number {
 async function resolveBlobPrimitive(context: AgentCapabilityContext) {
   if (context.capabilities?.blob !== undefined) return requirePrimitive(context as never, "blob")
   try {
-    return ((await import(blobPackageName)) as { blob: unknown }).blob
+    return (await import("@vite-hub/blob")).blob
   }
   catch (error) {
     throw new Error(`[vitehub] Capability "blob" requires the blob primitive to be configured or @vite-hub/blob to be installed. ${error instanceof Error ? error.message : String(error)}`)

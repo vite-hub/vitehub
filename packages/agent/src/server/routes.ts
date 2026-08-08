@@ -13,7 +13,7 @@ import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatSess
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
-import { finalChannelOutputContextKey, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { isAttachmentData } from "../messages.ts"
@@ -888,8 +888,9 @@ async function hasActiveWorkflowRuntime(
   context: ViteAgentRouteRuntimeContext,
 ): Promise<boolean> {
   if (!isRecord(agent) || !isRecord(agent.runtime) || agent.runtime.kind !== "workflow") return false
+  if (!hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)) return false
   if (agent.runtime.discoveryDefault !== true) return true
-  if (!context.agentIdentity || Object.values(context.capabilities || {}).some(capability => capability !== false)) return false
+  if (!context.agentIdentity) return false
   try {
     return Boolean((await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig())
   }
@@ -3044,13 +3045,16 @@ async function handleChatSdkMessage(
 
     assertChatDeliveryOptions(options || {})
     const manualDelivery = options?.delivery === "manual"
-    const durableDelivery = manualDelivery && options?.durable === true
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     run = invocation.run
     const runContext = {
       ...context,
       ...(invocation.run ? { run: invocation.run } : {}),
     }
+    const durableDelivery = manualDelivery && options?.durable !== false && (
+      options?.durable === true
+      || options?.concurrency !== "serial" && await hasActiveWorkflowRuntime(agent as never, runContext as never)
+    )
     const resolvedInvocationInput = invocation.input as AgentRunInput
     if (durableDelivery) {
       await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({

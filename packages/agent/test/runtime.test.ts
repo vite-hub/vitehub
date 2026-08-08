@@ -10784,6 +10784,55 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("reconstructs Blob and Database tools inside required Workflows", async () => {
+      const blobList = vi.fn(async () => ({ blobs: [{ pathname: "workflow/input.jpg" }] }))
+      const dbSchema = vi.fn(async () => ({ meals: true }))
+      vi.doMock("@vite-hub/blob", () => ({ blob: { list: blobList } }))
+      vi.doMock("@vite-hub/database/drizzle", () => ({ agentDb: { schema: dbSchema } }))
+      const { blob, db } = await import("../src/capabilities.ts")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      try {
+        const agent = defineAgent({
+          capabilities: [blob(), db()],
+          driver: { run: async ({ tools }) => ({
+            blobs: await tools!.blob_read!.execute!({ operation: "list", prefix: "workflow/" }),
+            schema: await tools!.db_schema!.execute!({}),
+          }) },
+        })
+        const run = await runAgent(agent, {
+          agentIdentity: { name: "portable-storage" },
+          capabilities: { blob: {}, db: {} },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {
+          context: { [requireAgentWorkflowContextKey]: true },
+          prompt: "inspect storage",
+        }) as { id: string }
+
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("portable-storage", run.id)).resolves.toMatchObject({
+          result: {
+            blobs: { blobs: [{ pathname: "workflow/input.jpg" }] },
+            schema: { database: "default", schema: { meals: true } },
+          },
+          status: "completed",
+        })
+        expect(blobList).toHaveBeenCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "workflow/" })
+        expect(dbSchema).toHaveBeenCalledOnce()
+      }
+      finally {
+        vi.doUnmock("@vite-hub/blob")
+        vi.doUnmock("@vite-hub/database/drizzle")
+      }
+    })
+
     it("rejects required Workflow delivery instead of falling back inline", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
