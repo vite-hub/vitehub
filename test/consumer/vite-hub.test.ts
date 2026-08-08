@@ -514,6 +514,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       const specs = await packWorkspacePackages(packDir, new Set([
         "@vite-hub/box",
+        "@vite-hub/history",
         "@vite-hub/markdown-template",
         "@vite-hub/runtime",
         "@vite-hub/source",
