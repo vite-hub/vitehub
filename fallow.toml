@@ -119,6 +119,8 @@ ignoreDependencies = [
   "@chat-adapter/telegram",
   # Resolved by the packaged Codex bridge at runtime.
   "@openai/codex-sdk",
+  # Installed for the optional GitHub Tools Eve extension runtime.
+  "@vercel/connect",
   "ws",
   # Package builds and generated provider output reference these without source imports.
   "@aws-sdk/client-s3",
