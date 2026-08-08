@@ -135,7 +135,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       const current = document.value
       if (!current) throw new Error("The realtime document is not connected.")
       const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
-        body: Uint8Array.from(Y.encodeStateVector(current)).buffer,
+        body: Uint8Array.from(Y.encodeStateAsUpdate(current)).buffer,
         method: "POST",
       })
       if (response.ok) return await response.json() as WorkspaceSnapshot

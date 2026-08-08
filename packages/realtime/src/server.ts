@@ -68,7 +68,7 @@ interface Room {
   baselineDigest?: string
   channel: string
   checkpoint?: Promise<WorkspaceSnapshot>
-  checkpointStateVector?: Uint8Array
+  checkpointState?: Uint8Array
   document: Y.Doc
   evictionTimer?: ReturnType<typeof setTimeout>
   key: string
@@ -142,8 +142,8 @@ function encodeSyncStep1(document: Y.Doc): Uint8Array {
   return encoding.toUint8Array(encoder)
 }
 
-export function matchesRealtimeStateVector(document: Y.Doc, expected: Uint8Array): boolean {
-  const actual = Y.encodeStateVector(document)
+export function matchesRealtimeState(document: Y.Doc, expected: Uint8Array): boolean {
+  const actual = Y.encodeStateAsUpdate(document)
   return matchesBytes(actual, expected)
 }
 
@@ -376,14 +376,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     rooms.delete(room.key)
   }
 
-  async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, stateVector: Uint8Array): Promise<WorkspaceSnapshot> {
+  async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, state: Uint8Array): Promise<WorkspaceSnapshot> {
     const configured = definition.history?.checkpoint
     if (!configured) throw new HTTPError({ status: 404 })
     if (room.checkpoint) {
       const active = room.checkpoint
-      if (matchesBytes(room.checkpointStateVector, stateVector)) return await active
+      if (matchesBytes(room.checkpointState, state)) return await active
       await active
-      return await checkpointRoom(documentId, definition, room, stateVector)
+      return await checkpointRoom(documentId, definition, room, state)
     }
 
     const checkpoint = (async () => {
@@ -421,14 +421,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     })()
 
     room.checkpoint = checkpoint
-    room.checkpointStateVector = stateVector
+    room.checkpointState = state
     try {
       return await checkpoint
     }
     finally {
       if (room.checkpoint === checkpoint) {
         room.checkpoint = undefined
-        room.checkpointStateVector = undefined
+        room.checkpointState = undefined
       }
       evictRoom(room)
     }
@@ -444,18 +444,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     await authorize(event.req, definition.auth, event)
     const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
     const contentLength = Number(event.req.headers.get("content-length") || 0)
-    if (contentLength > maxMessageBytes) throw new HTTPError({ status: 413, message: "Realtime state vector exceeds 1 MiB." })
-    const stateVector = new Uint8Array(await event.req.arrayBuffer())
-    if (!stateVector.byteLength) throw new HTTPError({ status: 400, message: "A realtime state vector is required." })
-    if (stateVector.byteLength > maxMessageBytes) throw new HTTPError({ status: 413, message: "Realtime state vector exceeds 1 MiB." })
-    if (!matchesRealtimeStateVector(room.document, stateVector)) {
+    if (contentLength > maxRoomStateBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
+    const state = new Uint8Array(await event.req.arrayBuffer())
+    if (!state.byteLength) throw new HTTPError({ status: 400, message: "Realtime checkpoint state is required." })
+    if (state.byteLength > maxRoomStateBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
+    if (!matchesRealtimeState(room.document, state)) {
       throw new HTTPError({
         status: 409,
         message: "The realtime document is still syncing.",
         data: { code: "REALTIME_SYNC_PENDING" },
       })
     }
-    return await checkpointRoom(documentId, definition, room, stateVector)
+    return await checkpointRoom(documentId, definition, room, state)
   })
 
   const websocketHandler = defineWebSocketHandler(async (event) => {

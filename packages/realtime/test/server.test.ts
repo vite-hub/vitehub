@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeStateVector, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -68,7 +68,7 @@ describe("realtime server handler", () => {
     const client = markdownToYDoc("# Unsynchronized client version")
 
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateVector(client)).buffer,
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
 
@@ -119,7 +119,7 @@ describe("realtime server handler", () => {
     const client = markdownToYDoc("# Unsynchronized client version")
 
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateVector(client)).buffer,
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
 
@@ -225,11 +225,18 @@ describe("tiptap-markdown documents", () => {
     const client = markdownToYDoc("# Shared draft")
     const server = new Y.Doc()
     Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
-    const stateVector = Y.encodeStateVector(client)
+    const state = Y.encodeStateAsUpdate(client)
 
-    expect(matchesRealtimeStateVector(server, stateVector)).toBe(true)
+    expect(matchesRealtimeState(server, state)).toBe(true)
     client.getMap("pending").set("change", true)
-    expect(matchesRealtimeStateVector(server, Y.encodeStateVector(client))).toBe(false)
+    expect(matchesRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
+
+    const text = client.getText("deletion")
+    text.insert(0, "pending deletion")
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
+    text.delete(0, text.length)
+    expect(Y.encodeStateVector(server)).toEqual(Y.encodeStateVector(client))
+    expect(matchesRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
 
     client.destroy()
     server.destroy()
