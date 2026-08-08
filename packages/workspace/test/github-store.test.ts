@@ -829,6 +829,34 @@ describe("GitHub workspace store", () => {
     });
   });
 
+  it("keeps writes that start during a snapshot for the next checkpoint", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("first.md", { path: "first.md", content: "first\n" });
+    await Promise.all([
+      store.snapshot({ name: "first checkpoint" }),
+      store.writeFile("second.md", { path: "second.md", content: "second\n" }),
+    ]);
+    await store.snapshot({ name: "second checkpoint" });
+
+    expect(
+      requests.filter(request => request.path.endsWith("/git/commits") && request.method === "POST"),
+    ).toHaveLength(2);
+    expect(remoteTree).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/first.md" }),
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/second.md" }),
+    ]));
+  });
+
   it("fails dirty snapshots when the branch moved after load", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(

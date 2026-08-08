@@ -244,30 +244,36 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: false });
-    const file = this.#files.get(normalized);
-    if (file && !isReservedWorkspacePath(normalized)) {
-      this.#files.delete(normalized);
+    await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: false });
+      const file = this.#files.get(normalized);
+      if (file && !isReservedWorkspacePath(normalized)) {
+        this.#files.delete(normalized);
+        this.#dirty = true;
+        return;
+      }
+
+      const children = this.#publicDescendants(normalized);
+      const hasDirectory = children.length > 0;
+      if (!hasDirectory) {
+        if (options.force) return;
+        throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`);
+      }
+      if (children.length && !options.recursive) {
+        throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`);
+      }
+
+      for (const child of children) this.#files.delete(child);
       this.#dirty = true;
-      return;
-    }
-
-    const children = this.#publicDescendants(normalized);
-    const hasDirectory = children.length > 0;
-    if (!hasDirectory) {
-      if (options.force) return;
-      throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`);
-    }
-    if (children.length && !options.recursive) {
-      throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`);
-    }
-
-    for (const child of children) this.#files.delete(child);
-    this.#dirty = true;
+    });
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
+    return await this.#mutate(async () => await this.#snapshot(options));
+  }
+
+  async #snapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {
     await this.#ensure({ refresh: false });
     const snapshot = await createSnapshotFromEntries(
       await this.#listEntries("", { recursive: true }),
@@ -354,17 +360,19 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    const path = this.#metaPath(key);
-    const content = JSON.stringify(value);
-    const bytes = new TextEncoder().encode(content);
-    await this.#ensure({ refresh: false });
-    this.#files.set(path, {
-      bytes,
-      gitSha: await gitBlobSha(bytes),
-      path,
-      size: bytes.byteLength,
+    await this.#mutate(async () => {
+      const path = this.#metaPath(key);
+      const content = JSON.stringify(value);
+      const bytes = new TextEncoder().encode(content);
+      await this.#ensure({ refresh: false });
+      this.#files.set(path, {
+        bytes,
+        gitSha: await gitBlobSha(bytes),
+        path,
+        size: bytes.byteLength,
+      });
+      this.#dirty = true;
     });
-    this.#dirty = true;
   }
 
   async #ensure(options: { refresh: boolean }): Promise<void> {

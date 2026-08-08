@@ -3,6 +3,7 @@ import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 
@@ -14,8 +15,38 @@ export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
 }
 
 interface NitroConfig extends Record<string, unknown> {
+  cloudflare?: Record<string, unknown>
   features?: Record<string, unknown>
   handlers?: Array<Record<string, unknown>>
+  preset?: string
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+}
+
+function configureCloudflareRealtime(nitro: NitroConfig): void {
+  const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET
+  if (getHostingProvider(configuredPreset) !== "cloudflare") return
+
+  nitro.preset = "cloudflare-durable"
+  const cloudflare = record(nitro.cloudflare)
+  const wrangler = record(cloudflare.wrangler)
+  const durableObjects = record(wrangler.durable_objects)
+  const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
+  if (!bindings.some(binding => record(binding).name === "$DurableObject")) {
+    durableObjects.bindings = [...bindings, { class_name: "$DurableObject", name: "$DurableObject" }]
+  }
+  const migrations = Array.isArray(wrangler.migrations) ? wrangler.migrations : []
+  if (!migrations.some(migration => record(migration).tag === "vitehub-realtime-v1")) {
+    wrangler.migrations = [
+      ...migrations,
+      { new_sqlite_classes: ["$DurableObject"], tag: "vitehub-realtime-v1" },
+    ]
+  }
+  wrangler.durable_objects = durableObjects
+  cloudflare.wrangler = wrangler
+  nitro.cloudflare = cloudflare
 }
 
 function moduleSpecifier(from: string, to: string): string {
@@ -55,6 +86,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
       ])
 
       const nitro = { ...((config as { nitro?: NitroConfig }).nitro || {}) }
+      configureCloudflareRealtime(nitro)
       nitro.features = { ...nitro.features, websocket: true }
       nitro.handlers = [
         ...(nitro.handlers || []),
