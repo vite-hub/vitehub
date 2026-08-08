@@ -1819,8 +1819,13 @@ export default defineAgent({
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
         expect(queuePlugin).toContain("import { resumeWebhookQueues, waitUntilFromEvent } from \"./chat-webhook-route\"")
         expect(queuePlugin).toContain("nitroApp.hooks.hook('request', event => {")
-        expect(queuePlugin).toContain("stop ||= resumeWebhookQueues(waitUntilFromEvent(event))")
-        expect(queuePlugin).toContain("nitroApp.hooks.hook('close', async () => await stop?.())")
+        expect(queuePlugin).toContain("waitUntil ||= waitUntilFromEvent(event)")
+        expect(queuePlugin).toContain("stopping ||= stop?.()")
+        expect(queuePlugin).toContain("if (stopping) waitUntil?.(stopping)")
+        expect(queuePlugin).toContain("nitroApp.hooks.hook('close', shutdownWebhookQueues)")
+        expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listenerCount(signal))")
+        expect(queuePlugin).toContain("nodeProcess?.prependOnceListener(signal, shutdownWebhookQueues)")
+        expect(queuePlugin).not.toContain("process.exit")
         expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })")
       }
       finally {
