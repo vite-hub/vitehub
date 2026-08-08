@@ -236,7 +236,7 @@ function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model
 
 function modelVendorScope(provider: string): string {
   const normalized = provider.toLowerCase()
-  if (normalized.includes("anthropic")) return "anthropic"
+  if (normalized.split(".").includes("anthropic")) return "anthropic"
   return provider.includes(".") ? provider.split(".", 1)[0]! : provider
 }
 

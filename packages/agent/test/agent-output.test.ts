@@ -605,11 +605,11 @@ describe("agent output helpers", () => {
     ])
   })
 
-  it("preserves custom provider identities that begin with google", async () => {
+  it.each(["google-compatible", "my-anthropic-proxy"])("preserves custom provider identity %s", async (provider) => {
     const events: unknown[] = []
     for await (const event of streamAgentOutputToEvents({
       raw: {
-        provider: "google-compatible",
+        provider,
         response: { modelId: "gemini-custom" },
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       },
@@ -620,7 +620,7 @@ describe("agent output helpers", () => {
 
     expect(events[1]).toMatchObject({
       type: "usage",
-      usageRecord: { model: "google-compatible/gemini-custom" },
+      usageRecord: { model: `${provider}/gemini-custom` },
     })
   })
 
