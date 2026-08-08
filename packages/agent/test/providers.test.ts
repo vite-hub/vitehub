@@ -2396,8 +2396,11 @@ describe("server helpers", () => {
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [defineChatCapability()],
       driver: { run },
+      invoker: {
+        resolve: ({ request }) => ({ id: request?.headers.get("x-user") || "anonymous" }),
+      },
     }) as never)
-    const request = (approvalId?: string) => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+    const request = (approvalId?: string, user = "user-1") => new Request("https://example.com/api/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         id: "portal-thread",
         messages: approvalId
@@ -2415,7 +2418,7 @@ describe("server helpers", () => {
             }]
           : [{ id: "user-1", parts: [{ text: "update the file", type: "text" }], role: "user" }],
       }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-user": user },
       method: "POST",
     })
 
@@ -2424,6 +2427,10 @@ describe("server helpers", () => {
       expect(requested.status).toBe(201)
       expect(requested.headers.get("x-agent")).toBe("approval")
       await requested.text()
+
+      const otherUser = await handler(request("approval-1", "user-2"), { agentName: "support", state })
+      expect(otherUser.status).toBe(400)
+      expect(run).toHaveBeenCalledTimes(1)
 
       const approved = await handler(request("approval-1"), { agentName: "support", state })
       expect(approved.status).toBe(200)

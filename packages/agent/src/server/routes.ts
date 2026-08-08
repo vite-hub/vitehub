@@ -3567,17 +3567,17 @@ interface AgentChatPendingApproval {
 
 const agentChatApprovalTtlMs = 24 * 60 * 60 * 1000
 
-function agentChatApprovalKey(sessionId: string, approvalId?: string): string {
-  const session = `session:${encodeURIComponent(sessionId)}:approval`
+function agentChatApprovalKey(invokerId: string, sessionId: string, approvalId?: string): string {
+  const session = `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:approval`
   return approvalId ? `${session}:${encodeURIComponent(approvalId)}` : session
 }
 
-function agentChatApprovedToolsKey(sessionId: string): string {
-  return `session:${encodeURIComponent(sessionId)}:eve:approved-tools`
+function agentChatApprovedToolsKey(invokerId: string, sessionId: string): string {
+  return `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:eve:approved-tools`
 }
 
-async function withAgentChatApprovalLock<T>(state: StateAdapter, sessionId: string, callback: () => Promise<T>): Promise<T> {
-  const lock = await state.acquireLock(`${agentChatApprovalKey(sessionId)}:lock`, 10_000)
+async function withAgentChatApprovalLock<T>(state: StateAdapter, invokerId: string, sessionId: string, callback: () => Promise<T>): Promise<T> {
+  const lock = await state.acquireLock(`${agentChatApprovalKey(invokerId, sessionId)}:lock`, 10_000)
   if (!lock) throw createRouteError(409, "Agent chat session is already handling an approval response.")
   try {
     return await callback()
@@ -3598,6 +3598,7 @@ function uiApprovalPart(part: unknown): { approval: Record<string, unknown>, rec
 
 async function authorizeAgentChatApprovals(
   state: StateAdapter,
+  invokerId: string,
   sessionId: string,
   messages: UIMessageLike[],
 ): Promise<UIMessageLike[]> {
@@ -3607,10 +3608,10 @@ async function authorizeAgentChatApprovals(
   }))
   if (!submitted.length) return messages
 
-  return await withAgentChatApprovalLock(state, sessionId, async () => {
+  return await withAgentChatApprovalLock(state, invokerId, sessionId, async () => {
     const pending = new Map(await Promise.all([...new Set(submitted.map(part => part.approval.id as string))].map(async id => [
       id,
-      await state.get<AgentChatPendingApproval>(agentChatApprovalKey(sessionId, id)),
+      await state.get<AgentChatPendingApproval>(agentChatApprovalKey(invokerId, sessionId, id)),
     ] as const)))
     const consumed = new Set<string>()
     const authorized = messages.map(message => ({
@@ -3648,19 +3649,19 @@ async function authorizeAgentChatApprovals(
       return part.record.state === "approval-responded" && part.approval.approved === true && request ? [request.name] : []
     })
     if (newlyApproved.length) {
-      const approved = await state.get<string[]>(agentChatApprovedToolsKey(sessionId))
+      const approved = await state.get<string[]>(agentChatApprovedToolsKey(invokerId, sessionId))
       await state.set(
-        agentChatApprovedToolsKey(sessionId),
+        agentChatApprovedToolsKey(invokerId, sessionId),
         [...new Set([...(approved ?? []), ...newlyApproved])],
         agentChatApprovalTtlMs,
       )
     }
-    await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(sessionId, id))))
+    await Promise.all([...consumed].map(id => state.delete(agentChatApprovalKey(invokerId, sessionId, id))))
     return authorized
   })
 }
 
-function trackAgentChatApprovals(result: unknown, state: StateAdapter, sessionId: string): unknown {
+function trackAgentChatApprovals(result: unknown, state: StateAdapter, invokerId: string, sessionId: string): unknown {
   const toolInputs = new Map<string, { input?: unknown, name?: string }>()
 
   async function trackChunk(value: unknown): Promise<void> {
@@ -3678,7 +3679,7 @@ function trackAgentChatApprovals(result: unknown, state: StateAdapter, sessionId
     if (!id) return
     const tool = toolInputs.get(toolCallId)
     await state.set(
-      agentChatApprovalKey(sessionId, id),
+      agentChatApprovalKey(invokerId, sessionId, id),
       {
         id,
         input: tool?.input ?? value.input,
@@ -3796,6 +3797,18 @@ export function createChannelChatRouteHandler(
         admittedInput,
         await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
       )
+      const invokerInput = createChatMessageTriggerInput(getAgentChatOptions(agent) || {}, triggerInput).input
+      const invoker = await resolveAgentInvoker(
+        (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
+        context,
+        createAgentInvocationContextStore(invokerInput.context),
+        invokerInput,
+        triggerInput.run,
+      )
+      triggerInput = {
+        ...withResolvedAgentInvokerInput(triggerInput as never, invoker) as AgentChatMessageTriggerInput,
+        invoker,
+      }
       const sessionId = triggerInput.run?.threadId ?? triggerInput.run?.runId
       const registration = {
         channelId: routeOptions.channelId || "http",
@@ -3805,8 +3818,8 @@ export function createChannelChatRouteHandler(
       const { state } = await resolveChatState(getAgentChatOptions(agent), context, registration, handlerOptions)
       await state.connect()
       if (sessionId) {
-        const messages = await authorizeAgentChatApprovals(state, sessionId, triggerInput.messages)
-        const approvedTools = await state.get<string[]>(agentChatApprovedToolsKey(sessionId))
+        const messages = await authorizeAgentChatApprovals(state, invoker.id, sessionId, triggerInput.messages)
+        const approvedTools = await state.get<string[]>(agentChatApprovedToolsKey(invoker.id, sessionId))
         triggerInput = {
           ...triggerInput,
           context: {
@@ -3819,7 +3832,7 @@ export function createChannelChatRouteHandler(
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
-      if (sessionId) result = trackAgentChatApprovals(result, state, sessionId)
+      if (sessionId) result = trackAgentChatApprovals(result, state, invoker.id, sessionId)
       return await toAgentChatFetchResponse(result)
     }
     catch (error) {
