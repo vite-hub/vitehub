@@ -612,9 +612,13 @@ describe("Eve extension capabilities", () => {
       .resolves.toEqual({})
   })
 
-  it("starts dynamic tools once per session without retaining an invocation context", async () => {
-    const execute = vi.fn(async (_input: unknown, context: { session: { turn: { id: string } } }) => context.session.turn.id)
-    const started = vi.fn(() => ({ run: { execute } }))
+  it("maps Eve session.started tools to each Agent Invocation", async () => {
+    const started = vi.fn((_event: unknown, context: { session: { id: string } }) => ({
+      run: {
+        description: context.session.id,
+        execute: async (_input: unknown, toolContext: { session: { turn: { id: string } } }) => toolContext.session.turn.id,
+      },
+    }))
     const capability = await eveExtensionCapability(
       "test-extension",
       "test",
@@ -631,10 +635,12 @@ describe("Eve extension capabilities", () => {
     const second = capabilityContext()
     second.run = { runId: "run-2", threadId: "session-1" }
 
-    await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(first)
-    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(second)
+    const firstTools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(first)
+    const secondTools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(second)
 
-    expect(started).toHaveBeenCalledTimes(1)
-    await expect(tools.test__run!.execute?.({}, { toolCallId: "call-1" } as never)).resolves.toBe("run-2")
+    expect(started).toHaveBeenCalledTimes(2)
+    expect(firstTools.test__run!.description).toBe("run-1")
+    expect(secondTools.test__run!.description).toBe("run-2")
+    await expect(secondTools.test__run!.execute?.({}, { toolCallId: "call-1" } as never)).resolves.toBe("run-2")
   })
 })
