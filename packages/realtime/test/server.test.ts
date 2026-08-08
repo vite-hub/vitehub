@@ -556,12 +556,11 @@ describe("realtime server handler", () => {
     document.destroy()
   })
 
-  it("preserves the baseline when the canonical reread never stabilizes", async () => {
+  it("recovers a committed write when the canonical reread initially fails", async () => {
     let unstable = false
     let stats = 0
     const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
-      if (options.ifDigest !== "baseline") throw new Error(`stale digest: ${options.ifDigest}`)
-      if (writeFile.mock.calls.length > 1) throw new Error("external Workspace change")
+      if (options.ifDigest !== (writeFile.mock.calls.length === 1 ? "baseline" : `external-${stats}`)) throw new Error(`stale digest: ${options.ifDigest}`)
       unstable = true
       return "page.md"
     })
@@ -570,10 +569,10 @@ describe("realtime server handler", () => {
       fs: {
         exists: vi.fn().mockResolvedValue(true),
         readFile: vi.fn().mockResolvedValue("# External change"),
-        stat: vi.fn(async () => ({ digest: unstable ? `external-${++stats}` : "baseline" })),
+        stat: vi.fn(async () => ({ digest: unstable ? (stats < 6 ? `external-${++stats}` : `external-${stats}`) : "baseline" })),
         writeFile,
       },
-      history: { checkpoint: vi.fn() },
+      history: { checkpoint: vi.fn(async () => ({ entries: { "page.md": { digest: `external-${stats}` } }, id: "snapshot" })) },
     }
     serverMocks.useWorkspace.mockReturnValue(workspace)
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
@@ -591,8 +590,11 @@ describe("realtime server handler", () => {
     })
 
     expect((await handler.fetch(request())).status).toBe(409)
-    expect((await handler.fetch(request())).status).toBe(500)
-    expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", "baseline"])
+    const recovery = await handler.fetch(request())
+    expect(recovery.status).toBe(409)
+    await expect(recovery.json()).resolves.toMatchObject({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } })
+    expect((await handler.fetch(request())).status).toBe(200)
+    expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", `external-${stats}`])
     document.destroy()
   })
 

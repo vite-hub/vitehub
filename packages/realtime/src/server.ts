@@ -98,8 +98,8 @@ interface Room {
   key: string
   mutated: boolean
   pendingCheckpoint?: {
-    content: string
-    digest: string
+    content?: string
+    digest?: string
     message: string
     path: string
     state: Uint8Array
@@ -596,21 +596,25 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     }
   }
 
+  async function recoverPendingCheckpoint(room: Room, pending: NonNullable<Room["pendingCheckpoint"]>): Promise<void> {
+    const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
+    room.baselineDigest = current.baselineDigest
+    room.durableReady = !!room.sql || !!room.baselineDigest
+    reconcilePendingCheckpoint(room, pending, current.markdown)
+    persistRoom(room)
+    clearPendingCheckpoint(room, pending)
+  }
+
   function schedulePendingCheckpointExpiry(
     room: Room,
     pending: NonNullable<Room["pendingCheckpoint"]>,
-    workspaceName: string,
-    documentId: string,
   ): void {
     if (room.pendingCheckpoint !== pending || room.pendingCheckpointTimer) return
     const expire = () => {
       room.pendingCheckpointTimer = undefined
       void (async () => {
         try {
-          const refreshedWorkspace = await refreshWritableWorkspace(workspaceName)
-          room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
-          room.durableReady = !!room.sql || !!room.baselineDigest
-          persistRoom(room)
+          await recoverPendingCheckpoint(room, pending)
         }
         catch {
           if (room.pendingCheckpoint === pending) room.pendingCheckpointTimer = setTimeout(expire, pendingCheckpointRetentionMs)
@@ -635,6 +639,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
 
     const checkpoint = serializeWorkspaceCheckpoint(definition.document.workspace, async () => {
       let pending = room.pendingCheckpoint
+      if (pending && (pending.content === undefined || pending.digest === undefined)) {
+        await recoverPendingCheckpoint(room, pending)
+        throw new HTTPError({
+          status: 409,
+          message: "The Workspace document changed while recovering its realtime checkpoint.",
+          data: { code: realtimeCheckpointRejectedCode },
+        })
+      }
       if (pending && !matchesBytes(pending.state, state)) {
         clearPendingCheckpoint(room, pending)
         const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
@@ -672,7 +684,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           pending = { content: written.markdown, digest: written.baselineDigest, message, path, state: Uint8Array.from(state), submittedDocument, workspace }
         }
         catch (error) {
-          submittedDocument.destroy()
+          room.pendingCheckpoint = { message, path, state: Uint8Array.from(state), submittedDocument, workspace }
+          schedulePendingCheckpointExpiry(room, room.pendingCheckpoint)
           throw error
         }
         room.pendingCheckpoint = pending
@@ -688,7 +701,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           await refreshWritableWorkspace(definition.document.workspace)
           throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
         }
-        schedulePendingCheckpointExpiry(room, pending, definition.document.workspace, documentId)
+        schedulePendingCheckpointExpiry(room, pending)
         throw error
       }
       if (snapshot.entries[pending.path]?.digest !== pending.digest) {
@@ -706,10 +719,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       }
       room.baselineDigest = snapshot.entries[pending.path]?.digest
       room.durableReady = !!room.sql || !!room.baselineDigest
-      reconcilePendingCheckpoint(room, pending, pending.content)
+      reconcilePendingCheckpoint(room, pending, pending.content!)
       persistRoom(room)
       clearPendingCheckpoint(room, pending)
-      return { content: pending.content, snapshot }
+      return { content: pending.content!, snapshot }
     })
 
     room.checkpoint = checkpoint
