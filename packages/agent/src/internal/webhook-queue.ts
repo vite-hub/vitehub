@@ -11,6 +11,7 @@ export interface AgentWebhookQueueDelivery {
     run?: unknown
   }
   leaseTtlMs: number
+  rehydrate?: true
   request: {
     body: string
     headers: Record<string, string>
