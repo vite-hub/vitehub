@@ -315,9 +315,14 @@ export async function readRealtimeWorkspaceDocument(
   for (let attempt = 0; attempt < 3; attempt++) {
     const before = await stat()
     let markdown = ""
-    if (await readable.fs.exists(documentId)) {
+    const source = await readable.fs.exists(documentId)
+      ? readable.fs
+      : before
+        ? writable.fs
+        : undefined
+    if (source) {
       try {
-        markdown = await readable.fs.readFile(documentId, { encoding: "utf8" })
+        markdown = await source.readFile(documentId, { encoding: "utf8" })
       }
       catch (error) {
         if (!(await stat())) continue

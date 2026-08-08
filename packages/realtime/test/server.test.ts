@@ -729,6 +729,21 @@ describe("realtime Workspace documents", () => {
     expect(result).toEqual({ baselineDigest: undefined, markdown: "# Generated asset" })
   })
 
+  it("reads hosted documents from the writable store when readonly assets are unavailable", async () => {
+    const result = await readRealtimeWorkspaceDocument(
+      { fs: { exists: vi.fn().mockResolvedValue(false), readFile: vi.fn() } } as never,
+      {
+        fs: {
+          readFile: vi.fn().mockResolvedValue("# Hosted document"),
+          stat: vi.fn().mockResolvedValue({ digest: "hosted" }),
+        },
+      } as never,
+      "hosted.md",
+    )
+
+    expect(result).toEqual({ baselineDigest: "hosted", markdown: "# Hosted document" })
+  })
+
   it("retries when the Workspace digest changes during the initial read", async () => {
     const result = await readRealtimeWorkspaceDocument(
       {
