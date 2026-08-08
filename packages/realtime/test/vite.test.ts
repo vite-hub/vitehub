@@ -54,6 +54,21 @@ describe("hubRealtime", () => {
       .rejects.toThrow("require one room authority")
   })
 
+  it("rejects Cloudflare authority with a non-Cloudflare Nitro preset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime({ authority: "cloudflare" })
+    const config = { root, nitro: { preset: "node-server" } }
+    const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
+
+    await expect(hook(config)).rejects.toThrow("conflicts with the node deployment preset")
+    expect(config.nitro.preset).toBe("node-server")
+  })
+
   it("allows an acknowledged single-process memory authority", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)

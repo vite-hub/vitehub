@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
@@ -88,10 +89,11 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
 
       const nitro = { ...((config as { nitro?: NitroConfig }).nitro || {}) }
       const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
+      const deploymentPreset = deploymentPresetFromNitro(configuredPreset)
       const provider = getHostingProvider(configuredPreset)
       const authority = options.authority || "auto"
-      if (authority === "cloudflare" && provider && provider !== "cloudflare") {
-        throw new Error(`[vitehub] Realtime authority "cloudflare" conflicts with the ${provider} deployment preset.`)
+      if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
+        throw new Error(`[vitehub] Realtime authority "cloudflare" conflicts with the ${deploymentPreset} deployment preset.`)
       }
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         configureCloudflareRealtime(nitro)
