@@ -54,6 +54,26 @@ describe("hubRealtime", () => {
       .rejects.toThrow("require one room authority")
   })
 
+  it.each(["https://cdn.example.com/assets/", "//cdn.example.com/assets/", "./"])(
+    "does not treat the Vite asset base %s as an application path",
+    async (base) => {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+      tempDirs.push(root)
+      await mkdir(join(root, "server/realtime"), { recursive: true })
+      await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+
+      const { hubRealtime } = await import("../src/vite.ts")
+      const plugin = hubRealtime({ authority: "memory" })
+      const config = { base, root } as Record<string, unknown>
+      const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
+      await hook(config)
+
+      expect(config).toMatchObject({
+        define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") },
+      })
+    },
+  )
+
   it("rejects Cloudflare authority with a non-Cloudflare Nitro preset", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)

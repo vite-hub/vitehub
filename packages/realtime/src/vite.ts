@@ -52,6 +52,10 @@ function moduleSpecifier(from: string, to: string): string {
   return value.startsWith(".") ? value : `./${value}`
 }
 
+function applicationBaseURL(base: string | undefined): string {
+  return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
+}
+
 export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
   const importBase = options.importBase ?? "@vite-hub/realtime"
   return {
@@ -68,7 +72,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
         dedupe: [...new Set([...(config.resolve?.dedupe || []), "yjs"])],
       }
       config.define = {
-        __VITEHUB_APP_BASE_URL__: JSON.stringify(config.base || "/"),
+        __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(config.base)),
         ...config.define,
       }
 
