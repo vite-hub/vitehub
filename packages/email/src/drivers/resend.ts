@@ -33,6 +33,8 @@ const responseHeaderNames = [
   "x-resend-request-id",
 ] as const
 
+const requestTimeout = 30_000
+
 class ResendProviderError extends Error {
   readonly headers: Readonly<Record<string, string>>
   readonly statusCode: number
@@ -179,12 +181,17 @@ export function resend(options: ResendOptions): EmailDriver {
             "user-agent": "vitehub-email",
           },
           method: "POST",
+          signal: AbortSignal.timeout(requestTimeout),
         })
         result = await resendResponse(response)
       } catch (error) {
         throw emailError(
-          "EMAIL_NETWORK",
-          "[vitehub] Resend delivery could not reach the provider.",
+          error instanceof DOMException && error.name === "TimeoutError"
+            ? "EMAIL_TIMEOUT"
+            : "EMAIL_NETWORK",
+          error instanceof DOMException && error.name === "TimeoutError"
+            ? "[vitehub] Resend delivery timed out."
+            : "[vitehub] Resend delivery could not reach the provider.",
           {
             cause: error,
             driver: "resend",

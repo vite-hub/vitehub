@@ -47,6 +47,7 @@ describe("resend", () => {
     const request = requests[0]!
     expect(request.url).toBe("https://api.resend.com/emails")
     expect(request.method).toBe("POST")
+    expect(request.signal).toBeInstanceOf(AbortSignal)
     expect(request.headers.get("authorization")).toBe("Bearer secret")
     expect(request.headers.get("user-agent")).toBe("vitehub-email")
     expect(await request.json()).toEqual({
@@ -181,7 +182,7 @@ describe("resend", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("classifies missing credentials, network failures, and invalid provider ids", async () => {
+  it("classifies missing credentials, timeouts, network failures, and invalid provider ids", async () => {
     const message = {
       from: "hello@example.com",
       subject: "Welcome",
@@ -191,6 +192,16 @@ describe("resend", () => {
 
     await expect(resend({ apiKey: "" }).send(message)).rejects.toMatchObject({
       code: "EMAIL_NOT_CONFIGURED",
+    })
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new DOMException("The operation timed out.", "TimeoutError")
+      }),
+    )
+    await expect(resend({ apiKey: "secret" }).send(message)).rejects.toMatchObject({
+      code: "EMAIL_TIMEOUT",
     })
 
     vi.stubGlobal(
