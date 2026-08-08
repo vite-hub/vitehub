@@ -1031,7 +1031,7 @@ export async function transformEveExtensionCapabilities(
       if (!isPositionedNode(initializer)) continue
       if (initializer.type === "ArrayExpression") {
         staticArrays.set(identifier.name, initializer)
-        if (statement.type === "ExportNamedDeclaration" && /capabilities/i.test(identifier.name)) exportedStaticArrays.add(initializer)
+        if (statement.type === "ExportNamedDeclaration" && identifier.name === "capabilities") exportedStaticArrays.add(initializer)
       }
       if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
     }
@@ -1049,7 +1049,7 @@ export async function transformEveExtensionCapabilities(
           : isPositionedNode(exported) && exported.type === "Literal"
             ? exported.value
             : undefined
-        if (typeof exportedName !== "string" || !/capabilities/i.test(exportedName)) continue
+        if (exportedName !== "capabilities") continue
         const array = staticArrays.get(local.name)
         if (array) exportedStaticArrays.add(array)
       }
@@ -1126,7 +1126,11 @@ export async function transformEveExtensionCapabilities(
       shadowRanges.set(name, ranges)
     }
   }
-  const collectShadows = (value: unknown, scope?: { end: number, start: number }): void => {
+  const collectShadows = (
+    value: unknown,
+    scope?: { end: number, start: number },
+    functionScope?: { end: number, start: number },
+  ): void => {
     if (!value || typeof value !== "object") return
     const node = value as Record<string, unknown>
     const nextScope = isPositionedNode(node) && (
@@ -1140,8 +1144,16 @@ export async function transformEveExtensionCapabilities(
     )
       ? { end: node.end, start: node.start }
       : scope
-    if (nextScope && node.type === "VariableDeclarator") {
-      recordShadows(node.id, nextScope)
+    const nextFunctionScope = isPositionedNode(node) && node.type.includes("Function")
+      ? { end: node.end, start: node.start }
+      : functionScope
+    if (node.type === "VariableDeclaration") {
+      const declarationScope = node.kind === "var" ? nextFunctionScope ?? nextScope : nextScope
+      for (const declaration of Array.isArray(node.declarations) ? node.declarations : []) {
+        if (isPositionedNode(declaration) && declaration.type === "VariableDeclarator") {
+          recordShadows(declaration.id, declarationScope)
+        }
+      }
     }
     if (nextScope && typeof node.type === "string" && node.type.includes("Function")) {
       for (const parameter of Array.isArray(node.params) ? node.params : []) {
@@ -1152,8 +1164,8 @@ export async function transformEveExtensionCapabilities(
     if (node.type === "FunctionExpression" || node.type === "ClassExpression") recordShadows(node.id, nextScope)
     if (node.type === "CatchClause") recordShadows(node.param, nextScope)
     for (const child of Object.values(node)) {
-      if (Array.isArray(child)) child.forEach(item => collectShadows(item, nextScope))
-      else collectShadows(child, nextScope)
+      if (Array.isArray(child)) child.forEach(item => collectShadows(item, nextScope, nextFunctionScope))
+      else collectShadows(child, nextScope, nextFunctionScope)
     }
   }
   collectShadows(program)

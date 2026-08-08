@@ -2504,10 +2504,16 @@ describe("server helpers", () => {
     })
     const approvalSessionId = "http:support:portal-thread:chat-session:session-1"
     const key = `invoker:${encodeURIComponent("anonymous:http")}:session:${encodeURIComponent(approvalSessionId)}:eve:approved-tools`
+    const pendingApprovalKey = `invoker:${encodeURIComponent("anonymous:http")}:session:${encodeURIComponent(approvalSessionId)}:approval:shared-approval`
 
     try {
       await state.connect()
       await state.set(key, ["github__createOrUpdateFile"])
+      await state.set(pendingApprovalKey, {
+        id: "shared-approval",
+        name: "github__createOrUpdateFile",
+        toolCallId: "call-1",
+      })
       const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",

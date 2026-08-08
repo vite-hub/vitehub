@@ -262,6 +262,23 @@ describe("Eve extension capabilities", () => {
     }
   })
 
+  it("hoists var shadows to their containing function", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        function createAgent(localFactory) {
+          if (localFactory) var defineAgent = localFactory
+          return defineAgent({ capabilities: [github()] })
+        }
+      `,
+      parseAst,
+      async () => true,
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
   it("rejects separate runtime imports from a mounted extension", async () => {
     await expect(transformEveExtensionCapabilities(
       `
@@ -581,7 +598,7 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
   })
 
-  it("lowers a named exported static Capability list", async () => {
+  it("does not infer Agent Definition ownership from an exported name", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `
         import github from "@github-tools/eve-extension"
@@ -591,7 +608,7 @@ describe("Eve extension capabilities", () => {
       async () => true,
     )
 
-    expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
+    expect(transformed).toBeUndefined()
   })
 
   it("does not lower unrelated exported Eve arrays", async () => {
