@@ -65,6 +65,8 @@ interface Room {
   channel: string
   checkpoint?: Promise<WorkspaceSnapshot>
   document: Y.Doc
+  key: string
+  peers: Set<WebSocketPeer>
 }
 
 export function claimAwarenessClientIds(owners: Map<number, object>, peer: object, clients: number[]): void {
@@ -167,6 +169,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           baselineDigest: stat?.digest,
           channel: `vitehub:realtime:${key}`,
           document,
+          key,
+          peers: new Set(),
         }
         value.document.on("update", (update: Uint8Array, origin: unknown) => {
           if (origin && typeof origin === "object" && "publish" in origin) {
@@ -179,6 +183,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       room.catch(() => rooms.delete(key))
     }
     return await room
+  }
+
+  function evictRoom(room: Room): void {
+    if (room.peers.size > 0 || room.checkpoint) return
+    room.awareness.destroy()
+    room.document.destroy()
+    rooms.delete(room.key)
   }
 
   async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room): Promise<WorkspaceSnapshot> {
@@ -207,6 +218,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     }
     finally {
       if (room.checkpoint === checkpoint) room.checkpoint = undefined
+      evictRoom(room)
     }
   }
 
@@ -231,6 +243,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     const room = await getRoom(definitionName, documentId, definition)
 
     function leave(peer: WebSocketPeer) {
+      if (!room.peers.delete(peer)) return
       const clients = [...(peerAwarenessClients.get(peer) || [])]
       peerAwarenessClients.delete(peer)
       if (clients.length) {
@@ -241,10 +254,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
       }
       peer.unsubscribe(room.channel)
+      evictRoom(room)
     }
 
     return {
       open(peer) {
+        room.peers.add(peer)
         peer.subscribe(room.channel)
         peer.send(encodeSyncState(room.document))
         const clients = [...room.awareness.getStates().keys()]

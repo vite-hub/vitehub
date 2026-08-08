@@ -1,9 +1,21 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
 import { checkpointRealtimeDocument, claimAwarenessClientIds, markdownToYDoc, yDocToMarkdown } from "../src/server.ts"
+import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
+
+afterEach(() => vi.unstubAllGlobals())
+
+describe("realtime application paths", () => {
+  it("prefixes endpoints with the configured application base URL", () => {
+    vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/wiki/")
+
+    expect(resolveRealtimeApplicationPath("/api/_vitehub/realtime/docs"))
+      .toBe("/wiki/api/_vitehub/realtime/docs")
+  })
+})
 
 describe("tiptap-markdown documents", () => {
   it("creates an empty shared document without a browser DOM", () => {

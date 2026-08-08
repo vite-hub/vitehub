@@ -10,6 +10,7 @@ import * as Y from "yjs"
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
 import type { MaybeRefOrGetter } from "vue"
 import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
+import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
@@ -130,7 +131,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
 
   if (typeof window !== "undefined") {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const server = `${protocol}//${window.location.host}/api/_vitehub/realtime/${encodeURIComponent(definition)}`
+    const server = `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`)}`
     const workspaceDocument = markRaw(new Y.Doc())
     const nextWorkspaceProvider = new WebsocketProvider(server, encodeURIComponent(workspaceRoomId), workspaceDocument, {
       connect: false,
@@ -152,7 +153,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     const id = toValue(documentId)
     if (!id) throw new Error("A realtime document is required before creating a checkpoint.")
     const room = id.split("/").map(encodeURIComponent).join("/")
-    const response = await fetch(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`, {
+    const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
       method: "POST",
     })
     if (!response.ok) {
@@ -170,7 +171,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     if (!id || typeof window === "undefined") return
     const nextDocument = markRaw(new Y.Doc())
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const server = `${protocol}//${window.location.host}/api/_vitehub/realtime/${encodeURIComponent(definition)}`
+    const server = `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`)}`
     const room = id.split("/").map(encodeURIComponent).join("/")
     const nextProvider = new WebsocketProvider(server, room, nextDocument, { disableBc: true })
     nextProvider.awareness.setLocalStateField("user", currentPerson(nextDocument.clientID))
