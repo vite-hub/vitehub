@@ -3,7 +3,7 @@ import Image from "@tiptap/extension-image"
 import { TableKit } from "@tiptap/extension-table"
 import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
-import { prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
+import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { getAuthForRequest } from "@vite-hub/auth/server"
 import { isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
@@ -56,6 +56,25 @@ export function yDocToMarkdown(document: Y.Doc): string {
   })
   try {
     return editor.getMarkdown()
+  }
+  finally {
+    editor.destroy()
+  }
+}
+
+export function replaceRealtimeDocument(document: Y.Doc, markdown: string): Uint8Array {
+  const editor = new Editor({
+    content: markdown || { type: "doc", content: [{ type: "paragraph" }] },
+    contentType: "markdown",
+    extensions: editorExtensions,
+  })
+  const state = Y.encodeStateVector(document)
+  try {
+    updateYFragment(document, document.getXmlFragment(fragmentName), editor.state.doc, {
+      isOMark: new Map(),
+      mapping: new Map(),
+    })
+    return Y.encodeStateAsUpdate(document, state)
   }
   finally {
     editor.destroy()
@@ -124,8 +143,10 @@ export async function writeRealtimeDocument(
   documentId: string,
   document: Y.Doc,
   ifDigest: string | null,
-): Promise<void> {
-  await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest })
+): Promise<string> {
+  const markdown = yDocToMarkdown(document)
+  await workspace.fs.writeFile(documentId, markdown, { ifDigest })
+  return await workspace.fs.readFile(documentId, { encoding: "utf8" })
 }
 
 export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
@@ -394,7 +415,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           ? configured.message
           : `docs: checkpoint ${documentId}`
         try {
-          await writeRealtimeDocument(workspace, documentId, room.document, room.baselineDigest ?? null)
+          const effectiveMarkdown = await writeRealtimeDocument(workspace, documentId, room.document, room.baselineDigest ?? null)
+          if (effectiveMarkdown !== yDocToMarkdown(room.document)) {
+            const update = replaceRealtimeDocument(room.document, effectiveMarkdown)
+            if (update.byteLength > 0) {
+              const message = encodeSyncUpdate(update)
+              for (const peer of room.peers) peer.send(message)
+            }
+          }
         }
         catch (error) {
           if (isWorkspaceConflict(error)) {

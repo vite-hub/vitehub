@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeOrigin, bindAwarenessIdentity, claimAwarenessClientIds, createRealtimeHandler, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -208,6 +208,9 @@ describe("tiptap-markdown documents", () => {
     const document = markdownToYDoc("# Shared draft")
     const workspace = {
       fs: {
+        async readFile() {
+          return "# Shared draft"
+        },
         async writeFile(path: string, content: string, options: { ifDigest: string }) {
           calls.push(`write:${path}:${content}:${options.ifDigest}`)
         },
@@ -215,10 +218,22 @@ describe("tiptap-markdown documents", () => {
     }
 
     await expect(writeRealtimeDocument(workspace as never, "docs/page.md", document, "baseline"))
-      .resolves.toBeUndefined()
+      .resolves.toBe("# Shared draft")
     expect(calls).toEqual([
       "write:docs/page.md:# Shared draft:baseline",
     ])
+  })
+
+  it("reconciles Workspace-transformed Markdown into the live Yjs document", () => {
+    const document = markdownToYDoc("# Shared draft")
+    const client = new Y.Doc()
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(document))
+
+    const update = replaceRealtimeDocument(document, "# Normalized draft")
+    Y.applyUpdate(client, update)
+
+    expect(yDocToMarkdown(document)).toBe("# Normalized draft")
+    expect(yDocToMarkdown(client)).toBe("# Normalized draft")
   })
 
   it("only checkpoints a document state the server has received", () => {
