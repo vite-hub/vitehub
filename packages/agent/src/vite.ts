@@ -18,6 +18,7 @@ import {
 import { normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions, discoverAgentEvalFiles } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
+import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, normalizeAgentRoute } from "./internal/routes.ts"
 import { readColocatedAgentHome } from "./vite/colocated-agent-home.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
@@ -29,6 +30,9 @@ import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModule
 
 interface AgentCliContributingPlugin {
   vitehub?: {
+    agent?: {
+      transformWorkflowRegistry: (code: string, id: string) => string
+    }
     cli?: unknown
   }
 }
@@ -136,28 +140,31 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 
+function configuredGeneratedAgentRuntimeCapabilities(
+  plugins: readonly Plugin[],
+  packageImports: Record<string, false | string> = {},
+): GeneratedAgentRuntimeCapability[] {
+  const pluginNames = new Set(plugins.map(plugin => plugin.name))
+  return generatedAgentRuntimeCapabilityDefinitions
+    .filter(capability => pluginNames.has(capability.pluginName) || packageImports[capability.name] === false)
+    .map(capability => ({
+      ...capability,
+      packageName: packageImports[capability.name] === false && pluginNames.has(capability.pluginName)
+        ? capability.packageName
+        : packageImports[capability.name] ?? capability.packageName,
+    }))
+}
+
 async function resolveGeneratedAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
   packageImports: Record<string, false | string> = {},
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  const pluginNames = new Set(config.plugins?.map(plugin => plugin.name))
-  const candidates = generatedAgentRuntimeCapabilityDefinitions.filter(capability =>
-    pluginNames.has(capability.pluginName) || packageImports[capability.name] === false
-  )
-  const packageName = (capability: GeneratedAgentRuntimeCapability) =>
-    packageImports[capability.name] === false && pluginNames.has(capability.pluginName)
-      ? capability.packageName
-      : packageImports[capability.name] ?? capability.packageName
+  const candidates = configuredGeneratedAgentRuntimeCapabilities(config.plugins || [], packageImports)
   const resolveImport = config.createResolver?.()
-  if (!resolveImport) {
-    return candidates.map(capability => ({
-      ...capability,
-      packageName: packageName(capability),
-    }))
-  }
+  if (!resolveImport) return candidates
   const importer = join(resolveViteHubGeneratedRoot(config), "agent", "runtime-capabilities.js")
   const resolved = await Promise.all(candidates.map(async (capability) => {
-    const importName = packageName(capability)
+    const importName = capability.packageName
     if (importName === false) return { ...capability, packageName: importName }
     return await resolveImport(importName, importer)
       ? { ...capability, packageName: importName }
@@ -238,6 +245,44 @@ function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined,
   return getInternalAgentOptions(options)?.workspaceImportBase ?? fallback?.workspaceImportBase ?? workspacePackageName
 }
 
+function generatedAgentWorkflowCapabilityLoaders(
+  capabilities: GeneratedAgentRuntimeCapability[],
+  agentImportBase: string,
+  includeCapabilityImports = true,
+) {
+  const portableCapabilities = capabilities.filter(capability =>
+    capability.packageName !== false && isPortableAgentWorkflowCapability(capability.name),
+  )
+  if (!portableCapabilities.length) return { imports: [] as string[], setup: [] as string[] }
+  return {
+    imports: [
+      ...(includeCapabilityImports ? generatedAgentRuntimeCapabilityImports(portableCapabilities) : []),
+      `import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ],
+    setup: [
+      "vitehubSetAgentWorkflowCapabilityLoaders({",
+      ...portableCapabilities.map(capability => `  ${capability.name}: () => ${generatedAgentRuntimeCapabilityAlias(capability)},`),
+      "})",
+      "",
+    ],
+  }
+}
+
+function transformGeneratedAgentWorkflowRegistry(
+  code: string,
+  capabilities: GeneratedAgentRuntimeCapability[],
+  agentImportBase: string,
+): string {
+  const capabilityLoaders = generatedAgentWorkflowCapabilityLoaders(capabilities, agentImportBase)
+  if (!capabilityLoaders.imports.length) return code
+  return [...capabilityLoaders.imports, "", ...capabilityLoaders.setup, code].join("\n")
+}
+
+function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
+  const normalizedId = id.replaceAll("\\", "/")
+  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry.mjs")
+}
+
 function getScheduleRuntimeImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
   return getInternalAgentOptions(options)?.scheduleRuntimeImport ?? fallback?.scheduleRuntimeImport ?? scheduleRuntimeImport
 }
@@ -260,9 +305,15 @@ function getWorkspaceDependencyRuntimeImports(
 function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
   const runtimeCapabilities = options.runtimeCapabilities ?? []
   if (!options.schedule && !runtimeCapabilities.length) return { imports: [] as string[], requestOption: "", requestProperty: "", setup: [] as string[] }
+  const workflowCapabilityLoaders = generatedAgentWorkflowCapabilityLoaders(
+    runtimeCapabilities,
+    options.agentImportBase ?? agentPackageName,
+    false,
+  )
   return {
     imports: [
       ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
+      ...workflowCapabilityLoaders.imports,
       ...(options.schedule
         ? [
             `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
@@ -276,6 +327,7 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
       ...(options.schedule ? ["vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)"] : []),
       `const vitehubAgentRouteCapabilities = ${generatedAgentRuntimeCapabilities(runtimeCapabilities, options.schedule === true)}`,
       "",
+      ...workflowCapabilityLoaders.setup,
     ],
   }
 }
@@ -2392,6 +2444,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         ) ?? transformed
         if (transformed !== code) return transformed
       }
+      if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
+        return transformGeneratedAgentWorkflowRegistry(
+          code,
+          runtimeCapabilities,
+          getAgentImportBase(agent, frameworkOptions),
+        )
+      }
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
       const definitions = discoverScheduledAgentDefinitions(resolved.root, serverDirs)
       return isScheduleRegistryId(id)
@@ -2411,6 +2470,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         : transformScheduleTargets(code, definitions)
     },
     vitehub: {
+      agent: {
+        transformWorkflowRegistry: (code, id) => isGeneratedAgentWorkflowRegistryId(id)
+          ? transformGeneratedAgentWorkflowRegistry(
+              code,
+              runtimeCapabilities,
+              getAgentImportBase(agent, frameworkOptions),
+            )
+          : code,
+      },
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
@@ -2426,6 +2494,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
+      if (hasNitroConfigContext(config)) {
+        runtimeCapabilities = configuredGeneratedAgentRuntimeCapabilities(
+          (config.plugins || []).filter(Boolean) as Plugin[],
+          getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
+        )
+      }
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       const nitroContext = hasNitroConfigContext(config)
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))

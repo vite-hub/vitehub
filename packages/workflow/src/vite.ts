@@ -1,22 +1,32 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { getProviderRuntimeModule, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { createCloudflareWorkflowNitroConfig, generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
+import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
 interface WorkflowNitroConfigOptions {
   nitro: Record<string, unknown>
   projectRoot: string
   serverDirs?: string[]
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
 }
 
 export type WorkflowVitePlugin = Plugin & {
   vitehub?: {
     workflow?: {
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
+    }
+  }
+}
+
+interface AgentWorkflowRegistryPlugin extends Plugin {
+  vitehub?: {
+    agent?: {
+      transformWorkflowRegistry?: (code: string, id: string) => string | Promise<string>
     }
   }
 }
@@ -48,9 +58,15 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 
 export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin {
   const internalOptions = options as InternalWorkflowModuleOptions | undefined
+  let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = options
   let serverDirs: string[] | undefined
+
+  function providerRuntimeImportAliases(provider: "cloudflare" | "vercel"): Record<string, string> {
+    const database = getProviderRuntimeModule(providerOutput, "database", provider)
+    return database ? { "@vite-hub/database/drizzle": database } : {}
+  }
 
   return {
     name: "@vite-hub/workflow/vite",
@@ -60,6 +76,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     },
     configResolved(config) {
       resolved = config
+      providerOutput = useComposedProviderOutput(config)
       workflow = config.workflow ?? workflow
     },
     configEnvironment(name, config) {
@@ -72,7 +89,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
     },
     vitehub: {
       workflow: {
-        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs }: WorkflowNitroConfigOptions) {
+        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry }: WorkflowNitroConfigOptions) {
           return await createCloudflareWorkflowNitroConfig({
             agentImportBase: internalOptions?.agentImportBase,
             nitro,
@@ -83,6 +100,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
             workflowImportBase: internalOptions?.importBase,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
             workspaceImportBase: internalOptions?.workspaceImportBase,
+            transformRegistry,
           })
         },
       },
@@ -99,6 +117,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
           ...resolveStringAliases(resolved),
           ...internalOptions?.providerImportAliases,
         },
+        providerRuntimeImportAliases: {
+          cloudflare: providerRuntimeImportAliases("cloudflare"),
+          vercel: providerRuntimeImportAliases("vercel"),
+        },
         rootDir: resolved.root,
         serverDirs,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "workflow"),
@@ -106,6 +128,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         workflow,
         workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
         workspaceImportBase: internalOptions?.workspaceImportBase,
+        transformRegistry: (resolved.plugins as AgentWorkflowRegistryPlugin[])
+          .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
+          ?.vitehub?.agent?.transformWorkflowRegistry,
       })
     },
   }

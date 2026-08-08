@@ -556,6 +556,9 @@ importers:
       '@vite-hub/box':
         specifier: workspace:*
         version: link:../box
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email

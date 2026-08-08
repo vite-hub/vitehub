@@ -57,7 +57,7 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
-import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, requireAgentWorkflowContextKey, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
@@ -736,14 +736,12 @@ async function runAgentAsWorkflow<
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
     if (owner && owner !== agent) return undefined
   }
-  const capabilityNames = Object.entries(context.capabilities || {})
-    .filter(([, capability]) => capability !== false)
-    .map(([name]) => name)
   const disabledCapabilities = Object.fromEntries(
     Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
   ) as Record<string, false>
-  if (input.context?.[requireAgentWorkflowContextKey] === true && capabilityNames.length) return undefined
-  if ("discoveryDefault" in binding && capabilityNames.length) return undefined
+  const hasNonportableCapabilities = !await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)
+  if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
+  if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)

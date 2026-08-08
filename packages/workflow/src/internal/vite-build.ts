@@ -224,6 +224,7 @@ interface GenerateProviderOutputsOptions {
   clientOutDir: string
   importBase?: string
   providerImportAliases?: Record<string, string>
+  providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
@@ -231,6 +232,7 @@ interface GenerateProviderOutputsOptions {
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
 }
 
 interface WorkspaceDependencyRuntimeImports {
@@ -266,6 +268,7 @@ interface CloudflareWorkflowNitroOptions {
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -335,7 +338,7 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
     workflow: options.workflowImportBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs, options.includeUserAppEntry)
+  }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry)
   if (!artifacts.providerDefinitions.length) return options.nitro
 
   const nitro = { ...options.nitro }
@@ -649,6 +652,7 @@ async function writeProviderEntries(
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
   includeUserAppEntry = true,
+  transformRegistry?: (code: string, id: string) => string | Promise<string>,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
@@ -659,7 +663,8 @@ async function writeProviderEntries(
   const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(rootDir) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
-  await writeFile(registryFile, createWorkflowRegistryContents(registryFile, definitions, importBases), "utf8")
+  const registryContents = createWorkflowRegistryContents(registryFile, definitions, importBases)
+  await writeFile(registryFile, transformRegistry ? await transformRegistry(registryContents, registryFile) : registryContents, "utf8")
 
   const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
@@ -793,17 +798,23 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
-  }, options.serverDirs, options.includeUserAppEntry)
+  }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
-    ? createCloudflareOutput(options.rootDir, artifacts, options.providerImportAliases)
+    ? createCloudflareOutput(options.rootDir, artifacts, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.cloudflare,
+      })
     : undefined
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases, options.serverFunctionName)
+    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.vercel,
+      }, options.serverFunctionName)
     : undefined
   const writeOutputs = async () => {
     await writeProviderDeploymentOutputs({
@@ -815,7 +826,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
       ...(vercelOutput ? { vercel: vercelOutput } : {}),
     })
-    if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, options.providerImportAliases)
+    if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
+      ...options.providerImportAliases,
+      ...options.providerRuntimeImportAliases?.vercel,
+    })
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()
