@@ -148,6 +148,39 @@ export async function writeRealtimeDocument(
   return await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest, preservePath: true })
 }
 
+export async function readRealtimeCheckpointState(request: Request, maxBytes = maxRoomStateBytes): Promise<Uint8Array> {
+  const contentLength = Number(request.headers.get("content-length") || 0)
+  if (contentLength > maxBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
+  if (!request.body) return new Uint8Array()
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      byteLength += value.byteLength
+      if (byteLength > maxBytes) {
+        await reader.cancel()
+        throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
+      }
+      chunks.push(value)
+    }
+  }
+  finally {
+    reader.releaseLock()
+  }
+
+  const state = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    state.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return state
+}
+
 export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageSync)
@@ -364,6 +397,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         const initial = workspace && writableWorkspace
           ? await readRealtimeWorkspaceDocument(workspace, writableWorkspace, documentId)
           : { baselineDigest: undefined, markdown: "" }
+        if (workspaceDocument && sql && !initial.baselineDigest) {
+          throw new HTTPError({ status: 404, message: "Realtime documents must exist in Workspace before opening a durable room." })
+        }
         if (workspaceDocument && sql) {
           sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL)")
         }
@@ -468,6 +504,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           if (isWorkspaceConflict(error)) {
             throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
           }
+          // A write:after hook can fail after the conditional store write committed.
+          // Refresh the baseline so a retry does not remain pinned to the stale digest.
+          await invalidateWorkspaceStore(definition.document.workspace)
+          const refreshedWorkspace = useWorkspace(definition.document.workspace, { mode: "write" })
+          room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
+          persistRoom(room)
           throw error
         }
         pending = { message, state: Uint8Array.from(state), submittedDocument, workspace }
@@ -529,11 +571,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (!(await workspace.capabilities()).conditionalWrites) {
       throw new HTTPError({ status: 501, message: "Realtime checkpoints require a Workspace Store with conditional writes." })
     }
-    const contentLength = Number(event.req.headers.get("content-length") || 0)
-    if (contentLength > maxRoomStateBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
-    const state = new Uint8Array(await event.req.arrayBuffer())
+    const state = await readRealtimeCheckpointState(event.req)
     if (!state.byteLength) throw new HTTPError({ status: 400, message: "Realtime checkpoint state is required." })
-    if (state.byteLength > maxRoomStateBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
     const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
     if (!matchesRealtimeState(room.document, state)) {
       evictRoom(room)

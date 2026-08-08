@@ -20,7 +20,7 @@ import type {
   WorkspaceSessionHost,
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
-  WriteFileOptions,
+  WorkspaceSessionWriteFileOptions,
 } from "../core/types.ts"
 
 function normalizeTarget(target = "/workspace") {
@@ -338,7 +338,7 @@ export async function createHostedWorkspaceSession(
       if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, readOptions)
     },
-    async writeFile(path: string, content: WorkspaceContent, writeOptions?: WriteFileOptions) {
+    async writeFile(path: string, content: WorkspaceContent, writeOptions?: WorkspaceSessionWriteFileOptions) {
       assertOpen()
       const target = toHostPath(root, assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths))
       await assertNoHostSymlinkParent(host, root, target)

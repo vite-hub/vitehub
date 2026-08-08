@@ -24,6 +24,8 @@ export interface WriteFileOptions {
   preservePath?: boolean
 }
 
+export type WorkspaceSessionWriteFileOptions = Omit<WriteFileOptions, "ifDigest" | "preservePath">
+
 export interface ListOptions {
   recursive?: boolean
 }
@@ -195,7 +197,7 @@ export interface ExecResult {
 export interface WorkspaceSession {
   readonly executionAuthority: ExecutionAuthority
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
-  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  writeFile(path: string, content: WorkspaceContent, options?: WorkspaceSessionWriteFileOptions): Promise<void>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
