@@ -3872,13 +3872,16 @@ export function createChannelChatRouteHandler(
       if (sessionId && manualSessions) {
         const manualId = resolveChatSessionBaseId(triggerInput.messages, chatOptions.sessions, triggerInput.session) || "default"
         const boundaryKey = agentChatSessionBoundaryKey(invoker.id, sessionId, manualId)
+        const boundaryTtlMs = sessionOptions !== true && sessionOptions.strategy === "hybrid" && sessionOptions.idleTimeoutMs
+          ? Math.min(agentChatApprovalTtlMs, sessionOptions.idleTimeoutMs)
+          : agentChatApprovalTtlMs
         if (triggerInput.session?.action === "new") {
           selectedSessionId = `${manualId}:manual:${randomToken()}`
         }
         else {
           selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
         }
-        if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, agentChatApprovalTtlMs)
+        if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, boundaryTtlMs)
       }
       const approvalSessionId = sessionId && selectedSessionId
         ? `${sessionId}:chat-session:${selectedSessionId}`

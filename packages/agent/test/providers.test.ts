@@ -2466,7 +2466,7 @@ describe("server helpers", () => {
       expect(stateSet).toHaveBeenCalledWith(
         expect.stringMatching(/^chat:support:http:invoker:user-1:session:.*:manual:session-1:boundary$/),
         expect.stringMatching(/^session-1:manual:[A-Za-z0-9_-]+$/),
-        24 * 60 * 60 * 1000,
+        60_000,
       )
       expect(stateSet).not.toHaveBeenCalledWith(
         expect.any(String),
