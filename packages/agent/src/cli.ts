@@ -343,9 +343,9 @@ function formatUsageNote(summary: string): string {
 }
 
 async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageRecord> {
-  if (record.cost) return { ...record, cost: materializeAgentUsageCost(record.cost) }
-  if (!record.usage) return record
   try {
+    if (record.cost) return { ...record, cost: materializeAgentUsageCost(record.cost) }
+    if (!record.usage) return record
     const cost = await defaultDevUsagePricing()({
       model: record.model,
       response: record.response,

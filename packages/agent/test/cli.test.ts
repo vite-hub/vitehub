@@ -1797,6 +1797,7 @@ describe("agent CLI", () => {
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
+          { type: "usage", usageRecord: { cost: { amount: "0.01", currency: "USD" }, usage: { totalTokens: 17 } } },
           { type: "usage", usageRecord: { cost: { usd: "0.00000400", display: "~$0.000004", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "usage", usageRecord: { cost: { usd: "0.00000400", display: "~$0.000004", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "finish" },
