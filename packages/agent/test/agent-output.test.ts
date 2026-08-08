@@ -605,6 +605,25 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("preserves custom provider identities that begin with google", async () => {
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents({
+      raw: {
+        provider: "google-compatible",
+        response: { modelId: "gemini-custom" },
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      },
+      text: "ok",
+    })) {
+      events.push(event)
+    }
+
+    expect(events[1]).toMatchObject({
+      type: "usage",
+      usageRecord: { model: "google-compatible/gemini-custom" },
+    })
+  })
+
   it("adds a terminal finish event to fullStream output", async () => {
     const output = {
       fullStream: (async function* () {
