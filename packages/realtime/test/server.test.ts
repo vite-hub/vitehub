@@ -572,6 +572,76 @@ describe("realtime server handler", () => {
     client.destroy()
   })
 
+  it("rebases the shared Workspace Store after a snapshot conflict", async () => {
+    let content = "# Base"
+    let digest = "baseline"
+    let checkpoints = 0
+    const rebase = vi.fn(async () => {
+      content = "# Remote"
+      digest = "remote"
+    })
+    const workspace = {
+      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
+      fs: {
+        exists: vi.fn().mockResolvedValue(true),
+        readFile: vi.fn(async () => content),
+        stat: vi.fn(async () => ({ digest })),
+        writeFile: vi.fn(async (_path: string, nextContent: string) => {
+          content = nextContent
+          digest = "staged"
+          return "page.md"
+        }),
+      },
+      history: {
+        checkpoint: vi.fn(async () => {
+          if (checkpoints++ === 0) {
+            const error = Object.assign(new Error("remote moved"), { code: "WORKSPACE_CONFLICT" })
+            error.name = "ViteHubError"
+            throw error
+          }
+          return { entries: { "page.md": { digest } }, id: "snapshot" }
+        }),
+        rebase,
+      },
+    }
+    serverMocks.useWorkspace.mockReturnValue(workspace)
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const websocket = (await handler.fetch(
+      new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+        headers: { upgrade: "websocket" },
+      }),
+    )) as Response & {
+      crossws: { message(peer: object, message: object): void, open(peer: object): void }
+    }
+    const peer = {
+      close: vi.fn(),
+      publish: vi.fn(),
+      send: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    }
+    const document = new Y.Doc()
+    websocket.crossws.open(peer)
+    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(document) })
+    applyRealtimeSyncMessage(peer.send.mock.calls.at(-1)![0], document, "server")
+    peer.send.mockClear()
+
+    const response = await handler.fetch(
+      new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+        body: Uint8Array.from(Y.encodeStateAsUpdate(document)).buffer,
+        method: "POST",
+      }),
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      data: { code: "REALTIME_CHECKPOINT_REJECTED" },
+    })
+    expect(rebase).toHaveBeenCalledWith({ takeRemote: ["page.md"] })
+    expect(peer.send).toHaveBeenCalledOnce()
+    document.destroy()
+  })
+
   it("refreshes the baseline when a post-write failure follows a committed write", async () => {
     serverMocks.resolveWorkspaceStoreTarget.mockResolvedValue({ provider: "memory" })
     let digest = "baseline"

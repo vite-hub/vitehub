@@ -273,12 +273,16 @@ describe("workspace public API", () => {
   it("checkpoints writable workspace history", async () => {
     const store = createMemoryWorkspaceStore()
     const snapshot = vi.spyOn(store, "snapshot")
+    const rebase = vi.fn(async () => {})
+    store.rebase = rebase
     registerWorkspace("history-api", defineWorkspace({ store }))
 
     const workspace = useWorkspace("history-api", { mode: "write" })
     const checkpoint = await workspace.history.checkpoint({ message: "docs: save draft" })
+    await workspace.history.rebase({ takeRemote: ["docs/page.md"] })
 
     expect(snapshot).toHaveBeenCalledWith({ name: "docs: save draft" })
+    expect(rebase).toHaveBeenCalledWith({ takeRemote: ["docs/page.md"] })
     expect(checkpoint.name).toBe("docs: save draft")
   })
 

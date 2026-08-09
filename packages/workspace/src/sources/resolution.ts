@@ -210,6 +210,9 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
     async snapshot(options) {
       return await workspace.snapshot(options)
     },
+    async rebase(options) {
+      await workspace.history.rebase(options)
+    },
     async diff(options) {
       return await workspace.diff(options)
     },
@@ -468,6 +471,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         const resolvedStore = createWritableFacadeStore({ ...workspace, fs: writeFs })
         await publishWorkspace(resolvedDefinition, resolvedStore, options)
       },
+      rebase: workspace.history.rebase,
       readFile: writeFs.readFile,
       rm: writeFs.rm,
       search: writeFs.search,

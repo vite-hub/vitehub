@@ -884,6 +884,67 @@ describe("GitHub workspace store", () => {
     ).toEqual([]);
   });
 
+  it("rebases a conflicted snapshot without dropping unrelated staged writes", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Base\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("page.md", { path: "page.md", content: "# Realtime\n" });
+    await store.writeFile("draft.md", { path: "draft.md", content: "unrelated draft\n" });
+    refSha = "remote-sha";
+    remoteTreeSha = "remote-tree";
+    remoteTree = remoteTree.filter((entry) => entry.path !== ".vitehub/workspaces/docs/page.md");
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Remote\n");
+    seedRemote(".vitehub/workspaces/docs/draft.md", "remote draft\n");
+    seedRemote(".vitehub/workspaces/docs/remote.md", "remote addition\n");
+
+    await expect(store.snapshot({ name: "conflict" })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+    });
+    await expect(store.rebase?.({ takeRemote: ["page.md"] })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+    });
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({
+      content: textBytes("unrelated draft\n"),
+    });
+    remoteTree = remoteTree.filter(
+      (entry) => entry.path !== ".vitehub/workspaces/docs/draft.md",
+    );
+    await store.rebase?.({ takeRemote: ["page.md"] });
+    await expect(store.readFile("page.md")).resolves.toMatchObject({
+      content: textBytes("# Remote\n"),
+    });
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({
+      content: textBytes("unrelated draft\n"),
+    });
+    await store.snapshot({ name: "retry" });
+
+    expect(remoteTree).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ".vitehub/workspaces/docs/page.md",
+          sha: textSha("# Remote\n"),
+        }),
+        expect.objectContaining({
+          path: ".vitehub/workspaces/docs/draft.md",
+          sha: textSha("unrelated draft\n"),
+        }),
+        expect.objectContaining({
+          path: ".vitehub/workspaces/docs/remote.md",
+          sha: textSha("remote addition\n"),
+        }),
+      ]),
+    );
+  });
+
   it("requires repository and token configuration", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
 

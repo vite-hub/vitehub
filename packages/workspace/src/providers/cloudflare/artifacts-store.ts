@@ -16,6 +16,7 @@ import type {
   WorkspaceDiff,
   WorkspaceEntry,
   WorkspaceFile,
+  WorkspaceRebaseOptions,
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStore,
@@ -55,6 +56,18 @@ const fileMetadataPath = ".vitehub/files.json"
 const tokenRefreshWindow = 60_000
 
 type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
+
+function sameSnapshotEntry(
+  left: WorkspaceSnapshot["entries"][string] | undefined,
+  right: WorkspaceSnapshot["entries"][string] | undefined,
+) {
+  return (
+    left?.digest === right?.digest &&
+    left?.type === right?.type &&
+    left?.size === right?.size &&
+    JSON.stringify(left?.metadata) === JSON.stringify(right?.metadata)
+  )
+}
 
 function tokenSecret(token: string) {
   return token.split("?expires=")[0] || token
@@ -245,6 +258,76 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
     await this.#ensure()
     return this.#mutate(() => this.#createSnapshot(options))
+  }
+
+  async rebase(options: WorkspaceRebaseOptions = {}): Promise<void> {
+    await this.#ensure()
+    await this.#mutate(async () => {
+      const baseline = this.#baseline
+      const current = await createSnapshotFromEntries(
+        await this.#listEntries("", { recursive: true }),
+      )
+      const changes = diffSnapshots(baseline, current).entries.filter(
+        change => change.before?.type === "file" || change.after?.type === "file",
+      )
+
+      const local = new Map<string, WorkspaceFile | undefined>()
+      for (const change of changes)
+        local.set(change.path, change.after ? await this.readFile(change.path) : undefined)
+      const previous = {
+        baseline: this.#baseline,
+        branch: this.#branch,
+        files: this.#files,
+        fs: this.#fs,
+        head: this.#head,
+        pendingCommit: this.#pendingCommit,
+        remote: this.#remote,
+      }
+      const restore = () => {
+        this.#baseline = previous.baseline
+        this.#branch = previous.branch
+        this.#files = previous.files
+        this.#fs = previous.fs
+        this.#head = previous.head
+        this.#pendingCommit = previous.pendingCommit
+        this.#remote = previous.remote
+      }
+
+      try {
+        this.#files = new Map()
+        this.#pendingCommit = undefined
+        await this.#load()
+        const remoteChanges = new Map(
+          diffSnapshots(baseline, this.#baseline!).entries.map(change => [change.path, change]),
+        )
+        const takeRemote = new Set(options.takeRemote || [])
+        for (const change of changes) {
+          if (
+            remoteChanges.has(change.path) &&
+            !takeRemote.has(change.path) &&
+            !sameSnapshotEntry(current.entries[change.path], this.#baseline?.entries[change.path])
+          ) {
+            throw workspaceConflict(
+              `[vitehub] Cloudflare Artifacts Workspace Store rebase conflict: ${change.path} changed locally and remotely.`,
+            )
+          }
+        }
+        for (const change of changes) {
+          if (remoteChanges.has(change.path) && takeRemote.has(change.path)) continue
+          const file = local.get(change.path)
+          if (file) await this.#writeFile(change.path, file)
+          else {
+            this.#fs!.deleteTree(this.#absolute(change.path))
+            this.#files.delete(change.path)
+            await this.#writeFileMetadata()
+          }
+        }
+      }
+      catch (error) {
+        restore()
+        throw error
+      }
+    })
   }
 
   async #createSnapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {

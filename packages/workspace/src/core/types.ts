@@ -300,6 +300,10 @@ export interface WorkspaceAutoCommitPlan {
   paths: string[]
 }
 
+export interface WorkspaceRebaseOptions {
+  takeRemote?: string[]
+}
+
 export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
@@ -311,6 +315,7 @@ export interface WorkspaceStore {
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
+  rebase?(options?: WorkspaceRebaseOptions): Promise<void>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   getMeta?(key: string): Promise<unknown>
   setMeta?(key: string, value: unknown): Promise<void>
@@ -671,6 +676,7 @@ export interface Workspace {
   rm(path: string, options?: RmOptions): Promise<void>
   publish(options?: WorkspacePublishOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
+  rebase(options?: WorkspaceRebaseOptions): Promise<void>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
 }

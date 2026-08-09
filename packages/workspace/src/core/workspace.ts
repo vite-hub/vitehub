@@ -77,6 +77,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       await publishWorkspaceSnapshot(definition, store, snapshot)
       return snapshot
     },
+    async rebase(options) {
+      if (!store.rebase) throw new Error("[vitehub] Workspace Store does not support rebasing.")
+      await store.rebase(options)
+    },
     async diff(options) {
       return await store.diff(options)
     },

@@ -44,6 +44,7 @@ import type {
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
   WorkspacePublishOptions,
+  WorkspaceRebaseOptions,
   WorkspaceSnapshot,
   WorkspaceSourceSyncResult,
   WorkspaceSyncOptions,
@@ -119,11 +120,15 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   tools: WorkspaceReadToolSet
 }
 
+export interface WorkspaceHistory extends History<WorkspaceSnapshot> {
+  rebase(options?: WorkspaceRebaseOptions): Promise<void>
+}
+
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   capabilities(): Promise<WorkspaceCapabilities>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
-  history: History<WorkspaceSnapshot>
+  history: WorkspaceHistory
   getMeta?(key: string): Promise<unknown>
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   publish(options?: WorkspacePublishOptions): Promise<void>
@@ -245,6 +250,12 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
+    },
+    async rebase(options) {
+      await (await resolveSyncedWorkspace()).rebase({
+        ...options,
+        takeRemote: options?.takeRemote?.map(path => normalizePath(path)),
+      })
     },
     async diff(options) {
       return await (await resolveSyncedWorkspace()).diff(options)
@@ -480,6 +491,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       fs: createWritableFs<Name>(workspace),
       history: {
         checkpoint: async options => await workspace.snapshot({ name: options?.message }),
+        rebase: async options => await workspace.rebase(options),
       },
       getMeta: async key => await workspace.getMeta?.(key),
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),

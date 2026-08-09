@@ -32,5 +32,7 @@ document.
 
 A checkpoint is acknowledged only when its snapshot contains the digest of the
 canonical document captured after the conditional Workspace write. If the
-Workspace changes during publication, Realtime reconciles the room and retries
-the checkpoint request rather than pairing content with the wrong snapshot.
+Workspace changes during publication, Realtime rebases the shared Store onto
+the new remote head, preserves unrelated staged paths, and takes the remote
+version of the active document before reconciling the room. Another path that
+changed both locally and remotely remains an explicit Workspace conflict.

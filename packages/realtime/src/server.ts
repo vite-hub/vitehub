@@ -706,13 +706,23 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
 
       let snapshot: WorkspaceSnapshot
       try {
-        snapshot = await pending.workspace.history.checkpoint({ message: pending.message })
+        try {
+          snapshot = await pending.workspace.history.checkpoint({ message: pending.message })
+        }
+        catch (error) {
+          if (!isWorkspaceConflict(error)) throw error
+          await pending.workspace.history.rebase({ takeRemote: [pending.path] })
+          snapshot = await pending.workspace.history.checkpoint({ message: pending.message })
+        }
       }
       catch (error) {
         if (isWorkspaceConflict(error)) {
-          clearPendingCheckpoint(room, pending)
-          await refreshWritableWorkspace(definition.document.workspace)
-          throw new HTTPError({ status: 409, message: "The Workspace changed while checkpointing this realtime document." })
+          schedulePendingCheckpointExpiry(room, pending)
+          throw new HTTPError({
+            status: 409,
+            message: "The Workspace changed while checkpointing this realtime document.",
+            data: { code: realtimeCheckpointRejectedCode },
+          })
         }
         schedulePendingCheckpointExpiry(room, pending)
         throw error

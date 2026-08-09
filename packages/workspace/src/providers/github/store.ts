@@ -37,6 +37,7 @@ import type {
   WorkspaceDiff,
   WorkspaceEntry,
   WorkspaceFile,
+  WorkspaceRebaseOptions,
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStreamFile,
@@ -52,6 +53,31 @@ interface GitHubWorkspaceStoreFile {
   path: string;
   size?: number;
   uploaded?: boolean;
+}
+
+function sameGitHubTreeEntry(
+  left: GitHubTreeEntry | undefined,
+  right: GitHubTreeEntry | undefined,
+): boolean {
+  return left?.sha === right?.sha && (left?.mode || "100644") === (right?.mode || "100644");
+}
+
+function matchesGitHubRemote(
+  file: GitHubWorkspaceStoreFile | undefined,
+  remote: GitHubTreeEntry | undefined,
+): boolean {
+  return (
+    file?.gitSha === remote?.sha && gitHubFileMode(file?.metadata) === (remote?.mode || "100644")
+  );
+}
+
+function githubRemoteFile(path: string, entry: GitHubTreeEntry): GitHubWorkspaceStoreFile {
+  return {
+    gitSha: entry.sha!,
+    metadata: gitHubFileMetadata(entry),
+    path,
+    size: entry.size,
+  };
 }
 
 function isReservedWorkspacePath(path: string): boolean {
@@ -275,6 +301,67 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
     return await this.#mutate(async () => await this.#snapshot(options));
+  }
+
+  async rebase(options: WorkspaceRebaseOptions = {}): Promise<void> {
+    await this.#mutate(async () => {
+      await this.#ensure({ refresh: false });
+      const remote = await readGitHubBranchState({
+        branch: this.#branch,
+        kind: "store",
+        repository: this.#repository,
+        root: this.#root,
+        token: this.#token,
+      });
+      if (remote.refSha === this.#baselineRefSha) return;
+
+      const takeRemote = new Set(options.takeRemote || []);
+      const local = new Map(this.#files);
+      const previousRemoteFiles = this.#remoteFiles;
+      const changed = new Set([...previousRemoteFiles.keys(), ...local.keys()]);
+      for (const path of changed) {
+        if (matchesGitHubRemote(local.get(path), previousRemoteFiles.get(path))) {
+          changed.delete(path);
+          continue;
+        }
+        const previous = previousRemoteFiles.get(path);
+        const current = remote.files.get(path);
+        if (
+          !sameGitHubTreeEntry(previous, current) &&
+          !takeRemote.has(path) &&
+          !matchesGitHubRemote(local.get(path), current)
+        ) {
+          throw workspaceConflict(
+            `[vitehub] GitHub Workspace Store rebase conflict for ${this.#repository}@${this.#branch}: ${path} changed locally and remotely.`,
+          );
+        }
+      }
+
+      this.#baselineRefSha = remote.refSha;
+      this.#baselineTreeSha = remote.treeSha;
+      this.#remoteFiles = remote.files;
+      this.#files = new Map(
+        [...remote.files].map(([path, entry]) => [path, githubRemoteFile(path, entry)]),
+      );
+      this.#baseline = await createSnapshotFromEntries(
+        await this.#listEntries("", { recursive: true }),
+        "github-workspace-store-rebase",
+      );
+
+      for (const path of changed) {
+        const remoteChanged = !sameGitHubTreeEntry(
+          previousRemoteFiles.get(path),
+          remote.files.get(path),
+        );
+        if (remoteChanged && takeRemote.has(path)) continue;
+        const file = local.get(path);
+        if (file) this.#files.set(path, file);
+        else this.#files.delete(path);
+      }
+      this.#dirty = [...new Set([...this.#remoteFiles.keys(), ...this.#files.keys()])].some(
+        (path) => !matchesGitHubRemote(this.#files.get(path), this.#remoteFiles.get(path)),
+      );
+    });
   }
 
   async #snapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {
