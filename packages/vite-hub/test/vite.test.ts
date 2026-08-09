@@ -184,7 +184,10 @@ describe("vitehub", () => {
       nitroOwned: true,
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
+      hosting: "cloudflare-module",
+      runtimeEnvImport: "vite-hub/env/server",
+    })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
@@ -257,6 +260,21 @@ describe("vitehub", () => {
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
       provider: "cloudflare",
+    })
+  })
+
+  it("passes configured Email drivers through the canonical integration", () => {
+    const email = {
+      driver: "unemail/driver/resend" as const,
+      options: { endpoint: "https://api.resend.com" },
+    }
+
+    vitehub({ email, preset: "node" })
+
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
+      ...email,
+      hosting: "node-server",
+      runtimeEnvImport: "vite-hub/env/server",
     })
   })
 

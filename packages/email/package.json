@@ -45,9 +45,11 @@
     "test": "vp run -t @vite-hub/email#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "comark": "catalog:ui",
+    "esbuild": "catalog:tooling",
     "unemail": "catalog:email"
   },
   "devDependencies": {

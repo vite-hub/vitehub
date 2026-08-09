@@ -19,6 +19,8 @@ import { formatDiagnostics } from "./core/diagnostics.ts"
 import { env } from "./core/declarations.ts"
 import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 
+export { createRuntimeRegistry as createRuntimeEnvRegistry } from "./core/resolve.ts"
+
 import type {
   EnvIntegrationOptions,
   EnvRuntimeImportSpecifiers,

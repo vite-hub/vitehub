@@ -12,7 +12,7 @@ export const email: EmailClient = {
     if (!discoveredClient) {
       throw emailError(
         "EMAIL_NOT_CONFIGURED",
-        "[vitehub] No Email Definition was discovered. Add `server/email.ts` or `server.email.ts`.",
+        "[vitehub] No Email provider or Definition is configured. Set `vitehub({ email: { driver, options } })` or add `server/email.ts`.",
       )
     }
     return await discoveredClient.send(message)

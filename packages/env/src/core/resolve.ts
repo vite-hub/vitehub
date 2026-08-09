@@ -181,8 +181,8 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { prefix?: string } = {}): EnvRuntimeRegistry {
-  return buildRegistry(declarations, "env", options.prefix)
+export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string } = {}): EnvRuntimeRegistry {
+  return buildRegistry(declarations, options.path ?? "env", options.prefix)
 }
 
 async function resolveBuildConfigValue(

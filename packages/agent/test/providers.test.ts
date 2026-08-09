@@ -1272,7 +1272,8 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("embeds the discovered Email definition in standalone Agent provider outputs", async () => {
+  it("bundles the configured Email definition in standalone Agent provider outputs", async () => {
+    const { bundleEsmEntry } = await import("@vite-hub/internal/build/esbuild")
     const { hubEmail } = await import("../../email/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-email-provider-routes-"))
@@ -1280,8 +1281,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      await writeFile(join(root, "server", "email.ts"), "export default { driver: {} }", "utf8")
-      const emailPlugin = hubEmail()
+      const emailPlugin = hubEmail({ driver: "unemail/driver/resend" })
       if (typeof emailPlugin.configResolved === "function") {
         await emailPlugin.configResolved.call({} as never, { root } as never)
       }
@@ -1295,12 +1295,24 @@ describe("agent Vite plugin", () => {
         } as never)
       }
       const emailRuntime = await readFile(join(root, ".vitehub/agent/email-runtime.js"), "utf8")
+      const emailDefinition = await readFile(join(root, ".vitehub/email/definition.mjs"), "utf8")
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
       expect(emailRuntime).toContain('import { createEmail } from "@vite-hub/email"')
-      expect(emailRuntime).toContain('import definition from "../../server/email.ts"')
+      expect(emailRuntime).toContain('import definition from "../email/definition.mjs"')
       expect(emailRuntime).toContain("export const email = createEmail(definition)")
+      expect(emailDefinition).toContain("api.resend.com")
+      expect([emailRuntime, emailDefinition].join("\n")).not.toContain(root)
+      expect([emailRuntime, emailDefinition].join("\n")).not.toMatch(/node_modules[/\\\\]/)
       expect(denoServer).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
       expect(denoServer).not.toContain("@vite-hub/database/drizzle")
+      const emailBundle = join(root, "email-runtime-bundle.mjs")
+      await bundleEsmEntry(join(root, ".vitehub/agent/email-runtime.js"), emailBundle, {
+        alias: { "@vite-hub/email": resolve(import.meta.dirname, "../../email/dist/index.js") },
+        format: "esm",
+        platform: "node",
+        rootDir: root,
+      })
+      expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent()
@@ -1325,7 +1337,7 @@ describe("agent Vite plugin", () => {
       else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("installs hosted workspace runtime for generated Nitro agent routes with GitHub stores", async () => {
     const { hubAgent } = await import("../src/vite.ts")

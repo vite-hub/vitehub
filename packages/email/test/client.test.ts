@@ -143,6 +143,6 @@ describe("createEmail", () => {
 it("reports a missing discovered Email Definition", async () => {
   await expect(email.send(message)).rejects.toMatchObject({
     code: "EMAIL_NOT_CONFIGURED",
-    message: "[vitehub] No Email Definition was discovered. Add `server/email.ts` or `server.email.ts`.",
+    message: "[vitehub] No Email provider or Definition is configured. Set `vitehub({ email: { driver, options } })` or add `server/email.ts`.",
   })
 })

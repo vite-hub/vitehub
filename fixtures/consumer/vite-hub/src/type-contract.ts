@@ -53,7 +53,15 @@ export const contract = {
     workspacePublisher,
     workspaceServer,
   ],
-  plugins: vitehub({ preset: "node" }),
+  plugins: vitehub({
+    email: {
+      driver: "unemail/driver/resend",
+      options: {
+        apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
+      },
+    },
+    preset: "node",
+  }),
   rateLimit: requireRateLimit,
   workflow: defineWorkflow(async ({ payload }: { payload: { marker: string } }) => payload.marker),
   workspace: defineWorkspace({ store: { provider: "memory" } }),

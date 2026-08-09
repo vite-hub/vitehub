@@ -589,7 +589,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       nitroOwned: true,
     } as unknown as BlobModuleOptions))
   }
-  if (options.email) plugins.push(hubEmail(options.email === true ? undefined : options.email))
+  if (options.email) {
+    plugins.push(hubEmail({
+      ...(options.email === true ? {} : options.email),
+      hosting: plan.nitroPreset,
+      runtimeEnvImport: "vite-hub/env/server",
+    } as unknown as EmailVitePluginOptions))
+  }
   if (options.kv) {
     plugins.push(hubKv(presetKVOptions || undefined))
   }
