@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { useRealtimeTiptap } from "../src/vue.ts"
 
 const providers = vi.hoisted(() => [] as Array<{
-  connect: ReturnType<typeof vi.fn>
+  connect: ReturnType<typeof vi.fn<() => void>>
   destroy: ReturnType<typeof vi.fn>
-  disconnect: ReturnType<typeof vi.fn>
+  disconnect: ReturnType<typeof vi.fn<() => void>>
   statusHandler?: (event: { status: string }) => void
   syncHandler?: (value: boolean) => void
   ws: { send: ReturnType<typeof vi.fn> }
@@ -30,7 +30,9 @@ vi.mock("y-websocket", () => ({
       this.statusHandler?.({ status: "connected" })
     })
     destroy = vi.fn()
-    disconnect = vi.fn(() => this.wsconnected = false)
+    disconnect = vi.fn(() => {
+      this.wsconnected = false
+    })
     messageHandlers: unknown[] = []
     on = vi.fn((event: string, handler: (value: unknown) => void) => {
       if (event === "status") this.statusHandler = handler as (event: { status: string }) => void
