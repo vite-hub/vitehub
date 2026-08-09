@@ -6,8 +6,8 @@ export {
   hasChannelChatRoute,
 } from "./routes.ts"
 export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
-export { setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
-export type { AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
+export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
+export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 
 export type {
   AgentChannelChatRouteAdmissionContext,

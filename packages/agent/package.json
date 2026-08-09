@@ -185,6 +185,7 @@
     "@chat-adapter/discord": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -204,6 +205,9 @@
       "optional": true
     },
     "@vite-hub/blob": {
+      "optional": true
+    },
+    "@vite-hub/database": {
       "optional": true
     },
     "@vite-hub/email": {

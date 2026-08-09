@@ -1,89 +1,139 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
+import { createError } from "unemail"
 import { createEmail } from "../src/index.ts"
 import { email } from "../src/server.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
 
 const message: EmailMessage = {
-  attachments: [{ content: new Uint8Array([1, 2, 3]), contentType: "application/octet-stream", filename: "report.bin" }],
+  attachments: [
+    {
+      content: new Uint8Array([1, 2, 3]),
+      contentType: "application/octet-stream",
+      disposition: "attachment",
+      filename: "report.bin",
+    },
+  ],
   bcc: "audit@example.com",
   cc: [{ email: "reviewer@example.com", name: "Reviewer" }],
   from: { email: "hello@example.com", name: "ViteHub" },
   headers: { "X-Trace-Id": "trace-1" },
   html: "<p>Hello</p>",
   replyTo: "support@example.com",
+  scheduledAt: new Date("2026-08-09T15:00:00.000Z"),
   subject: "Welcome",
+  tags: [{ name: "kind", value: "welcome" }],
   text: "Hello",
   to: ["maxi@example.com"],
 }
 
-const sparseArray: unknown[] = []
-sparseArray.length = 1
-
-function fixtureDriver(send = vi.fn(async () => ({ id: "provider-1" }))): EmailDriver {
+function fixtureDriver(
+  send: EmailDriver["send"] = vi.fn(async () => ({
+    data: { at: new Date(), driver: "fixture", id: "provider-1" },
+    error: null,
+  })),
+): EmailDriver {
   return { name: "fixture", send }
 }
 
 describe("createEmail", () => {
+  it("rejects an invalid eager driver", () => {
+    expect(() => createEmail({ driver: {} as EmailDriver })).toThrow("name")
+  })
+
   it("preserves the portable message contract and normalizes the result", async () => {
     const driver = fixtureDriver()
     const client = createEmail({ driver })
 
     await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
-    expect(driver.send).toHaveBeenCalledWith(message)
+    expect(driver.send).toHaveBeenCalledWith(message, {
+      attempt: 1,
+      driver: "fixture",
+      meta: {},
+      signal: undefined,
+      stream: undefined,
+    })
+  })
+
+  it("resolves a lazy driver for each send", async () => {
+    const factory = vi.fn(() => fixtureDriver())
+    const client = createEmail({ driver: factory })
+
+    await client.send(message)
+    await client.send(message)
+
+    expect(factory).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps an eager driver's lifecycle across sends", async () => {
+    const initialize = vi.fn()
+    const client = createEmail({ driver: { ...fixtureDriver(), initialize } })
+
+    await client.send(message)
+    await client.send(message)
+
+    expect(initialize).toHaveBeenCalledOnce()
   })
 
   it.each([
-    [{ ...message, from: "" }, "from"],
-    [{ ...message, subject: "" }, "subject"],
-    [{ ...message, to: [] }, "to"],
-    [{ ...message, to: sparseArray }, "to"],
-    [{ ...message, html: undefined, text: undefined }, "html or text"],
-    [{ ...message, html: 1 }, "html"],
-    [{ ...message, text: 1 }, "text"],
-    [{ ...message, cc: {} }, "cc"],
-    [{ ...message, headers: { "X-Trace-Id": 1 } }, "headers"],
-    [{ ...message, attachments: {} }, "attachments"],
-    [{ ...message, attachments: null }, "attachments"],
-    [{ ...message, attachments: sparseArray }, "attachments"],
-    [{ ...message, attachments: [{ content: {}, filename: "report.bin" }] }, "attachments"],
-    [{ ...message, attachments: [{ content: "report", contentDisposition: "download", filename: "report.txt" }] }, "attachments"],
-  ])("rejects an invalid message before delivery", async (invalid, field) => {
-    const driver = fixtureDriver()
-    const client = createEmail({ driver })
-
-    await expect(client.send(invalid as unknown as EmailMessage)).rejects.toMatchObject({
-      code: "EMAIL_INVALID_MESSAGE",
-      details: { driver: "fixture" },
-      message: expect.stringContaining(field),
-    })
-    expect(driver.send).not.toHaveBeenCalled()
-  })
-
-  it("normalizes unknown driver failures", async () => {
-    const cause = new Error("provider unavailable")
+    ["INVALID_OPTIONS", "EMAIL_NOT_CONFIGURED"],
+    ["AUTH", "EMAIL_AUTHENTICATION"],
+    ["NETWORK", "EMAIL_NETWORK"],
+    ["RATE_LIMIT", "EMAIL_RATE_LIMITED"],
+    ["TIMEOUT", "EMAIL_TIMEOUT"],
+    ["PROVIDER", "EMAIL_PROVIDER_FAILED"],
+    ["UNSUPPORTED", "EMAIL_PROVIDER_FAILED"],
+    ["CANCELLED", "EMAIL_PROVIDER_FAILED"],
+  ] as const)("maps Unemail %s failures to %s", async (providerCode, code) => {
+    const cause = createError("fixture", providerCode, "provider unavailable")
     const client = createEmail({
-      driver: fixtureDriver(vi.fn(async () => {
-        throw cause
-      })),
+      driver: fixtureDriver(vi.fn(async () => ({ data: null, error: cause }))),
     })
 
     await expect(client.send(message)).rejects.toMatchObject({
       cause,
-      code: "EMAIL_PROVIDER_FAILED",
+      code,
       details: { driver: "fixture" },
       message: "[vitehub] Email delivery failed through fixture.",
     })
   })
 
-  it("preserves normalized driver errors", async () => {
-    const error = new ViteHubError("EMAIL_RATE_LIMITED", "Try again later.", { details: { driver: "fixture" } })
+  it("rejects a successful result without a provider message ID", async () => {
     const client = createEmail({
-      driver: fixtureDriver(vi.fn(async () => {
+      driver: fixtureDriver(vi.fn(async () => ({
+        data: { at: new Date(), driver: "fixture", id: "" },
+        error: null,
+      }))),
+    })
+
+    await expect(client.send(message)).rejects.toMatchObject({
+      code: "EMAIL_PROVIDER_FAILED",
+      details: { driver: "fixture" },
+      message: "[vitehub] Email driver fixture returned an invalid message id.",
+    })
+  })
+
+  it("uses the validated driver name in a successful result", async () => {
+    const client = createEmail({
+      driver: fixtureDriver(vi.fn(async () => ({
+        data: { at: new Date(), driver: "", id: "provider-1" },
+        error: null,
+      }))),
+    })
+
+    await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
+  })
+
+  it("preserves ViteHub errors thrown while resolving the driver", async () => {
+    const error = new ViteHubError("EMAIL_RATE_LIMITED", "Try again later.", {
+      details: { driver: "fixture" },
+    })
+    const client = createEmail({
+      driver: () => {
         throw error
-      })),
+      },
     })
 
     await expect(client.send(message)).rejects.toBe(error)

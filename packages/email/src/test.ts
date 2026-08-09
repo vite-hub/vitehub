@@ -1,6 +1,6 @@
 import { createEmail } from "./client.ts"
 
-import type { EmailClient, EmailDriver, EmailDriverResult, EmailMessage } from "./types.ts"
+import type { EmailClient, EmailDriver, EmailMessage } from "./types.ts"
 
 export interface MemoryEmailDriver extends EmailDriver {
   clear: () => void
@@ -23,9 +23,17 @@ export function createMemoryEmailDriver(): MemoryEmailDriver {
       messages.splice(0)
       nextId = 1
     },
-    async send(message: EmailMessage): Promise<EmailDriverResult> {
+    async send(message, context) {
       messages.push(structuredClone(message))
-      return { id: `memory-${nextId++}` }
+      return {
+        data: {
+          at: new Date(),
+          driver: "memory",
+          id: `memory-${nextId++}`,
+          stream: context.stream,
+        },
+        error: null,
+      }
     },
   }
 }

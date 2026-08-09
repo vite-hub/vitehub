@@ -1,49 +1,20 @@
-export type EmailAddress = string | {
-  email: string
-  name?: string
-}
+import type { Attachment, EmailAddressInput, EmailDriver, EmailMessage, MaybePromise } from "unemail"
 
-export type EmailAddressList = EmailAddress | readonly EmailAddress[]
+export type { EmailDriver, EmailMessage }
+export type { EmailAddressInput as EmailAddressList } from "unemail"
+export type EmailAddress = Exclude<EmailAddressInput, readonly unknown[]>
+export type EmailAttachment = Attachment
 
-export interface EmailAttachment {
-  cid?: string
-  content: string | Uint8Array
-  contentDisposition?: "attachment" | "inline"
-  contentType?: string
-  filename: string
-}
+export type EmailDriverFactory = () => MaybePromise<EmailDriver>
+export type EmailDriverSource = EmailDriver | EmailDriverFactory
 
-interface EmailMessageFields {
-  attachments?: readonly EmailAttachment[]
-  bcc?: EmailAddressList
-  cc?: EmailAddressList
-  from: EmailAddress
-  headers?: Readonly<Record<string, string>>
-  replyTo?: EmailAddressList
-  subject: string
-  to: EmailAddressList
-}
-
-export type EmailMessage = EmailMessageFields & (
-  | { html: string; text?: string }
-  | { html?: string; text: string }
-)
-
-export interface EmailDriverResult {
+export interface EmailSendResult {
+  driver: string
   id: string
 }
 
-export interface EmailSendResult extends EmailDriverResult {
-  driver: string
-}
-
-export interface EmailDriver {
-  readonly name: string
-  send: (message: EmailMessage) => Promise<EmailDriverResult>
-}
-
 export interface EmailDefinition {
-  driver: EmailDriver
+  driver: EmailDriverSource
 }
 
 export interface EmailClient {

@@ -20,10 +20,7 @@ describe("createTestEmail", () => {
     first.subject = "Changed later"
     await client.send({ ...message, subject: "Second" })
 
-    expect(client.messages).toEqual([
-      message,
-      { ...message, subject: "Second" },
-    ])
+    expect(client.messages).toEqual([message, { ...message, subject: "Second" }])
   })
 
   it("isolates mailboxes and clears one mailbox without affecting another", async () => {
@@ -41,6 +38,9 @@ describe("createTestEmail", () => {
 
 it("exposes the memory driver for custom test clients", async () => {
   const driver = createMemoryEmailDriver()
-  await expect(driver.send(message)).resolves.toEqual({ id: "memory-1" })
+  await expect(driver.send(message, { attempt: 1, driver: "memory", meta: {} })).resolves.toMatchObject({
+    data: { driver: "memory", id: "memory-1" },
+    error: null,
+  })
   expect(driver.messages).toEqual([message])
 })

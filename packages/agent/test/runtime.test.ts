@@ -5838,18 +5838,20 @@ describe("agent message protocol", () => {
     })).toThrow(error)
   })
 
-  it("rejects serial concurrency with durable message delivery", async () => {
+  it("rejects overlap-policy concurrency with durable message delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
-    expect(() => defineAgent({
-      channels: { telegram: telegram({ adapter: () => ({}) as never }) },
-      driver: { run: () => "ok" },
-      messages: {
-        concurrency: "serial",
-        delivery: "manual",
-        durable: true,
-      },
-    })).toThrow("messages.durable cannot be combined with concurrency: \"serial\"")
+    for (const concurrency of ["drop", "queue", "reject", "serial", "tenant-policy"] as const) {
+      expect(() => defineAgent({
+        channels: { telegram: telegram({ adapter: () => ({}) as never }) },
+        driver: { run: () => "ok" },
+        messages: {
+          concurrency,
+          delivery: "manual",
+          durable: true,
+        },
+      })).toThrow(`messages.durable cannot be combined with concurrency: ${JSON.stringify(concurrency)}`)
+    }
   })
 
   it("rejects invalid message timeouts", async () => {
@@ -10782,6 +10784,64 @@ describe("agent message protocol", () => {
         },
         status: "completed",
       })
+    })
+
+    it("reconstructs Blob and Database tools inside required Workflows", async () => {
+      const blobList = vi.fn(async () => ({ blobs: [{ pathname: "workflow/input.jpg" }] }))
+      const dbSchema = vi.fn(async () => ({ meals: true }))
+      const blobPrimitive = { list: blobList }
+      const databasePrimitive = { schema: dbSchema }
+      vi.doMock("@vite-hub/blob", () => ({ blob: blobPrimitive }))
+      vi.doMock("@vite-hub/database/drizzle", () => ({ agentDb: databasePrimitive }))
+      const { blob, db } = await import("../src/capabilities.ts")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      try {
+        const agent = defineAgent({
+          capabilities: [blob(), db()],
+          driver: { run: async ({ tools }) => ({
+            blobs: await tools!.blob_read!.execute!({ operation: "list", prefix: "workflow/" }),
+            schema: await tools!.db_schema!.execute!({}),
+          }) },
+        })
+        const run = await runAgent(agent, {
+          agentIdentity: { name: "portable-storage" },
+          capabilities: { blob: blobPrimitive, db: databasePrimitive },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {
+          context: { [requireAgentWorkflowContextKey]: true },
+          prompt: "inspect storage",
+        }) as { id: string }
+
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("portable-storage", run.id)).resolves.toMatchObject({
+          result: {
+            blobs: { blobs: [{ pathname: "workflow/input.jpg" }] },
+            schema: { database: "default", schema: { meals: true } },
+          },
+          status: "completed",
+        })
+        expect(blobList).toHaveBeenCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "workflow/" })
+        expect(dbSchema).toHaveBeenCalledOnce()
+      }
+      finally {
+        vi.doUnmock("@vite-hub/blob")
+        vi.doUnmock("@vite-hub/database/drizzle")
+      }
+    })
+
+    it("does not treat caller-supplied Blob and Database handles as Workflow-portable", async () => {
+      const { hasOnlyPortableAgentWorkflowCapabilities } = await import("../src/internal/final-channel-output.ts")
+
+      await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
+      await expect(hasOnlyPortableAgentWorkflowCapabilities({ db: {} })).resolves.toBe(false)
     })
 
     it("rejects required Workflow delivery instead of falling back inline", async () => {

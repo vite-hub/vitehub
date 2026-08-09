@@ -31,7 +31,7 @@ export default defineConfig({
 })
 ```
 
-Follow [Configure SMTP](/docs/server-primitives/email#configure-smtp) for the bundled adapter, or [implement another provider](/docs/server-primitives/email#implement-another-provider) behind the same `EmailDriver` contract.
+Follow [Configure Resend](/docs/server-primitives/email#configure-resend), [Configure SMTP](/docs/server-primitives/email#configure-smtp), or choose another `unemail/driver/*` provider behind the same `EmailDriver` contract.
 Keep credentials in Server Env or the deployment platform's secret store; the Capability never exposes them to the model.
 
 ## Requirements
@@ -138,7 +138,6 @@ After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub err
 
 | Failure | What to do |
 | --- | --- |
-| `EMAIL_INVALID_MESSAGE` | Fix the message before retrying. The driver was not called. |
 | `EMAIL_NOT_CONFIGURED` | Enable the Email integration and confirm exactly one Email Definition is discoverable. |
 | `EMAIL_AUTHENTICATION` | Fix provider credentials or sender authorization before retrying. |
 | `EMAIL_RATE_LIMITED` | Apply an application-owned backoff or queue policy. |

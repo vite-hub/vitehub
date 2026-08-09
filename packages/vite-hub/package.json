@@ -89,7 +89,6 @@
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",
     "./email": "./dist/email.js",
-    "./email/drivers/smtp": "./dist/email/drivers/smtp.js",
     "./email/markdown": "./dist/email/markdown.js",
     "./email/server": "./dist/email/server.js",
     "./env": "./dist/env.js",

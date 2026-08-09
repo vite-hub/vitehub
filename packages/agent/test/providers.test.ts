@@ -587,6 +587,56 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("installs portable Capability loaders in generated Agent Workflow registries", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-capabilities-"))
+    try {
+      const plugin = hubAgent()
+      const configResolved = plugin.configResolved as unknown as (config: { command: "build", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      await configResolved({
+        command: "build",
+        createResolver: () => async id => `/app/node_modules/${id}`,
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }],
+        root,
+      })
+
+      const registry = await transform("const registry = {}\nexport default registry\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const providerRegistry = plugin.vitehub?.agent?.transformWorkflowRegistry(
+        "const registry = {}\nexport default registry\n",
+        join(root, ".vitehub", "workflow", "registry.mjs"),
+      )
+      const windowsProviderRegistry = plugin.vitehub?.agent?.transformWorkflowRegistry(
+        "const registry = {}\nexport default registry\n",
+        "C:\\app\\.vitehub\\workflow\\registry.mjs",
+      )
+      const nitroPlugin = hubAgent()
+      const nitroConfig = nitroPlugin.config as (config: Record<string | symbol, unknown>, environment: { command: "build", mode: string }) => Promise<unknown>
+      await nitroConfig({
+        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }],
+        root,
+      }, { command: "build", mode: "production" } as never)
+      const nitroRegistry = nitroPlugin.vitehub?.agent?.transformWorkflowRegistry(
+        "const registry = {}\nexport default registry\n",
+        join(root, ".vitehub", "workflow", "registry.mjs"),
+      )
+
+      expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(registry).toContain('import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from "@vite-hub/agent/server/internal"')
+      expect(registry).toContain("blob: () => vitehubBlob")
+      expect(registry).toContain("db: () => vitehubDb")
+      expect(registry).not.toContain("vitehubEmail")
+      expect(providerRegistry).toBe(registry)
+      expect(windowsProviderRegistry).toBe(registry)
+      expect(nitroRegistry).toBe(registry)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("leaves Schedule virtual modules unchanged without discovered Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-empty-schedule-targets-"))
@@ -9272,13 +9322,14 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Explicit reply" })
   })
 
-  it("defers durable manual delivery to the Agent Workflow", async () => {
+  it("defers manual delivery to the active Agent Workflow by default", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
+    let observedTimeout: number | undefined | "not-run" = "not-run"
     let release!: () => void
     const blocked = new Promise<void>(resolve => {
       release = resolve
@@ -9287,27 +9338,29 @@ describe("server helpers", () => {
       channels: {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
-          messages: { delivery: "manual", durable: true },
+          messages: { delivery: "manual", timeout: 60_000 },
         }),
       },
-      driver: { run: async () => {
-          await blocked
-          return "internal output"
-        } },
+      driver: { run: async ({ input }) => {
+        observedTimeout = input.timeout
+        await blocked
+        return "internal output"
+      } },
       hooks: {
         "agent:finish": event => event.reply("Durable reply"),
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
 
     try {
       const response = await Promise.race([
         handler(chatWebhookRequest(91_100), "telegram", {
-          agentName: "calories",
+          agentIdentity: { name: "calories" },
+          cloudflare: { env: {} },
           waitUntil: task => waitUntilTasks.push(task),
         }),
-        new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 25)),
+        new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 100)),
       ])
 
       expect(response).not.toBe("blocked")
@@ -9319,9 +9372,199 @@ describe("server helpers", () => {
       await vi.waitFor(() => {
         expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Durable reply" })
       })
+      expect(observedTimeout).toBe(60_000)
     }
     finally {
       release()
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("keeps auto manual delivery inline when an explicit Agent Workflow is unavailable", async () => {
+    const { defineAgent, workflow } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "internal output")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual" },
+        }),
+      },
+      driver: { run },
+      hooks: {
+        "agent:finish": event => event.reply("Inline reply"),
+      },
+      runtime: workflow("calories"),
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_104), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Inline reply" })
+  })
+
+  it("keeps auto manual delivery inline with nonportable capabilities on explicit Workflows", async () => {
+    const { defineAgent, workflow } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "internal output")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual" },
+        }),
+      },
+      driver: { run },
+      hooks: {
+        "agent:finish": event => event.reply("Inline reply"),
+      },
+      runtime: workflow("calories"),
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await handler(chatWebhookRequest(91_103), "telegram", {
+        agentIdentity: { name: "calories" },
+        capabilities: { email: {} as never },
+      })
+
+      expect(response.status).toBe(200)
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Inline reply" })
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("keeps durable: false manual delivery inline", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let observedOrigin: string | undefined
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", durable: false },
+        }),
+      },
+      driver: { run: (context) => {
+        observedOrigin = context.run?.origin
+        return "internal output"
+      } },
+      hooks: {
+        "agent:finish": event => event.reply("Inline reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await handler(chatWebhookRequest(91_101), "telegram", {
+        agentIdentity: { name: "calories" },
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+      await Promise.all(waitUntilTasks)
+
+      expect(response.status).toBe(200)
+      expect(observedOrigin).toBe("telegram")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Inline reply" })
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("keeps serial manual delivery inline when an Agent Workflow is active", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-serial-inline-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    let observedOrigin: string | undefined
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "serial", delivery: "manual", state },
+        }),
+      },
+      driver: { run: (context) => {
+        observedOrigin = context.run?.origin
+        return "internal output"
+      } },
+      hooks: {
+        "agent:finish": event => event.reply("Inline reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      await state.connect()
+      const response = await handler(chatWebhookRequest(91_102), "telegram", {
+        agentIdentity: { name: "calories" },
+      })
+
+      expect(response.status).toBe(200)
+      expect(observedOrigin).toBe("telegram")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Inline reply" })
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps overlap-policy manual delivery inline when an Agent Workflow is active", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "internal output")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "drop", delivery: "manual" },
+        }),
+      },
+      driver: { run },
+      hooks: {
+        "agent:finish": event => event.reply("Inline reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await handler(chatWebhookRequest(91_105), "telegram", {
+        agentIdentity: { name: "calories" },
+      })
+
+      expect(response.status).toBe(200)
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Inline reply" })
+    }
+    finally {
       resetWorkflowRuntime()
     }
   })

@@ -14,7 +14,6 @@ import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import * as authAgent from "vite-hub/auth/agent"
 import { resolveBox } from "vite-hub/box"
 import type { BrowserDownload } from "vite-hub/browser"
-import * as smtp from "vite-hub/email/drivers/smtp"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import { requireRateLimit } from "vite-hub/rate-limit"
@@ -44,7 +43,6 @@ export const contract = {
     agentServer,
     agentSqliteState,
     authAgent,
-    smtp,
     markdownTemplate,
     scheduleDriver,
     scheduleProcess,
