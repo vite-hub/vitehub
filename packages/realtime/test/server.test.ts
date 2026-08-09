@@ -208,6 +208,30 @@ describe("realtime server handler", () => {
     expect(peer.close).toHaveBeenCalledWith(4429, "Workspace change rate limit exceeded.")
   })
 
+  it("rejects document updates in workspace event rooms", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = {
+      close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn(),
+    }
+    const updateDocument = new Y.Doc()
+    updateDocument.getMap("edits").set("value", true)
+
+    response.crossws.open(peer)
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument)) })
+
+    expect(peer.close).toHaveBeenCalledWith(4400, "Document updates cannot use the workspace room.")
+    response.crossws.close(peer)
+    updateDocument.destroy()
+  })
+
   it("closes peers that send truncated realtime frames", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),

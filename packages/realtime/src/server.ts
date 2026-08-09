@@ -759,7 +759,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       room.baselineDigest = snapshot.entries[pending.path]?.digest
       room.durableReady = !!room.sql || !!room.baselineDigest
       reconcilePendingCheckpoint(room, pending, pending.content!)
-      room.mutated = !matchesRealtimeState(room.document, pending.state)
+      room.mutated = !matchesRealtimeState(room.document, Y.encodeStateAsUpdate(pending.submittedDocument))
       persistRoom(room)
       clearPendingCheckpoint(room, pending)
       return { content: pending.content!, snapshot }
@@ -953,6 +953,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType !== messageSync) return
+        if (workspaceEvents) {
+          peer.close(4400, "Document updates cannot use the workspace room.")
+          return
+        }
         try {
           const syncType = decoding.readVarUint(decoder)
           const initialSyncStep2 = syncType === syncProtocol.messageYjsSyncStep2 && !peerInitialSyncStep2.has(peer)
