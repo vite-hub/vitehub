@@ -115,7 +115,7 @@ describe("lazy sources", () => {
     await expect(view.stat("docs/foo.md")).resolves.toMatchObject({ path: "docs/foo.md", type: "file" })
     await expect(view.readFile("docs/foo.md")).resolves.toBe("# Source view\n")
     await expect(view.writeFile("docs/foo.md", "nope")).rejects.toThrow("read-only")
-    await expect(view.writeFile("generated/result.md", "ok")).resolves.toBeUndefined()
+    await expect(view.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
   })
 
   it("normalizes keyed source mounts and cache defaults", () => {
@@ -746,7 +746,7 @@ describe("lazy sources", () => {
     const workspace = await useRegisteredWorkspace("lazy-writes")
 
     await expect(workspace.writeFile("docs/foo.md", "nope")).rejects.toThrow("read-only")
-    await expect(workspace.writeFile("artifacts/result.md", "ok")).resolves.toBeUndefined()
+    await expect(workspace.writeFile("artifacts/result.md", "ok")).resolves.toBe("artifacts/result.md")
     await expect(workspace.readFile("artifacts/result.md")).resolves.toBe("ok")
   })
 
@@ -773,7 +773,7 @@ describe("lazy sources", () => {
     await expect(workspace.writeFile("AGENTS.md", "nope")).rejects.toThrow("read-only")
     await expect(workspace.rm("AGENTS.md")).rejects.toThrow("read-only")
     await expect(workspace.mkdir("AGENTS.md")).rejects.toThrow("read-only")
-    await expect(workspace.writeFile("generated/result.md", "ok")).resolves.toBeUndefined()
+    await expect(workspace.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
     await expect(workspace.readFile("generated/result.md")).resolves.toBe("ok")
   })
 
@@ -799,7 +799,7 @@ describe("lazy sources", () => {
     await expect(workspace.writeFile("AGENTS.md", "shadow")).rejects.toThrow("read-only")
     await expect(workspace.rm("docs")).rejects.toThrow("read-only")
     await expect(workspace.mkdir("docs")).rejects.toThrow("read-only")
-    await expect(workspace.writeFile("generated/result.md", "ok")).resolves.toBeUndefined()
+    await expect(workspace.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
   })
 
   it("materializes root-mounted lazy sources before returning existing store files", async () => {

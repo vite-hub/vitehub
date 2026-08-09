@@ -24,6 +24,9 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
 
   const workspace: Workspace = {
     name: definition.name,
+    async capabilities() {
+      return { conditionalWrites: typeof store.writeFileConditional === "function" }
+    },
     async sync(options) {
       const { syncWorkspaceSources } = await import("../sources/sync.ts")
       return await syncWorkspaceSources(definition, store, options)
@@ -41,7 +44,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       return await files.readFile(path, options)
     },
     async writeFile(path, content, options) {
-      await files.writeFile(path, content, options)
+      return await files.writeFile(path, content, options)
     },
     async list(path, options) {
       return await files.list(path, options)
@@ -73,6 +76,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       const { publishWorkspaceSnapshot } = await import("../lifecycle.ts")
       await publishWorkspaceSnapshot(definition, store, snapshot)
       return snapshot
+    },
+    async rebase(options) {
+      if (!store.rebase) throw new Error("[vitehub] Workspace Store does not support rebasing.")
+      await store.rebase(options)
     },
     async diff(options) {
       return await store.diff(options)

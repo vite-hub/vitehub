@@ -1,5 +1,6 @@
-import { workspaceError } from "../core/errors.ts"
+import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath, matchesAny, sha256 } from "../core/path.ts"
+import { workspaceStoreTarget } from "./target.ts"
 
 import type {
   DiffOptions,
@@ -29,9 +30,14 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
+  [workspaceStoreTarget]() {
+    return { provider: "memory" }
+  }
+
   #nodes = new Map<string, MemoryNode>([["", { type: "directory", mtime: now() }]])
   #meta = new Map<string, unknown>()
   #baseline: WorkspaceSnapshot | undefined
+  #mutationQueue: Promise<void> = Promise.resolve()
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeWorkspacePath(path)
@@ -46,14 +52,15 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    const normalized = normalizeWorkspacePath(path)
-    this.#ensureParents(normalized)
-    this.#nodes.set(normalized, {
-      type: "file",
-      content: file.content,
-      mediaType: file.mediaType,
-      metadata: file.metadata,
-      mtime: now(),
+    await this.#mutate(() => this.#writeFile(path, file))
+  }
+
+  async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
+    await this.#mutate(async () => {
+      const normalized = normalizeWorkspacePath(path)
+      const current = this.#nodes.get(normalized)
+      assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? (await this.#entry(normalized, current)).digest : undefined)
+      this.#writeFile(normalized, file)
     })
   }
 
@@ -82,28 +89,32 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
-    const normalized = normalizeWorkspacePath(path)
-    this.#ensureParents(normalized)
-    this.#nodes.set(normalized, { type: "directory", mtime: now() })
+    await this.#mutate(() => {
+      const normalized = normalizeWorkspacePath(path)
+      this.#ensureParents(normalized)
+      this.#nodes.set(normalized, { type: "directory", mtime: now() })
+    })
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    const normalized = normalizeWorkspacePath(path)
-    const node = this.#nodes.get(normalized)
-    if (!node) {
-      if (options.force) return
-      throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
-    }
-    if (node.type === "directory" && !options.recursive) {
-      for (const key of this.#nodes.keys()) {
-        if (key.startsWith(`${normalized}/`)) {
-          throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+    await this.#mutate(() => {
+      const normalized = normalizeWorkspacePath(path)
+      const node = this.#nodes.get(normalized)
+      if (!node) {
+        if (options.force) return
+        throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      }
+      if (node.type === "directory" && !options.recursive) {
+        for (const key of this.#nodes.keys()) {
+          if (key.startsWith(`${normalized}/`)) {
+            throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+          }
         }
       }
-    }
-    for (const key of this.#nodes.keys()) {
-      if (key === normalized || key.startsWith(`${normalized}/`)) this.#nodes.delete(key)
-    }
+      for (const key of this.#nodes.keys()) {
+        if (key === normalized || key.startsWith(`${normalized}/`)) this.#nodes.delete(key)
+      }
+    })
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
@@ -136,6 +147,24 @@ class MemoryWorkspaceStore implements WorkspaceStore {
 
   async setMeta(key: string, value: unknown): Promise<void> {
     this.#meta.set(key, value)
+  }
+
+  #writeFile(path: string, file: WorkspaceFile): void {
+    const normalized = normalizeWorkspacePath(path)
+    this.#ensureParents(normalized)
+    this.#nodes.set(normalized, {
+      type: "file",
+      content: file.content,
+      mediaType: file.mediaType,
+      metadata: file.metadata,
+      mtime: now(),
+    })
+  }
+
+  #mutate<T>(operation: () => T | Promise<T>): Promise<T> {
+    const result = this.#mutationQueue.then(operation)
+    this.#mutationQueue = result.then(() => undefined, () => undefined)
+    return result
   }
 
   #ensureParents(path: string) {

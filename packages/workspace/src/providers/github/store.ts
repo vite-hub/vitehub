@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 
-import { workspaceError } from "../../core/errors.ts";
+import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts";
 import {
   contentStreamToBytes,
   matchesAny,
@@ -37,6 +37,7 @@ import type {
   WorkspaceDiff,
   WorkspaceEntry,
   WorkspaceFile,
+  WorkspaceRebaseOptions,
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStreamFile,
@@ -52,6 +53,31 @@ interface GitHubWorkspaceStoreFile {
   path: string;
   size?: number;
   uploaded?: boolean;
+}
+
+function sameGitHubTreeEntry(
+  left: GitHubTreeEntry | undefined,
+  right: GitHubTreeEntry | undefined,
+): boolean {
+  return left?.sha === right?.sha && (left?.mode || "100644") === (right?.mode || "100644");
+}
+
+function matchesGitHubRemote(
+  file: GitHubWorkspaceStoreFile | undefined,
+  remote: GitHubTreeEntry | undefined,
+): boolean {
+  return (
+    file?.gitSha === remote?.sha && gitHubFileMode(file?.metadata) === (remote?.mode || "100644")
+  );
+}
+
+function githubRemoteFile(path: string, entry: GitHubTreeEntry): GitHubWorkspaceStoreFile {
+  return {
+    gitSha: entry.sha!,
+    metadata: gitHubFileMetadata(entry),
+    path,
+    size: entry.size,
+  };
 }
 
 function isReservedWorkspacePath(path: string): boolean {
@@ -111,6 +137,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   #branch: string;
   #dirty = false;
   #files = new Map<string, GitHubWorkspaceStoreFile>();
+  #mutationQueue: Promise<void> = Promise.resolve();
   #ready: Promise<void> | undefined;
   #remoteFiles = new Map<string, GitHubTreeEntry>();
   #repository: string;
@@ -142,8 +169,23 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: false });
+    await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: false });
+      await this.#writeFile(normalized, file);
+    });
+  }
+
+  async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
+    await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: true });
+      assertWorkspaceDigest(normalized, ifDigest, this.#files.get(normalized)?.gitSha);
+      await this.#writeFile(normalized, file);
+    });
+  }
+
+  async #writeFile(normalized: string, file: WorkspaceFile): Promise<void> {
     const current = this.#files.get(normalized);
     const metadata = inheritedGitHubFileMetadata(file, current);
     const content = gitHubFileMode(metadata) === "120000" && typeof metadata?.symlinkTarget === "string"
@@ -178,6 +220,12 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#dirty = true;
   }
 
+  #mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#mutationQueue.then(operation);
+    this.#mutationQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
     const content = await contentStreamToBytes(file.content);
     await this.writeFile(path, {
@@ -196,9 +244,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
-    const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true });
-    await this.#ensure({ refresh: true });
-    return await this.#listEntries(normalizedPrefix, options);
+    return await this.#mutate(async () => {
+      const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true });
+      await this.#ensure({ refresh: true });
+      return await this.#listEntries(normalizedPrefix, options);
+    });
   }
 
   async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
@@ -210,11 +260,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
-    const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: true });
-    const file = this.#files.get(normalized);
-    if (file && !isReservedWorkspacePath(normalized)) return this.#fileEntry(file);
-    if (this.#directoryExists(normalized)) return { path: normalized, type: "directory" };
+    return await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: true });
+      const file = this.#files.get(normalized);
+      if (file && !isReservedWorkspacePath(normalized)) return this.#fileEntry(file);
+      if (this.#directoryExists(normalized)) return { path: normalized, type: "directory" };
+    });
   }
 
   async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
@@ -222,30 +274,97 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    const normalized = normalizeSafeWorkspacePath(path);
-    await this.#ensure({ refresh: false });
-    const file = this.#files.get(normalized);
-    if (file && !isReservedWorkspacePath(normalized)) {
-      this.#files.delete(normalized);
+    await this.#mutate(async () => {
+      const normalized = normalizeSafeWorkspacePath(path);
+      await this.#ensure({ refresh: false });
+      const file = this.#files.get(normalized);
+      if (file && !isReservedWorkspacePath(normalized)) {
+        this.#files.delete(normalized);
+        this.#dirty = true;
+        return;
+      }
+
+      const children = this.#publicDescendants(normalized);
+      const hasDirectory = children.length > 0;
+      if (!hasDirectory) {
+        if (options.force) return;
+        throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`);
+      }
+      if (children.length && !options.recursive) {
+        throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`);
+      }
+
+      for (const child of children) this.#files.delete(child);
       this.#dirty = true;
-      return;
-    }
-
-    const children = this.#publicDescendants(normalized);
-    const hasDirectory = children.length > 0;
-    if (!hasDirectory) {
-      if (options.force) return;
-      throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`);
-    }
-    if (children.length && !options.recursive) {
-      throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`);
-    }
-
-    for (const child of children) this.#files.delete(child);
-    this.#dirty = true;
+    });
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
+    return await this.#mutate(async () => await this.#snapshot(options));
+  }
+
+  async rebase(options: WorkspaceRebaseOptions = {}): Promise<void> {
+    await this.#mutate(async () => {
+      await this.#ensure({ refresh: false });
+      const remote = await readGitHubBranchState({
+        branch: this.#branch,
+        kind: "store",
+        repository: this.#repository,
+        root: this.#root,
+        token: this.#token,
+      });
+      if (remote.refSha === this.#baselineRefSha) return;
+
+      const takeRemote = new Set(options.takeRemote || []);
+      const local = new Map(this.#files);
+      const previousRemoteFiles = this.#remoteFiles;
+      const changed = new Set([...previousRemoteFiles.keys(), ...local.keys()]);
+      for (const path of changed) {
+        if (matchesGitHubRemote(local.get(path), previousRemoteFiles.get(path))) {
+          changed.delete(path);
+          continue;
+        }
+        const previous = previousRemoteFiles.get(path);
+        const current = remote.files.get(path);
+        if (
+          !sameGitHubTreeEntry(previous, current) &&
+          !takeRemote.has(path) &&
+          !matchesGitHubRemote(local.get(path), current)
+        ) {
+          throw workspaceConflict(
+            `[vitehub] GitHub Workspace Store rebase conflict for ${this.#repository}@${this.#branch}: ${path} changed locally and remotely.`,
+          );
+        }
+      }
+
+      this.#baselineRefSha = remote.refSha;
+      this.#baselineTreeSha = remote.treeSha;
+      this.#remoteFiles = remote.files;
+      this.#files = new Map(
+        [...remote.files].map(([path, entry]) => [path, githubRemoteFile(path, entry)]),
+      );
+      this.#baseline = await createSnapshotFromEntries(
+        await this.#listEntries("", { recursive: true }),
+        "github-workspace-store-rebase",
+      );
+
+      for (const path of changed) {
+        const remoteChanged = !sameGitHubTreeEntry(
+          previousRemoteFiles.get(path),
+          remote.files.get(path),
+        );
+        if (remoteChanged && takeRemote.has(path)) continue;
+        const file = local.get(path);
+        if (file) this.#files.set(path, file);
+        else this.#files.delete(path);
+      }
+      this.#dirty = [...new Set([...this.#remoteFiles.keys(), ...this.#files.keys()])].some(
+        (path) => !matchesGitHubRemote(this.#files.get(path), this.#remoteFiles.get(path)),
+      );
+    });
+  }
+
+  async #snapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {
     await this.#ensure({ refresh: false });
     const snapshot = await createSnapshotFromEntries(
       await this.#listEntries("", { recursive: true }),
@@ -265,7 +384,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       token: this.#token,
     });
     if (this.#baselineRefSha && remote.refSha !== this.#baselineRefSha) {
-      throw workspaceError(
+      throw workspaceConflict(
         `[vitehub] GitHub Workspace Store conflict for ${this.#repository}@${this.#branch}: the branch changed after this Workspace Store loaded. Snapshotting requires a Workspace Store loaded from the current branch head.`,
       );
     }
@@ -318,31 +437,37 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async diff(options: DiffOptions = {}): Promise<WorkspaceDiff> {
-    await this.#ensure({ refresh: true });
-    const from = options.from || this.#baseline;
-    const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }));
-    return diffSnapshots(from, to);
+    return await this.#mutate(async () => {
+      await this.#ensure({ refresh: true });
+      const from = options.from || this.#baseline;
+      const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }));
+      return diffSnapshots(from, to);
+    });
   }
 
   async getMeta(key: string): Promise<unknown> {
-    await this.#ensure({ refresh: true });
-    const file = await this.#readWorkspaceFile(this.#metaPath(key));
-    if (!file) return undefined;
-    return JSON.parse(new TextDecoder().decode(file.bytes));
+    return await this.#mutate(async () => {
+      await this.#ensure({ refresh: true });
+      const file = await this.#readWorkspaceFile(this.#metaPath(key));
+      if (!file) return undefined;
+      return JSON.parse(new TextDecoder().decode(file.bytes));
+    });
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    const path = this.#metaPath(key);
-    const content = JSON.stringify(value);
-    const bytes = new TextEncoder().encode(content);
-    await this.#ensure({ refresh: false });
-    this.#files.set(path, {
-      bytes,
-      gitSha: await gitBlobSha(bytes),
-      path,
-      size: bytes.byteLength,
+    await this.#mutate(async () => {
+      const path = this.#metaPath(key);
+      const content = JSON.stringify(value);
+      const bytes = new TextEncoder().encode(content);
+      await this.#ensure({ refresh: false });
+      this.#files.set(path, {
+        bytes,
+        gitSha: await gitBlobSha(bytes),
+        path,
+        size: bytes.byteLength,
+      });
+      this.#dirty = true;
     });
-    this.#dirty = true;
   }
 
   async #ensure(options: { refresh: boolean }): Promise<void> {

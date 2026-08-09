@@ -210,6 +210,9 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
     async snapshot(options) {
       return await workspace.snapshot(options)
     },
+    async rebase(options) {
+      await workspace.history.rebase(options)
+    },
     async diff(options) {
       return await workspace.diff(options)
     },
@@ -367,9 +370,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       }
     }
 
-    async function writeWithPolicy(
+    async function writeWithPolicy<Result = void>(
       input: Omit<WorkspaceWriteInput, "previous" | "rule" | "workspace">,
-      write: (input: WorkspaceWriteInput) => Promise<void>,
+      write: (input: WorkspaceWriteInput) => Promise<Result>,
+      preservePath = false,
     ) {
       await sourceView.assertWritable(input.path)
       const next = await writePolicy.before({
@@ -379,9 +383,13 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         workspace: resolvedDefinition.name,
       })
       try {
+        if (preservePath && next.path !== normalizeWorkspacePath(input.path)) {
+          throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${normalizeWorkspacePath(input.path)} -> ${next.path}.`)
+        }
         await sourceView.assertWritable(next.path)
-        await write(next)
+        const result = await write(next)
         await writePolicy.after(next)
+        return { input: next, result }
       }
       catch (error) {
         await writePolicy.error(next, error)
@@ -413,10 +421,12 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       exists: fs.exists,
       glob: fs.glob,
       list: fs.list,
-      mkdir: async (path, options) => await writeWithPolicy({
-        operation: "mkdir",
-        path,
-      }, async input => await workspace.fs.mkdir(input.path as never, options)),
+      mkdir: async (path, options) => {
+        await writeWithPolicy({
+          operation: "mkdir",
+          path,
+        }, async input => await workspace.fs.mkdir(input.path as never, options))
+      },
       movePath: async (from, to, options) => {
         await sourceView.assertWritable(from)
         await sourceView.assertWritable(to)
@@ -424,24 +434,29 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         await writeWorkspace.rm(from, { recursive: true, force: true })
       },
       readFile: fs.readFile,
-      rm: async (path, options) => await writeWithPolicy({
-        operation: "rm",
-        path,
-      }, async input => await workspace.fs.rm(input.path as never, options)),
+      rm: async (path, options) => {
+        await writeWithPolicy({
+          operation: "rm",
+          path,
+        }, async input => await workspace.fs.rm(input.path as never, options))
+      },
       search: fs.search,
       stat: fs.stat,
-      writeFile: async (path, content, options) => await writeWithPolicy({
-        content,
-        mediaType: options?.mediaType,
-        metadata: options?.metadata,
-        operation: "writeFile",
-        path,
-      }, async (input) => {
-        const writeOptions = options === undefined && input.mediaType === undefined && input.metadata === undefined
-          ? undefined
-          : { ...options, mediaType: input.mediaType, metadata: input.metadata }
-        await workspace.fs.writeFile(input.path as never, input.content ?? content, writeOptions)
-      }),
+      writeFile: async (path, content, options) => {
+        const { input, result } = await writeWithPolicy({
+          content,
+          mediaType: options?.mediaType,
+          metadata: options?.metadata,
+          operation: "writeFile",
+          path,
+        }, async (next) => {
+          const writeOptions = options === undefined && next.mediaType === undefined && next.metadata === undefined
+            ? undefined
+            : { ...options, mediaType: next.mediaType, metadata: next.metadata }
+          return await workspace.fs.writeFile(next.path as never, next.content ?? content, writeOptions)
+        }, options?.preservePath)
+        return result || input.path
+      },
     }, sourceRequestExecution)
     writeWorkspace = attachWorkspaceSourceRequestExecution({
       name: resolvedDefinition.name,
@@ -456,6 +471,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         const resolvedStore = createWritableFacadeStore({ ...workspace, fs: writeFs })
         await publishWorkspace(resolvedDefinition, resolvedStore, options)
       },
+      rebase: workspace.history.rebase,
       readFile: writeFs.readFile,
       rm: writeFs.rm,
       search: writeFs.search,

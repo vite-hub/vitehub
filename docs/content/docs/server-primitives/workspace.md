@@ -248,7 +248,7 @@ export default defineEventHandler(async (event) => {
 | --- | --- |
 | `workspace.fs` read mode | `readFile`, `stat`, `exists`, `list`, `glob`, `search` |
 | `workspace.fs` write mode | read methods plus `writeFile`, `appendFile`, `mkdir`, `rm`, `movePath`, `copyPath` |
-| writable facade | `diff`, `snapshot`, `materializeSources`, `sync`, `startSession`, optional Store metadata methods `getMeta` and `setMeta`, and `tools` |
+| writable facade | `diff`, `snapshot`, `history.checkpoint`, `history.rebase`, `materializeSources`, `sync`, `startSession`, optional Store metadata methods `getMeta` and `setMeta`, and `tools` |
 | tools | default tools, `tools.inspect(options)`, `tools.write(options)`, `tools.none()` |
 
 ### Runtime method options
@@ -265,6 +265,7 @@ export default defineEventHandler(async (event) => {
 | `movePath(from, to, options?)` | `overwrite?: boolean` | Moves a path. Existing destinations fail unless `overwrite` is enabled. |
 | `copyPath(from, to, options?)` | `overwrite?: boolean` | Copies a path. Existing destinations fail unless `overwrite` is enabled. |
 | `snapshot(options?)` | `name?: string` | Captures the current Workspace tree with an optional snapshot name. |
+| `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store while preserving staged paths. A listed path takes its remote version only when both sides changed; any other overlapping change remains a conflict. |
 | `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the supplied snapshot or the Store baseline. |
 | `materializeSources(options?)` | `abortSignal?`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |

@@ -298,6 +298,11 @@ describe("workspace types", () => {
     expectTypeOf(session.rm).toBeFunction()
     expectTypeOf(session.commit).toBeFunction()
     expectTypeOf(session.close).toBeFunction()
+    await session.writeFile("README.md", "content", { mediaType: "text/markdown" })
+    // @ts-expect-error session writes cannot promise store-level conditional semantics
+    await session.writeFile("README.md", "content", { ifDigest: "baseline" })
+    // @ts-expect-error session paths are already concrete host or overlay paths
+    await session.writeFile("README.md", "content", { preservePath: true })
     expectTypeOf(await readonly.fs.readFile("AGENTS.md")).toEqualTypeOf<string>()
     // @ts-expect-error typed workspace assets reject unknown literal paths when no fallback string is declared
     await readonly.fs.readFile("MISSING.md")

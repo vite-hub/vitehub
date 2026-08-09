@@ -1,6 +1,6 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import { workspaceError } from "../../core/errors.ts"
+import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts"
 import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
@@ -16,6 +16,7 @@ import type {
   WorkspaceDiff,
   WorkspaceEntry,
   WorkspaceFile,
+  WorkspaceRebaseOptions,
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStore,
@@ -55,6 +56,18 @@ const fileMetadataPath = ".vitehub/files.json"
 const tokenRefreshWindow = 60_000
 
 type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
+
+function sameSnapshotEntry(
+  left: WorkspaceSnapshot["entries"][string] | undefined,
+  right: WorkspaceSnapshot["entries"][string] | undefined,
+) {
+  return (
+    left?.digest === right?.digest &&
+    left?.type === right?.type &&
+    left?.size === right?.size &&
+    JSON.stringify(left?.metadata) === JSON.stringify(right?.metadata)
+  )
+}
 
 function tokenSecret(token: string) {
   return token.split("?expires=")[0] || token
@@ -123,6 +136,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
+    return await this.#mutate(() => this.#readFile(normalized))
+  }
+
+  async #readFile(normalized: string): Promise<WorkspaceFile | undefined> {
     const filepath = this.#absolute(normalized)
     const content = await this.#fs!.promises.readFile(filepath).catch(() => undefined)
     if (!content) return undefined
@@ -138,21 +155,22 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
+    await this.#mutate(() => this.#writeFile(normalized, file))
+  }
+
+  async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
+    await this.#ensure()
     await this.#mutate(async () => {
-      await this.#fs!.promises.writeFile(this.#absolute(normalized), contentToBytes(file.content))
-      if (file.mediaType !== undefined || file.metadata !== undefined) {
-        this.#files.set(normalized, { mediaType: file.mediaType, metadata: file.metadata })
-      }
-      else {
-        this.#files.delete(normalized)
-      }
-      await this.#writeFileMetadata()
+      const current = await this.#stat(normalized).catch(() => undefined)
+      assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
+      await this.#writeFile(normalized, file)
     })
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     await this.#ensure()
-    return this.#listEntries(prefix, options)
+    return await this.#mutate(() => this.#listEntries(prefix, options))
   }
 
   async #listEntries(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
@@ -197,6 +215,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async stat(path: string): Promise<WorkspaceStat | undefined> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
+    return await this.#mutate(() => this.#stat(normalized))
+  }
+
+  async #stat(normalized: string): Promise<WorkspaceStat | undefined> {
     const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
     const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
@@ -246,6 +268,76 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     return this.#mutate(() => this.#createSnapshot(options))
   }
 
+  async rebase(options: WorkspaceRebaseOptions = {}): Promise<void> {
+    await this.#ensure()
+    await this.#mutate(async () => {
+      const baseline = this.#baseline
+      const current = await createSnapshotFromEntries(
+        await this.#listEntries("", { recursive: true }),
+      )
+      const changes = diffSnapshots(baseline, current).entries.filter(
+        change => change.before?.type === "file" || change.after?.type === "file",
+      )
+
+      const local = new Map<string, WorkspaceFile | undefined>()
+      for (const change of changes)
+        local.set(change.path, change.after ? await this.#readFile(change.path) : undefined)
+      const previous = {
+        baseline: this.#baseline,
+        branch: this.#branch,
+        files: this.#files,
+        fs: this.#fs,
+        head: this.#head,
+        pendingCommit: this.#pendingCommit,
+        remote: this.#remote,
+      }
+      const restore = () => {
+        this.#baseline = previous.baseline
+        this.#branch = previous.branch
+        this.#files = previous.files
+        this.#fs = previous.fs
+        this.#head = previous.head
+        this.#pendingCommit = previous.pendingCommit
+        this.#remote = previous.remote
+      }
+
+      try {
+        this.#files = new Map()
+        this.#pendingCommit = undefined
+        await this.#load()
+        const remoteChanges = new Map(
+          diffSnapshots(baseline, this.#baseline!).entries.map(change => [change.path, change]),
+        )
+        const takeRemote = new Set(options.takeRemote || [])
+        for (const change of changes) {
+          if (
+            remoteChanges.has(change.path) &&
+            !takeRemote.has(change.path) &&
+            !sameSnapshotEntry(current.entries[change.path], this.#baseline?.entries[change.path])
+          ) {
+            throw workspaceConflict(
+              `[vitehub] Cloudflare Artifacts Workspace Store rebase conflict: ${change.path} changed locally and remotely.`,
+            )
+          }
+        }
+        for (const change of changes) {
+          if (remoteChanges.has(change.path) && takeRemote.has(change.path)) continue
+          const file = local.get(change.path)
+          if (file) await this.#writeFile(change.path, file)
+          else {
+            this.#fs!.deleteTree(this.#absolute(change.path))
+            this.#files.delete(change.path)
+            await this.#writeFileMetadata()
+          }
+        }
+      }
+      catch (error) {
+        restore()
+        throw error
+      }
+    })
+  }
+
   async #createSnapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {
     const git = await import("isomorphic-git")
     const http = await import("isomorphic-git/http/web")
@@ -287,7 +379,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       }
       catch (error) {
         if (isNonFastForward(error)) {
-          throw workspaceError(
+          throw workspaceConflict(
             `[vitehub] Workspace "${this.workspaceName}" changed remotely while snapshotting branch "${this.#branch}". Reload the Workspace before retrying.`,
             { cause: error },
           )
@@ -305,23 +397,36 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
   async diff(options: DiffOptions = {}): Promise<WorkspaceDiff> {
     await this.#ensure()
-    const from = options.from || this.#baseline
-    const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
-    return diffSnapshots(from, to)
+    return await this.#mutate(async () => {
+      const from = options.from || this.#baseline
+      const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
+      return diffSnapshots(from, to)
+    })
   }
 
   async getMeta(key: string): Promise<unknown> {
     const path = this.#metaAbsolute(key)
     await this.#ensure()
-    const content = await this.#fs!.promises.readFile(path).catch(() => undefined)
-    if (!content) return undefined
-    return JSON.parse(new TextDecoder().decode(contentToBytes(content as Uint8Array)))
+    return await this.#mutate(async () => {
+      const content = await this.#fs!.promises.readFile(path).catch(() => undefined)
+      if (!content) return undefined
+      return JSON.parse(new TextDecoder().decode(contentToBytes(content as Uint8Array)))
+    })
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
     const path = this.#metaAbsolute(key)
     await this.#ensure()
     await this.#mutate(() => this.#fs!.promises.writeFile(path, contentToBytes(JSON.stringify(value))))
+  }
+
+  async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    await this.#fs!.promises.writeFile(this.#absolute(path), contentToBytes(file.content))
+    if (file.mediaType !== undefined || file.metadata !== undefined) {
+      this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
+    }
+    else this.#files.delete(path)
+    await this.#writeFileMetadata()
   }
 
   #absolute(path: string) {

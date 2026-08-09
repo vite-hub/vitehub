@@ -18,9 +18,13 @@ export type ReadFileResult<TOptions extends ReadFileOptions | undefined = undefi
   TOptions extends { encoding: "binary" } ? Uint8Array : string
 
 export interface WriteFileOptions {
+  ifDigest?: string | null
   mediaType?: string
   metadata?: Record<string, unknown>
+  preservePath?: boolean
 }
+
+export type WorkspaceSessionWriteFileOptions = Omit<WriteFileOptions, "ifDigest" | "preservePath">
 
 export interface ListOptions {
   recursive?: boolean
@@ -193,7 +197,7 @@ export interface ExecResult {
 export interface WorkspaceSession {
   readonly executionAuthority: ExecutionAuthority
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
-  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  writeFile(path: string, content: WorkspaceContent, options?: WorkspaceSessionWriteFileOptions): Promise<void>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
@@ -296,9 +300,14 @@ export interface WorkspaceAutoCommitPlan {
   paths: string[]
 }
 
+export interface WorkspaceRebaseOptions {
+  takeRemote?: string[]
+}
+
 export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
+  writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
   writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
@@ -306,6 +315,7 @@ export interface WorkspaceStore {
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
+  rebase?(options?: WorkspaceRebaseOptions): Promise<void>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   getMeta?(key: string): Promise<unknown>
   setMeta?(key: string, value: unknown): Promise<void>
@@ -644,14 +654,19 @@ export interface ResolvedWorkspaceModuleOptions {
   store: Exclude<WorkspaceStoreOptions, WorkspaceStore>
 }
 
+export interface WorkspaceCapabilities {
+  conditionalWrites: boolean
+}
+
 export interface Workspace {
   name: string
+  capabilities?(): Promise<WorkspaceCapabilities>
   sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   materializeSources?(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   getMeta?(key: string): Promise<unknown>
   setMeta?(key: string, value: unknown): Promise<void>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
-  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
@@ -661,6 +676,7 @@ export interface Workspace {
   rm(path: string, options?: RmOptions): Promise<void>
   publish(options?: WorkspacePublishOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
+  rebase(options?: WorkspaceRebaseOptions): Promise<void>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
 }

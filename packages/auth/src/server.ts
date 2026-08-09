@@ -314,6 +314,19 @@ export function getAuthForRequest(
   return createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, runtimeOptions, event))
 }
 
+export async function assertAuthOrigin(
+  request: Pick<Request, "headers" | "url">,
+  event?: unknown,
+): Promise<ViteHubAuth> {
+  const origin = request.headers.get("origin")
+  if (!origin) throw new TypeError("The request origin is required.")
+  const auth = getAuthForRequest(request, undefined, event)
+  if (!(await auth.$context).isTrustedOrigin(origin)) {
+    throw new TypeError("The request origin is not trusted.")
+  }
+  return auth
+}
+
 export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,

@@ -2,7 +2,7 @@ import { posix } from "node:path"
 
 import { createUnstorageDriver } from "mountx/drivers/unstorage"
 
-import type { WorkspaceEntry, WorkspaceSession, WriteFileOptions } from "./core/types.ts"
+import type { WorkspaceEntry, WorkspaceSession, WorkspaceSessionWriteFileOptions } from "./core/types.ts"
 import type { FsDriver } from "mountx"
 
 export interface WorkspaceMountXDriverOptions {
@@ -52,7 +52,7 @@ function assertProjectableEntry(entry: WorkspaceEntry | undefined) {
 }
 
 function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
-  const writeOptionsByValue = new WeakMap<Uint8Array, WriteFileOptions>()
+  const writeOptionsByValue = new WeakMap<Uint8Array, WorkspaceSessionWriteFileOptions>()
 
   async function readItem(key: string) {
     const path = keyToPath(key)

@@ -19,6 +19,7 @@ import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecuti
 import { workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 
 import type { Tool, ToolSet } from "ai"
+import type { History } from "@vite-hub/history"
 import type {
   DiffOptions,
   GlobOptions,
@@ -32,6 +33,7 @@ import type {
   WorkspaceAssetPath,
   WorkspaceAssets,
   WorkspaceContent,
+  WorkspaceCapabilities,
   WorkspaceEntry,
   WorkspaceSessionOptions,
   WorkspaceName,
@@ -42,6 +44,7 @@ import type {
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
   WorkspacePublishOptions,
+  WorkspaceRebaseOptions,
   WorkspaceSnapshot,
   WorkspaceSourceSyncResult,
   WorkspaceSyncOptions,
@@ -99,7 +102,7 @@ export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = Wo
 
 export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName> {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: WorkspaceWritablePath<Name>, options?: TOptions): Promise<ReadFileResult<TOptions>>
-  writeFile(path: WorkspaceWritablePath<Name>, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  writeFile(path: WorkspaceWritablePath<Name>, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   appendFile(path: WorkspaceWritablePath<Name>, content: string): Promise<void>
   stat(path: WorkspaceWritablePath<Name>): Promise<WorkspaceStat>
   exists(path: WorkspaceWritablePath<Name>): Promise<boolean>
@@ -117,9 +120,15 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   tools: WorkspaceReadToolSet
 }
 
+export interface WorkspaceHistory extends History<WorkspaceSnapshot> {
+  rebase(options?: WorkspaceRebaseOptions): Promise<void>
+}
+
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
+  capabilities(): Promise<WorkspaceCapabilities>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
+  history: WorkspaceHistory
   getMeta?(key: string): Promise<unknown>
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   publish(options?: WorkspacePublishOptions): Promise<void>
@@ -186,6 +195,10 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
 
   const workspace = {
     name,
+    async capabilities() {
+      const resolved = await resolveWorkspace()
+      return await resolved.capabilities?.() ?? { conditionalWrites: false }
+    },
     async [workspaceStoreTarget]() {
       const resolved = await resolveWorkspace() as Workspace & { [workspaceStoreTarget]?: () => unknown }
       return await resolved[workspaceStoreTarget]?.()
@@ -201,7 +214,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)
     },
     async writeFile(path, content, options) {
-      await (await resolveSyncedWorkspace()).writeFile(normalizePath(path), content, options)
+      return await (await resolveSyncedWorkspace()).writeFile(normalizePath(path), content, options)
     },
     async list(path, options) {
       return await (await resolveSyncedWorkspace()).list(path ? normalizeListPath(path) : "", options)
@@ -237,6 +250,12 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
+    },
+    async rebase(options) {
+      await (await resolveSyncedWorkspace()).rebase({
+        ...options,
+        takeRemote: options?.takeRemote?.map(path => normalizePath(path)),
+      })
     },
     async diff(options) {
       return await (await resolveSyncedWorkspace()).diff(options)
@@ -467,8 +486,13 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       [workspaceStoreTarget]: async () => {
         return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()
       },
+      capabilities: async () => await workspace.capabilities!(),
       diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
+      history: {
+        checkpoint: async options => await workspace.snapshot({ name: options?.message }),
+        rebase: async options => await workspace.rebase(options),
+      },
       getMeta: async key => await workspace.getMeta?.(key),
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),
       publish: async options => await workspace.publish(options),

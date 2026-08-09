@@ -41,10 +41,12 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email Definitions, runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
+| `vite-hub/history` | Durable Workspace history checkpoint contract and types. |
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Deterministic Markdown rendering from explicit template strings. |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
+| `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing with canonical [Realtime checkpoints](/docs/reference/realtime). |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static and runtime Schedule APIs. |
@@ -96,6 +98,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |
 | `@vite-hub/database/drizzle` | Database Package | Generated Drizzle `db` and `schema` access. |
 | `@vite-hub/env` | Env Package | Env Declaration helpers. |
+| `@vite-hub/history` | History Package | Durable history checkpoint contract and types. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
@@ -105,6 +108,8 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/rate-limit` | Rate Limit Package | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Rate Limit Package | Direct access to a Cloudflare Rate Limiting binding. |
+| `@vite-hub/realtime` | Realtime Package | Realtime Definitions and portable collaboration types. |
+| `@vite-hub/realtime/server` and `@vite-hub/realtime/vue` | Realtime Package | Manual server integration and Vue collaborative editing. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
 | `@vite-hub/schedule/runtime` | Schedule Package | Runtime schedule helpers. |
 | `@vite-hub/schedule/runtime/driver` | Schedule Package | Host integration boundary for reconciling stored Runtime Schedules with native wake registrations. |
@@ -132,6 +137,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/markdown-template/vite` | Register Markdown template discovery, generated types, and direct `.template.md` imports. |
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
 | `@vite-hub/rate-limit/vite` | Register Rate Limit source collection and provider output. |
+| `@vite-hub/realtime/vite` | Register Realtime Definition discovery and generated runtime wiring. |
 | `@vite-hub/sandbox/vite` | Register the Sandbox Vite Integration. |
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |

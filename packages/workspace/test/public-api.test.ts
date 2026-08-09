@@ -10,6 +10,7 @@ import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
@@ -219,6 +220,37 @@ describe("workspace public API", () => {
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
   })
 
+  it("rejects a conditional write after the Workspace file changes", async () => {
+    registerWorkspace("conditional-write", defineWorkspace({ store: { provider: "memory" } }))
+    const first = useWorkspace("conditional-write", { mode: "write" })
+    const second = useWorkspace("conditional-write", { mode: "write" })
+    await first.fs.writeFile("docs/page.md", "first")
+    const baseline = await first.fs.stat("docs/page.md")
+    await second.fs.writeFile("docs/page.md", "second")
+
+    await expect(first.fs.writeFile("docs/page.md", "stale", { ifDigest: baseline.digest! }))
+      .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    await expect(first.fs.readFile("docs/page.md")).resolves.toBe("second")
+  })
+
+  it("rejects validator path rewrites before mutating a preserved path", async () => {
+    registerWorkspace("preserved-path", defineWorkspace({
+      rules: {
+        "**": {
+          validate: input => ({ ...input, path: "redirected.md" }),
+          write: true,
+        },
+      },
+      store: { provider: "memory" },
+    }))
+    const workspace = useWorkspace("preserved-path", { mode: "write" })
+
+    await expect(workspace.fs.writeFile("document.md", "draft", { preservePath: true }))
+      .rejects.toThrow("cannot rewrite preserved path")
+    await expect(workspace.fs.exists("document.md")).resolves.toBe(false)
+    await expect(workspace.fs.exists("redirected.md")).resolves.toBe(false)
+  })
+
   it("exposes source materialization on the writable facade", async () => {
     registerWorkspace("materialize-api", defineWorkspace({
       store: { provider: "memory" },
@@ -236,6 +268,26 @@ describe("workspace public API", () => {
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
     })
     expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
+  })
+
+  it("checkpoints writable workspace history", async () => {
+    const store = createMemoryWorkspaceStore()
+    const snapshot = vi.spyOn(store, "snapshot")
+    const rebase = vi.fn(async () => {})
+    store.rebase = rebase
+    registerWorkspace("history-api", defineWorkspace({ store }))
+
+    const workspace = useWorkspace("history-api", { mode: "write" })
+    const checkpoint = await workspace.history.checkpoint({ message: "docs: save draft" })
+    await workspace.history.rebase({ takeRemote: ["docs/page.md"] })
+
+    expect(snapshot).toHaveBeenCalledWith({ name: "docs: save draft" })
+    expect(rebase).toHaveBeenCalledWith({ takeRemote: ["docs/page.md"] })
+    expect(checkpoint.name).toBe("docs: save draft")
+  })
+
+  it("identifies memory workspace stores", async () => {
+    await expect(resolveWorkspaceStoreTarget(createMemoryWorkspaceStore())).resolves.toEqual({ provider: "memory" })
   })
 
   it("publishes from the writable facade without running definition sync", async () => {
@@ -439,11 +491,11 @@ describe("workspace public API", () => {
     const workspace = useWorkspace("rules", { mode: "write" })
 
     await expect(workspace.fs.writeFile("README.md", "# Blocked\n")).rejects.toThrow("does not allow writeFile")
-    await expect(workspace.fs.writeFile("generated/result.txt", "ok")).resolves.toBeUndefined()
+    await expect(workspace.fs.writeFile("generated/result.txt", "ok")).resolves.toBe("generated/result.txt")
     await expect(workspace.fs.writeFile("generated/large.txt", "x".repeat(1025))).rejects.toThrow("limits writes")
     await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/plain" })).rejects.toThrow("does not allow media type")
     await expect(workspace.fs.writeFile("docs/guide.md", "<script />\n", { mediaType: "text/markdown" })).rejects.toThrow("validator rejected")
-    await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/markdown" })).resolves.toBeUndefined()
+    await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/markdown" })).resolves.toBe("docs/guide.md")
   })
 
   it("merges workspace plugin rules and hooks into the write pipeline", async () => {

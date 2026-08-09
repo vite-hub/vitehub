@@ -16,6 +16,7 @@ import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
+import { hubRealtime } from "@vite-hub/realtime/vite"
 import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -38,6 +39,7 @@ import type { KVModuleOptions } from "@vite-hub/kv"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
+import type { RealtimeModuleOptions } from "@vite-hub/realtime"
 import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
@@ -57,10 +59,12 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/database": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/history": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/queue": true,
   "@vite-hub/rate-limit": true,
+  "@vite-hub/realtime": true,
   "@vite-hub/runtime": true,
   "@vite-hub/sandbox": true,
   "@vite-hub/schedule": true,
@@ -187,6 +191,7 @@ export interface ViteHubOptions {
   kv?: boolean | KVModuleOptions
   queue?: boolean
   rateLimit?: boolean
+  realtime?: boolean | RealtimeModuleOptions
   sandbox?: boolean
   schedule?: boolean | ScheduleVitePluginOptions
   workflow?: boolean | WorkflowModuleOptions
@@ -339,6 +344,7 @@ function deploymentPlugins(
   options: ViteHubOptions,
 ): Plugin[] {
   let deployCommandOwned = false
+  const nitroPreset = plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
   return [
     {
       name: "vite-hub/deployment-preset",
@@ -400,6 +406,18 @@ function deploymentPlugins(
           const cloudflare = cloneRecord(nitro.cloudflare)
           const wrangler = cloneRecord(cloudflare.wrangler)
           if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
+          if (options.realtime) {
+            const durableObjects = cloneRecord(wrangler.durable_objects)
+            const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
+            if (!bindings.some(binding => cloneRecord(binding).name === "$DurableObject")) {
+              durableObjects.bindings = [...bindings, { class_name: "$DurableObject", name: "$DurableObject" }]
+            }
+            const migrations = Array.isArray(wrangler.migrations) ? wrangler.migrations : []
+            if (!migrations.some(migration => cloneRecord(migration).tag === "vitehub-realtime-v1")) {
+              wrangler.migrations = [...migrations, { new_sqlite_classes: ["$DurableObject"], tag: "vitehub-realtime-v1" }]
+            }
+            wrangler.durable_objects = durableObjects
+          }
           cloudflare.wrangler = wrangler
           nitro.cloudflare = cloudflare
           const hooks = cloneRecord(nitro.hooks)
@@ -416,12 +434,12 @@ function deploymentPlugins(
           throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with VITEHUB_HOSTING=" + JSON.stringify(configuredHosting) + ".")
         }
         if (building) {
-          if (configuredPreset && normalizeNitroPreset(configuredPreset) !== plan.nitroPreset) {
+          if (configuredPreset && normalizeNitroPreset(configuredPreset) !== nitroPreset) {
             throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + ".")
           }
           for (const name of ["NITRO_PRESET", "SERVER_PRESET"] as const) {
             const value = process.env[name]
-            if (value && normalizeNitroPreset(value) !== plan.nitroPreset) {
+            if (value && normalizeNitroPreset(value) !== nitroPreset) {
               throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + ".")
             }
           }
@@ -440,7 +458,7 @@ function deploymentPlugins(
               output,
             }
           }
-          nitro.preset = plan.nitroPreset
+          nitro.preset = nitroPreset
         }
         ;(config as { nitro?: unknown }).nitro = nitro
       },
@@ -451,8 +469,8 @@ function deploymentPlugins(
       configResolved(config) {
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
-        if (config.command === "build" && nitro.preset !== plan.nitroPreset) {
-          throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(plan.nitroPreset) + ".")
+        if (config.command === "build" && nitro.preset !== nitroPreset) {
+          throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(nitroPreset) + ".")
         }
       },
     },
@@ -588,6 +606,12 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
+  }
+  if (options.realtime) {
+    plugins.push(hubRealtime({
+      ...(options.realtime === true ? {} : options.realtime),
+      importBase: "vite-hub/realtime",
+    }))
   }
   if (options.schedule) {
     plugins.push(hubSchedule({

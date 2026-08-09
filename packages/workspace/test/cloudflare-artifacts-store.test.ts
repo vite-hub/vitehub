@@ -772,13 +772,87 @@ describe("Cloudflare Artifacts workspace store", () => {
     gitMock.push.mockRejectedValueOnce(rejection).mockRejectedValueOnce(rejection)
 
     await expect(store.snapshot()).rejects.toMatchObject({
-      code: "WORKSPACE_FAILED",
+      code: "WORKSPACE_CONFLICT",
       message: expect.stringContaining("changed remotely"),
       name: "ViteHubError",
     })
-    await expect(store.snapshot()).rejects.toMatchObject({ code: "WORKSPACE_FAILED", name: "ViteHubError" })
+    await expect(store.snapshot()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", name: "ViteHubError" })
     expect(gitMock.commit).toHaveBeenCalledOnce()
     expect(gitMock.push).toHaveBeenCalledTimes(2)
+  })
+
+  it("rebases a conflicted snapshot without dropping unrelated staged writes", async () => {
+    const repo = artifactsRepo()
+    let remoteHead = "base-commit"
+    let remotePage = "# Base\n"
+    let remoteDraft: string | undefined
+    gitMock.listServerRefs.mockResolvedValue([{ oid: remoteHead, ref: "refs/heads/main" }])
+    let cloneCalls = 0
+    let releaseFinalClone: (() => void) | undefined
+    const finalCloneStarted = new Promise<void>((resolve) => {
+      gitMock.clone.mockImplementation(async (options?: unknown) => {
+        cloneCalls++
+        if (cloneCalls === 3) {
+          await new Promise<void>((release) => {
+            releaseFinalClone = release
+            resolve()
+          })
+        }
+      const { fs } = options as {
+        fs: { promises: { writeFile(path: string, content: string): Promise<void> } }
+      }
+      await fs.promises.writeFile("/workspace/page.md", remotePage)
+      if (remoteDraft) await fs.promises.writeFile("/workspace/draft.md", remoteDraft)
+      })
+    })
+    gitMock.resolveRef.mockImplementation(async () => remoteHead)
+    const rejection = Object.assign(
+      new Error("Push rejected because it was not a simple fast-forward"),
+      {
+        code: "PushRejectedError",
+        data: { reason: "not-fast-forward" },
+      },
+    )
+    gitMock.push
+      .mockRejectedValueOnce(rejection)
+      .mockResolvedValue({ refs: { main: "retry-commit" } })
+    const store = await createStore({
+      create: vi.fn(),
+      get: vi.fn(async () => repo),
+    })
+
+    await store.writeFile("page.md", { content: "# Realtime\n", path: "page.md" })
+    await store.writeFile("draft.md", { content: "unrelated draft\n", path: "draft.md" })
+    remoteHead = "remote-commit"
+    remotePage = "# Remote\n"
+    remoteDraft = "remote draft\n"
+
+    await expect(store.snapshot({ name: "conflict" })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+    })
+    await expect(store.rebase?.({ takeRemote: ["page.md"] })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+    })
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("unrelated draft\n"),
+    })
+    remoteDraft = undefined
+    const rebase = store.rebase?.({ takeRemote: ["page.md"] })
+    await finalCloneStarted
+    const readSettled = vi.fn()
+    const read = store.readFile("page.md").then(readSettled)
+    await Promise.resolve()
+    expect(readSettled).not.toHaveBeenCalled()
+    releaseFinalClone!()
+    await rebase
+    await read
+    await expect(store.readFile("page.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Remote\n"),
+    })
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("unrelated draft\n"),
+    })
+    await expect(store.snapshot({ name: "retry" })).resolves.toMatchObject({ id: "commit-1" })
   })
 
   it("reopens an existing branch before committing and pushing its next snapshot", async () => {

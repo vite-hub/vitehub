@@ -11826,7 +11826,7 @@ describe("server helpers", () => {
       },
       driver: {
         run: async ({ workspace }) => {
-          await (workspace as { fs: { writeFile: (path: string, content: Uint8Array, options?: { mediaType?: string }) => Promise<void> } }).fs.writeFile("screenshots/login.png", content, { mediaType: "image/png" })
+          await (workspace as { fs: { writeFile: (path: string, content: Uint8Array, options?: { mediaType?: string }) => Promise<string> } }).fs.writeFile("screenshots/login.png", content, { mediaType: "image/png" })
           return "agent answer"
         },
       },

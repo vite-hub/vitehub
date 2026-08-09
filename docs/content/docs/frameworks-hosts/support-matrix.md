@@ -49,6 +49,7 @@ The matrix follows source and executable proof rather than provider marketing:
 - A host row does not imply that every primitive supports that host.
 - Generated output remains package-owned. Do not import `.vitehub/**`, `.vercel/output/**`, `.netlify/v1/**`, or generated Worker files from application code.
 - Rate Limit `memory` is local and single-process. Cloudflare native enforcement is best-effort, supports only the provider periods accepted by the Rate Limit integration, and does not promise complete quota metadata.
+- Realtime `memory` is development or explicit single-process state. Cloudflare Realtime routes use one Durable Object authority and persist Yjs room identities in its SQLite storage; Vercel and Netlify have no built-in Realtime authority.
 - Memory and filesystem defaults do not become production-durable because the surrounding application is deployed.
 - The Cloudflare Live Smoke exercises nine primitives, including Rate Limit. Vercel exercises the other eight because ViteHub does not provide a native Vercel Rate Limit driver. Agent route output has contract tests, but it is outside that deployed matrix.
 

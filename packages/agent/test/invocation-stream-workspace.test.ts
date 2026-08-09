@@ -73,6 +73,9 @@ const useWorkspace = vi.hoisted(() => vi.fn(() => ({
     stat: vi.fn(),
     writeFile: vi.fn(),
   },
+  history: {
+    rebase: vi.fn(async () => {}),
+  },
   snapshot,
   startSession: workspaceStartSession,
   tools: Object.assign(vi.fn(() => ({})), {

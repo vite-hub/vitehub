@@ -107,6 +107,7 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
 
 function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
   return {
+    capabilities: async () => await workspace.capabilities?.() ?? { conditionalWrites: false },
     diff: async options => await workspace.diff(options),
     fs: {
       appendFile: async (path, content) => {
@@ -131,6 +132,10 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
       writeFile: async (path, content, options) => await workspace.writeFile(path, content, options),
     },
     getMeta: async key => await workspace.getMeta?.(key),
+    history: {
+      checkpoint: async options => await workspace.snapshot({ name: options?.message }),
+      rebase: async options => await workspace.rebase(options),
+    },
     materializeSources: async options => await workspace.materializeSources?.(options) ?? {
       bytes: 0,
       directories: 0,

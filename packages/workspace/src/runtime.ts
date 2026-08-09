@@ -13,6 +13,7 @@ export {
 export type { WorkspaceDependencyRuntimeLoaders } from "./runtime/dependency-loaders.ts"
 export {
   registerWorkspace,
+  invalidateWorkspaceStore,
   resetWorkspaceStoreCache,
   resolveRegisteredWorkspaceDefinition,
   setWorkspaceRuntimeAssetsRegistry,

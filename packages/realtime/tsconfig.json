@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["ESNext", "DOM"],
+    "rootDir": "..",
+    "baseUrl": "../..",
+    "paths": {
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}

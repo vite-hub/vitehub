@@ -34,15 +34,15 @@ type NuxtLike = {
 
 const agentVueComposables = ["useAgent", "useChat"]
 
-function addAgentVueImports(nuxt: NuxtLike): void {
+function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   nuxt.options.imports ??= {}
   const imports = (nuxt.options.imports.imports ??= [])
-  for (const name of agentVueComposables) {
+  for (const name of names) {
     const existing = imports.find(entry => (entry.as ?? entry.name) === name)
-    if (existing && existing.from !== "vite-hub/agent/vue") {
-      throw new TypeError(`[vitehub] Cannot auto-import ${name} from vite-hub/agent/vue because it is already configured from ${existing.from}.`)
+    if (existing && existing.from !== from) {
+      throw new TypeError(`[vitehub] Cannot auto-import ${name} from ${from} because it is already configured from ${existing.from}.`)
     }
-    if (!existing) imports.push({ from: "vite-hub/agent/vue", name })
+    if (!existing) imports.push({ from, name })
   }
 }
 
@@ -240,7 +240,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...existing,
   ] as PluginOption[]
   nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
-  if (options.agent) addAgentVueImports(nuxt)
+  if (options.agent) addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
   if (options.auth) {
     const envOptions = options.env || {}
     hubAuthNuxt({
@@ -251,6 +251,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       importsFrom: "vite-hub/auth/vue",
       nitro: false,
     }, nuxt)
+  }
+  if (options.realtime) {
+    addVueImports(nuxt, "vite-hub/realtime", ["defineRealtime"])
+    addVueImports(nuxt, "vite-hub/realtime/vue", ["useRealtimeTiptap"])
   }
   if (options.database) {
     const nuxtAlias = (nuxt.options.alias ??= {})
