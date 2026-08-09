@@ -123,6 +123,19 @@ describe("realtime server handler", () => {
     expect(serverMocks.useWorkspace).toHaveBeenCalledTimes(1)
   })
 
+  it("rejects durable checkpoints backed by an ephemeral memory Workspace Store", async () => {
+    serverMocks.resolveWorkspaceStoreTarget.mockResolvedValue({ provider: "memory" })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({}))
+    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", { method: "POST" })
+    Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql: { exec: vi.fn() } } } } } })
+
+    const response = await handler.fetch(request)
+
+    expect(response.status).toBe(501)
+    await expect(response.json()).resolves.toMatchObject({ message: "Durable realtime checkpoints require a durable Workspace Store." })
+  })
+
   it("rejects an unsynchronized checkpoint before writing to Workspace", async () => {
     const writeFile = vi.fn()
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
@@ -168,6 +181,28 @@ describe("realtime server handler", () => {
 
     expect(peer.close).toHaveBeenCalledWith(4400, "Workspace changes require the workspace room.")
     expect(peer.publish).not.toHaveBeenCalled()
+  })
+
+  it("rate-limits workspace changes from each peer", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(100)
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = {
+      close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn(),
+    }
+
+    response.crossws.open(peer)
+    response.crossws.message(peer, { uint8Array: () => encodeWorkspaceChange({ operation: "create", path: "first.md" }) })
+    response.crossws.message(peer, { uint8Array: () => encodeWorkspaceChange({ operation: "create", path: "second.md" }) })
+
+    expect(peer.publish).toHaveBeenCalledTimes(1)
   })
 
   it("closes peers that send truncated realtime frames", async () => {

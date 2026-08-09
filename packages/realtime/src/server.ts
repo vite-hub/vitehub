@@ -5,7 +5,7 @@ import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { isWorkspaceConflict, normalizeSafeWorkspacePath, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, normalizeSafeWorkspacePath, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -27,6 +27,7 @@ const maxRoomAwarenessBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
 const awarenessQueryIntervalMs = 10_000
 const awarenessUpdateIntervalMs = 50
+const workspaceChangeIntervalMs = 50
 const syncUpdateIntervalMs = 50
 const pendingCheckpointRetentionMs = 30_000
 const durableUpdateCompactionInterval = 128
@@ -385,6 +386,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
   const peerAwarenessQueryAt = new WeakMap<WebSocketPeer, number>()
   const peerAwarenessUpdateAt = new WeakMap<WebSocketPeer, number>()
+  const peerWorkspaceChangeAt = new WeakMap<WebSocketPeer, number>()
   const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
   const peerSyncUpdateAt = new WeakMap<WebSocketPeer, number>()
   const workspaceCheckpointQueues = new Map<string, Promise<void>>()
@@ -762,9 +764,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     if (!(await workspace.capabilities()).conditionalWrites) {
       throw new HTTPError({ status: 501, message: "Realtime checkpoints require a Workspace Store with conditional writes." })
     }
+    const sql = resolveRealtimeRoomSql(event)
+    if (sql && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
+      throw new HTTPError({ status: 501, message: "Durable realtime checkpoints require a durable Workspace Store." })
+    }
     const state = await readRealtimeCheckpointState(event.req)
     if (!state.byteLength) throw new HTTPError({ status: 400, message: "Realtime checkpoint state is required." })
-    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
+    const room = await getRoom(definitionName, documentId, definition, sql, workspaceEvents)
     if (!matchesRealtimeState(room.document, state)) {
       evictRoom(room)
       throw new HTTPError({
@@ -838,6 +844,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             peer.close(4400, "Invalid workspace change.")
             return
           }
+          const now = Date.now()
+          const previous = peerWorkspaceChangeAt.get(peer)
+          if (previous !== undefined && now - previous < workspaceChangeIntervalMs) return
+          peerWorkspaceChangeAt.set(peer, now)
           peer.publish(room.channel, encodeWorkspaceChange(change))
           return
         }
