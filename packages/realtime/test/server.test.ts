@@ -989,12 +989,15 @@ describe("tiptap-markdown documents", () => {
   })
 
   it("conditionally writes the live document for a Workspace checkpoint", async () => {
-    const calls: string[] = []
+    const calls: unknown[][] = []
     const document = markdownToYDoc("# Shared draft")
     const workspace = {
       fs: {
-        async writeFile(path: string, content: string, options: { ifDigest: string, preservePath: boolean }) {
-          calls.push(`write:${path}:${content}:${options.ifDigest}:${options.preservePath}`)
+        async stat() {
+          return { mediaType: "text/markdown", metadata: { title: "Shared" }, type: "file" }
+        },
+        async writeFile(path: string, content: string, options: object) {
+          calls.push([path, content, options])
           return path
         },
       },
@@ -1003,7 +1006,12 @@ describe("tiptap-markdown documents", () => {
     await expect(writeRealtimeDocument(workspace as never, "docs/page.md", document, "baseline"))
       .resolves.toBe("docs/page.md")
     expect(calls).toEqual([
-      "write:docs/page.md:# Shared draft:baseline:true",
+      ["docs/page.md", "# Shared draft", {
+        ifDigest: "baseline",
+        mediaType: "text/markdown",
+        metadata: { title: "Shared" },
+        preservePath: true,
+      }],
     ])
   })
 

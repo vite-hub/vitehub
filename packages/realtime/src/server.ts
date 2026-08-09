@@ -159,7 +159,13 @@ export async function writeRealtimeDocument(
   document: Y.Doc,
   ifDigest: string | null,
 ): Promise<string> {
-  return await workspace.fs.writeFile(documentId, yDocToMarkdown(document), { ifDigest, preservePath: true })
+  const current = ifDigest ? await workspace.fs.stat(documentId) : undefined
+  return await workspace.fs.writeFile(documentId, yDocToMarkdown(document), {
+    ifDigest,
+    mediaType: current?.mediaType,
+    metadata: current?.metadata,
+    preservePath: true,
+  })
 }
 
 export async function readRealtimeCheckpointState(request: Request, maxBytes = maxRoomStateBytes): Promise<Uint8Array> {

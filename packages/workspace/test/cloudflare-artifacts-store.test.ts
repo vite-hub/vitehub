@@ -787,12 +787,23 @@ describe("Cloudflare Artifacts workspace store", () => {
     let remotePage = "# Base\n"
     let remoteDraft: string | undefined
     gitMock.listServerRefs.mockResolvedValue([{ oid: remoteHead, ref: "refs/heads/main" }])
-    gitMock.clone.mockImplementation(async (options?: unknown) => {
+    let cloneCalls = 0
+    let releaseFinalClone: (() => void) | undefined
+    const finalCloneStarted = new Promise<void>((resolve) => {
+      gitMock.clone.mockImplementation(async (options?: unknown) => {
+        cloneCalls++
+        if (cloneCalls === 3) {
+          await new Promise<void>((release) => {
+            releaseFinalClone = release
+            resolve()
+          })
+        }
       const { fs } = options as {
         fs: { promises: { writeFile(path: string, content: string): Promise<void> } }
       }
       await fs.promises.writeFile("/workspace/page.md", remotePage)
       if (remoteDraft) await fs.promises.writeFile("/workspace/draft.md", remoteDraft)
+      })
     })
     gitMock.resolveRef.mockImplementation(async () => remoteHead)
     const rejection = Object.assign(
@@ -826,7 +837,15 @@ describe("Cloudflare Artifacts workspace store", () => {
       content: new TextEncoder().encode("unrelated draft\n"),
     })
     remoteDraft = undefined
-    await store.rebase?.({ takeRemote: ["page.md"] })
+    const rebase = store.rebase?.({ takeRemote: ["page.md"] })
+    await finalCloneStarted
+    const readSettled = vi.fn()
+    const read = store.readFile("page.md").then(readSettled)
+    await Promise.resolve()
+    expect(readSettled).not.toHaveBeenCalled()
+    releaseFinalClone!()
+    await rebase
+    await read
     await expect(store.readFile("page.md")).resolves.toMatchObject({
       content: new TextEncoder().encode("# Remote\n"),
     })
