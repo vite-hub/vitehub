@@ -258,6 +258,23 @@ describe("workspace config", () => {
     })
   })
 
+  it("defers absent GitHub runtime options until bindings are active", () => {
+    const store = normalizeWorkspaceStoreOptions({
+      provider: "github",
+    }, {
+      env: {},
+      runtime: true,
+    })
+
+    expect(store).toEqual({
+      branch: undefined,
+      provider: "github",
+      repository: undefined,
+      root: undefined,
+      token: "********",
+    })
+  })
+
   it("resolves GitHub store options from the environment", () => {
     const config = normalizeWorkspaceOptions({
       store: {
