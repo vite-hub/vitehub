@@ -178,8 +178,13 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 function configureNitroCloudflareWorkers(config: Record<string, unknown>): Record<string, unknown> {
   const nitro = isRecord(config.nitro) ? config.nitro : {}
   const rollupConfig = isRecord(nitro.rollupConfig) ? nitro.rollupConfig : {}
+  const cloudflare = isRecord(nitro.cloudflare) ? nitro.cloudflare : {}
+  const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
+  const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+  if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   return {
     ...nitro,
+    cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
     rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
   }
 }
