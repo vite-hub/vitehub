@@ -379,7 +379,9 @@ function resolveWorkspaceHosting(
   env: Record<string, string | undefined> = process.env,
 ): string | undefined {
   const preset = isRecord(nitro) && typeof nitro.preset === "string" ? nitro.preset : undefined
-  return hosting ?? preset ?? env.NITRO_PRESET ?? env.SERVER_PRESET ?? env.VITEHUB_HOSTING
+  return [hosting, preset, env.NITRO_PRESET, env.SERVER_PRESET, env.VITEHUB_HOSTING]
+    .map(value => value?.trim())
+    .find(Boolean)
 }
 
 type WorkspacePluginRoots = {
@@ -643,10 +645,6 @@ function configureCloudflareNitroRuntime(nitro: NitroConfig): void {
   nitro.rollupConfig = { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }
 }
 
-function configureCloudflareArtifactsNitroRuntime(nitro: NitroConfig): void {
-  configureCloudflareNitroRuntime(nitro)
-}
-
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   const specifier = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
   return specifier.startsWith(".") ? specifier : `./${specifier}`
@@ -822,8 +820,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides)
   const nitro = mergeNitroWorkspaceConfig(options.nitro)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
-  if (cloudflareArtifactsConfigs.length > 0) configureCloudflareArtifactsNitroRuntime(nitro)
-  else if (cloudflareRuntime) configureCloudflareNitroRuntime(nitro)
+  if (cloudflareRuntime) configureCloudflareNitroRuntime(nitro)
   return nitro
 }
 
@@ -835,10 +832,25 @@ interface WorkspaceCliContributingPlugin {
   vitehub?: { cli?: () => unknown | Promise<unknown> }
 }
 
-export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & { api: WorkspaceVitePluginAPI }
+const setWorkspacePluginHosting: unique symbol = Symbol("vitehub.workspace.setHosting")
+
+type WorkspacePluginHosting = string | (() => string | undefined)
+
+export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & {
+  [setWorkspacePluginHosting]?: (hosting: WorkspacePluginHosting) => void
+  api: WorkspaceVitePluginAPI
+}
+
+export function setWorkspaceVitePluginHosting(plugin: unknown, hosting: WorkspacePluginHosting): boolean {
+  if (!plugin || typeof plugin !== "object") return false
+  const setter = (plugin as WorkspaceVitePlugin)[setWorkspacePluginHosting]
+  if (!setter) return false
+  setter(hosting)
+  return true
+}
 
 interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
-  hosting?: string
+  hosting?: WorkspacePluginHosting
   importBase?: string
 }
 
@@ -851,7 +863,7 @@ function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions |
 }
 
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
-  const hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
+  let hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
   const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
@@ -890,6 +902,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   return {
     name: "@vite-hub/workspace/vite",
     enforce: "pre",
+    [setWorkspacePluginHosting](value) {
+      hosting = value
+    },
     api: {
       getWorkspaces: () => manifest.workspaces,
     },
@@ -899,7 +914,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
       )
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
-      const resolvedHosting = resolveWorkspaceHosting(hosting, (config as ViteConfigWithWorkspaceNitro).nitro)
+      const resolvedHosting = resolveWorkspaceHosting(
+        typeof hosting === "function" ? hosting() : hosting,
+        (config as ViteConfigWithWorkspaceNitro).nitro,
+      )
       const normalized = normalizeWorkspaceOptions(workspaceOptions, {
         dev: env?.command !== "build",
         env: process.env,
@@ -931,8 +949,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
-        if (usesCloudflareArtifacts) configureCloudflareArtifactsNitroRuntime(nitro)
-        else if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
+        if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
         viteConfig.nitro = nitro
       }
@@ -946,7 +963,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
-      const resolvedHosting = resolveWorkspaceHosting(hosting, (config as ResolvedConfig & { nitro?: NitroConfig }).nitro)
+      const resolvedHosting = resolveWorkspaceHosting(
+        typeof hosting === "function" ? hosting() : hosting,
+        (config as ResolvedConfig & { nitro?: NitroConfig }).nitro,
+      )
       if (config.command !== "build")
         process.env.VITEHUB_WORKSPACE_DEV = "true"
       else

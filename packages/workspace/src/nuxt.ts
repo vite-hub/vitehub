@@ -1,4 +1,5 @@
 import { createWorkspaceNitroConfig, hubWorkspace } from "./vite.ts"
+import { setWorkspaceVitePluginHosting } from "./hosts/vite/plugin.ts"
 
 import type { WorkspaceModuleOptions } from "./core/types.ts"
 
@@ -43,13 +44,21 @@ export default function viteHubWorkspaceNuxtModule(options: WorkspaceNuxtModuleO
 
   nuxt.options.vite ??= {}
   const workspaceOptions = resolveWorkspaceOptions(options, nuxt.options.vite.workspace)
+  let resolvedNitroHosting: string | undefined
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []
   if (!plugins.some(isWorkspaceVitePlugin)) {
-    plugins.push(hubWorkspace(workspaceOptions === false ? undefined : workspaceOptions))
+    plugins.push(hubWorkspace({
+      ...(workspaceOptions || {}),
+      hosting: () => resolvedNitroHosting,
+    } as never))
+  }
+  for (const plugin of plugins) {
+    if (isWorkspaceVitePlugin(plugin)) setWorkspaceVitePluginHosting(plugin, () => resolvedNitroHosting)
   }
   nuxt.options.vite.plugins = plugins
 
   nuxt.hook?.("nitro:config", async (nitroConfig) => {
+    resolvedNitroHosting = typeof nitroConfig.preset === "string" ? nitroConfig.preset : undefined
     const rootDir = nuxt.options.rootDir || process.cwd()
     const nitro = await createWorkspaceNitroConfig({
       aliases: nuxt.options.alias,

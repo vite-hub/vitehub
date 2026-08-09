@@ -28,13 +28,13 @@ async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provide
       dev: false,
       rootDir: root,
       srcDir: root,
-      vite: {},
+      vite: { plugins: [] as unknown[] },
     },
   }
 
   workspaceNuxt({ store }, nuxt)
   expect(nitroConfigHook).toBeDefined()
-  return { nitroConfigHook: nitroConfigHook!, root }
+  return { nitroConfigHook: nitroConfigHook!, root, vitePlugin: nuxt.options.vite.plugins?.[0] }
 }
 
 describe("Workspace Nuxt module", () => {
@@ -55,6 +55,50 @@ describe("Workspace Nuxt module", () => {
       { from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollection" },
       { from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollectionItem" },
     ])
+  })
+
+  it("preserves Nitro preset hosting in the registered Vite plugin", async () => {
+    const { nitroConfigHook, root, vitePlugin } = await createNuxtHook({
+      provider: "github",
+      repository: "onmax/repo",
+    })
+    const nitroConfig: Record<string, unknown> = { preset: "cloudflare-module" }
+
+    await nitroConfigHook(nitroConfig)
+    const config = (vitePlugin as { config: (config: { root: string }, env: { command: "build", mode: string }) => Promise<unknown> }).config
+    await config({ root }, { command: "build", mode: "production" })
+
+    const plugin = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(plugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
+  })
+
+  it("preserves Nitro preset hosting in a pre-registered Workspace Vite plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-existing-plugin-"))
+    tempDirs.push(root)
+    let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
+    const vitePlugin = (await import("../src/vite.ts")).hubWorkspace({
+      store: { provider: "github", repository: "onmax/repo" },
+    })
+    const nuxt = {
+      hook(name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
+        if (name === "nitro:config") nitroConfigHook = handler
+      },
+      options: {
+        dev: false,
+        rootDir: root,
+        srcDir: root,
+        vite: { plugins: [vitePlugin] },
+      },
+    }
+    workspaceNuxt({}, nuxt)
+
+    await nitroConfigHook!({ preset: "cloudflare-module" })
+    const config = vitePlugin.config as (config: { root: string }, env: { command: "build", mode: string }) => Promise<unknown>
+    await config({ root }, { command: "build", mode: "production" })
+
+    const plugin = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(plugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
+    expect(nuxt.options.vite.plugins).toEqual([vitePlugin])
   })
 
   it("registers the default Cloudflare Artifacts binding and runtime in generated Nitro config", async () => {

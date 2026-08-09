@@ -198,6 +198,36 @@ describe("GitHub workspace store", () => {
     expect(resolveGitHubTokenOption(options, {})).toBe("binding-token");
   });
 
+  it("falls through blank active Cloudflare binding aliases", async () => {
+    setActiveCloudflareEnv({
+      WORKSPACE_GITHUB_BRANCH: " ",
+      WORKSPACE_GITHUB_REPOSITORY: " ",
+      WORKSPACE_GITHUB_ROOT: " ",
+      WORKSPACE_GITHUB_TOKEN: " ",
+      VITEHUB_WORKSPACE_GITHUB_BRANCH: " release ",
+      VITEHUB_WORKSPACE_GITHUB_REPOSITORY: " onmax/repo ",
+      VITEHUB_WORKSPACE_GITHUB_ROOT: " state/<workspace> ",
+      VITEHUB_WORKSPACE_GITHUB_TOKEN: " binding-token ",
+    });
+    const {
+      resolveGitHubBranchOption,
+      resolveGitHubRepositoryOption,
+      resolveGitHubRootOption,
+      resolveGitHubTokenOption,
+    } = await import("../src/providers/github/shared.ts");
+    const options = {
+      branch: () => undefined,
+      repository: () => undefined,
+      root: () => undefined,
+      token: () => undefined,
+    };
+
+    expect(resolveGitHubRepositoryOption(options, {})).toBe("onmax/repo");
+    expect(resolveGitHubBranchOption(options, {})).toBe("release");
+    expect(resolveGitHubRootOption(options, "docs", {})).toBe("state/docs");
+    expect(resolveGitHubTokenOption(options, {})).toBe("binding-token");
+  });
+
   it.each(["********", "<redacted>", "[redacted]"])(
     "falls back to env credentials for masked token %s",
     async (maskedToken) => {
@@ -240,6 +270,27 @@ describe("GitHub workspace store", () => {
     },
   );
 
+  it("falls through masked active binding aliases", async () => {
+    process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
+    setActiveCloudflareEnv({
+      GITHUB_TOKEN: "binding-token",
+      WORKSPACE_GITHUB_TOKEN: "********",
+    });
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+      },
+      "docs",
+    );
+
+    await expect(store.list("", { recursive: true })).resolves.toEqual([]);
+
+    expect(requests[0]?.headers.get("authorization")).toBe("Bearer binding-token");
+  });
+
   it("uses lazy options preserved by runtime GitHub store normalization", async () => {
     const { normalizeWorkspaceStoreOptions } = await import("../src/config.ts");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
@@ -260,7 +311,7 @@ describe("GitHub workspace store", () => {
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer callback-token");
   });
 
-  it("falls back from empty lazy options to active Cloudflare bindings", async () => {
+  it("falls back from blank lazy options to active Cloudflare bindings", async () => {
     seedRemote("state/docs/data/existing.json", '{"ok":true}\n');
     setActiveCloudflareEnv({
       WORKSPACE_GITHUB_BRANCH: "main",
@@ -271,11 +322,11 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
       {
-        branch: () => undefined,
+        branch: () => " ",
         provider: "github",
-        repository: () => undefined,
-        root: () => undefined,
-        token: () => undefined,
+        repository: () => " ",
+        root: () => " ",
+        token: () => " ",
       },
       "docs",
     );
