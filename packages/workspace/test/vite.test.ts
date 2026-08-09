@@ -737,15 +737,111 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
+        cloudflare: { wrangler: { compatibility_flags: ["nodejs_compat"] } },
         plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        rollupConfig: { external: ["cloudflare:workers"] },
       },
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
     expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
     expect(pluginSource).toContain('"repository": () => process.env.WORKSPACE_REPO')
     expect(pluginSource).toContain('"token": () => process.env.WORKSPACE_TOKEN')
     expect(pluginSource).not.toContain('"token": "********"')
+  })
+
+  it.each([
+    ["VITEHUB_HOSTING", undefined],
+    ["NITRO_PRESET", undefined],
+    ["SERVER_PRESET", undefined],
+    ["nitro.preset", { preset: "cloudflare-module" }],
+  ] as const)("activates Cloudflare runtime bindings from %s", async (signal, nitro) => {
+    const root = await createViteRoot()
+    if (signal !== "nitro.preset") vi.stubEnv(signal, "cloudflare-module")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (config: {
+      nitro?: { preset?: string }
+      root: string
+      workspace: { store: { provider: "github", repository: string } }
+    }, env: { command: "build", mode: string }) => Promise<{ nitro?: { rollupConfig?: { external?: unknown } } }>
+
+    const result = await config({
+      ...(nitro ? { nitro } : {}),
+      root,
+      workspace: { store: { provider: "github", repository: "onmax/repo" } },
+    }, { command: "build", mode: "production" })
+
+    expect(result.nitro?.rollupConfig).toMatchObject({ external: ["cloudflare:workers"] })
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
+  })
+
+  it("falls through blank Cloudflare hosting signals", async () => {
+    const root = await createViteRoot()
+    vi.stubEnv("NITRO_PRESET", " ")
+    vi.stubEnv("SERVER_PRESET", "cloudflare-module")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (config: {
+      root: string
+      workspace: { store: { provider: "github", repository: string } }
+    }, env: { command: "build", mode: string }) => Promise<{ nitro?: { rollupConfig?: { external?: unknown } } }>
+
+    const result = await config({
+      root,
+      workspace: { store: { provider: "github", repository: "onmax/repo" } },
+    }, { command: "build", mode: "production" })
+
+    expect(result.nitro?.rollupConfig).toMatchObject({ external: ["cloudflare:workers"] })
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
+  })
+
+  it("does not serialize absent or blank GitHub fallbacks over Cloudflare runtime bindings", async () => {
+    const root = await createViteRoot()
+    vi.stubEnv("GITHUB_REPOSITORY", "vite-hub/build-repository")
+    vi.stubEnv("NITRO_PRESET", "cloudflare-module")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (config: {
+      root: string
+      workspace: { store: { branch: string, provider: "github", repo: string, root: string } }
+    }, env: { command: "build", mode: string }) => Promise<unknown>
+
+    await config({
+      root,
+      workspace: { store: { branch: " ", provider: "github", repo: " ", root: " " } },
+    }, { command: "build", mode: "production" })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain('"provider": "github"')
+    expect(pluginSource).not.toContain("vite-hub/build-repository")
+    expect(pluginSource).not.toContain('"branch"')
+    expect(pluginSource).not.toContain('"repository"')
+    expect(pluginSource).not.toContain('".vitehub/workspaces/<workspace>"')
+  })
+
+  it("preserves build-time GitHub fallbacks for non-Cloudflare runtimes", async () => {
+    const root = await createViteRoot()
+    vi.stubEnv("GITHUB_REPOSITORY", "vite-hub/build-repository")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (config: {
+      root: string
+      workspace: { store: { provider: "github" } }
+    }, env: { command: "build", mode: string }) => Promise<unknown>
+
+    await config({
+      root,
+      workspace: { store: { provider: "github" } },
+    }, { command: "build", mode: "production" })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain('"repository": "vite-hub/build-repository"')
+    expect(pluginSource).not.toContain("setActiveCloudflareEnv")
   })
 
   it("emits Nitro hosted runtime setup for explicit Vercel Blob workspace stores", async () => {
@@ -935,6 +1031,21 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("export default function vitehubWorkspacePlugin() {")
     expect(pluginSource).not.toContain("from 'nitro'")
     expect(pluginSource).not.toContain("nitropack/runtime")
+  })
+
+  it("activates standalone Nitro Cloudflare bindings from the provided environment", async () => {
+    const root = await createViteRoot()
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({
+      env: { NITRO_PRESET: "cloudflare-module" },
+      viteRoot: root,
+    })).resolves.toMatchObject({
+      rollupConfig: { external: ["cloudflare:workers"] },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
   })
 
   it("uses discovered source roots from generated Nitro workspace registries", async () => {

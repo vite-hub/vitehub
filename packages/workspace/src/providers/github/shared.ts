@@ -73,11 +73,22 @@ export function processEnv(
 }
 
 export function resolveGitHubOption(value: GitHubWorkspaceOption | undefined): string | undefined {
-  return typeof value === "function" ? value() : value;
+  const resolved = typeof value === "function" ? value() : value;
+  return typeof resolved === "string" ? resolved.trim() || undefined : resolved;
 }
 
 function isMaskedGitHubTokenOption(value: string): boolean {
   return value === "********" || value === "<redacted>" || value === "[redacted]";
+}
+
+function activeCloudflareEnv(
+  keys: string[],
+  accept: (value: string) => boolean = () => true,
+): string | undefined {
+  return keys
+    .map((key) => getActiveCloudflareBinding<unknown>(key))
+    .map((value) => typeof value === "string" ? value.trim() : undefined)
+    .find((value): value is string => typeof value === "string" && value.length > 0 && accept(value));
 }
 
 export function requireGitHubOption(
@@ -162,6 +173,11 @@ export function resolveGitHubRepositoryOption(
   return (
     resolveGitHubOption(options.repository) ||
     resolveGitHubOption(options.repo) ||
+    activeCloudflareEnv([
+      "WORKSPACE_GITHUB_REPOSITORY",
+      "VITEHUB_WORKSPACE_GITHUB_REPOSITORY",
+      "GITHUB_REPOSITORY",
+    ]) ||
     processEnv(
       env,
       "WORKSPACE_GITHUB_REPOSITORY",
@@ -177,6 +193,11 @@ export function resolveGitHubBranchOption(
 ): string {
   return (
     resolveGitHubOption(options.branch) ||
+    activeCloudflareEnv([
+      "WORKSPACE_GITHUB_BRANCH",
+      "VITEHUB_WORKSPACE_GITHUB_BRANCH",
+      "GITHUB_BRANCH",
+    ]) ||
     processEnv(
       env,
       "WORKSPACE_GITHUB_BRANCH",
@@ -194,6 +215,7 @@ export function resolveGitHubRootOption(
 ): string {
   return resolveGitHubWorkspaceRoot(
     resolveGitHubOption(options.root) ||
+      activeCloudflareEnv(["WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT"]) ||
       processEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ||
       ".vitehub/workspaces/<workspace>",
     workspaceName,
@@ -206,8 +228,13 @@ export function resolveGitHubTokenOption(
 ): string | undefined {
   const token = resolveGitHubOption(options.token);
   if (token && !isMaskedGitHubTokenOption(token)) return token;
-  const bindingToken = getActiveCloudflareBinding<string>("GITHUB_TOKEN");
-  if (bindingToken && !isMaskedGitHubTokenOption(bindingToken)) return bindingToken;
+  const bindingToken = activeCloudflareEnv([
+    "WORKSPACE_GITHUB_TOKEN",
+    "VITEHUB_WORKSPACE_GITHUB_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+  ], value => !isMaskedGitHubTokenOption(value));
+  if (bindingToken) return bindingToken;
   return (
     processEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
   );
