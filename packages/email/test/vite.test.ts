@@ -110,10 +110,12 @@ describe("hubEmail", () => {
     })
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
 
-    expect(config({ nitro: {
+    const cloudflareConfig = { nitro: {
       cloudflare: { wrangler: { compatibility_flags: ["custom"] } },
       preset: "cloudflare-module",
-    } })).toMatchObject({
+    } }
+    expect(config(cloudflareConfig)).not.toHaveProperty("nitro")
+    expect(cloudflareConfig).toMatchObject({
       nitro: {
         cloudflare: { wrangler: { compatibility_flags: ["custom", "nodejs_compat"] } },
         rollupConfig: { external: ["cloudflare:workers"] },

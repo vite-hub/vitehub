@@ -175,14 +175,14 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
-function configureNitroCloudflareWorkers(config: Record<string, unknown>): Record<string, unknown> {
+function configureNitroCloudflareWorkers(config: Record<string, unknown>): void {
   const nitro = isRecord(config.nitro) ? config.nitro : {}
   const rollupConfig = isRecord(nitro.rollupConfig) ? nitro.rollupConfig : {}
   const cloudflare = isRecord(nitro.cloudflare) ? nitro.cloudflare : {}
   const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
   const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
-  return {
+  config.nitro = {
     ...nitro,
     cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
     rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
@@ -226,8 +226,8 @@ export function hubEmail(options: EmailVitePluginOptions = {}): EmailVitePlugin 
     config(config) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       cloudflare = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>)) === "cloudflare"
+      if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>)
       return {
-        ...(cloudflare ? { nitro: configureNitroCloudflareWorkers(config as Record<string, unknown>) } : {}),
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }
     },
