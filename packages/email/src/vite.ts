@@ -147,7 +147,7 @@ function isEmailDefinitionFile(file: string): boolean {
 function resolveHosting(options: InternalEmailVitePluginOptions, config: Record<string, unknown>): string | undefined {
   const nitro = isRecord(config.nitro) ? config.nitro : {}
   const preset = typeof nitro.preset === "string" ? nitro.preset : undefined
-  return options.hosting ?? preset ?? process.env.NITRO_PRESET ?? process.env.SERVER_PRESET ?? process.env.VITEHUB_HOSTING
+  return preset ?? options.hosting ?? process.env.NITRO_PRESET ?? process.env.SERVER_PRESET ?? process.env.VITEHUB_HOSTING
 }
 
 function mergeNitroExternal(value: unknown, addition: string): unknown {

@@ -120,6 +120,20 @@ describe("hubEmail", () => {
     expect(source).toContain("resolveServerEnv(registry,{env:vitehubEmailEnv})")
   })
 
+  it("uses the development Nitro preset instead of the deployment target", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({
+      driver: "unemail/driver/resend",
+      hosting: "cloudflare-module",
+    } as Parameters<typeof hubEmail>[0])
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+
+    expect(config({ nitro: { preset: "node-server" } })).not.toHaveProperty("nitro")
+    await resolvePlugin(plugin, root)
+
+    expect(await loadConfiguredDefinition(plugin)).not.toContain("cloudflare:workers")
+  })
+
   it("resolves a fresh Cloudflare credential for every send", async () => {
     const root = await createTempProject()
     const cloudflareWorkers = join(root, "cloudflare-workers.ts")
