@@ -737,6 +737,7 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
+        cloudflare: { wrangler: { compatibility_flags: ["nodejs_compat"] } },
         plugins: [".vitehub/nitro/workspace/plugin.ts"],
         rollupConfig: { external: ["cloudflare:workers"] },
       },
@@ -798,6 +799,26 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain('"provider": "github"')
     expect(pluginSource).not.toContain("vite-hub/build-repository")
     expect(pluginSource).not.toContain('"repository"')
+  })
+
+  it("preserves build-time GitHub fallbacks for non-Cloudflare runtimes", async () => {
+    const root = await createViteRoot()
+    vi.stubEnv("GITHUB_REPOSITORY", "vite-hub/build-repository")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (config: {
+      root: string
+      workspace: { store: { provider: "github" } }
+    }, env: { command: "build", mode: string }) => Promise<unknown>
+
+    await config({
+      root,
+      workspace: { store: { provider: "github" } },
+    }, { command: "build", mode: "production" })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain('"repository": "vite-hub/build-repository"')
+    expect(pluginSource).not.toContain("setActiveCloudflareEnv")
   })
 
   it("emits Nitro hosted runtime setup for explicit Vercel Blob workspace stores", async () => {

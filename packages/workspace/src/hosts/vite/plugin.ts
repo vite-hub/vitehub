@@ -634,16 +634,16 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 }
 
 function configureCloudflareNitroRuntime(nitro: NitroConfig): void {
-  const rollupConfig = isRecord(nitro.rollupConfig) ? { ...nitro.rollupConfig } : {}
-  nitro.rollupConfig = { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }
-}
-
-function configureCloudflareArtifactsNitroRuntime(nitro: NitroConfig): void {
   nitro.cloudflare ??= {}
   nitro.cloudflare.wrangler ??= {}
   const compatibilityFlags = nitro.cloudflare.wrangler.compatibility_flags || []
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   nitro.cloudflare.wrangler.compatibility_flags = compatibilityFlags
+  const rollupConfig = isRecord(nitro.rollupConfig) ? { ...nitro.rollupConfig } : {}
+  nitro.rollupConfig = { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }
+}
+
+function configureCloudflareArtifactsNitroRuntime(nitro: NitroConfig): void {
   configureCloudflareNitroRuntime(nitro)
 }
 
@@ -674,8 +674,12 @@ function renderRuntimeValue(value: unknown, depth = 0): string {
   return JSON.stringify(value)
 }
 
-function runtimeWorkspaceConfig(config: false | ResolvedWorkspaceModuleOptions, options: false | WorkspaceModuleOptions | undefined): false | ResolvedWorkspaceModuleOptions {
-  if (!config || config.store.provider !== "github" || !options) return config
+function runtimeWorkspaceConfig(
+  config: false | ResolvedWorkspaceModuleOptions,
+  options: false | WorkspaceModuleOptions | undefined,
+  cloudflareRuntime: boolean,
+): false | ResolvedWorkspaceModuleOptions {
+  if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
   const store = options.store
   if (!store || "readFile" in store || store.provider !== "github") return config
   const runtimeStore = { ...config.store }
@@ -769,7 +773,7 @@ async function writeNitroWorkspacePlugin(
 ): Promise<void> {
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
-  const runtimeConfig = runtimeWorkspaceConfig(config, options)
+  const runtimeConfig = runtimeWorkspaceConfig(config, options, cloudflareRuntime)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
     mkdir(dirname(registryFile), { recursive: true }),
