@@ -50,7 +50,10 @@ beforeEach(() => {
   mirrorRefStatus = 404;
   blobs.clear();
   treesByRef.clear();
-  delete process.env.WORKSPACE_GITHUB_TOKEN;
+  vi.stubEnv("WORKSPACE_GITHUB_TOKEN", "");
+  vi.stubEnv("VITEHUB_WORKSPACE_GITHUB_TOKEN", "");
+  vi.stubEnv("GITHUB_TOKEN", "");
+  vi.stubEnv("GH_TOKEN", "");
 
   vi.stubGlobal(
     "fetch",
@@ -147,7 +150,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete process.env.WORKSPACE_GITHUB_TOKEN;
+  vi.unstubAllEnvs();
   clearActiveCloudflareEnv();
 });
 
