@@ -38,7 +38,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, ASCII, Cloudflare Sandbox, Cloudflare Computer, and Vercel Sandbox execution. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
-| `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email Definitions, runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
+| `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
 | `vite-hub/history` | Durable Workspace history checkpoint contract and types. |
@@ -92,8 +92,8 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/box` | Box Package | Box Definitions, sessions, and built-in runtime selection. |
 | `@vite-hub/channels` | Channels Package | Channel Definitions, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
-| `@vite-hub/email` | Email Package | Email Definition, explicit clients, portable types, and normalized errors. |
-| `@vite-hub/email/server` | Email Runtime | Server-only discovered `email` Runtime Helper. |
+| `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
+| `@vite-hub/email/server` | Email Runtime | Server-only configured `email` Runtime Helper. |
 | `@vite-hub/email/markdown` | Email Package | Dynamic Markdown composition into HTML and a composed Markdown text fallback. |
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |
 | `@vite-hub/database/drizzle` | Database Package | Generated Drizzle `db` and `schema` access. |
@@ -131,7 +131,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 | `@vite-hub/channels/vite` | Register Channel Definition discovery and generated runtime bindings. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
-| `@vite-hub/email/vite` | Register singleton Email Definition discovery and runtime binding. |
+| `@vite-hub/email/vite` | Configure one Unemail provider and generate its runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
 | `@vite-hub/kv/vite` | Register the KV Vite Integration. |
 | `@vite-hub/markdown-template/vite` | Register Markdown template discovery, generated types, and direct `.template.md` imports. |

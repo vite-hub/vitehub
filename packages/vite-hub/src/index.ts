@@ -186,7 +186,7 @@ export interface ViteHubOptions {
   browser?: boolean | BrowserModuleOptions
   channels?: boolean | ChannelsVitePluginOptions
   database?: boolean | DBModulePublicOptions
-  email?: boolean | EmailVitePluginOptions
+  email?: EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   queue?: boolean
@@ -591,7 +591,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.email) {
     plugins.push(hubEmail({
-      ...(options.email === true ? {} : options.email),
+      ...options.email,
       hosting: plan.nitroPreset,
       runtimeEnvImport: "vite-hub/env/server",
     } as unknown as EmailVitePluginOptions))

@@ -1,5 +1,4 @@
 export { createEmail } from "./client.ts"
-export { defineEmail } from "./definition.ts"
 
 export type {
   EmailAddress,

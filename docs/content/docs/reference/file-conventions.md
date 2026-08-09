@@ -15,7 +15,6 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 | Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. |
 | Browser | `server/browsers/<path>.ts` | `<path>.browser.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Channel | `server/channels/<path>.ts` | `<path>.channel.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
-| Email | `server/email.ts` | `server.email.ts` | `default`. Only one Email Definition is allowed. |
 | Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. |
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Workflow | `server/workflows/<path>.ts` or a folder containing `index.ts` or numbered step files | `<path>.workflow.ts` | Normalized relative file or folder path. Agent Definitions contribute their Agent identity by default, `workflow(...)` can override it, and `runtime: false` opts out. |

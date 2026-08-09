@@ -98,17 +98,17 @@ Resend supplies `id`. Confirm delivery in the recipient inbox or the provider's 
 | Surface | Use it when |
 | --- | --- |
 | `email.send(message)` | A Vite app configures one Unemail provider through `vitehub({ email: { driver, options } })`. |
-| `createEmail({ driver })` | A server integration creates and owns the driver explicitly. Vite discovery is not required. |
+| `createEmail({ driver })` | Low-level integrations that do not use Vite create and own a client explicitly. |
 | `createTestEmail()` | A test needs deterministic in-memory capture without delivery. |
 
 ## Public imports
 
-Applications should use the canonical `vite-hub` paths for framework APIs. Direct Unemail imports are only needed for an advanced Email Definition.
+Applications should use the canonical `vite-hub` paths for framework APIs. Select providers through an `unemail/driver/*` subpath string in Vite config.
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
-| `vite-hub/email` | `createEmail`, `defineEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
+| `vite-hub/email` | `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
 | `@vite-hub/runtime` | `ViteHubError`, `getViteHubErrorShape` | Shared operational error contract. |
 | `vite-hub/email/server` | `email` | — |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
@@ -190,36 +190,9 @@ export async function sendWelcome(name: string, to: string) {
 
 Use the quick-start `vitehub({ email: { driver: 'unemail/driver/resend', options } })` configuration. A successful result has `driver: 'resend'`. ViteHub maps Unemail's generic error taxonomy to stable `EMAIL_*` codes and keeps the original Unemail error in `cause`.
 
-## Configure SMTP
+## Configure another provider
 
-SMTP transports can retain connection-pool state, so use an advanced Email Definition when the driver must outlive one send. Install `unemail`, enable discovery with `email: true`, and validate required values before constructing its options.
-
-```ts [server/email.ts]
-import { defineEmail } from 'vite-hub/email'
-import smtp from 'unemail/driver/smtp'
-
-function requiredEnv(name: string): string {
-  const value = process.env[name]
-  if (!value) throw new Error(`${name} is required`)
-  return value
-}
-
-export default defineEmail({
-  driver: () => smtp({
-    host: requiredEnv('SMTP_HOST'),
-    port: Number(process.env.SMTP_PORT ?? 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    user: requiredEnv('SMTP_USER'),
-    password: requiredEnv('SMTP_PASSWORD'),
-  }),
-})
-```
-
-Keep credentials in Server Env or the deployment platform's secret store. Pass credentials as Env declarations without defaults, never as resolved strings or literal options.
-
-## Implement another provider
-
-Use any driver exported by `unemail/driver/*`, then pass it directly or through a lazy factory to `defineEmail()`. When Unemail does not yet support a provider, add the driver upstream with Unemail's `defineDriver()` contract so every consumer benefits instead of adding a ViteHub-only adapter.
+Set `email.driver` to another `unemail/driver/*` subpath and declare its serializable options in the same Vite config. Keep credentials in Server Env or the deployment platform's secret store, and pass them as Env declarations without defaults. When Unemail does not support a provider, add the driver upstream with its `defineDriver()` contract so every consumer benefits instead of adding a ViteHub-only adapter.
 
 ## Test without delivery
 
@@ -275,7 +248,7 @@ Inspect `cause` only in protected server-side diagnostics because provider error
 
 | Code | Produced by | Meaning | Retry guidance |
 | --- | --- | --- | --- |
-| `EMAIL_NOT_CONFIGURED` | Runtime discovery or Unemail `INVALID_OPTIONS` | The Definition or required driver options are missing. | Fix configuration; do not retry unchanged. |
+| `EMAIL_NOT_CONFIGURED` | Runtime configuration or Unemail `INVALID_OPTIONS` | The provider or required driver options are missing. | Fix configuration; do not retry unchanged. |
 | `EMAIL_AUTHENTICATION` | Unemail `AUTH` | Delivery credentials were rejected. | Fix credentials before retrying. |
 | `EMAIL_RATE_LIMITED` | Unemail `RATE_LIMIT` | The provider reported throttling. | Apply an application-owned retry policy. |
 | `EMAIL_TIMEOUT` | Unemail `TIMEOUT` | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
@@ -308,21 +281,16 @@ export default defineConfig({
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |
-| `driver` | `` `unemail/driver/${string}` `` | Required in the common path | Selects one upstream Unemail driver through its exact package subpath. |
+| `driver` | `` `unemail/driver/${string}` `` | Required | Selects one upstream Unemail driver through its exact package subpath. |
 | `options` | `EnvRuntimeConfigOptions` | `{}` | Supplies serializable non-secret literals and runtime Env declarations. Env source values resolve in the server runtime for every send; literals and non-secret defaults are included in build output, while defaults on secret declarations are rejected. |
-| `projectRoot` | `string` | Automatically detected from the Vite root | Available with `email: true`; changes where the advanced `server/email.ts` or `server.email.ts` Definition is discovered. |
 
-Configure either `driver` and `options` or one discovered Email Definition, never both. The integration serializes the driver subpath, literal options, and Env declarations into a server-only virtual module. Credential values remain in the runtime environment when they are supplied through an Env source without a default.
+The integration serializes the driver subpath, literal options, and Env declarations into a server-only generated module. Credential values remain in the runtime environment when they are supplied through an Env source without a default.
 
 ## Troubleshoot common failures
 
-### `No Email provider or Definition is configured`
+### `No Email provider is configured`
 
-Configure `vitehub({ email: { driver, options } })`, or enable the advanced path with `email: true` and ensure exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can configure `hubEmail({ driver, options })`. Restart the development server, then call `email.send()` again.
-
-### `Only one Email Definition is allowed`
-
-The error lists every matching file. Remove or rename the duplicate so only one supported Email Definition remains, then restart the development server and confirm it starts without the discovery error.
+Configure `vitehub({ email: { driver, options } })`. Applications using the owner integration directly configure `hubEmail({ driver, options })`. Restart the development server, then call `email.send()` again.
 
 ### `Email delivery failed through <driver>.`
 
@@ -331,14 +299,14 @@ Read the `EMAIL_*` code first. For `EMAIL_AUTHENTICATION`, verify the provider c
 ## Compatibility and scope
 
 - `vite-hub/email` and its `@vite-hub/email` owner package currently require Node.js 24 or later.
-- Email provider configuration and Definition discovery require Vite 8 or later; explicit `createEmail()` clients do not require Vite.
+- Email provider configuration requires Vite 8 or later; explicit `createEmail()` clients do not require Vite.
 - Provider runtime support comes from the selected Unemail driver.
 
-ViteHub does not independently certify provider behavior. ViteHub owns discovery, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior; Queue, Workflow, and Schedule remain the orchestration layer.
+ViteHub does not independently certify provider behavior. ViteHub owns provider composition, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior; Queue, Workflow, and Schedule remain the orchestration layer.
 
 ## Expose Email to an Agent
 
-Use the official [`email()` Capability](/docs/capabilities/email) when a model should send through the discovered Email Definition.
+Use the official [`email()` Capability](/docs/capabilities/email) when a model should send through the configured Email provider.
 The Capability fixes the sender in application code and exposes one plain-text `email_send` tool with optional policy; provider configuration and credentials stay in this primitive.
 
 Dynamic Markdown remains an application composition boundary.
@@ -349,4 +317,4 @@ The official Capability does not render model-authored Markdown or expose HTML, 
 - Use [Queue](/docs/server-primitives/queue) when a request should return before email delivery completes.
 - Use [Schedule](/docs/server-primitives/schedule) or [Workflows](/docs/server-primitives/workflows) for recurring or durable delivery orchestration.
 - Use [Env](/docs/server-primitives/env) for typed server credentials.
-- Check [File conventions](/docs/reference/file-conventions) and [Errors and diagnostics](/docs/reference/errors-diagnostics) for the shared reference paths.
+- Check [Errors and diagnostics](/docs/reference/errors-diagnostics) for the shared error contract.

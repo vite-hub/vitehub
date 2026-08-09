@@ -1,9 +1,8 @@
 import { createEmail as createUnemail } from "unemail"
 
-import { assertEmailDriver, resolveEmailDriver } from "./definition.ts"
 import { emailError, isEmailError } from "./errors.ts"
 
-import type { EmailClient, EmailDefinition, EmailMessage, EmailSendResult } from "./types.ts"
+import type { EmailClient, EmailDefinition, EmailDriver, EmailDriverSource, EmailMessage, EmailSendResult } from "./types.ts"
 
 const errorCodes = {
   AUTH: "EMAIL_AUTHENTICATION",
@@ -15,6 +14,27 @@ const errorCodes = {
   TIMEOUT: "EMAIL_TIMEOUT",
   UNSUPPORTED: "EMAIL_PROVIDER_FAILED",
 } as const
+
+function assertEmailDriver(value: unknown): asserts value is EmailDriver {
+  if (!value || typeof value !== "object") {
+    throw new TypeError("Email driver must be an object.")
+  }
+
+  const driver = value as Partial<EmailDriver>
+  if (typeof driver.name !== "string" || driver.name.trim().length === 0) {
+    throw new TypeError("Email driver name must be a non-empty string.")
+  }
+  if (typeof driver.send !== "function") {
+    throw new TypeError("Email driver send must be a function.")
+  }
+}
+
+function resolveEmailDriver(source: EmailDriverSource): Promise<EmailDriver> {
+  return Promise.resolve(typeof source === "function" ? source() : source).then((driver) => {
+    assertEmailDriver(driver)
+    return driver
+  })
+}
 
 function unemailError(value: unknown): { code: keyof typeof errorCodes; driver: string } | undefined {
   if (!value || typeof value !== "object") return
