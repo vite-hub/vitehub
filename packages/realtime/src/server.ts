@@ -393,6 +393,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
   const peerAwarenessQueryAt = new WeakMap<WebSocketPeer, number>()
   const peerAwarenessUpdateAt = new WeakMap<WebSocketPeer, number>()
+  const peerPendingAwareness = new WeakMap<WebSocketPeer, { timer: ReturnType<typeof setTimeout>, update: Uint8Array }>()
   const peerWorkspaceChanges = new WeakMap<WebSocketPeer, { count: number, startedAt: number }>()
   const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
   const peerSyncUpdateAt = new WeakMap<WebSocketPeer, number>()
@@ -817,6 +818,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
 
     function leave(peer: WebSocketPeer) {
       if (!room.peers.delete(peer)) return
+      const pendingAwareness = peerPendingAwareness.get(peer)
+      if (pendingAwareness) clearTimeout(pendingAwareness.timer)
+      peerPendingAwareness.delete(peer)
       const clients = [...(peerAwarenessClients.get(peer) || [])]
       peerAwarenessClients.delete(peer)
       if (clients.length) {
@@ -829,6 +833,29 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       }
       peer.unsubscribe(room.channel)
       evictRoom(room)
+    }
+
+    function applyAwareness(peer: WebSocketPeer, input: Uint8Array) {
+      let update = input
+      let clients: number[]
+      let claimed: number[] = []
+      try {
+        clients = readAwarenessClientIds(update)
+        claimed = claimAwarenessClientIds(room.awarenessClientOwners as Map<number, object>, peer, clients)
+        if (identity) update = bindAwarenessIdentity(update, identity)
+        applyRealtimeAwarenessUpdate(room.awareness, update, peer)
+        const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
+        for (const client of clients) ownedClients.add(client)
+        peerAwarenessClients.set(peer, ownedClients)
+      }
+      catch (error) {
+        for (const client of claimed) {
+          if (room.awarenessClientOwners.get(client) === peer) room.awarenessClientOwners.delete(client)
+        }
+        peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
+        return
+      }
+      peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
     }
 
     return {
@@ -895,31 +922,34 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType === messageAwareness) {
-          const now = Date.now()
-          const previous = peerAwarenessUpdateAt.get(peer)
-          if (previous !== undefined && now - previous < awarenessUpdateIntervalMs) return
-          peerAwarenessUpdateAt.set(peer, now)
           let update: Uint8Array
-          let clients: number[]
-          let claimed: number[] = []
           try {
             update = decoding.readVarUint8Array(decoder)
-            clients = readAwarenessClientIds(update)
-            claimed = claimAwarenessClientIds(room.awarenessClientOwners as Map<number, object>, peer, clients)
-            if (identity) update = bindAwarenessIdentity(update, identity)
-            applyRealtimeAwarenessUpdate(room.awareness, update, peer)
-            const ownedClients = peerAwarenessClients.get(peer) || new Set<number>()
-            for (const client of clients) ownedClients.add(client)
-            peerAwarenessClients.set(peer, ownedClients)
           }
-          catch (error) {
-            for (const client of claimed) {
-              if (room.awarenessClientOwners.get(client) === peer) room.awarenessClientOwners.delete(client)
-            }
-            peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
+          catch {
+            peer.close(4400, "Invalid awareness update.")
             return
           }
-          peer.publish(room.channel, identity ? encodeAwarenessState(room.awareness, clients) : data)
+          const now = Date.now()
+          const previous = peerAwarenessUpdateAt.get(peer)
+          if (previous !== undefined && now - previous < awarenessUpdateIntervalMs) {
+            const pending = peerPendingAwareness.get(peer)
+            if (pending) pending.update = update
+            else {
+              const next = {
+                timer: setTimeout(() => {
+                  peerPendingAwareness.delete(peer)
+                  peerAwarenessUpdateAt.set(peer, Date.now())
+                  applyAwareness(peer, next.update)
+                }, awarenessUpdateIntervalMs - (now - previous)),
+                update,
+              }
+              peerPendingAwareness.set(peer, next)
+            }
+            return
+          }
+          peerAwarenessUpdateAt.set(peer, now)
+          applyAwareness(peer, update)
           return
         }
         if (messageType !== messageSync) return

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
@@ -836,6 +837,42 @@ describe("realtime server handler", () => {
     rejectedDocument.destroy()
     accepted.destroy()
     acceptedDocument.destroy()
+  })
+
+  it("applies the latest awareness update after the throttle window", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = {
+      close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn(),
+    }
+    const senderDocument = new Y.Doc()
+    const sender = new awarenessProtocol.Awareness(senderDocument)
+
+    response.crossws.open(peer)
+    sender.setLocalState({ cursor: { anchor: 1 } })
+    response.crossws.message(peer, { uint8Array: () => encodeAwarenessState(sender, [senderDocument.clientID]) })
+    sender.setLocalState({ cursor: { anchor: 2 } })
+    response.crossws.message(peer, { uint8Array: () => encodeAwarenessState(sender, [senderDocument.clientID]) })
+
+    expect(peer.publish).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(peer.publish).toHaveBeenCalledTimes(2))
+    const receiverDocument = new Y.Doc()
+    const receiver = new awarenessProtocol.Awareness(receiverDocument)
+    const decoder = decoding.createDecoder(peer.publish.mock.calls[1]![1])
+    expect(decoding.readVarUint(decoder)).toBe(messageAwareness)
+    applyRealtimeAwarenessUpdate(receiver, decoding.readVarUint8Array(decoder), "server")
+    expect(receiver.getStates().get(senderDocument.clientID)).toMatchObject({ cursor: { anchor: 2 } })
+    receiver.destroy()
+    receiverDocument.destroy()
+    sender.destroy()
+    senderDocument.destroy()
   })
 
 })
