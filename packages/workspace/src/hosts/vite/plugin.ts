@@ -373,6 +373,15 @@ type ViteConfigWithWorkspaceNitro = Omit<UserConfig, "plugins"> & {
   nitro?: NitroConfig
 }
 
+function resolveWorkspaceHosting(
+  hosting: string | undefined,
+  nitro: unknown,
+  env: Record<string, string | undefined> = process.env,
+): string | undefined {
+  const preset = isRecord(nitro) && typeof nitro.preset === "string" ? nitro.preset : undefined
+  return hosting ?? preset ?? env.NITRO_PRESET ?? env.SERVER_PRESET ?? env.VITEHUB_HOSTING
+}
+
 type WorkspacePluginRoots = {
   projectRoot: string
   viteRoot: string
@@ -768,10 +777,12 @@ async function writeNitroWorkspacePlugin(
 export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOptions = {}): Promise<NitroConfig | null> {
   const workspaceOptions = stripWorkspaceInternalOptions(options.workspace)
   const roots = resolveWorkspacePluginRoots(options.viteRoot || process.cwd(), workspaceOptions)
+  const env = options.env || process.env
+  const hosting = resolveWorkspaceHosting(options.hosting, options.nitro, env)
   const normalized = normalizeWorkspaceOptions(workspaceOptions, {
     dev: options.command !== "build",
-    env: options.env || process.env,
-    hosting: options.hosting ?? process.env.VITEHUB_HOSTING,
+    env,
+    hosting,
     rootDir: roots.projectRoot,
   })
   if (!normalized) return null
@@ -784,11 +795,11 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
     aliases: options.aliases,
     artifactsOnly: true,
     env: options.env,
-    hosting: options.hosting,
+    hosting,
     definitionOverrides,
   })
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
-  const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(options.hosting) === "cloudflare"
+  const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(hosting) === "cloudflare"
   await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides)
   const nitro = mergeNitroWorkspaceConfig(options.nitro)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
@@ -869,13 +880,14 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
       )
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
+      const resolvedHosting = resolveWorkspaceHosting(hosting, (config as ViteConfigWithWorkspaceNitro).nitro)
       const normalized = normalizeWorkspaceOptions(workspaceOptions, {
         dev: env?.command !== "build",
         env: process.env,
-        hosting: hosting ?? process.env.VITEHUB_HOSTING,
+        hosting: resolvedHosting,
         rootDir: roots.projectRoot,
       })
-      const runtimeOptions = hosting && normalized && normalized.store.provider !== "local"
+      const runtimeOptions = resolvedHosting && normalized && normalized.store.provider !== "local"
         ? { ...(workspaceOptions || {}), store: workspaceOptions && workspaceOptions.store ? workspaceOptions.store : normalized.store }
         : workspaceOptions
       const viteConfig: ViteConfigWithWorkspaceNitro = {
@@ -892,11 +904,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
           aliases: config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined,
           artifactsOnly: true,
-          hosting,
+          hosting: resolvedHosting,
           definitionOverrides,
         })
         const usesCloudflareArtifacts = artifacts.length > 0
-        const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(hosting) === "cloudflare"
+        const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
