@@ -679,10 +679,24 @@ function runtimeWorkspaceConfig(config: false | ResolvedWorkspaceModuleOptions, 
   const store = options.store
   if (!store || "readFile" in store || store.provider !== "github") return config
   const runtimeStore = { ...config.store }
-  for (const key of ["branch", "repo", "repository", "root", "token"] as const) {
+  for (const key of ["branch", "root", "token"] as const) {
     if (typeof store[key] === "function") {
       runtimeStore[key] = store[key]
     }
+    else if (typeof store[key] === "undefined") {
+      delete runtimeStore[key]
+    }
+  }
+  if (typeof store.repository === "function") {
+    runtimeStore.repository = store.repository
+  }
+  else if (typeof store.repo === "function") {
+    runtimeStore.repo = store.repo
+    delete runtimeStore.repository
+  }
+  else if (typeof store.repository === "undefined" && typeof store.repo === "undefined") {
+    delete runtimeStore.repository
+    delete runtimeStore.repo
   }
   return { ...config, store: runtimeStore }
 }
@@ -927,6 +941,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
+      const resolvedHosting = resolveWorkspaceHosting(hosting, (config as ResolvedConfig & { nitro?: NitroConfig }).nitro)
       if (config.command !== "build")
         process.env.VITEHUB_WORKSPACE_DEV = "true"
       else
@@ -934,7 +949,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       resolvedOptions = normalizeWorkspaceOptions(workspaceOptions, {
         dev: config.command !== "build",
         env: process.env,
-        hosting: hosting ?? process.env.VITEHUB_HOSTING,
+        hosting: resolvedHosting,
         rootDir: roots.projectRoot,
       })
       assetsRegistryFile = resolve(roots.projectRoot, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
