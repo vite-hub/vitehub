@@ -64,8 +64,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function isRuntimeEnvEntry(value: unknown): value is { secret: boolean, source: unknown } {
+function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: unknown } {
   return isRecord(value) && isRecord(value.source) && typeof value.secret === "boolean"
+}
+
+function rejectSecretDefaults(value: unknown, path = "email.options"): void {
+  if (isRuntimeEnvEntry(value)) {
+    if (value.secret && typeof value.default !== "undefined") {
+      throw new TypeError(`[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.`)
+    }
+    return
+  }
+  if (!isRecord(value) || value.kind === "literal") return
+  for (const [key, child] of Object.entries(value)) {
+    rejectSecretDefaults(child, `${path}.${key}`)
+  }
 }
 
 function renderResolvedOptions(value: unknown, reference: string): string {
@@ -95,10 +108,12 @@ function configuredDefinition(options: EmailVitePluginOptions): Omit<ConfiguredE
     }
     return
   }
+  const runtimeOptions = createRuntimeEnvRegistry(options.options, { path: "email.options" })
+  rejectSecretDefaults(runtimeOptions)
   return {
     driver: options.driver,
     name: "default",
-    options: createRuntimeEnvRegistry(options.options, { path: "email.options" }),
+    options: runtimeOptions,
     source: "vite-config",
   }
 }

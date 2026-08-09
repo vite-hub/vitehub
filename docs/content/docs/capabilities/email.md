@@ -40,7 +40,7 @@ export default defineConfig({
 ```
 
 Follow [Configure Resend](/docs/server-primitives/email#configure-resend), use the advanced [SMTP Definition](/docs/server-primitives/email#configure-smtp), or choose another `unemail/driver/*` provider behind the same `EmailDriver` contract.
-Keep credentials in Server Env or the deployment platform's secret store and reference them with an Env declaration without a default. Literal options and Env defaults are included in build output. The Capability never exposes runtime credentials to the model.
+Keep credentials in Server Env or the deployment platform's secret store and reference them with an Env declaration without a default. Literal options and non-secret Env defaults are included in build output; ViteHub rejects defaults on declarations marked secret. The Capability never exposes runtime credentials to the model.
 
 ## Requirements
 

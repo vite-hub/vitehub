@@ -38,7 +38,7 @@ export default defineConfig({
 })
 ```
 
-Set `RESEND_API_KEY` in the server runtime environment. Keep provider credentials in a local or deployment secret store; only the Env declaration is evaluated during Vite config, while the credential resolves for every send. Literal options and Env defaults are included in build output, so never use them for credentials. Do not expose credentials through a `VITE_`-prefixed environment variable.
+Set `RESEND_API_KEY` in the server runtime environment. Keep provider credentials in a local or deployment secret store; only the Env declaration is evaluated during Vite config, while the credential resolves for every send. Literal options and non-secret Env defaults are included in build output, so never use literal options for credentials; ViteHub rejects defaults on declarations marked secret. Do not expose credentials through a `VITE_`-prefixed environment variable.
 
 Server code can now use the discovered Runtime Helper:
 

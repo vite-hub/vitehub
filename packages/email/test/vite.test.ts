@@ -188,6 +188,15 @@ describe("hubEmail", () => {
     expect(() => hubEmail({ driver: "resend" as "unemail/driver/resend" })).toThrow("unemail/driver/*")
   })
 
+  it("rejects secret defaults that would be included in build output", () => {
+    expect(() => hubEmail({
+      driver: "unemail/driver/resend",
+      options: {
+        apiKey: env({ default: "re_build-secret", secret: true, source: env.source("RESEND_API_KEY") }),
+      },
+    })).toThrow("email.options.apiKey cannot have a default")
+  })
+
   it("rejects ambiguous singleton definitions", async () => {
     const root = await createTempProject()
     await writeEmail(root)

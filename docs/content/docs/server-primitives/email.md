@@ -48,7 +48,7 @@ export default defineConfig({
 })
 ```
 
-The driver subpath selects the upstream Unemail provider. The Env declaration is serialized, but its source value is resolved in the server runtime for every send, so the API key stays out of build output and request-scoped Cloudflare secrets stay current. Literal options and Env defaults are serialized into the build; never use either for credentials.
+The driver subpath selects the upstream Unemail provider. The Env declaration is serialized, but its source value is resolved in the server runtime for every send, so the API key stays out of build output and request-scoped Cloudflare secrets stay current. Literal options and non-secret Env defaults are serialized into the build; never use literal options for credentials, and ViteHub rejects defaults on declarations marked secret.
 
 ### Provide the Resend secret
 
@@ -309,7 +309,7 @@ export default defineConfig({
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |
 | `driver` | `` `unemail/driver/${string}` `` | Required in the common path | Selects one upstream Unemail driver through its exact package subpath. |
-| `options` | `EnvRuntimeConfigOptions` | `{}` | Supplies serializable non-secret literals and runtime Env declarations. Env source values resolve in the server runtime for every send; literals and defaults are included in build output. |
+| `options` | `EnvRuntimeConfigOptions` | `{}` | Supplies serializable non-secret literals and runtime Env declarations. Env source values resolve in the server runtime for every send; literals and non-secret defaults are included in build output, while defaults on secret declarations are rejected. |
 | `projectRoot` | `string` | Automatically detected from the Vite root | Available with `email: true`; changes where the advanced `server/email.ts` or `server.email.ts` Definition is discovered. |
 
 Configure either `driver` and `options` or one discovered Email Definition, never both. The integration serializes the driver subpath, literal options, and Env declarations into a server-only virtual module. Credential values remain in the runtime environment when they are supplied through an Env source without a default.
