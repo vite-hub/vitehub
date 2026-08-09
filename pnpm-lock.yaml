@@ -965,6 +965,9 @@ importers:
 
   packages/email:
     dependencies:
+      '@vite-hub/env':
+        specifier: workspace:*
+        version: link:../env
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
@@ -974,6 +977,9 @@ importers:
       comark:
         specifier: catalog:ui
         version: 0.5.1(shiki@4.3.1)
+      esbuild:
+        specifier: catalog:tooling
+        version: 0.28.1
       unemail:
         specifier: catalog:email
         version: 0.5.0

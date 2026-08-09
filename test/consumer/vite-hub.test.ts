@@ -590,8 +590,18 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await assertEffectMsgpackFallback(appDir)
 
       await run("pnpm", ["run", "typecheck"], appDir)
-      await run("pnpm", ["run", "build"], appDir)
+      const emailSecretSentinel = "re_vitehub-email-build-secret"
+      await run("pnpm", ["run", "build"], appDir, {
+        ...process.env,
+        RESEND_API_KEY: emailSecretSentinel,
+      })
       await run("pnpm", ["run", "typecheck"], appDir)
+
+      const nodeEmailSources = await readJavaScriptSources(join(appDir, "dist"))
+      const nodeEmailOutput = Object.values(nodeEmailSources).join("\n")
+      expect(nodeEmailOutput).toContain("RESEND_API_KEY")
+      expect(nodeEmailOutput).toContain("api.resend.com")
+      expect(nodeEmailOutput).not.toContain(emailSecretSentinel)
 
       {
         await Promise.all([

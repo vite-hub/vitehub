@@ -7,8 +7,10 @@ export default defineConfig({
       alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: [
         "#vitehub/email/definition",
+        "@vite-hub/env",
         "@vite-hub/markdown-template",
         "comark",
+        "esbuild",
         "unemail",
         "vite",
       ],

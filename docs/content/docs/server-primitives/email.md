@@ -5,9 +5,7 @@ navigation.order: 14
 icon: i-lucide-mail
 ---
 
-Email sends outbound transactional messages through one stable Runtime Helper. Unemail owns the message and driver contracts, while ViteHub owns Definition discovery, runtime access, normalized errors, Markdown composition, and deterministic test capture.
-
-The examples below use the canonical `vite-hub` application imports and provider drivers from `unemail`.
+Email sends outbound transactional messages through one stable Runtime Helper. Unemail owns the message and driver contracts, while ViteHub owns provider composition, runtime access, normalized errors, Markdown composition, and deterministic test capture.
 
 ## Before you begin
 
@@ -18,8 +16,6 @@ The quick start takes about ten minutes and sends a real message through Resend.
 - A Resend API key and a sender address accepted by Resend.
 - A real recipient address you can check.
 
-Install the Unemail driver package explicitly so the provider choice stays visible in the application.
-
 ## Send your first message
 
 ::steps{level="3"}
@@ -27,21 +23,32 @@ Install the Unemail driver package explicitly so the provider choice stays visib
 ### Install the email dependencies
 
 ```bash [Terminal]
-pnpm add vite-hub unemail
+pnpm add vite-hub
 ```
 
-`vite-hub` provides Email discovery and runtime imports. `unemail` provides Resend, SMTP, SES, Postmark, Mailgun, SendGrid, Cloudflare Email, and other delivery drivers.
+`vite-hub` includes Email runtime support and composes providers from Unemail.
 
-### Register Email discovery
+### Configure Resend
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node", email: true })],
+  plugins: [vitehub({
+    preset: 'node',
+    email: {
+      driver: 'unemail/driver/resend',
+      options: {
+        apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+      },
+    },
+  })],
 })
 ```
+
+The driver subpath selects the upstream Unemail provider. The Env declaration is serialized, but its source value is resolved in the server runtime for every send, so the API key stays out of build output and request-scoped Cloudflare secrets stay current. Literal options and non-secret Env defaults are serialized into the build; never use literal options for credentials, and ViteHub rejects defaults on declarations marked secret.
 
 ### Provide the Resend secret
 
@@ -52,17 +59,6 @@ export RESEND_API_KEY='re_...'
 ```
 
 Use your deployment platform's secret store in production. Do not use a `VITE_` prefix because Vite-prefixed values can be exposed to browser code.
-
-### Define the delivery driver
-
-```ts [server/email.ts]
-import { defineEmail } from 'vite-hub/email'
-import resend from 'unemail/driver/resend'
-
-export default defineEmail({
-  driver: () => resend({ apiKey: process.env.RESEND_API_KEY ?? '' }),
-})
-```
 
 ### Send from server code
 
@@ -101,13 +97,13 @@ Resend supplies `id`. Confirm delivery in the recipient inbox or the provider's 
 
 | Surface | Use it when |
 | --- | --- |
-| `email.send(message)` | A Vite app discovers one Email Definition through `vitehub({ preset: "node", email: true })`. |
+| `email.send(message)` | A Vite app configures one Unemail provider through `vitehub({ email: { driver, options } })`. |
 | `createEmail({ driver })` | A server integration creates and owns the driver explicitly. Vite discovery is not required. |
 | `createTestEmail()` | A test needs deterministic in-memory capture without delivery. |
 
 ## Public imports
 
-Applications should use the canonical `vite-hub` paths for framework APIs and import provider drivers directly from `unemail`.
+Applications should use the canonical `vite-hub` paths for framework APIs. Direct Unemail imports are only needed for an advanced Email Definition.
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
@@ -192,23 +188,11 @@ export async function sendWelcome(name: string, to: string) {
 
 ## Configure Resend
 
-Import Resend directly from Unemail. Keep the ViteHub driver factory lazy so request-scoped Worker bindings are read for every send instead of being captured in module state.
-
-```ts [server/email.ts]
-import { useServerEnv } from '#vitehub/env/server'
-import { defineEmail } from 'vite-hub/email'
-import resend from 'unemail/driver/resend'
-
-export default defineEmail({
-  driver: () => resend({ apiKey: useServerEnv().resendApiKey.unseal() }),
-})
-```
-
-Declare `resendApiKey` as secret Server Env sourced from `RESEND_API_KEY`, or return a credential from another server-only secret store. A successful result has `driver: 'resend'`. ViteHub maps Unemail's generic error taxonomy to stable `EMAIL_*` codes and keeps the original Unemail error in `cause`.
+Use the quick-start `vitehub({ email: { driver: 'unemail/driver/resend', options } })` configuration. A successful result has `driver: 'resend'`. ViteHub maps Unemail's generic error taxonomy to stable `EMAIL_*` codes and keeps the original Unemail error in `cause`.
 
 ## Configure SMTP
 
-Unemail's SMTP driver has no Nodemailer dependency. Validate required environment values before constructing its options so a missing credential cannot silently become a different connection attempt.
+SMTP transports can retain connection-pool state, so use an advanced Email Definition when the driver must outlive one send. Install `unemail`, enable discovery with `email: true`, and validate required values before constructing its options.
 
 ```ts [server/email.ts]
 import { defineEmail } from 'vite-hub/email'
@@ -231,7 +215,7 @@ export default defineEmail({
 })
 ```
 
-Keep credentials in Server Env or the deployment platform's secret store, and never put them in Vite Integration options.
+Keep credentials in Server Env or the deployment platform's secret store. Pass credentials as Env declarations without defaults, never as resolved strings or literal options.
 
 ## Implement another provider
 
@@ -302,30 +286,39 @@ Provider-specific classification and retry metadata come from Unemail. ViteHub o
 
 The package does not retry automatically. A timeout or disconnected response can occur after a provider accepted the message, so a blind retry can send a duplicate. Put retry and idempotency policy in Queue, Workflow, or the provider adapter that has enough information to make that decision.
 
-## Configure Vite discovery
+## Configure Vite
 
 The ViteHub preset keeps Email opt-in:
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node", email: true })],
+  plugins: [vitehub({
+    preset: 'node',
+    email: {
+      driver: 'unemail/driver/resend',
+      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
+    },
+  })],
 })
 ```
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |
-| `projectRoot` | `string` | Automatically detected from the Vite root | Changes where `server/email.ts` or `server.email.ts` is discovered. A relative value resolves from the Vite root. |
+| `driver` | `` `unemail/driver/${string}` `` | Required in the common path | Selects one upstream Unemail driver through its exact package subpath. |
+| `options` | `EnvRuntimeConfigOptions` | `{}` | Supplies serializable non-secret literals and runtime Env declarations. Env source values resolve in the server runtime for every send; literals and non-secret defaults are included in build output, while defaults on secret declarations are rejected. |
+| `projectRoot` | `string` | Automatically detected from the Vite root | Available with `email: true`; changes where the advanced `server/email.ts` or `server.email.ts` Definition is discovered. |
 
-Only one Email Definition is allowed. The integration binds it through an internal virtual module and marks `@vite-hub/email` for server bundling. It does not serialize drivers, emit provider output, or move credentials into Vite config.
+Configure either `driver` and `options` or one discovered Email Definition, never both. The integration serializes the driver subpath, literal options, and Env declarations into a server-only virtual module. Credential values remain in the runtime environment when they are supplied through an Env source without a default.
 
 ## Troubleshoot common failures
 
-### `No Email Definition was discovered`
+### `No Email provider or Definition is configured`
 
-Verify that `vitehub({ preset: "node", email: true })` is registered and that exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can register `hubEmail()` instead. If the Vite root is nested, register `vitehub({ preset: "node", email: { projectRoot } })` explicitly. Restart the development server, then call `email.send()` again.
+Configure `vitehub({ email: { driver, options } })`, or enable the advanced path with `email: true` and ensure exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can configure `hubEmail({ driver, options })`. Restart the development server, then call `email.send()` again.
 
 ### `Only one Email Definition is allowed`
 
@@ -338,7 +331,7 @@ Read the `EMAIL_*` code first. For `EMAIL_AUTHENTICATION`, verify the provider c
 ## Compatibility and scope
 
 - `vite-hub/email` and its `@vite-hub/email` owner package currently require Node.js 24 or later.
-- Email Definition discovery requires Vite 8 or later; explicit `createEmail()` clients do not require Vite.
+- Email provider configuration and Definition discovery require Vite 8 or later; explicit `createEmail()` clients do not require Vite.
 - Provider runtime support comes from the selected Unemail driver.
 
 ViteHub does not independently certify provider behavior. ViteHub owns discovery, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior; Queue, Workflow, and Schedule remain the orchestration layer.

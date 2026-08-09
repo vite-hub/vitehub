@@ -10,41 +10,35 @@ Applications that install the `vite-hub` framework distribution can use `vite-hu
 - Vite 8 or later when you use Email Definition discovery.
 - Unemail and the credentials required by your selected driver.
 
-The package does not choose an email provider or read credentials from Vite config. Your Email Definition owns the driver and its server-only credentials.
+The Vite integration composes one upstream Unemail driver from a serializable subpath and runtime Env declarations. Advanced Email Definitions remain available for stateful or customized drivers.
 
 ## Quickstart
 
-Install the package and Unemail:
+Install the package:
 
 ```bash
-pnpm add @vite-hub/email unemail
+pnpm add @vite-hub/email @vite-hub/env
 ```
 
-Register Email discovery with Vite:
+Configure the provider with Vite:
 
 ```ts
 // vite.config.ts
 import { hubEmail } from "@vite-hub/email/vite"
+import { env } from "@vite-hub/env"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubEmail()],
+  plugins: [hubEmail({
+    driver: "unemail/driver/resend",
+    options: {
+      apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
+    },
+  })],
 })
 ```
 
-Set `RESEND_API_KEY` in the server runtime environment, then define the delivery driver:
-
-```ts
-// server/email.ts
-import { defineEmail } from "@vite-hub/email"
-import resend from "unemail/driver/resend"
-
-export default defineEmail({
-  driver: () => resend({ apiKey: process.env.RESEND_API_KEY ?? "" }),
-})
-```
-
-Keep provider credentials in a local or deployment secret store. The lazy factory resolves for every send, so request-scoped Worker secrets are not cached. Do not expose credentials through a `VITE_`-prefixed environment variable.
+Set `RESEND_API_KEY` in the server runtime environment. Keep provider credentials in a local or deployment secret store; only the Env declaration is evaluated during Vite config, while the credential resolves for every send. Literal options and non-secret Env defaults are included in build output, so never use literal options for credentials; ViteHub rejects defaults on declarations marked secret. Do not expose credentials through a `VITE_`-prefixed environment variable.
 
 Server code can now use the discovered Runtime Helper:
 

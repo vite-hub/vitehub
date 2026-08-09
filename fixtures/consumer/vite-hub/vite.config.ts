@@ -1,5 +1,6 @@
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
+import { env } from "vite-hub/env"
 
 const preset = process.env.VITEHUB_PRESET === "netlify"
   ? "netlify"
@@ -19,6 +20,12 @@ export default defineConfig({
     auth: true,
     blob: preset === "cloudflare" || (preset === "vercel" && !providerSandboxClosure),
     database: true,
+    email: {
+      driver: "unemail/driver/resend",
+      options: {
+        apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
+      },
+    },
     queue: preset === "vercel" || preset === "cloudflare",
     rateLimit: preset === "node",
     schedule: true,

@@ -17,27 +17,35 @@ Start with a short `recipients` allowlist, `policy: 'require-approval'`, a provi
 
 ## Configure the Email primitive first
 
-Enable Email Definition discovery in the ViteHub preset and add one `server/email.ts` or `server.email.ts`.
-The Definition owns the delivery driver, provider credentials, and sender authorization.
+Configure one Unemail provider in the ViteHub preset. Runtime Env resolves the credential on the server for every send.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "node", email: true }),
+    vitehub({
+      preset: 'node',
+      email: {
+        driver: 'unemail/driver/resend',
+        options: {
+          apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+        },
+      },
+    }),
   ],
 })
 ```
 
-Follow [Configure Resend](/docs/server-primitives/email#configure-resend), [Configure SMTP](/docs/server-primitives/email#configure-smtp), or choose another `unemail/driver/*` provider behind the same `EmailDriver` contract.
-Keep credentials in Server Env or the deployment platform's secret store; the Capability never exposes them to the model.
+Follow [Configure Resend](/docs/server-primitives/email#configure-resend), use the advanced [SMTP Definition](/docs/server-primitives/email#configure-smtp), or choose another `unemail/driver/*` provider behind the same `EmailDriver` contract.
+Keep credentials in Server Env or the deployment platform's secret store and reference them with an Env declaration without a default. Literal options and non-secret Env defaults are included in build output; ViteHub rejects defaults on declarations marked secret. The Capability never exposes runtime credentials to the model.
 
 ## Requirements
 
 - The application must run on Node.js 24 or later.
-- Email Definition discovery requires Vite 8 or later and exactly one supported Email Definition below the detected project root.
+- Email configuration requires Vite 8 or later and exactly one configured or discovered Email Definition.
 - The configured provider must authorize the `from` address.
 - Generated Agent routes receive the Email runtime handle only while the Email Vite integration is active.
 
@@ -138,7 +146,7 @@ After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub err
 
 | Failure | What to do |
 | --- | --- |
-| `EMAIL_NOT_CONFIGURED` | Enable the Email integration and confirm exactly one Email Definition is discoverable. |
+| `EMAIL_NOT_CONFIGURED` | Enable the Email integration and confirm exactly one provider or Email Definition is configured. |
 | `EMAIL_AUTHENTICATION` | Fix provider credentials or sender authorization before retrying. |
 | `EMAIL_RATE_LIMITED` | Apply an application-owned backoff or queue policy. |
 | `EMAIL_NETWORK` or `EMAIL_TIMEOUT` | Treat delivery as uncertain. Check provider delivery logs before retrying, because the provider may already have accepted the message. |
