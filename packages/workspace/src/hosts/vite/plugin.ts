@@ -683,11 +683,12 @@ function runtimeWorkspaceConfig(
   const store = options.store
   if (!store || "readFile" in store || store.provider !== "github") return config
   const runtimeStore = { ...config.store }
+  const isAbsent = (value: unknown) => typeof value === "undefined" || (typeof value === "string" && value.trim().length === 0)
   for (const key of ["branch", "root", "token"] as const) {
     if (typeof store[key] === "function") {
       runtimeStore[key] = store[key]
     }
-    else if (typeof store[key] === "undefined") {
+    else if (isAbsent(store[key])) {
       delete runtimeStore[key]
     }
   }
@@ -698,7 +699,7 @@ function runtimeWorkspaceConfig(
     runtimeStore.repo = store.repo
     delete runtimeStore.repository
   }
-  else if (typeof store.repository === "undefined" && typeof store.repo === "undefined") {
+  else if (isAbsent(store.repository) && isAbsent(store.repo)) {
     delete runtimeStore.repository
     delete runtimeStore.repo
   }

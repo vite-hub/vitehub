@@ -779,7 +779,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
   })
 
-  it("does not serialize build-time GitHub fallbacks over Cloudflare runtime bindings", async () => {
+  it("does not serialize absent or blank GitHub fallbacks over Cloudflare runtime bindings", async () => {
     const root = await createViteRoot()
     vi.stubEnv("GITHUB_REPOSITORY", "vite-hub/build-repository")
     vi.stubEnv("NITRO_PRESET", "cloudflare-module")
@@ -787,18 +787,20 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace()
     const config = plugin.config as (config: {
       root: string
-      workspace: { store: { provider: "github" } }
+      workspace: { store: { branch: string, provider: "github", repo: string, root: string } }
     }, env: { command: "build", mode: string }) => Promise<unknown>
 
     await config({
       root,
-      workspace: { store: { provider: "github" } },
+      workspace: { store: { branch: " ", provider: "github", repo: " ", root: " " } },
     }, { command: "build", mode: "production" })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain('"provider": "github"')
     expect(pluginSource).not.toContain("vite-hub/build-repository")
+    expect(pluginSource).not.toContain('"branch"')
     expect(pluginSource).not.toContain('"repository"')
+    expect(pluginSource).not.toContain('".vitehub/workspaces/<workspace>"')
   })
 
   it("preserves build-time GitHub fallbacks for non-Cloudflare runtimes", async () => {
