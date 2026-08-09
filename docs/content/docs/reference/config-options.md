@@ -16,14 +16,14 @@ Provider Selection belongs in Integration Options when it changes generated outp
 
 | Import | Public type | Placement | Defaults |
 | --- | --- | --- | --- |
-| `vite-hub` | `ViteHubOptions` | `vitehub({ preset })` in Vite `plugins` | Composes Env. Agent, Auth, Blob, Browser, Channels, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are enabled with `true` or explicit options. |
+| `vite-hub` | `ViteHubOptions` | `vitehub({ preset })` in Vite `plugins` | Composes Env. Agent, Auth, Blob, Browser, Channels, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are enabled with `true` or explicit options. Email requires explicit provider options. |
 
 Unsupported requested capabilities fail before a production build can silently select a weaker provider. The `node` preset intentionally exposes its filesystem Blob store as single-host and its memory Rate Limiter as single-process. The `deno` preset rejects Schedule and `agent.runtime: "deno"` because those generated servers are not part of its deployed Nitro entrypoint. Deno output includes runtime package staging, a validated deployment manifest, and a non-interactive create-or-update runner.
 
 Direct `hubX()` integration functions remain available from their independent
 `@vite-hub/*/vite` owner-package paths.
 
-The root `vitehub()` facade enables Agent, Blob, Browser, Channels, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace with `true`; direct owner-package integrations retain their detailed option types. Auth follows the same opt-in shape but currently has no plugin option bag.
+The root `vitehub()` facade enables Agent, Blob, Browser, Channels, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace with `true`; Email requires an explicit provider options object. Direct owner-package integrations retain their detailed option types. Auth follows the same opt-in shape but currently has no plugin option bag.
 
 ## Vite Integration options
 
