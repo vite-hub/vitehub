@@ -95,6 +95,9 @@ const writableWorkspace = () => {
   return {
     diff: vi.fn(async () => ({ changes: [] })),
     fs,
+    history: {
+      rebase: vi.fn(async () => {}),
+    },
     materializeSources: vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] })),
     snapshot: vi.fn(async () => ({ id: "snapshot" })),
     startSession: vi.fn(async () => ({ close: vi.fn() })),
