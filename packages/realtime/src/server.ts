@@ -651,10 +651,20 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         })
       }
       if (pending && !matchesBytes(pending.state, state)) {
-        clearPendingCheckpoint(room, pending)
-        const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
-        room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
+        const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
+        room.baselineDigest = current.baselineDigest
         room.durableReady = !!room.sql || !!room.baselineDigest
+        if (current.markdown !== yDocToMarkdown(pending.submittedDocument)) {
+          reconcilePendingCheckpoint(room, pending, current.markdown)
+          persistRoom(room)
+          clearPendingCheckpoint(room, pending)
+          throw new HTTPError({
+            status: 409,
+            message: "The Workspace document changed while recovering its realtime checkpoint.",
+            data: { code: realtimeCheckpointRejectedCode },
+          })
+        }
+        clearPendingCheckpoint(room, pending)
         pending = undefined
       }
       if (!pending) {
