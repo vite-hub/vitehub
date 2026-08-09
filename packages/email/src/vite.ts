@@ -5,14 +5,11 @@ import { dirname, resolve } from "node:path"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { discoverEmailDefinition } from "./discovery.ts"
-
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
-import type { DiscoveredEmailDefinition } from "./discovery.ts"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin } from "vite"
 
 export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
 export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
@@ -24,33 +21,20 @@ const unemailDriverPattern = /^unemail\/driver\/[a-z0-9][a-z0-9-]*$/
 
 export type UnemailDriverSpecifier = `unemail/driver/${string}`
 
-export interface ConfiguredEmailDefinition {
+interface GeneratedEmailDefinition {
   driver: UnemailDriverSpecifier
   handler: string
   name: "default"
   options: EnvRuntimeRegistry
-  source: "vite-config"
 }
 
-export type EmailViteDefinition = ConfiguredEmailDefinition | DiscoveredEmailDefinition
-
-interface EmailViteDiscoveryOptions {
-  driver?: never
-  options?: never
-  projectRoot?: string
-}
-
-interface EmailViteDriverOptions {
+export interface EmailVitePluginOptions {
   driver: UnemailDriverSpecifier
   options?: EnvRuntimeConfigOptions
-  projectRoot?: never
 }
 
-export type EmailVitePluginOptions = EmailViteDiscoveryOptions | EmailViteDriverOptions
-
 export interface EmailVitePluginAPI {
-  getDefinition: () => EmailViteDefinition | undefined
-  refresh: () => EmailViteDefinition | undefined
+  getDefinition: () => GeneratedEmailDefinition | undefined
 }
 
 export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
@@ -101,27 +85,19 @@ function resolveDriverImport(driver: string): string {
   }
 }
 
-function configuredDefinition(options: EmailVitePluginOptions): Omit<ConfiguredEmailDefinition, "handler"> | undefined {
-  if (!("driver" in options) || !options.driver) {
-    if ("options" in options && options.options) {
-      throw new TypeError("[vitehub] Email options require an unemail/driver/* driver.")
-    }
-    return
-  }
+function configuredDefinition(options: EmailVitePluginOptions): Omit<GeneratedEmailDefinition, "handler"> {
   const runtimeOptions = createRuntimeEnvRegistry(options.options, { path: "email.options" })
   rejectSecretDefaults(runtimeOptions)
   return {
     driver: options.driver,
     name: "default",
     options: runtimeOptions,
-    source: "vite-config",
   }
 }
 
 function renderEmailDefinitionModule(
-  definition: EmailViteDefinition | undefined,
+  definition: GeneratedEmailDefinition,
 ): string {
-  if (!definition) return "export const definition = undefined\nexport default definition\n"
   return [
     `import definition from ${JSON.stringify(definition.handler)}`,
     "export { definition }",
@@ -131,7 +107,7 @@ function renderEmailDefinitionModule(
 }
 
 function renderConfiguredEmailDefinitionModule(
-  definition: ConfiguredEmailDefinition,
+  definition: GeneratedEmailDefinition,
   driverImport: string,
   runtimeEnvImport: string,
   cloudflare: boolean,
@@ -151,12 +127,6 @@ function renderConfiguredEmailDefinitionModule(
     "export default definition",
     "",
   ].join("\n")
-}
-
-function isEmailDefinitionFile(file: string): boolean {
-  const normalized = file.replace(/\\/g, "/")
-  return /\/?server\.email\.(?:c|m)?[jt]s$/i.test(normalized)
-    || /\/server\/email\.(?:c|m)?[jt]s$/i.test(normalized)
 }
 
 function resolveHosting(options: InternalEmailVitePluginOptions, config: Record<string, unknown>): string | undefined {
@@ -189,42 +159,25 @@ function configureNitroCloudflareWorkers(config: Record<string, unknown>): void 
   }
 }
 
-export function hubEmail(options: EmailVitePluginOptions = {}): EmailVitePlugin {
+export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
+  if (!options || typeof options !== "object") {
+    throw new TypeError("[vitehub] Email requires an unemail/driver/* driver.")
+  }
   const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
-  const driverImport = configured ? resolveDriverImport(configured.driver) : undefined
+  const driverImport = resolveDriverImport(configured.driver)
   const runtimeEnvImport = internalOptions.runtimeEnvImport
     ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
   let cloudflare = false
-  let resolved: ResolvedConfig | undefined
-  let definition: EmailViteDefinition | undefined
-  let serverDirs: string[] | undefined
-
-  function refresh(): EmailViteDefinition | undefined {
-    const viteRoot = resolve(resolved?.root ?? process.cwd())
-    const projectRoot = resolveViteHubProjectRoot(viteRoot, { projectRoot: options.projectRoot })
-    const discovered = discoverEmailDefinition(projectRoot, { serverDirs })
-    if (configured && discovered) {
-      throw new Error(`[vitehub] Email is configured with ${JSON.stringify(configured.driver)} and ${discovered.handler}. Remove one definition.`)
-    }
-    definition = configured
-      ? {
-          ...configured,
-          handler: resolve(resolveViteHubGeneratedRoot(resolved ?? { root: viteRoot }), "email/definition.mjs"),
-        }
-      : discovered
-    return definition
-  }
+  let definition: GeneratedEmailDefinition | undefined
 
   return {
     name: EMAIL_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
       getDefinition: () => definition,
-      refresh,
     },
     config(config) {
-      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       cloudflare = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>)) === "cloudflare"
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>)
       return {
@@ -232,23 +185,23 @@ export function hubEmail(options: EmailVitePluginOptions = {}): EmailVitePlugin 
       }
     },
     async configResolved(config) {
-      resolved = config
-      const current = refresh()
-      if (current?.source === "vite-config" && driverImport) {
-        const entry = current.handler.replace(/\.mjs$/, ".entry.mjs")
-        await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(current, driverImport, runtimeEnvImport, cloudflare))
-        try {
-          await bundleEsmEntry(entry, current.handler, {
-            external: cloudflare ? ["cloudflare:workers"] : undefined,
-            format: "esm",
-            minifyWhitespace: true,
-            platform: "node",
-            rootDir: config.root,
-          })
-        }
-        finally {
-          await rm(entry, { force: true })
-        }
+      definition = {
+        ...configured,
+        handler: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs"),
+      }
+      const entry = definition.handler.replace(/\.mjs$/, ".entry.mjs")
+      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, cloudflare))
+      try {
+        await bundleEsmEntry(entry, definition.handler, {
+          external: cloudflare ? ["cloudflare:workers"] : undefined,
+          format: "esm",
+          minifyWhitespace: true,
+          platform: "node",
+          rootDir: config.root,
+        })
+      }
+      finally {
+        await rm(entry, { force: true })
       }
     },
     configEnvironment(name, config) {
@@ -257,21 +210,11 @@ export function hubEmail(options: EmailVitePluginOptions = {}): EmailVitePlugin 
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    handleHotUpdate(context) {
-      const changed = context.file.replace(/\\/g, "/")
-      const current = definition?.source === "vite-config" ? undefined : definition?.handler.replace(/\\/g, "/")
-      if (changed !== current && !isEmailDefinitionFile(changed)) return
-
-      resolved = context.server.config
-      refresh()
-      const module = context.server.moduleGraph.getModuleById(resolvedEmailDefinitionId)
-      if (module) context.server.moduleGraph.invalidateModule(module)
-    },
     resolveId(id) {
       if (id === EMAIL_DEFINITION_ID) return resolvedEmailDefinitionId
     },
     load(id) {
-      if (id === resolvedEmailDefinitionId) {
+      if (id === resolvedEmailDefinitionId && definition) {
         return renderEmailDefinitionModule(definition)
       }
     },

@@ -106,7 +106,7 @@ describe("vitehub", () => {
       auth: true,
       blob: true,
       database: true,
-      email: true,
+      email: { driver: "unemail/driver/resend" },
       channels: true,
       kv: true,
       preset: "cloudflare",
@@ -185,6 +185,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
+      driver: "unemail/driver/resend",
       hosting: "cloudflare-module",
       runtimeEnvImport: "vite-hub/env/server",
     })

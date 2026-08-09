@@ -1,16 +1,16 @@
 # `@vite-hub/email`
 
-`@vite-hub/email` connects Unemail drivers to ViteHub discovery, runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
+`@vite-hub/email` connects declaratively configured Unemail drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
 Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown`. Import provider drivers directly from `unemail/driver/*`; test utilities and direct Vite Integration control stay on this owner package.
 
 ## Requirements
 
 - Node.js 24 or later.
-- Vite 8 or later when you use Email Definition discovery.
+- Vite 8 or later for provider configuration and generated runtime wiring.
 - Unemail and the credentials required by your selected driver.
 
-The Vite integration composes one upstream Unemail driver from a serializable subpath and runtime Env declarations. Advanced Email Definitions remain available for stateful or customized drivers.
+The Vite integration composes one upstream Unemail driver from a serializable subpath and runtime Env declarations.
 
 ## Quickstart
 
@@ -40,7 +40,7 @@ export default defineConfig({
 
 Set `RESEND_API_KEY` in the server runtime environment. Keep provider credentials in a local or deployment secret store; only the Env declaration is evaluated during Vite config, while the credential resolves for every send. Literal options and non-secret Env defaults are included in build output, so never use literal options for credentials; ViteHub rejects defaults on declarations marked secret. Do not expose credentials through a `VITE_`-prefixed environment variable.
 
-Server code can now use the discovered Runtime Helper:
+Server code can now use the configured Runtime Helper:
 
 ```ts
 import { email } from "@vite-hub/email/server"
@@ -57,7 +57,7 @@ A successful send returns `{ id, driver }`; the provider supplies `id`. ViteHub 
 
 ## Grant an Agent permission to send
 
-The official [`email()` Agent Capability](https://vitehub.dev/docs/capabilities/email) exposes one policy-controlled plain-text send tool through the discovered Email Definition. The application fixes the sender and keeps provider credentials below the Capability boundary; richer messages remain application-owned compositions.
+The official [`email()` Agent Capability](https://vitehub.dev/docs/capabilities/email) exposes one policy-controlled plain-text send tool through the configured Email provider. The application fixes the sender and keeps provider credentials below the Capability boundary; richer messages remain application-owned compositions.
 
 ## Compose dynamic Markdown
 
@@ -109,8 +109,8 @@ Captured messages are cloned before storage. `clear()` empties the mailbox and r
 
 ## Use another provider
 
-Use any `unemail/driver/*` provider, or contribute a missing provider through Unemail's `defineDriver()` contract. Pass the resulting driver directly or through a lazy factory to `createEmail({ driver })` or `defineEmail({ driver })`.
+Set `driver` to any `unemail/driver/*` subpath and declare its options in `hubEmail({ driver, options })`. Contribute missing providers through Unemail's `defineDriver()` contract so every consumer benefits.
 
-ViteHub owns discovery, runtime delivery, normalized errors, Dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior.
+ViteHub owns provider composition, runtime delivery, normalized errors, Dynamic Markdown composition, and test capture. Unemail owns provider drivers, message features, and transport behavior.
 
 Read the complete [Email guide and API reference](https://vitehub.dev/docs/server-primitives/email).

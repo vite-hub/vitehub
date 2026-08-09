@@ -10,6 +10,9 @@ import { defineWorkspace } from "vite-hub/workspace"
 
 expectTypeOf(vitehub).toBeFunction()
 vitehub({ preset: "node", rateLimit: true })
+vitehub({ email: { driver: "unemail/driver/resend" }, preset: "node" })
+// @ts-expect-error Email requires a configured provider.
+vitehub({ email: true, preset: "node" })
 vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
 vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
 expectTypeOf(defineAgent).toBeFunction()

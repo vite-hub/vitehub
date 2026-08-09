@@ -35,7 +35,9 @@ vitehub({
   preset: "cloudflare",
   auth: true,
   database: true,
-  email: true,
+  email: {
+    driver: "unemail/driver/resend",
+  },
   kv: true,
   queue: true,
   rateLimit: true,

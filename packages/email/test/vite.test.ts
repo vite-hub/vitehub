@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 
 import { env } from "@vite-hub/env"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -18,17 +18,6 @@ async function createTempProject(): Promise<string> {
   return root
 }
 
-async function writeEmail(root: string, path = "server/email.ts"): Promise<string> {
-  const file = join(root, path)
-  await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, [
-    "import { defineEmail } from '@vite-hub/email'",
-    "export default defineEmail({ driver: { name: 'fixture', send: async () => ({ id: 'fixture-1' }) } })",
-    "",
-  ].join("\n"))
-  return file
-}
-
 async function resolvePlugin(plugin: ReturnType<typeof hubEmail>, root: string): Promise<void> {
   await (plugin.configResolved as (config: { root: string }) => void)({ root })
 }
@@ -43,7 +32,7 @@ function loadDefinition(plugin: ReturnType<typeof hubEmail>): string | undefined
 
 async function loadConfiguredDefinition(plugin: ReturnType<typeof hubEmail>): Promise<string> {
   const definition = plugin.api.getDefinition()
-  if (definition?.source !== "vite-config") throw new Error("Expected a configured Email definition")
+  if (!definition) throw new Error("Expected a configured Email definition")
   return await readFile(definition.handler, "utf8")
 }
 
@@ -53,26 +42,6 @@ afterEach(async () => {
 })
 
 describe("hubEmail", () => {
-  it("serves the discovered Email Definition through a stable virtual module", async () => {
-    const root = await createTempProject()
-    const definition = await writeEmail(root)
-    const plugin = hubEmail()
-
-    await resolvePlugin(plugin, root)
-
-    expect(resolveDefinition(plugin)).toBe(`\0${EMAIL_DEFINITION_ID}`)
-    expect(loadDefinition(plugin)).toContain(`import definition from ${JSON.stringify(definition)}`)
-  })
-
-  it("serves an empty module when no Email Definition exists", async () => {
-    const root = await createTempProject()
-    const plugin = hubEmail()
-
-    await resolvePlugin(plugin, root)
-
-    expect(loadDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
-  })
-
   it("generates a server-only Unemail definition without resolving credentials at config time", async () => {
     const root = await createTempProject()
     const secret = "re_build-secret-sentinel"
@@ -90,8 +59,8 @@ describe("hubEmail", () => {
     expect(definition).toMatchObject({
       driver: "unemail/driver/resend",
       name: "default",
-      source: "vite-config",
     })
+    expect(resolveDefinition(plugin)).toBe(`\0${EMAIL_DEFINITION_ID}`)
     expect(loadDefinition(plugin)).toContain(JSON.stringify(definition?.handler))
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("https://api.resend.com")
@@ -185,13 +154,6 @@ describe("hubEmail", () => {
     }
   })
 
-  it("rejects configured and discovered definitions together", async () => {
-    const root = await createTempProject()
-    await writeEmail(root)
-
-    await expect(resolvePlugin(hubEmail({ driver: "unemail/driver/resend" }), root)).rejects.toThrow("Remove one definition")
-  })
-
   it("rejects driver names outside Unemail driver subpaths", () => {
     expect(() => hubEmail({ driver: "resend" as "unemail/driver/resend" })).toThrow("unemail/driver/*")
   })
@@ -205,40 +167,8 @@ describe("hubEmail", () => {
     })).toThrow("email.options.apiKey cannot have a default")
   })
 
-  it("rejects ambiguous singleton definitions", async () => {
-    const root = await createTempProject()
-    await writeEmail(root)
-    await writeEmail(root, "server.email.ts")
-
-    await expect(resolvePlugin(hubEmail(), root)).rejects.toThrow("Only one Email Definition is allowed")
-  })
-
-  it("resolves definitions from an explicit project root", async () => {
-    const root = await createTempProject()
-    const appRoot = join(root, "app")
-    await mkdir(appRoot)
-    const definition = await writeEmail(root)
-    const plugin = hubEmail({ projectRoot: ".." })
-
-    await resolvePlugin(plugin, appRoot)
-
-    expect(loadDefinition(plugin)).toContain(JSON.stringify(definition))
-  })
-
-  it("discovers an email-only project above an app Vite root", async () => {
-    const root = await createTempProject()
-    const appRoot = join(root, "app")
-    await mkdir(appRoot)
-    const definition = await writeEmail(root)
-    const plugin = hubEmail()
-
-    await resolvePlugin(plugin, appRoot)
-
-    expect(loadDefinition(plugin)).toContain(JSON.stringify(definition))
-  })
-
   it("marks the package as noExternal for server environments", () => {
-    const plugin = hubEmail()
+    const plugin = hubEmail({ driver: "unemail/driver/resend" })
     const config = plugin.config as (config: { ssr?: { noExternal?: string[] } }) => unknown
     const configEnvironment = plugin.configEnvironment as (name: string, config: { consumer?: string; resolve?: { noExternal?: string[] } }) => unknown
 
@@ -252,26 +182,4 @@ describe("hubEmail", () => {
     })
   })
 
-  it("refreshes and invalidates the virtual definition on definition changes", async () => {
-    const root = await createTempProject()
-    const plugin = hubEmail()
-    await resolvePlugin(plugin, root)
-    const definition = await writeEmail(root)
-    const virtualModule = {}
-    const invalidateModule = vi.fn()
-
-    await (plugin.handleHotUpdate as (context: unknown) => void)({
-      file: definition,
-      server: {
-        config: { root },
-        moduleGraph: {
-          getModuleById: vi.fn(() => virtualModule),
-          invalidateModule,
-        },
-      },
-    })
-
-    expect(loadDefinition(plugin)).toContain(JSON.stringify(definition))
-    expect(invalidateModule).toHaveBeenCalledWith(virtualModule)
-  })
 })

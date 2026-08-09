@@ -39,13 +39,13 @@ export default defineConfig({
 })
 ```
 
-Follow [Configure Resend](/docs/server-primitives/email#configure-resend), use the advanced [SMTP Definition](/docs/server-primitives/email#configure-smtp), or choose another `unemail/driver/*` provider behind the same `EmailDriver` contract.
+Follow [Configure Resend](/docs/server-primitives/email#configure-resend), or select another `unemail/driver/*` provider through the same `driver` option.
 Keep credentials in Server Env or the deployment platform's secret store and reference them with an Env declaration without a default. Literal options and non-secret Env defaults are included in build output; ViteHub rejects defaults on declarations marked secret. The Capability never exposes runtime credentials to the model.
 
 ## Requirements
 
 - The application must run on Node.js 24 or later.
-- Email configuration requires Vite 8 or later and exactly one configured or discovered Email Definition.
+- Email configuration requires Vite 8 or later and one configured provider.
 - The configured provider must authorize the `from` address.
 - Generated Agent routes receive the Email runtime handle only while the Email Vite integration is active.
 
@@ -146,7 +146,7 @@ After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub err
 
 | Failure | What to do |
 | --- | --- |
-| `EMAIL_NOT_CONFIGURED` | Enable the Email integration and confirm exactly one provider or Email Definition is configured. |
+| `EMAIL_NOT_CONFIGURED` | Configure the Email integration with one provider. |
 | `EMAIL_AUTHENTICATION` | Fix provider credentials or sender authorization before retrying. |
 | `EMAIL_RATE_LIMITED` | Apply an application-owned backoff or queue policy. |
 | `EMAIL_NETWORK` or `EMAIL_TIMEOUT` | Treat delivery as uncertain. Check provider delivery logs before retrying, because the provider may already have accepted the message. |

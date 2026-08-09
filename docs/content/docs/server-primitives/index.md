@@ -91,7 +91,7 @@ That route does not know whether the backing KV Store uses local files, Cloudfla
 
 Some primitives work directly after configuration. Env, KV, Blob, Source, and Shell can often be called from server code without a discovered Definition.
 
-Other primitives need a Definition so ViteHub can discover runtime behavior or named work. Email and Auth use singleton Definitions bound at runtime. Database schemas, Workspace Definitions, Queue Definitions, Workflow Definitions, Static Schedule Definitions, Sandbox Definitions, and Agent Definitions can also generate Runtime Registries or host-specific Provider Output. Rate Limit uses source-local handles with explicit stable IDs instead of location-derived Definitions.
+Other primitives need a Definition so ViteHub can discover runtime behavior or named work. Email composes one declaratively configured provider, while Auth uses a singleton Definition bound at runtime. Database schemas, Workspace Definitions, Queue Definitions, Workflow Definitions, Static Schedule Definitions, Sandbox Definitions, and Agent Definitions can also generate Runtime Registries or host-specific Provider Output. Rate Limit uses source-local handles with explicit stable IDs instead of location-derived Definitions.
 
 | Need | Read |
 | --- | --- |

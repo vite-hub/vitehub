@@ -29,7 +29,7 @@ const message: EmailMessage = {
   to: "maxi@example.com",
 }
 
-it("keeps a discovered eager driver's lifecycle across sends", async () => {
+it("keeps the configured driver's lifecycle across sends", async () => {
   await email.send(message)
   await email.send(message)
 
