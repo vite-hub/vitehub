@@ -82,6 +82,21 @@ export function resolveGitHubWorkspaceStore(
   env: Record<string, string | undefined> = process.env,
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
+  if (input.runtime) {
+    return {
+      branch: gitHubWorkspaceOption(config.branch)
+        ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH"),
+      provider: "github",
+      repository: gitHubWorkspaceOption(config.repository)
+        ?? gitHubWorkspaceOption(config.repo)
+        ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
+      root: gitHubWorkspaceOption(config.root)
+        ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT"),
+      token: gitHubWorkspaceOption(config.token)
+        ?? readEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+        ?? MASKED_WORKSPACE_RUNTIME_VALUE,
+    }
+  }
   return {
     branch: gitHubWorkspaceOption(config.branch) ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH") ?? "main",
     provider: "github",
@@ -89,7 +104,7 @@ export function resolveGitHubWorkspaceStore(
       ?? gitHubWorkspaceOption(config.repo)
       ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
     root: gitHubWorkspaceOption(config.root) ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ?? ".vitehub/workspaces/<workspace>",
-    token: input.runtime ? gitHubWorkspaceOption(config.token) ?? MASKED_WORKSPACE_RUNTIME_VALUE : MASKED_WORKSPACE_RUNTIME_VALUE,
+    token: MASKED_WORKSPACE_RUNTIME_VALUE,
   }
 }
 

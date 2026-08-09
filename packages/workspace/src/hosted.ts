@@ -44,7 +44,7 @@ export function installHostedWorkspaceRuntime(): void {
 export function configureHostedWorkspaceRuntime(options: HostedWorkspaceRuntimeOptions = {}): ResolvedWorkspaceModuleOptions {
   const root = resolve(process.cwd(), options.root || ".vitehub/workspaces")
   const store = options.store?.provider === "github"
-    ? resolveGitHubWorkspaceStore(options.store, options.env, { runtime: true })
+    ? resolveGitHubWorkspaceStore(options.store, options.env || {}, { runtime: true })
     : options.store?.provider === "vercel-blob"
       ? undefined
       : resolveCloudflareArtifactsStore(options.store, options.env)
