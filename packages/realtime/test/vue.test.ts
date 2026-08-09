@@ -48,6 +48,7 @@ vi.mock("y-websocket", () => ({
 }))
 
 afterEach(() => {
+  vi.useRealTimers()
   providers.length = 0
   vi.unstubAllGlobals()
 })
@@ -109,6 +110,26 @@ describe("useRealtimeTiptap", () => {
 
     expect(realtime.status.value).toBe("connected")
     expect(realtime.synced.value).toBe(true)
+    scope.stop()
+  })
+
+  it("paces queued Workspace changes below the server quota", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const workspaceProvider = providers[0]!
+    workspaceProvider.disconnect()
+    vi.useFakeTimers()
+
+    for (let index = 0; index <= 100; index++) {
+      realtime.workspace.notify({ operation: "update", path: `${index}.md` })
+    }
+    expect(workspaceProvider.ws.send).not.toHaveBeenCalled()
+
+    workspaceProvider.connect()
+    expect(workspaceProvider.ws.send).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1_100)
+    expect(workspaceProvider.ws.send).toHaveBeenCalledTimes(101)
     scope.stop()
   })
 

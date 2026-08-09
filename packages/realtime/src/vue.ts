@@ -18,6 +18,8 @@ import { decodeWorkspaceChangePayload, encodeWorkspaceChange, isRetryableRealtim
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
 
+const workspaceChangeFlushIntervalMs = 11
+
 export interface UseRealtimeTiptapOptions {
   enabled?: MaybeRefOrGetter<boolean>
 }
@@ -33,6 +35,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   const synced = ref(false)
   const checkpointRequests = ref(0)
   const pendingWorkspaceChanges: RealtimeWorkspaceChange[] = []
+  let workspaceChangeTimer: ReturnType<typeof setTimeout> | undefined
   const enabled = () => options.enabled === undefined || toValue(options.enabled)
 
   function destroyDocument() {
@@ -56,10 +59,20 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   }
 
   function flushWorkspaceChanges() {
+    if (workspaceChangeTimer) return
     const current = workspaceProvider.value
     const socket = current?.ws
     if (!current?.wsconnected || !socket || socket.readyState !== socket.OPEN) return
-    for (const change of pendingWorkspaceChanges.splice(0)) socket.send(Uint8Array.from(encodeWorkspaceChange(change)))
+    const change = pendingWorkspaceChanges[0]
+    if (!change) return
+    socket.send(Uint8Array.from(encodeWorkspaceChange(change)))
+    pendingWorkspaceChanges.shift()
+    if (pendingWorkspaceChanges.length) {
+      workspaceChangeTimer = setTimeout(() => {
+        workspaceChangeTimer = undefined
+        flushWorkspaceChanges()
+      }, workspaceChangeFlushIntervalMs)
+    }
   }
 
   function notifyWorkspaceChange(change: RealtimeWorkspaceChange) {
@@ -73,6 +86,8 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     workspaceProvider.value?.destroy()
     workspaceProvider.value?.doc.destroy()
     workspaceProvider.value = undefined
+    if (workspaceChangeTimer) clearTimeout(workspaceChangeTimer)
+    workspaceChangeTimer = undefined
     pendingWorkspaceChanges.length = 0
   }
 

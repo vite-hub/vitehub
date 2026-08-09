@@ -225,6 +225,8 @@ describe("realtime server handler", () => {
     updateDocument.getMap("edits").set("value", true)
 
     response.crossws.open(peer)
+    response.crossws.message(peer, { uint8Array: () => encodeSyncStep1(updateDocument) })
+    expect(peer.close).not.toHaveBeenCalled()
     response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument)) })
 
     expect(peer.close).toHaveBeenCalledWith(4400, "Document updates cannot use the workspace room.")

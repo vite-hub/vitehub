@@ -953,12 +953,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           return
         }
         if (messageType !== messageSync) return
-        if (workspaceEvents) {
-          peer.close(4400, "Document updates cannot use the workspace room.")
-          return
-        }
         try {
           const syncType = decoding.readVarUint(decoder)
+          if (workspaceEvents) {
+            if (syncType === syncProtocol.messageYjsSyncStep1) {
+              const response = applyRealtimeSyncMessage(data, room.document, peer)
+              if (response) peer.send(response)
+            }
+            else if (syncType !== syncProtocol.messageYjsSyncStep2) {
+              peer.close(4400, "Document updates cannot use the workspace room.")
+            }
+            return
+          }
           const initialSyncStep2 = syncType === syncProtocol.messageYjsSyncStep2 && !peerInitialSyncStep2.has(peer)
           if (initialSyncStep2) peerInitialSyncStep2.add(peer)
           else if (syncType === syncProtocol.messageYjsSyncStep2 || syncType === syncProtocol.messageYjsUpdate) {
