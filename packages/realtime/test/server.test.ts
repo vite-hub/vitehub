@@ -62,6 +62,16 @@ describe("realtime server handler", () => {
     expect(response.status).toBe(400)
   })
 
+  it.each(["%2e%2e%2fsecret", ".vitehub/secret", "docs%5csecret.md"])("rejects unsafe Workspace room path %s", async (path) => {
+    const handler = createRealtimeHandler(realtimeRegistry())
+
+    const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/${path}`, {
+      headers: { upgrade: "websocket" },
+    }))
+
+    expect(response.status).toBe(400)
+  })
+
   it("ignores inherited realtime registry entries", async () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
@@ -961,6 +971,9 @@ describe("workspace changes", () => {
       .toEqual({ operation: "create", path: "docs/new.md" })
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs/new.md" })))
       .toEqual({ operation: "move", from: "docs/old.md", to: "docs/new.md" })
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "../secret" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: ".vitehub/config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs\\new.md" }))).toBeUndefined()
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })
 

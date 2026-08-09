@@ -5,7 +5,7 @@ import { Markdown } from "@tiptap/markdown"
 import StarterKit from "@tiptap/starter-kit"
 import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { isWorkspaceConflict, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, normalizeSafeWorkspacePath, useWorkspace } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -350,9 +350,16 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
   if (!definitionName || documentParts.length === 0 || documentParts.some(part => !part)) {
     throw new HTTPError({ status: 400, message: "Realtime definition and document path are required." })
   }
+  const documentId = documentParts.join("/")
+  try {
+    if (normalizeSafeWorkspacePath(documentId) !== documentId) throw new Error()
+  }
+  catch {
+    throw new HTTPError({ status: 400, message: "Realtime document paths must be safe Workspace paths." })
+  }
   return {
     definitionName,
-    documentId: documentParts.join("/"),
+    documentId,
     workspaceEvents: parsed.searchParams.get("workspace") === "events",
   }
 }
@@ -722,6 +729,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
       room.baselineDigest = snapshot.entries[pending.path]?.digest
       room.durableReady = !!room.sql || !!room.baselineDigest
       reconcilePendingCheckpoint(room, pending, pending.content!)
+      room.mutated = !matchesRealtimeState(room.document, pending.state)
       persistRoom(room)
       clearPendingCheckpoint(room, pending)
       return { content: pending.content!, snapshot }

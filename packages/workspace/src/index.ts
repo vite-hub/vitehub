@@ -41,6 +41,7 @@ export type {
 export type * from "./ai.ts"
 export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 export { isWorkspaceConflict } from "./core/errors.ts"
+export { normalizeSafeWorkspacePath } from "./core/path.ts"
 export { invalidateWorkspaceStore } from "./runtime/state.ts"
 export { resolveWorkspaceStoreTarget } from "./storage/target.ts"
 export type { WorkspaceStoreTarget } from "./storage/target.ts"
