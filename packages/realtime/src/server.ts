@@ -27,7 +27,8 @@ const maxRoomAwarenessBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
 const awarenessQueryIntervalMs = 10_000
 const awarenessUpdateIntervalMs = 50
-const workspaceChangeIntervalMs = 50
+const workspaceChangeLimit = 100
+const workspaceChangeWindowMs = 1_000
 const syncUpdateIntervalMs = 50
 const pendingCheckpointRetentionMs = 30_000
 const durableUpdateCompactionInterval = 128
@@ -386,7 +387,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
   const peerAwarenessClients = new WeakMap<WebSocketPeer, Set<number>>()
   const peerAwarenessQueryAt = new WeakMap<WebSocketPeer, number>()
   const peerAwarenessUpdateAt = new WeakMap<WebSocketPeer, number>()
-  const peerWorkspaceChangeAt = new WeakMap<WebSocketPeer, number>()
+  const peerWorkspaceChanges = new WeakMap<WebSocketPeer, { count: number, startedAt: number }>()
   const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
   const peerSyncUpdateAt = new WeakMap<WebSocketPeer, number>()
   const workspaceCheckpointQueues = new Map<string, Promise<void>>()
@@ -845,9 +846,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
             return
           }
           const now = Date.now()
-          const previous = peerWorkspaceChangeAt.get(peer)
-          if (previous !== undefined && now - previous < workspaceChangeIntervalMs) return
-          peerWorkspaceChangeAt.set(peer, now)
+          let quota = peerWorkspaceChanges.get(peer)
+          if (!quota || now - quota.startedAt >= workspaceChangeWindowMs) {
+            quota = { count: 0, startedAt: now }
+            peerWorkspaceChanges.set(peer, quota)
+          }
+          quota.count++
+          if (quota.count > workspaceChangeLimit) {
+            peer.close(4429, "Workspace change rate limit exceeded.")
+            return
+          }
           peer.publish(room.channel, encodeWorkspaceChange(change))
           return
         }

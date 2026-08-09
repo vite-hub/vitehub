@@ -199,10 +199,12 @@ describe("realtime server handler", () => {
     }
 
     response.crossws.open(peer)
-    response.crossws.message(peer, { uint8Array: () => encodeWorkspaceChange({ operation: "create", path: "first.md" }) })
-    response.crossws.message(peer, { uint8Array: () => encodeWorkspaceChange({ operation: "create", path: "second.md" }) })
+    for (let index = 0; index <= 100; index++) {
+      response.crossws.message(peer, { uint8Array: () => encodeWorkspaceChange({ operation: "create", path: `${index}.md` }) })
+    }
 
-    expect(peer.publish).toHaveBeenCalledTimes(1)
+    expect(peer.publish).toHaveBeenCalledTimes(100)
+    expect(peer.close).toHaveBeenCalledWith(4429, "Workspace change rate limit exceeded.")
   })
 
   it("closes peers that send truncated realtime frames", async () => {
