@@ -1974,7 +1974,7 @@ async function writeAgentWebhookRouteHandler(
       "  const stop = startDiscordGateways()",
       "  let stopping",
       "  const nodeProcess = typeof process === 'object' && process?.release?.name === 'node' ? process : undefined",
-      "  const shutdownSignals = ['SIGINT', 'SIGTERM']",
+      "  const shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listenerCount(signal))",
       "  function stopDiscordGateways() {",
       "    for (const signal of shutdownSignals) nodeProcess?.off(signal, stopDiscordGateways)",
       "    return stopping ||= stop()",
