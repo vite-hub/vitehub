@@ -2143,6 +2143,13 @@ function withEagerStreamUsageExtensions<
       : undefined
     const deferUsageUntilComplete = providerMetadata && typeof providerMetadata === "object"
       && typeof (providerMetadata as { then?: unknown }).then === "function"
+    let completionMetadataSettled = !deferUsageUntilComplete
+    if (deferUsageUntilComplete) {
+      void Promise.resolve(providerMetadata).then(
+        () => { completionMetadataSettled = true },
+        () => { completionMetadataSettled = true },
+      )
+    }
     let deferredUsage: AgentUsageRecord | undefined
     let terminalChunks: unknown[] | undefined
 
@@ -2211,7 +2218,8 @@ function withEagerStreamUsageExtensions<
     }
 
     if (deferredUsage) {
-      yield* await enrichUsageChunk(undefined, deferredUsage)
+      if (completionMetadataSettled) yield* await enrichUsageChunk(undefined, deferredUsage)
+      else yield { type: "usage", usageRecord: deferredUsage }
     }
     yield* terminalChunks ?? []
   })()
@@ -2376,14 +2384,31 @@ function withStreamedResult(
   let finalText = ""
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+  const providerMetadata = result && typeof result === "object"
+    ? (result as { providerMetadata?: unknown }).providerMetadata
+    : undefined
+  const promisedProviderMetadata = providerMetadata && typeof providerMetadata === "object"
+    && typeof (providerMetadata as { then?: unknown }).then === "function"
+  let completionMetadataSettled = !promisedProviderMetadata
+  if (promisedProviderMetadata) {
+    void Promise.resolve(providerMetadata).then(
+      () => { completionMetadataSettled = true },
+      () => { completionMetadataSettled = true },
+    )
+  }
   return {
     finishResult(resultOverride: unknown = result) {
+      if (!completionMetadataSettled && resultOverride && typeof resultOverride === "object") {
+        const descriptors = Object.getOwnPropertyDescriptors(resultOverride)
+        delete descriptors.providerMetadata
+        resultOverride = Object.create(Object.getPrototypeOf(resultOverride), descriptors)
+      }
       return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
     async finishUsage(resolveCompletionMetadata = true) {
       const usage = usageRecord ?? fallbackUsageRecord
       if (!usage) return
-      if (!resolveCompletionMetadata) return usage
+      if (!resolveCompletionMetadata || !completionMetadataSettled) return usage
       const usageSource = result && typeof result === "object" ? Object.create(result) : {}
       Object.defineProperty(usageSource, "usageRecord", { value: usage })
       return await resolveAgentUsageRecord(usageSource)

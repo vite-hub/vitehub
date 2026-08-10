@@ -273,6 +273,37 @@ describe("usage context", () => {
     ])).resolves.toMatchObject({ type: "usage", usageRecord: { usage: { totalTokens: 4 } } })
   })
 
+  it("finishes eager usage streams when provider metadata never settles", async () => {
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [cost({ pricing: () => undefined })],
+      driver: { run: () => ({
+        providerMetadata: new Promise(() => {}),
+        stream: (async function* () {
+          yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+          yield { type: "finish" }
+        })(),
+      }) },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    const consume = (async () => {
+      const events = []
+      for await (const event of stream) events.push(event)
+      return events
+    })()
+
+    await expect(Promise.race([
+      consume,
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])).resolves.toEqual([
+      { type: "usage", usageRecord: expect.objectContaining({ usage: { totalTokens: 4 } }) },
+      { type: "usage", usageRecord: expect.objectContaining({ usage: { totalTokens: 4 } }) },
+      { type: "finish" },
+    ])
+  })
+
   it("exposes non-token usage details in the invocation record", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
