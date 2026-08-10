@@ -95,14 +95,15 @@ describe("gmail capability", () => {
       account: "test@example.com",
       status: "connected",
     })
-    await expect(runtime.tools.gmail_search!.execute?.({ max: 50, query: "in:inbox" })).resolves.toEqual({
+    await expect(runtime.tools.gmail_search!.execute?.({ max: 50, query: "-from:spam@example.com" })).resolves.toEqual({
       account: "test@example.com",
       result: { threads: [{ id: "thread-1", subject: "Hello" }] },
       status: "ok",
     })
     expect(calls).toContainEqual([
-      "gmail", "search", "in:inbox", "--account", "test@example.com", "--max", "50",
+      "gmail", "search", "--account", "test@example.com", "--max", "50",
       "--json", "--no-input", "--readonly", "--gmail-no-send", "--wrap-untrusted",
+      "--", "-from:spam@example.com",
     ])
 
     state = "disconnected"

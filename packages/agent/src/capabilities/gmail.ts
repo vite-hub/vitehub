@@ -242,7 +242,6 @@ async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityCont
   }
   const query = input?.query?.trim() || "in:inbox"
   if (query.includes("\0")) throw new TypeError("[vitehub] gmail_search query cannot contain null bytes.")
-  if (query.startsWith("--")) throw new TypeError("[vitehub] gmail_search query cannot start with a command option.")
 
   const accounts = (await gmailAccounts(context)).filter(candidate => candidate.valid === true
     && Array.isArray(candidate.services)
@@ -255,10 +254,11 @@ async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityCont
     return {
       account,
       result: JSON.parse(await runGmailCommand([
-        "gmail", "search", query,
+        "gmail", "search",
         "--account", account,
         "--max", String(max),
         "--json", "--no-input", "--readonly", "--gmail-no-send", "--wrap-untrusted",
+        "--", query,
       ], context)),
       status: "ok" as const,
     }
