@@ -11709,7 +11709,7 @@ describe("agent message protocol", () => {
             message: {
               invoke: (_context, input: { text: string }) => ({
                 input: { prompt: input.text },
-                run: { origin: "portal", runId: "portal-run" },
+                run: { origin: "portal", runId: "portal:run" },
               }),
             },
           },
@@ -11724,12 +11724,12 @@ describe("agent message protocol", () => {
       }, "portal.message", { text: "hello" }) as { id: string }
 
       expect(run).toMatchObject({
-        id: "portal-run",
+        id: "portal:run",
         provider: "vercel",
         status: "queued",
       })
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("portal-agent", "portal-run")).resolves.toMatchObject({
+      await expect(getWorkflowRun("portal-agent", "portal:run")).resolves.toMatchObject({
         result: "received hello",
         status: "completed",
       })

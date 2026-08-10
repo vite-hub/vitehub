@@ -755,9 +755,10 @@ async function runAgentAsWorkflow<
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
+  const { getWorkflowRuntimeConfig, runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
+  const workflowConfig = getWorkflowRuntimeConfig()
   if ("discoveryDefault" in binding) {
-    const { getWorkflowRuntimeConfig } = await loadAgentWorkflowRuntimeStateModule()
-    if (!getWorkflowRuntimeConfig()) return undefined
+    if (!workflowConfig) return undefined
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
@@ -801,9 +802,10 @@ async function runAgentAsWorkflow<
     },
   }
   const workflowRunId = !options.fresh && context.run?.runId
-    ? await portableAgentWorkflowRunId(context.run.runId)
+    ? workflowConfig?.provider === "cloudflare"
+      ? await portableAgentWorkflowRunId(context.run.runId)
+      : context.run.runId
     : undefined
-  const { runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const run = await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
     payload,
     workflowRunId ? { id: workflowRunId } : {},
