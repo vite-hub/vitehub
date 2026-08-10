@@ -276,10 +276,20 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
       return materializeAgentUsageCost({
         estimated: false,
         source: "provider",
-        usd: (Object.is(cost, -0) ? 0 : cost).toLocaleString("en-US", { maximumFractionDigits: 20, useGrouping: false }),
+        usd: decimalStringFromNumber(Object.is(cost, -0) ? 0 : cost),
       })
     }
   }
+}
+
+function decimalStringFromNumber(value: number): string {
+  const [coefficient, rawExponent] = value.toString().split("e")
+  if (rawExponent === undefined) return coefficient
+  const digits = coefficient.replace(".", "")
+  const decimalIndex = (coefficient.indexOf(".") === -1 ? coefficient.length : coefficient.indexOf(".")) + Number(rawExponent)
+  if (decimalIndex <= 0) return `0.${"0".repeat(-decimalIndex)}${digits}`
+  if (decimalIndex >= digits.length) return `${digits}${"0".repeat(decimalIndex - digits.length)}`
+  return `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
 }
 
 function usageRecordFromUsage(

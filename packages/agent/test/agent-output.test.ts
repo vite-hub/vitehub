@@ -92,6 +92,11 @@ describe("agent output helpers", () => {
       usd: "0",
     })
 
+    expect(toAgentRunResult({ providerMetadata: providerMetadata(5e-21), usage }).usageRecord?.cost).toMatchObject({
+      display: "$0.000000000000000000005",
+      usd: "0.000000000000000000005",
+    })
+
     for (const cost of [-1, Number.NaN, Number.POSITIVE_INFINITY, "0.00123"]) {
       expect(toAgentRunResult({ providerMetadata: providerMetadata(cost), usage }).usageRecord?.cost).toBeUndefined()
     }
