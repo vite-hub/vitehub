@@ -276,9 +276,31 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
       return materializeAgentUsageCost({
         estimated: false,
         source: "provider",
-        usd: cost.toLocaleString("en-US", { maximumFractionDigits: 20, useGrouping: false }),
+        usd: decimalStringFromNumber(cost),
       })
     }
+  }
+}
+
+function decimalStringFromNumber(value: number): string {
+  const [coefficient, rawExponent] = value.toString().split("e")
+  if (rawExponent === undefined) return coefficient
+  const digits = coefficient.replace(".", "")
+  const decimalIndex = (coefficient.indexOf(".") === -1 ? coefficient.length : coefficient.indexOf(".")) + Number(rawExponent)
+  if (decimalIndex <= 0) return `0.${"0".repeat(-decimalIndex)}${digits}`
+  if (decimalIndex >= digits.length) return `${digits}${"0".repeat(decimalIndex - digits.length)}`
+  return `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
+}
+
+async function withResolvedProviderMetadata(result: unknown): Promise<unknown> {
+  if (!isRecord(result) || !isPromiseLike(result.providerMetadata)) return result
+  try {
+    const metadataSource = Object.create(result) as Record<string, unknown>
+    metadataSource.providerMetadata = await result.providerMetadata
+    return metadataSource
+  }
+  catch {
+    return result
   }
 }
 
@@ -374,7 +396,12 @@ export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSourc
 
 async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result, undefined, run)
+  return usageRecordFromUsage(
+    await resolveUsageValue(result.usage ?? result.totalUsage),
+    await withResolvedProviderMetadata(result),
+    undefined,
+    run,
+  )
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
@@ -515,14 +542,15 @@ async function* streamChunksToEvents(
       && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
       && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
     if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
-    if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
+    const chunkUsageRecord = !explicitUsageEvent ? usageRecordFromStreamChunk(chunk, usageSource) : undefined
+    if (chunkUsageRecord) usageRecord = chunkUsageRecord
     const event = toAgentStreamEvent(chunk, toolNames, textPhases)
     if (!event) continue
     if (event.type === "text-delta" && event.phase !== undefined && observation) {
       observation.explicitTextPhaseSeen = true
     }
     if (event.type === "usage") {
-      usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)
+      usageRecord = chunkUsageRecord ?? withFallbackUsageMetadata(event.usageRecord, usageSource)
       explicitUsageEvent = true
       continue
     }

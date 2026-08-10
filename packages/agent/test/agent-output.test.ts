@@ -87,6 +87,9 @@ describe("agent output helpers", () => {
       usd: "0.00123",
     })
 
+    expect(toAgentRunResult({ providerMetadata: providerMetadata(5e-21), usage }).usageRecord?.cost?.usd)
+      .toBe("0.000000000000000000005")
+
     for (const cost of [-1, -0, Number.NaN, Number.POSITIVE_INFINITY, "0.00123"]) {
       expect(toAgentRunResult({ providerMetadata: providerMetadata(cost), usage }).usageRecord?.cost).toBeUndefined()
     }
@@ -112,6 +115,48 @@ describe("agent output helpers", () => {
       type: "usage",
       usageRecord: { usage },
     })?.cost?.usd).toBe("0.00123")
+  })
+
+  it("preserves provider-reported cost through streamed usage events and promised metadata", async () => {
+    const providerMetadata = { openrouter: { usage: { cost: 0.00123 } } }
+    const stream = async function* () {
+      yield {
+        providerMetadata,
+        type: "usage",
+        usageRecord: { usage: { inputTokens: 1 } },
+      }
+    }
+
+    const events = []
+    for await (const event of streamAgentOutputToEvents({
+      providerMetadata: Promise.resolve(providerMetadata),
+      stream: stream(),
+      usage: Promise.resolve({ inputTokens: 1 }),
+    })) events.push(event)
+
+    expect(events).toContainEqual({
+      type: "usage",
+      usageRecord: {
+        cost: {
+          display: "$0.00123",
+          estimated: false,
+          source: "provider",
+          usd: "0.00123",
+        },
+        usage: { inputTokens: 1 },
+      },
+    })
+
+    const fallbackEvents = []
+    for await (const event of streamAgentOutputToEvents({
+      providerMetadata: Promise.resolve(providerMetadata),
+      stream: (async function* () {})(),
+      usage: Promise.resolve({ inputTokens: 1 }),
+    })) fallbackEvents.push(event)
+    expect(fallbackEvents).toContainEqual(expect.objectContaining({
+      type: "usage",
+      usageRecord: expect.objectContaining({ cost: expect.objectContaining({ usd: "0.00123" }) }),
+    }))
   })
 
   it("preserves published delivery artifacts in Agent run results", () => {
