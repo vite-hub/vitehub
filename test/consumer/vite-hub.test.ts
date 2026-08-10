@@ -403,13 +403,27 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       const specs = await packWorkspacePackages(packDir)
+      await mkdir(join(appDir, "server/databases/migrations"), { recursive: true })
       await Promise.all([
         writeFile(join(appDir, "app.vue"), "<template><main>ViteHub</main></template>\n", "utf8"),
+        writeFile(join(appDir, "server/databases/config.ts"), [
+          'import { defineDatabase } from "vite-hub/database"',
+          "export default defineDatabase({ schema: {} })",
+          "",
+        ].join("\n"), "utf8"),
+        writeFile(join(appDir, "server/databases/migrations/0001_portable.sql"), "SELECT 1;\n", "utf8"),
         writeFile(join(appDir, "nuxt.config.ts"), `
           export default defineNuxtConfig({
             modules: ["vite-hub/nuxt"],
-            nitro: { preset: "cloudflare_module" },
-            vitehub: { database: true, preset: "cloudflare" },
+            nitro: { cloudflare: { deployConfig: true }, preset: "cloudflare_module" },
+            vitehub: {
+              database: {
+                driver: "d1",
+                databaseId: "00000000-0000-0000-0000-000000000000",
+                databaseName: "portable-db",
+              },
+              preset: "cloudflare",
+            },
           })
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
@@ -437,11 +451,36 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const middleware = await readFile(join(appDir, ".vitehub/nitro/database/middleware.ts"), "utf8")
       expect(middleware).toContain("from '@vite-hub/database/runtime/state'")
       expect(middleware).not.toContain("from 'nitro'")
+
+      const artifactDir = join(root, "artifact")
+      await cp(join(appDir, ".output/server"), artifactDir, { recursive: true })
+      await rm(join(appDir, "server"), { recursive: true })
+      const wrangler = JSON.parse(await readFile(join(artifactDir, "wrangler.json"), "utf8")) as {
+        d1_databases?: Array<{ migrations_dir?: string }>
+      }
+      const migrationsDir = wrangler.d1_databases?.[0]?.migrations_dir
+      expect(migrationsDir).toBeDefined()
+      expect(isAbsolute(migrationsDir!)).toBe(false)
+      expect(existsSync(resolve(artifactDir, migrationsDir!))).toBe(true)
+      const migrations = await run("vp", [
+        "dlx",
+        "wrangler@4.112.0",
+        "d1",
+        "migrations",
+        "list",
+        "DB",
+        "--local",
+        "--config",
+        join(artifactDir, "wrangler.json"),
+        "--persist-to",
+        join(artifactDir, ".wrangler"),
+      ], artifactDir)
+      expect(migrations.stdout).toContain("0001_portable.sql")
     }
     finally {
       await rm(root, { recursive: true, force: true })
     }
-  }, 300_000)
+  }, 600_000)
 
   it("publishes Browser types and Cloudflare adapter without consumer-owned Playwright", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))

@@ -254,6 +254,8 @@ The Database Package discovers Database Definitions, generates the Drizzle Runti
 
 Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources belong in Database configuration or host setup. Route code should keep using the generated Drizzle Runtime Surface.
 
+Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated Wrangler config, so `.output/server` can apply migrations without the source checkout.
+
 ::note
 `@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource, mainly to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface.
 ::

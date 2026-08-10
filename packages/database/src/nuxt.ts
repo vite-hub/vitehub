@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises"
+import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -18,6 +18,7 @@ import type { Plugin } from "vite"
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
+const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
 const databaseRuntimeDir = fileURLToPath(new URL("./runtime/", import.meta.url))
 
@@ -91,13 +92,13 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     const databaseConfig = resolvedOptions.driver === "d1"
       ? resolveDBViteConfig(resolvedOptions, root, { serverDirs })
       : undefined
-    const migrationsDir = databaseConfig && !databaseConfig.definitionCloudflareConfigured.default
+    const sourceMigrationsDir = databaseConfig && !databaseConfig.definitionCloudflareConfigured.default
       ? databaseConfig.databases.default?.migrationsDir
       : undefined
     const d1 = resolveDatabaseNuxtD1Options(
       resolvedOptions,
       nuxtOptions,
-      migrationsDir ? resolve(root, migrationsDir) : undefined,
+      sourceMigrationsDir ? generatedNitroMigrationsDir : undefined,
     )
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
@@ -119,6 +120,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)
+          if (sourceMigrationsDir) {
+            installNitroCloudflareMigrations(config, resolve(root, sourceMigrationsDir))
+          }
         }
         if (d1) {
           mergeNitroRuntimeContentConfig(config, d1)
@@ -344,6 +348,28 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
     "}",
     "",
   ].join("\n"))
+}
+
+function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string) {
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: {
+    hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
+    options: { output: { serverDir: string } }
+  }) => {
+    nitro.hooks.hook("compiled", async () => {
+      const outputDir = resolve(nitro.options.output.serverDir, generatedNitroMigrationsDir)
+      const entries = await readdir(sourceDir, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return []
+        throw error
+      })
+      await rm(outputDir, { force: true, recursive: true })
+      await mkdir(outputDir, { recursive: true })
+      await Promise.all(entries
+        .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
+        .map(entry => copyFile(resolve(sourceDir, entry.name), resolve(outputDir, entry.name))))
+    })
+  })
+  config.modules = modules
 }
 
 function mergeNitroExternal(value: unknown, addition: string): unknown {
