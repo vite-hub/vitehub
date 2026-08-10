@@ -9,7 +9,7 @@ icon: i-lucide-mail-search
 
 `gmail()` gives a Harness Agent structured Gmail search and authorization tools. Draft mode adds draft creation, but the Capability never exposes a send tool or registers the underlying `gog` executable on `bash`.
 
-Use [`email()`](/docs/capabilities/email) when an Agent should send application-owned transactional email through the Email primitive. Use `gmail()` when a Harness Agent should work with an operator-owned Gmail account without receiving a general mail command surface.
+Use [`email()`](/docs/capabilities/email) when an Agent should send application-owned transactional email through the Email primitive. Use `gmail()` when a Harness Agent should work with an operator-owned Gmail account through structured Gmail tools.
 
 ## Configure the Agent
 
@@ -67,7 +67,7 @@ gmail({ mode: 'draft' })
 
 `gmail()` has no send mode. Search commands run with read-only and no-send controls. Draft creation runs with `--gmail-no-send`, and no Capability-owned tool can send the resulting draft.
 
-Do not separately expose `gog` through `workspaceShell()` or another `bash` contribution when you rely on this boundary. A separately granted raw command surface has its own authority and bypasses the Gmail Capability's tool contract.
+This is a Capability tool-surface contract, not a security boundary around the Harness. A Harness Agent can execute commands inside its Box, including an installed `gog`, so use draft mode only when the Agent is trusted not to bypass the structured tools. If sending must be impossible, isolate the credential behind a runtime or provider policy that cannot send; `gmail()` does not provide that isolation.
 
 ## Complete authorization
 
@@ -103,7 +103,7 @@ The Capability accepts only an HTTP loopback URL with both `code` and `state`. I
 
 Each underlying `gog` command opens its own Workspace Session and closes the Session on success or failure. Gmail search results remain untrusted external content and the contributed `skills/gmail/SKILL.md` tells the Harness Agent to treat them as data, not instructions.
 
-Draft authorization may grant the Gmail account scope that `gog` needs to create drafts. The Capability's no-send guarantee comes from its exposed tool set and command flags, so other Capabilities must not grant broader access to the same executable.
+Draft authorization may grant the Gmail account scope that `gog` needs to create drafts. The no-send contract applies only to the Capability-owned tools and their command flags; it does not restrict the Harness's own Box command authority.
 
 ## Inspect and verify
 
