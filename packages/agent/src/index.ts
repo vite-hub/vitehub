@@ -802,7 +802,7 @@ async function runAgentAsWorkflow<
     },
   }
   const workflowRunId = !options.fresh && context.run?.runId
-    ? workflowConfig?.provider === "cloudflare"
+    ? workflowConfig && workflowConfig.provider === "cloudflare"
       ? await portableAgentWorkflowRunId(context.run.runId)
       : context.run.runId
     : undefined
