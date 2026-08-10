@@ -543,6 +543,12 @@ async function* streamChunksToEvents(
   let usageRecord: AgentUsageRecord | undefined
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
+  let resolvedUsageSource = usageSource
+  if (isRecord(usageSource) && isPromiseLike(usageSource.providerMetadata)) {
+    void withResolvedProviderMetadata(usageSource).then((resolved) => {
+      resolvedUsageSource = resolved
+    })
+  }
   for await (const chunk of chunks) {
     const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
       && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
@@ -566,7 +572,6 @@ async function* streamChunksToEvents(
     }
     yield event
   }
-  const resolvedUsageSource = await withResolvedProviderMetadata(usageSource)
   usageRecord = usageRecord
     ? withFallbackUsageMetadata(usageRecord, resolvedUsageSource)
     : await usageFromResult(resolvedUsageSource)

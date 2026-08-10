@@ -171,6 +171,25 @@ describe("agent output helpers", () => {
       type: "usage",
       usageRecord: expect.objectContaining({ cost: expect.objectContaining({ usd: "0.00123" }) }),
     }))
+
+    const pendingMetadataEvents = (async () => {
+      const events = []
+      for await (const event of streamAgentOutputToEvents({
+        providerMetadata: new Promise(() => {}),
+        stream: (async function* () {
+          yield { type: "usage", usageRecord: { usage: { inputTokens: 1 } } }
+          yield { type: "finish" }
+        })(),
+      })) events.push(event)
+      return events
+    })()
+    await expect(Promise.race([
+      pendingMetadataEvents,
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])).resolves.toEqual([
+      { type: "usage", usageRecord: { usage: { inputTokens: 1 } } },
+      { type: "finish" },
+    ])
   })
 
   it("preserves published delivery artifacts in Agent run results", () => {
