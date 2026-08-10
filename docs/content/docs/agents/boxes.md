@@ -68,7 +68,7 @@ For every invocation, `checkout` fetches `ref` from `remote`, verifies the fetch
 
 Use `cwd` instead when the caller already owns an authoritative directory. `checkout` and `cwd` are mutually exclusive. Git is an implicit checkout requirement and appears in resolved Box metadata.
 
-The runtime creates an owner-only Home outside the checkout, sets the XDG directories beneath it, and exposes the same environment to Codex, Git, `gh`, MCP servers, and ordinary Box commands. The `"codex"` driver uses `$HOME/.codex` directly and contributes `codex login status` automatically, so Codex refreshes remain in Box state.
+The runtime creates an owner-only Home outside the checkout, sets the XDG directories beneath it, and exposes the same environment to Codex, Git, `gh`, MCP servers, and ordinary Box commands. The `"codex"` driver contributes `codex login status` automatically. When an invocation installs colocated Agent Skills, ViteHub creates `$HOME/.vitehub/codex-home-<invocation-id>`, seeds only `auth.json` and `config.toml` from the Box-owned `$HOME/.codex`, installs the Skills there, and deletes that invocation Home after success or failure. Other Codex files are neither copied into the invocation nor written back, so mutable invocation state and authentication refreshes are disposable. Without colocated Agent Skills, Codex uses the Box-owned `$HOME/.codex` directly and its changes remain in declared Box state.
 
 The example's committed `.vitehub/box/gitconfig` can configure Git without containing a token:
 
