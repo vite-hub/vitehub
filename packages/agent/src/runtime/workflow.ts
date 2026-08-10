@@ -49,6 +49,7 @@ export type AgentWorkflowRunner<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  options?: { output: "raw" },
 ) => Promise<Response | AgentRunResult | unknown>
 
 function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRuntimeName {
@@ -200,5 +201,6 @@ export async function runAgentWorkflowDefinition<
     payload.resolvedInvoker
       ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
       : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
+    { output: "raw" },
   ))
 }
