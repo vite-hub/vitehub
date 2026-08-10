@@ -10718,6 +10718,57 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("removes request timeouts from required Agent Workflow payloads", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({ driver: { run: context => ({ timeout: context.input.timeout ?? null }) } })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "required-workflow-timeout" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {
+        context: { [requireAgentWorkflowContextKey]: true },
+        prompt: "hello",
+        timeout: 28_000,
+      }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("required-workflow-timeout", run.id)).resolves.toMatchObject({
+        result: { timeout: null },
+        status: "completed",
+      })
+    })
+
+    it("normalizes noncloneable Agent results before Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => ({ provider: { request: () => "raw" }, text: "portable text" }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-result" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      const completed = await getWorkflowRun("portable-result", run.id)
+      expect(completed).toMatchObject({ result: { text: "portable text" }, status: "completed" })
+      expect(completed.result).not.toHaveProperty("provider")
+      expect(() => structuredClone(completed.result)).not.toThrow()
+    })
+
     it("preserves only the request URL across Agent Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -10752,7 +10803,7 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("materializes a lazy message attachment before Workflows", async () => {
+    it("serializes binary message attachments before Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -10760,7 +10811,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: context => context.messages[0]?.parts[0] },
+        driver: { run: context => context.messages[0]?.parts },
       })
       const run = await runAgent(agent, {
         agentIdentity: { name: "portable-attachments" },
@@ -10770,18 +10821,22 @@ describe("agent message protocol", () => {
       }, {
         message: {
           id: "message-1",
-          parts: [{ fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" }],
+          parts: [
+            { fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" },
+            { data: new Blob([new Uint8Array([4, 5, 6])]), mediaType: "audio/mpeg", type: "audio" },
+            { data: new Uint8Array([7, 8, 9]).buffer, mediaType: "application/pdf", type: "file" },
+          ],
           role: "user",
         },
       }) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("portable-attachments", run.id)).resolves.toMatchObject({
-        result: {
-          data: new Uint8Array([1, 2, 3]),
-          mediaType: "image/jpeg",
-          type: "image",
-        },
+        result: [
+          { data: "AQID", mediaType: "image/jpeg", type: "image" },
+          { data: "BAUG", mediaType: "audio/mpeg", type: "audio" },
+          { data: "BwgJ", mediaType: "application/pdf", type: "file" },
+        ],
         status: "completed",
       })
     })
@@ -11484,7 +11539,70 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("passes Cloudflare env through workflow inline fallback", async () => {
+    it("maps invalid trigger run ids to deterministic Workflow ids", async () => {
+      const { defineAgent, runAgentTrigger, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const workflowRunId = "agent-3f69a017b830c1f1fff0bccb6bee512d714787164444d45f1a92c14b11a3ff37"
+      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+      const agent = defineAgent({
+        capabilities: [{
+          id: "telegram",
+          triggers: {
+            message: {
+              invoke: () => ({
+                input: { prompt: "hello" },
+                run: { origin: "telegram", runId: "telegram:42:103" },
+              }),
+            },
+          },
+        }],
+        driver: { run: context => context.run?.runId },
+        runtime: workflow("telegram-agent"),
+      })
+      const run = await runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "cloudflare-agents",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, "telegram.message", {}) as { id: string }
+
+      expect(run.id).toBe(workflowRunId)
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("telegram-agent", workflowRunId)).resolves.toMatchObject({
+        result: workflowRunId,
+        status: "completed",
+      })
+    })
+
+    it("passes explicit Cloudflare env through workflow inline fallback", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+      const agent = defineAgent({
+        runtime: workflow("explicit-cloudflare-env-agent"),
+        driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
+      })
+      const run = await runAgent(agent, {
+        cloudflare: { env: { NUXT_SITE: "explicit.nuxt.com" } },
+        memo: vi.fn(),
+        runtime: "cloudflare-agents",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("explicit-cloudflare-env-agent", run.id)).resolves.toMatchObject({
+        result: "explicit.nuxt.com",
+        status: "completed",
+      })
+    })
+
+    it("passes the active Cloudflare env through workflow inline fallback", async () => {
+      const { runWithActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -11495,21 +11613,22 @@ describe("agent message protocol", () => {
         runtime: workflow("cloudflare-agent"),
         driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
       })
-      const run = await runAgent(agent, {
-        cloudflare: { env: { NUXT_SITE: "nuxt.com" } },
-        memo: vi.fn(),
-        runtime: "cloudflare-agents",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      await runWithActiveCloudflareEnv({ NUXT_SITE: "nuxt.com" }, async () => {
+        const run = await runAgent(agent, {
+          memo: vi.fn(),
+          runtime: "cloudflare-agents",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string }
 
-      expect(run).toMatchObject({
-        provider: "cloudflare",
-        status: "queued",
-      })
-      await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("cloudflare-agent", run.id)).resolves.toMatchObject({
-        result: "nuxt.com",
-        status: "completed",
+        expect(run).toMatchObject({
+          provider: "cloudflare",
+          status: "queued",
+        })
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("cloudflare-agent", run.id)).resolves.toMatchObject({
+          result: "nuxt.com",
+          status: "completed",
+        })
       })
     })
   })

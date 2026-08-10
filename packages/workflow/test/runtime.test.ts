@@ -538,6 +538,25 @@ describe("workflow runtime", () => {
     )
   })
 
+  it("converts explicitly non-retryable Cloudflare workflow errors", async () => {
+    const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
+    const converted = new Error("non-retryable: invalid input")
+    const createNonRetryableError = vi.fn(() => converted)
+
+    await expect(runCloudflareWorkflow({
+      config: { provider: "cloudflare" },
+      createNonRetryableError,
+      env: {},
+      event: { id: "run-1" },
+      name: "welcome",
+      registry: {
+        welcome: async () => ({ default: { handler: async () => { throw original } } }),
+      },
+    })).rejects.toBe(converted)
+
+    expect(createNonRetryableError).toHaveBeenCalledWith(original)
+  })
+
   it("isolates overlapping Cloudflare fetch environments", async () => {
     let arrivals = 0
     let release!: () => void

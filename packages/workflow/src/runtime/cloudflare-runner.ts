@@ -13,6 +13,7 @@ export interface CloudflareWorkflowEvent {
 
 export interface RunCloudflareWorkflowOptions {
   config: false | ResolvedWorkflowOptions | undefined
+  createNonRetryableError?: (error: Error & { isRetryable: false }) => Error
   env: CloudflareWorkerEnv
   event: CloudflareWorkflowEvent
   name: string
@@ -20,7 +21,11 @@ export interface RunCloudflareWorkflowOptions {
   step?: WorkflowProviderStep
 }
 
-export async function runCloudflareWorkflow({ config, env, event, name, registry, step }: RunCloudflareWorkflowOptions): Promise<unknown> {
+function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
+  return error instanceof Error && (error as { isRetryable?: unknown }).isRetryable === false
+}
+
+export async function runCloudflareWorkflow({ config, createNonRetryableError, env, event, name, registry, step }: RunCloudflareWorkflowOptions): Promise<unknown> {
   setWorkflowRuntimeConfig(config)
   setWorkflowRuntimeRegistry(registry)
 
@@ -30,12 +35,18 @@ export async function runCloudflareWorkflow({ config, env, event, name, registry
       throw new Error(`Missing workflow definition: ${name}`)
     }
 
-    return await runWithWorkflowRuntimeEvent({ env, step }, () => runWorkflowHandler({
-      id: event?.instanceId || event?.id,
-      name,
-      payload: event?.payload,
-      provider: "cloudflare",
-      step,
-    }, definition))
+    try {
+      return await runWithWorkflowRuntimeEvent({ env, step }, () => runWorkflowHandler({
+        id: event?.instanceId || event?.id,
+        name,
+        payload: event?.payload,
+        provider: "cloudflare",
+        step,
+      }, definition))
+    }
+    catch (error) {
+      if (createNonRetryableError && isNonRetryableError(error)) throw createNonRetryableError(error)
+      throw error
+    }
   })
 }

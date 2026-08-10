@@ -6,6 +6,7 @@ import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/co
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
+import { toAgentRunResult } from "../agent-output.ts"
 
 import type {
   AgentHostIdentity,
@@ -59,6 +60,16 @@ function waitUntil(promise: Promise<unknown>): void {
   void Promise.resolve(promise).catch(() => {})
 }
 
+function portableWorkflowResult(result: unknown): unknown {
+  try {
+    return structuredClone(result)
+  }
+  catch {
+    const { raw: _raw, ...normalized } = toAgentRunResult(result)
+    return structuredClone(normalized)
+  }
+}
+
 export async function runAgentWorkflowDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -86,11 +97,11 @@ export async function runAgentWorkflowDefinition<
     waitUntil,
   } as never)
 
-  return await runAgentInline(
+  return portableWorkflowResult(await runAgentInline(
     agent,
     runtimeContext,
     payload.resolvedInvoker
       ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
       : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
-  )
+  ))
 }

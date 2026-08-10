@@ -18,6 +18,7 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from "@vite-hub/runtime"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
@@ -43,7 +44,7 @@ import {
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
-import { materializeMessageAttachmentData, type AgentMessagePhase } from "./messages.ts"
+import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasResolvedAgentInvokerInput,
@@ -716,6 +717,34 @@ async function getAgentWorkflowHandle<
   return handle
 }
 
+async function portableAgentWorkflowRunId(runId: string): Promise<string> {
+  if (/^[a-zA-Z0-9_][a-zA-Z0-9-_]{0,99}$/.test(runId)) return runId
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(runId))
+  return `agent-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
+}
+
+function workflowAttachmentBase64(data: Uint8Array): string {
+  let binary = ""
+  for (let offset = 0; offset < data.length; offset += 0x8000) {
+    binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
+  const materialized = await materializeMessageAttachmentData(messages)
+  return await Promise.all(materialized.map(async message => ({
+    ...message,
+    parts: await Promise.all(message.parts.map(async (part) => {
+      if (!isAttachmentPart(part)) return part
+      let data = part.data
+      if (data instanceof Blob) data = await data.arrayBuffer()
+      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
+      return data instanceof Uint8Array ? { ...part, data: workflowAttachmentBase64(data) } : part
+    })),
+  })))
+}
+
 async function runAgentAsWorkflow<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -727,6 +756,7 @@ async function runAgentAsWorkflow<
   options: { fresh?: boolean } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, TOutput> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
+  const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
   if ("discoveryDefault" in binding) {
     const { getWorkflowRuntimeConfig } = await loadAgentWorkflowRuntimeStateModule()
@@ -748,9 +778,10 @@ async function runAgentAsWorkflow<
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
-  if (workflowInput.messages) workflowInput.messages = await materializeMessageAttachmentData(workflowInput.messages)
-  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await materializeMessageAttachmentData([workflowInput.message])
-  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await materializeMessageAttachmentData(workflowInput.prompt)
+  if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
+  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
+  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
+  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
   const inheritedRun = options.fresh && context.run
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
@@ -766,17 +797,20 @@ async function runAgentAsWorkflow<
     ...(inheritedRun ? { run: inheritedRun } : {}),
   }
   const workflowEvent = {
-    ...(context.cloudflare?.env ? { env: context.cloudflare.env } : {}),
+    ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
     waitUntil: context.waitUntil,
     context: {
       ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
       waitUntil: context.waitUntil,
     },
   }
+  const workflowRunId = !options.fresh && context.run?.runId
+    ? await portableAgentWorkflowRunId(context.run.runId)
+    : undefined
   const { runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const run = await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
     payload,
-    !options.fresh && context.run?.runId ? { id: context.run.runId } : {},
+    workflowRunId ? { id: workflowRunId } : {},
   ))
   return { handle, run }
 }
