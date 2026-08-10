@@ -183,9 +183,12 @@ describe("usage context", () => {
   })
 
   it("resolves promised result metadata for held object streams", async () => {
+    const { cost } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
+    const pricing = vi.fn(() => ({ estimated: true, source: "custom", usd: "0.02" }))
     const agent = defineAgent({
+      capabilities: [cost({ pricing })],
       hooks: { "agent:finish": finish },
       driver: { run: () => ({
         get providerMetadata() {
@@ -204,6 +207,7 @@ describe("usage context", () => {
       cost: { estimated: false, source: "provider", usd: "0.00123" },
       usage: { totalTokens: 4 },
     })
+    expect(pricing).not.toHaveBeenCalled()
   })
 
   it("exposes non-token usage details in the invocation record", async () => {

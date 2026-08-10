@@ -2142,11 +2142,14 @@ function withEagerStreamUsageExtensions<
     const textPhases = new Map<string, AgentMessagePhase | "hidden">()
     for await (const chunk of stream) {
       const event = toAgentStreamEvent(chunk, toolNames, textPhases)
-      const usageRecord = usageRecordFromStreamChunk(chunk, result)
-      if (!usageRecord) {
+      const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
+      if (!rawUsageRecord) {
         yield chunk
         continue
       }
+      const usageSource = result && typeof result === "object" ? Object.create(result) : {}
+      Object.defineProperty(usageSource, "usageRecord", { value: rawUsageRecord })
+      const usageRecord = await resolveAgentUsageRecord(usageSource) ?? rawUsageRecord
       const usage = { ...usageRecord }
       const eventBase = {
         actor: context.actor,
