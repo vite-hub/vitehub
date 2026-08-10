@@ -110,6 +110,11 @@ describe("gmail capability", () => {
       account: "test@example.com",
       status: "connected",
     })
+    await expect(runtime.tools.gmail_auth!.execute?.({
+      access: "draft",
+      action: "start",
+      account: "test@example.com",
+    })).rejects.toThrow('access "draft" requires gmail({ mode: "draft" })')
     await expect(runtime.tools.gmail_search!.execute?.({ max: 50, query: "-from:spam@example.com" })).resolves.toEqual({
       account: "test@example.com",
       result: { threads: [{ id: "thread-1", subject: "Hello" }] },

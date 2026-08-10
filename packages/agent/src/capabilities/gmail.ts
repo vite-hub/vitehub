@@ -209,6 +209,9 @@ async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext,
   if (access !== "read" && access !== "draft") {
     throw new TypeError("[vitehub] gmail_auth access must be read or draft.")
   }
+  if (access === "draft" && mode !== "draft") {
+    throw new TypeError('[vitehub] gmail_auth access "draft" requires gmail({ mode: "draft" }).')
+  }
   if (input.action === "start") {
     if (gmailConnectedAccount(await gmailAccounts(context), account, access)) {
       return { account, status: "connected" as const }
