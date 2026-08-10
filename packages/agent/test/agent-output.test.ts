@@ -160,7 +160,9 @@ describe("agent output helpers", () => {
 
     const promisedMetadataEvents = []
     for await (const event of streamAgentOutputToEvents({
-      providerMetadata: Promise.resolve(providerMetadata),
+      get providerMetadata() {
+        return Promise.resolve(providerMetadata)
+      },
       stream: (async function* () {
         yield { type: "usage", usageRecord: { usage: { inputTokens: 1 } } }
       })(),

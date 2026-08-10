@@ -296,7 +296,10 @@ async function withResolvedProviderMetadata(result: unknown): Promise<unknown> {
   if (!isRecord(result) || !isPromiseLike(result.providerMetadata)) return result
   try {
     const metadataSource = Object.create(result) as Record<string, unknown>
-    metadataSource.providerMetadata = await result.providerMetadata
+    Object.defineProperty(metadataSource, "providerMetadata", {
+      enumerable: true,
+      value: await result.providerMetadata,
+    })
     return metadataSource
   }
   catch {
