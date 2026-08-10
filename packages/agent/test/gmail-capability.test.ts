@@ -82,14 +82,16 @@ describe("gmail capability", () => {
   })
 
   it("returns structured authorization states and validates the continuation", async () => {
-    let state: "connected" | "configuration" | "disconnected" | "invalid-url" = "connected"
+    let state: "compose-only" | "connected" | "configuration" | "disconnected" | "invalid-url" = "connected"
     const calls: string[][] = []
     const runtime = await capabilityTools(gmail(), (args) => {
       calls.push(args)
       if (args[0] === "auth" && args[1] === "list") {
         return result(state === "connected"
           ? '{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}'
-          : '{"accounts":[]}')
+          : state === "compose-only"
+            ? '{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.compose"],"valid":true}]}'
+            : '{"accounts":[]}')
       }
       if (args.includes("--step") && args.includes("1")) {
         return state === "configuration"
@@ -117,6 +119,11 @@ describe("gmail capability", () => {
       "--json", "--no-input", "--readonly", "--gmail-no-send", "--wrap-untrusted",
       "--", "-from:spam@example.com",
     ])
+
+    state = "compose-only"
+    await expect(runtime.tools.gmail_auth!.execute?.({ action: "start", account: "test@example.com" })).resolves.toMatchObject({
+      status: "authorization_required",
+    })
 
     state = "disconnected"
     await expect(runtime.tools.gmail_auth!.execute?.({ action: "start", account: "test@example.com" })).resolves.toEqual({
@@ -216,7 +223,7 @@ describe("gmail capability", () => {
 
   it("closes the Box-backed Workspace Session when a Gmail command fails", async () => {
     const runtime = await capabilityTools(gmail(), (args) => args[0] === "auth"
-      ? result('{"accounts":[{"email":"test@example.com","services":["gmail"],"valid":true}]}')
+      ? result('{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}')
       : result("", 2, "search failed"))
 
     await expect(runtime.tools.gmail_search!.execute?.({ query: "in:inbox" })).rejects.toThrow("gmail_search failed")

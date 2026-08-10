@@ -88,6 +88,11 @@ const gmailDraftScopes = new Set([
   "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/gmail.modify",
 ])
+const gmailReadScopes = new Set([
+  "https://mail.google.com/",
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/gmail.readonly",
+])
 
 function gmailSkillContent(mode: GmailCapabilityMode): string {
   return `# Gmail
@@ -184,7 +189,9 @@ function gmailConnectedAccount(accounts: GmailAccount[], account: string, mode: 
     && candidate.valid === true
     && Array.isArray(candidate.services)
     && candidate.services.includes("gmail")
-    && (mode === "read" || Array.isArray(candidate.scopes) && candidate.scopes.some(scope => typeof scope === "string" && gmailDraftScopes.has(scope))))
+    && Array.isArray(candidate.scopes)
+    && candidate.scopes.some(scope => typeof scope === "string" && gmailReadScopes.has(scope))
+    && (mode === "read" || candidate.scopes.some(scope => typeof scope === "string" && gmailDraftScopes.has(scope))))
 }
 
 function gmailAuthScopeArgs(mode: GmailCapabilityMode): string[] {
