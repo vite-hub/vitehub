@@ -95,7 +95,7 @@ Model-facing Skill guidance belongs in Agent Driver Instructions or deterministi
 For harness-backed drivers, `skills()` contributes the skill directory to the Harness Workspace Session instead of adding model-facing instructions or tools.
 With `shellExecution: 'write'`, model-backed Workspace Shell writes commit Workspace Session changes back into the Workspace.
 With `source`, ViteHub still uses normal Workspace Source materialization, visibility, and Agent inspection metadata. `skills()` does not fetch source files at invocation time.
-Global sources are materialized into an ephemeral harness profile for the session. Codex receives an isolated `CODEX_HOME` containing those Skills, an empty `config.toml`, and only the available authentication file from the configured Box or host profile.
+Global sources are materialized into an ephemeral harness profile for the session. Codex receives an isolated `CODEX_HOME` containing those Skills plus the available `auth.json` and `config.toml` from the configured Box or host profile. ViteHub discards invocation-created Codex state when the session closes.
 
 ## Requirements
 

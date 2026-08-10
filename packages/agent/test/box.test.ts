@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -9,6 +9,7 @@ import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
 const harnessObservation = vi.hoisted(() => ({
+  additionalGlobalSkill: undefined as string | undefined,
   before: undefined as string | undefined,
   command: false,
   exitCode: undefined as number | undefined,
@@ -17,7 +18,6 @@ const harnessObservation = vi.hoisted(() => ({
   generateCount: 0,
   globalSkill: "global",
   live: undefined as string | undefined,
-  requiredCodexStates: [] as string[],
 }))
 
 vi.mock("@ai-sdk/harness/agent", () => ({
@@ -64,7 +64,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         return { text: live }
       }
       const result = await session.host.run({
-        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/${harnessObservation.globalSkill}/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; ${harnessObservation.requiredCodexStates.map(state => `test -f "$codex_home/${state}"; `).join("")}printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
+        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/${harnessObservation.globalSkill}/SKILL.md"; ${harnessObservation.additionalGlobalSkill ? `test -f "$codex_home/skills/${harnessObservation.additionalGlobalSkill}/SKILL.md"; ` : ""}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -78,6 +78,7 @@ const exec = promisify(execFile)
 
 afterEach(async () => {
   harnessSettings.length = 0
+  harnessObservation.additionalGlobalSkill = undefined
   harnessObservation.command = false
   harnessObservation.before = undefined
   harnessObservation.exitCode = undefined
@@ -86,7 +87,6 @@ afterEach(async () => {
   harnessObservation.generateCount = 0
   harnessObservation.globalSkill = "global"
   harnessObservation.live = undefined
-  harnessObservation.requiredCodexStates = []
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -192,7 +192,7 @@ describe("Agent Box", () => {
           },
         },
       })
-      harnessObservation.globalSkill = "review"
+      harnessObservation.additionalGlobalSkill = "review"
 
       const result = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -210,24 +210,7 @@ describe("Agent Box", () => {
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
       await expect(stat(codexHome)).rejects.toMatchObject({ code: "ENOENT" })
-      harnessObservation.requiredCodexStates = ["session-state-1"]
-      await expect(Promise.all([1, 2].map(() => runAgent(agent, {
-        memo: vi.fn((_key, create) => create()),
-        runtime: "vite",
-        waitUntil: vi.fn(),
-      }, {
-        options: { worktreePath: worktree },
-        prompt: "Continue repairing the project concurrently.",
-      })))).resolves.toHaveLength(2)
-      harnessObservation.requiredCodexStates = ["session-state-2", "session-state-3"]
-      await expect(runAgent(agent, {
-        memo: vi.fn((_key, create) => create()),
-        runtime: "vite",
-        waitUntil: vi.fn(),
-      }, {
-        options: { worktreePath: worktree },
-        prompt: "Continue repairing the project.",
-      })).resolves.toMatchObject({ text: expect.any(String) })
+      expect((await readdir(stateRoot, { recursive: true })).some(path => path.includes("session-state-1"))).toBe(false)
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }

@@ -1,5 +1,12 @@
+import { execFile } from "node:child_process"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
+
 import { describe, expect, it, vi } from "vitest"
 
+const execFileAsync = promisify(execFile)
 const createCodex = vi.hoisted(() => vi.fn(settings => ({ provider: "codex", settings })))
 
 vi.mock("@ai-sdk/harness-codex", () => ({
@@ -236,55 +243,67 @@ describe("createCodexDriver", () => {
       .toBe(".vitehub/codex-home-invocation-1/skills")
   })
 
-  it("uses Box-owned Codex Home without replacing its authentication state", async () => {
-    const { createCodexDriver } = await import("../src/harness/codex.ts")
-    const run = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
-    const restrictedRun = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
-    const rawSession = {
-      defaultWorkingDirectory: "/sandbox/run-1",
-      env: { CODEX_HOME: "/box/.codex", HOME: "/box" },
-      restricted: () => ({ run: restrictedRun, spawn: vi.fn() }),
-      run,
-      spawn: vi.fn(),
-    }
-    const provider = {
-      specificationVersion: "harness-sandbox-v1",
-      async createSession(options: { onFirstCreate?: (session: object, context: object) => Promise<void> }) {
-        await options.onFirstCreate?.(rawSession, {})
-        return rawSession
-      },
-    }
-    const driver = createCodexDriver({ sandbox: provider })
-    const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessInvocationSandboxAdapter")] as (provider: object, options: { box: boolean, defaultSandbox: boolean, invocation: { id: string, isolateBoxHome: boolean } }) => { createSession: () => Promise<typeof rawSession> }
-    const invocation = { id: "invocation-1", isolateBoxHome: true }
-    const session = await adaptSandbox(provider, { box: true, defaultSandbox: false, invocation }).createSession()
+  it("keeps isolated Box Codex Homes selective and disposable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-codex-home-"))
+    const boxHome = join(root, "box")
+    const ambientHome = join(boxHome, ".codex")
+    const sessionEnv = { CODEX_HOME: ambientHome, HOME: boxHome }
+    await mkdir(join(ambientHome, "sessions"), { recursive: true })
+    await writeFile(join(ambientHome, "auth.json"), "ambient-auth")
+    await writeFile(join(ambientHome, "config.toml"), "model = 'gpt-5.5'")
+    await writeFile(join(ambientHome, "sessions", "ambient.jsonl"), "ambient-session")
 
-    const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => Promise<{ close: (error?: unknown) => Promise<void> } | undefined>
-    const prepared = await prepareSession(session, invocation)
+    try {
+      const { createCodexDriver } = await import("../src/harness/codex.ts")
+      const run = vi.fn(async (options: { command: string, env?: Record<string, string | undefined> }) => {
+        const { stderr, stdout } = await execFileAsync("/bin/sh", ["-c", options.command], {
+          env: { ...process.env, ...sessionEnv, ...options.env },
+        })
+        return { exitCode: 0, stderr, stdout }
+      })
+      const rawSession = {
+        defaultWorkingDirectory: join(root, "workspace"),
+        env: sessionEnv,
+        restricted: () => ({ run, spawn: vi.fn() }),
+        run,
+        spawn: vi.fn(),
+      }
+      const provider = {
+        specificationVersion: "harness-sandbox-v1",
+        async createSession() {
+          return rawSession
+        },
+      }
+      const driver = createCodexDriver({ sandbox: provider })
+      const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessInvocationSandboxAdapter")] as (provider: object, options: { box: boolean, defaultSandbox: boolean, invocation: { id: string, isolateBoxHome: boolean } }) => { createSession: () => Promise<typeof rawSession> }
+      const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object, invocation?: { id: string, isolateBoxHome: boolean }) => Promise<{ close: (error?: unknown) => Promise<void> } | undefined>
+      const firstInvocation = { id: "invocation-1", isolateBoxHome: true }
+      const secondInvocation = { id: "invocation-2", isolateBoxHome: true }
+      const firstHome = join(boxHome, ".vitehub", "codex-home-invocation-1")
+      const secondHome = join(boxHome, ".vitehub", "codex-home-invocation-2")
+      const first = await prepareSession(await adaptSandbox(provider, { box: true, defaultSandbox: false, invocation: firstInvocation }).createSession(), firstInvocation)
 
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining('export VITEHUB_AMBIENT_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/.vitehub/codex-home-invocation-1";'),
-    }))
-    expect(run.mock.calls[0][0].command).toContain('ambient_home="${VITEHUB_AMBIENT_CODEX_HOME:-$HOME/.codex}"')
-    expect(run.mock.calls[0][0].command).toContain('cp -R "$ambient_home"/. "$codex_home"')
-    expect(run.mock.calls[0][0].command).toContain('rm -rf -- "$codex_home/skills/$managed"')
-    expect(run.mock.calls[0][0].command).toContain('manifest="$codex_home/skills/.vitehub-colocated"')
-    expect(run.mock.calls[0][0].command).toContain('baseline="$codex_home.vitehub-baseline"')
-    await session.run({ command: "codex exec" })
-    expect(run).toHaveBeenLastCalledWith({
-      command: 'export VITEHUB_AMBIENT_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/.vitehub/codex-home-invocation-1"; codex exec',
-    })
-    await session.restricted().run({ command: "codex exec" })
-    expect(restrictedRun).toHaveBeenCalledWith({
-      command: 'export VITEHUB_AMBIENT_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"; export CODEX_HOME="$HOME/.vitehub/codex-home-invocation-1"; codex exec',
-    })
-    await prepared?.close()
-    expect(run).toHaveBeenLastCalledWith({
-      command: expect.stringMatching(/rm -rf -- "\$codex_home\/skills\/\$managed".*find "\$baseline" -type f.*cmp -s.*cp -R "\$codex_home"\/\. "\$ambient_home".*if \[ "\$status" -eq 0 \]; then rm -rf/),
-    })
-    expect(run.mock.calls.at(-1)?.[0].command).toContain('"$codex_home/skills/.vitehub-colocated"')
-    expect(run.mock.calls.at(-1)?.[0].command).toContain('"$baseline/skills/$managed"')
-    expect(run.mock.calls.at(-1)?.[0].command).toContain('cmp -s "$seeded" "$ambient_home/$relative"')
+      expect(await readFile(join(firstHome, "auth.json"), "utf8")).toBe("ambient-auth")
+      expect(await readFile(join(firstHome, "config.toml"), "utf8")).toBe("model = 'gpt-5.5'")
+      await expect(access(join(firstHome, "sessions", "ambient.jsonl"))).rejects.toThrow()
+      await writeFile(join(firstHome, "invocation-state.json"), "first")
+
+      const second = await prepareSession(await adaptSandbox(provider, { box: true, defaultSandbox: false, invocation: secondInvocation }).createSession(), secondInvocation)
+      expect(await readFile(join(secondHome, "auth.json"), "utf8")).toBe("ambient-auth")
+      await expect(access(join(secondHome, "invocation-state.json"))).rejects.toThrow()
+
+      await first?.close()
+      await second?.close()
+      await expect(access(firstHome)).rejects.toThrow()
+      await expect(access(secondHome)).rejects.toThrow()
+      expect(await readFile(join(ambientHome, "auth.json"), "utf8")).toBe("ambient-auth")
+      expect(await readFile(join(ambientHome, "config.toml"), "utf8")).toBe("model = 'gpt-5.5'")
+      expect(await readFile(join(ambientHome, "sessions", "ambient.jsonl"), "utf8")).toBe("ambient-session")
+      await expect(access(join(ambientHome, "invocation-state.json"))).rejects.toThrow()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("discards the isolated Box Codex Home when harness preparation fails", async () => {
@@ -297,7 +316,7 @@ describe("createCodexDriver", () => {
     await prepared?.close(new Error("materialization failed"))
 
     expect(run).toHaveBeenLastCalledWith({
-      command: 'rm -rf -- "$HOME/.vitehub/codex-home-failed-invocation" "$HOME/.vitehub/codex-home-failed-invocation.vitehub-baseline"',
+      command: 'rm -rf -- "$HOME/.vitehub/codex-home-failed-invocation"',
     })
     expect(run.mock.calls.at(-1)?.[0].command).not.toContain("cp -R")
   })

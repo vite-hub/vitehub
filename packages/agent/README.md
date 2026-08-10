@@ -87,9 +87,9 @@ export default defineAgent({
 });
 ```
 
-Put Agent-owned Skills under `server/agents/codex/skills/`; discovery materializes them into the Harness Workspace and the isolated Codex profile automatically. Use `skills()` for Workspace-backed or external Source Skills.
+Put Agent-owned Skills under `server/agents/codex/skills/`; discovery materializes them into the Harness Workspace and the isolated Codex profile automatically. For a Box-backed Codex Agent, ViteHub seeds that invocation profile with only `.codex/auth.json` and `.codex/config.toml`, installs the managed Skills, and deletes the profile on close. Other Box Codex files are not copied, and invocation-created Codex state is not written back. Use `skills()` for Workspace-backed or external Source Skills.
 
-Put static Box Home files under `server/agents/codex/home/`; discovery embeds dotfiles and binary files into `box.home.files`. Use `box.home.state` for credentials or other files that must refresh or persist.
+Put static Box Home files under `server/agents/codex/home/`; discovery embeds dotfiles and binary files into `box.home.files`. Use `box.home.state` for credentials or other durable files updated directly through the Box Home.
 
 Use `driver: "codex"` or `driver: "claude-code"` for the defaults. Use a tagged value such as `{ kind: "claude-code", model, maxTurns }` when configuration is needed. The Claude Code default owns a local harness sandbox; use `{ kind: "claude-code", sandbox: false }` when a Box should own its process environment and working directory.
 
@@ -159,7 +159,7 @@ export default defineAgent<any, { ref: string; remote: string; sha: string }>({
 
 `checkout` fetches one invocation-resolved Git ref, verifies its full SHA, and runs the harness in an isolated detached checkout with normal commit and explicit-push behavior. The Box deletes it on completion or boot failure. Use `cwd` instead for a caller-owned authoritative directory; the two modes are mutually exclusive.
 
-`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists CLI refreshes under an exclusive session lease, and resolves its seed only when state does not exist. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. The `"codex"` driver contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine `box.cwd` or `box.checkout` with Agent Workspace materialization.
+`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists changes made directly against the mounted state under an exclusive session lease, and resolves its seed only when state does not exist. An isolated Codex profile treats Box state as its authentication and configuration seed; its own changes are disposable. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. The `"codex"` driver contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine `box.cwd` or `box.checkout` with Agent Workspace materialization.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
