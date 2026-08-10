@@ -50,6 +50,7 @@ describe("gmail capability", () => {
     expect(read.bash).toBeUndefined()
     expect(Object.keys(readRuntime.tools).sort()).toEqual(["gmail_auth", "gmail_search"])
     expect(readWorkspace.sources["skill.gmail"]!.content).toContain("Use `gmail_search`")
+    expect(readWorkspace.sources["skill.gmail"]!.content).toContain("authorization codes separately from the required full redirect URL")
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("gog")
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("shell")
     expect(() => gmail({ mode: "send" as never })).toThrow('must be "read" or "draft"')
