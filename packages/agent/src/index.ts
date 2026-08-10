@@ -2143,7 +2143,7 @@ function withEagerStreamUsageExtensions<
       : undefined
     const deferUsageUntilComplete = providerMetadata && typeof providerMetadata === "object"
       && typeof (providerMetadata as { then?: unknown }).then === "function"
-    let terminalChunks: unknown[] | undefined
+    let deferredUsage: AgentUsageRecord | undefined
 
     const enrichUsageChunk = async (chunk: unknown, rawUsageRecord: AgentUsageRecord): Promise<unknown[]> => {
       const usageSource = result && typeof result === "object" ? Object.create(result) : {}
@@ -2188,26 +2188,21 @@ function withEagerStreamUsageExtensions<
     }
 
     for await (const chunk of stream) {
-      if (terminalChunks) {
-        terminalChunks.push(chunk)
-        continue
-      }
       const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!rawUsageRecord) {
         yield chunk
         continue
       }
       if (deferUsageUntilComplete) {
-        terminalChunks = [chunk]
+        deferredUsage = rawUsageRecord
+        yield chunk
         continue
       }
       yield* await enrichUsageChunk(chunk, rawUsageRecord)
     }
 
-    for (const chunk of terminalChunks ?? []) {
-      const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
-      if (rawUsageRecord) yield* await enrichUsageChunk(chunk, rawUsageRecord)
-      else yield chunk
+    if (deferredUsage) {
+      yield* await enrichUsageChunk(undefined, deferredUsage)
     }
   })()
 }

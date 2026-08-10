@@ -219,6 +219,32 @@ describe("usage context", () => {
     expect(pricing).not.toHaveBeenCalled()
   })
 
+  it("exposes usage before promised provider metadata settles", async () => {
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [cost({ pricing: () => undefined })],
+      driver: { run: () => {
+        const stream = (async function* () {
+          yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+          await new Promise(() => {})
+        })()
+        Object.defineProperty(stream, "providerMetadata", { value: new Promise(() => {}) })
+        return stream
+      } },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    const first = stream[Symbol.asyncIterator]().next()
+
+    await expect(Promise.race([
+      first,
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
+    ])).resolves.toMatchObject({
+      value: { type: "usage", usageRecord: { usage: { totalTokens: 4 } } },
+    })
+  })
+
   it("exposes non-token usage details in the invocation record", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
