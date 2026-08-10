@@ -718,9 +718,10 @@ async function getAgentWorkflowHandle<
 }
 
 async function portableAgentWorkflowRunId(runId: string): Promise<string> {
-  if (/^[a-zA-Z0-9_][a-zA-Z0-9-_]{0,99}$/.test(runId)) return runId
+  const generatedPrefix = "vitehub-invalid-"
+  if (/^[a-zA-Z0-9_][a-zA-Z0-9-_]{0,99}$/.test(runId) && !runId.startsWith(generatedPrefix)) return runId
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(runId))
-  return `agent-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
+  return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 function workflowAttachmentBase64(data: Uint8Array): string {

@@ -542,6 +542,17 @@ describe("workflow runtime", () => {
     const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
     const converted = new Error("non-retryable: invalid input")
     const createNonRetryableError = vi.fn(() => converted)
+    const step = {
+      do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => {
+        try {
+          return await run()
+        }
+        catch (error) {
+          expect(error).toBe(converted)
+          throw error
+        }
+      }),
+    } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
       config: { provider: "cloudflare" },
@@ -552,9 +563,11 @@ describe("workflow runtime", () => {
       registry: {
         welcome: async () => ({ default: { handler: async () => { throw original } } }),
       },
+      step,
     })).rejects.toBe(converted)
 
     expect(createNonRetryableError).toHaveBeenCalledWith(original)
+    expect(step.do).toHaveBeenCalledOnce()
   })
 
   it("isolates overlapping Cloudflare fetch environments", async () => {

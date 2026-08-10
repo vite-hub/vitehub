@@ -3,7 +3,7 @@ import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/
 import { runWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
-import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
 
 export interface CloudflareWorkflowEvent {
   id?: string
@@ -25,9 +25,36 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
   return error instanceof Error && (error as { isRetryable?: unknown }).isRetryable === false
 }
 
+function translateNonRetryableError(
+  error: unknown,
+  createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
+): unknown {
+  return createNonRetryableError && isNonRetryableError(error) ? createNonRetryableError(error) : error
+}
+
+function wrapCloudflareWorkflowStep(
+  step: WorkflowProviderStep | undefined,
+  createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
+): WorkflowProviderStep | undefined {
+  if (!step?.do || !createNonRetryableError) return step
+  return {
+    async do<TResult>(name: string, options: WorkflowStepOptions, run: () => TResult | Promise<TResult>): Promise<TResult> {
+      return await step.do!(name, options, async () => {
+        try {
+          return await run()
+        }
+        catch (error) {
+          throw translateNonRetryableError(error, createNonRetryableError)
+        }
+      })
+    },
+  }
+}
+
 export async function runCloudflareWorkflow({ config, createNonRetryableError, env, event, name, registry, step }: RunCloudflareWorkflowOptions): Promise<unknown> {
   setWorkflowRuntimeConfig(config)
   setWorkflowRuntimeRegistry(registry)
+  const providerStep = wrapCloudflareWorkflowStep(step, createNonRetryableError)
 
   return await runWithActiveCloudflareEnv(env, async () => {
     const definition = await loadWorkflowDefinition(name)
@@ -36,17 +63,16 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
     }
 
     try {
-      return await runWithWorkflowRuntimeEvent({ env, step }, () => runWorkflowHandler({
+      return await runWithWorkflowRuntimeEvent({ env, step: providerStep }, () => runWorkflowHandler({
         id: event?.instanceId || event?.id,
         name,
         payload: event?.payload,
         provider: "cloudflare",
-        step,
+        step: providerStep,
       }, definition))
     }
     catch (error) {
-      if (createNonRetryableError && isNonRetryableError(error)) throw createNonRetryableError(error)
-      throw error
+      throw translateNonRetryableError(error, createNonRetryableError)
     }
   })
 }

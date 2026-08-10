@@ -60,13 +60,55 @@ function waitUntil(promise: Promise<unknown>): void {
   void Promise.resolve(promise).catch(() => {})
 }
 
-function portableWorkflowResult(result: unknown): unknown {
+const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
+
+function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  try {
+    return structuredClone(value)
+  }
+  catch {}
+
+  if (!value || typeof value !== "object") return unportableWorkflowValue
+  const existing = seen.get(value)
+  if (existing) return existing
+  if (Array.isArray(value)) {
+    const projected: unknown[] = []
+    seen.set(value, projected)
+    for (const item of value) {
+      const portable = portableWorkflowValue(item, seen)
+      projected.push(portable === unportableWorkflowValue ? undefined : portable)
+    }
+    return projected
+  }
+
+  const projected: Record<string, unknown> = {}
+  seen.set(value, projected)
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "raw") continue
+    const portable = portableWorkflowValue(item, seen)
+    if (portable !== unportableWorkflowValue) projected[key] = portable
+  }
+  return projected
+}
+
+async function portableWorkflowResult(result: unknown): Promise<unknown> {
+  if (result instanceof Response) {
+    const text = await result.text()
+    return {
+      raw: {
+        headers: Object.fromEntries(result.headers),
+        status: result.status,
+        statusText: result.statusText,
+      },
+      text,
+    } satisfies AgentRunResult
+  }
   try {
     return structuredClone(result)
   }
   catch {
     const { raw: _raw, ...normalized } = toAgentRunResult(result)
-    return structuredClone(normalized)
+    return portableWorkflowValue(normalized)
   }
 }
 
@@ -97,7 +139,7 @@ export async function runAgentWorkflowDefinition<
     waitUntil,
   } as never)
 
-  return portableWorkflowResult(await runAgentInline(
+  return await portableWorkflowResult(await runAgentInline(
     agent,
     runtimeContext,
     payload.resolvedInvoker

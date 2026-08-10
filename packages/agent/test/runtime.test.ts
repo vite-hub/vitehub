@@ -10753,7 +10753,12 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: () => ({ provider: { request: () => "raw" }, text: "portable text" }) },
+        driver: { run: () => ({
+          provider: { request: () => "raw" },
+          text: "portable text",
+          usageRecord: { raw: { inspect: () => "provider usage" }, usage: { inputTokens: 3 } },
+          warnings: [{ inspect: () => "provider warning", message: "portable warning" }],
+        }) },
       })
       const run = await runAgent(agent, {
         agentIdentity: { name: "portable-result" },
@@ -10764,9 +10769,52 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completed = await getWorkflowRun("portable-result", run.id)
-      expect(completed).toMatchObject({ result: { text: "portable text" }, status: "completed" })
+      expect(completed).toMatchObject({
+        result: {
+          text: "portable text",
+          usageRecord: { usage: { inputTokens: 3 } },
+          warnings: [{ message: "portable warning" }],
+        },
+        status: "completed",
+      })
       expect(completed.result).not.toHaveProperty("provider")
+      expect(completed.result).not.toHaveProperty("usageRecord.raw")
       expect(() => structuredClone(completed.result)).not.toThrow()
+    })
+
+    it("serializes Response results before Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => new Response("portable response", {
+          headers: { "content-type": "text/plain", "x-agent": "portable" },
+          status: 202,
+          statusText: "Accepted",
+        }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-response" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("portable-response", run.id)).resolves.toMatchObject({
+        result: {
+          raw: {
+            headers: { "content-type": "text/plain", "x-agent": "portable" },
+            status: 202,
+            statusText: "Accepted",
+          },
+          text: "portable response",
+        },
+        status: "completed",
+      })
     })
 
     it("preserves only the request URL across Agent Workflows", async () => {
@@ -11546,7 +11594,8 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      const workflowRunId = "agent-3f69a017b830c1f1fff0bccb6bee512d714787164444d45f1a92c14b11a3ff37"
+      const workflowRunId = "vitehub-invalid-3f69a017b830c1f1fff0bccb6bee512d714787164444d45f1a92c14b11a3ff37"
+      let consumerRunId = "telegram:42:103"
       setWorkflowRuntimeConfig({ provider: "cloudflare" })
 
       const agent = defineAgent({
@@ -11556,7 +11605,7 @@ describe("agent message protocol", () => {
             message: {
               invoke: () => ({
                 input: { prompt: "hello" },
-                run: { origin: "telegram", runId: "telegram:42:103" },
+                run: { origin: "telegram", runId: consumerRunId },
               }),
             },
           },
@@ -11576,6 +11625,15 @@ describe("agent message protocol", () => {
         result: workflowRunId,
         status: "completed",
       })
+
+      consumerRunId = workflowRunId
+      const reservedRun = await runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "cloudflare-agents",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, "telegram.message", {}) as { id: string }
+      expect(reservedRun.id).not.toBe(workflowRunId)
+      expect(reservedRun.id).toMatch(/^vitehub-invalid-[a-f0-9]{64}$/)
     })
 
     it("passes explicit Cloudflare env through workflow inline fallback", async () => {
