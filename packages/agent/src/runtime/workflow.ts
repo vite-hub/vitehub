@@ -70,7 +70,7 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
   seen.add(value)
   if (Array.isArray(value)) return value.every(item => item === undefined || isJsonWorkflowValue(item, seen))
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return false
-  if (value instanceof Date) return Number.isFinite(value.getTime())
+  if (value instanceof Date) return false
   return Object.values(value).every(item => item === undefined || isJsonWorkflowValue(item, seen))
 }
 
@@ -95,7 +95,7 @@ function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknow
   if (typeof value === "number") return Number.isFinite(value) ? value : unportableWorkflowValue
   if (!value || typeof value !== "object") return unportableWorkflowValue
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : unportableWorkflowValue
+  if (value instanceof Date) return unportableWorkflowValue
   if (seen.has(value)) return unportableWorkflowValue
   if (Array.isArray(value)) {
     const projected: unknown[] = []
@@ -135,7 +135,13 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   }
   const jsonResult = jsonWorkflowValue(result)
   if (jsonResult !== unportableWorkflowValue) return jsonResult
-  const projected = portableWorkflowValue(result)
+  const agentResultKeys = ["artifacts", "finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
+  if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) {
+    const error = new TypeError("Agent Workflow results must contain only JSON-compatible values.") as TypeError & { isRetryable: false }
+    error.isRetryable = false
+    throw error
+  }
+  const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(toAgentRunResult(result))
   const jsonProjected = jsonWorkflowValue(projected)
   if (jsonProjected !== unportableWorkflowValue) return jsonProjected
   const { raw: _raw, ...normalized } = toAgentRunResult(result)
