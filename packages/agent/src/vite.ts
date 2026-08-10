@@ -43,6 +43,7 @@ const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
 const generatedAgentDenoServer = "agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = "agent/discord-gateway-route.ts"
+const generatedAgentDiscordGatewayPlugin = "agent/discord-gateway-plugin.ts"
 const generatedAgentWebhookRouteHandler = "agent/chat-webhook-route.ts"
 const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
 const generatedAgentNetlifyFunction = "agent/netlify-function.mjs"
@@ -99,6 +100,7 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
 interface InternalAgentModuleOptions extends AgentModuleOptions {
   cloudflareStateImport?: string
   importBase?: string
+  processDiscordGateway?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
   scheduleRuntimeImport?: string
@@ -1720,7 +1722,7 @@ async function generateAgentDeploymentCatalog(
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -1742,6 +1744,7 @@ async function generateAgentWebhookRouteHandler(
     : options.libsqlState
       ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, "
       : ""
+  const gatewayStateOption = options.libsqlState ? "state: viteHubChatStateResolver, " : ""
 
   return [
     ...deploymentCatalog.imports,
@@ -1752,6 +1755,7 @@ async function generateAgentWebhookRouteHandler(
         ]
       : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
+    ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -1775,6 +1779,57 @@ async function generateAgentWebhookRouteHandler(
     "",
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
+    ...(options.processDiscordGateway
+      ? [
+          "function hasDiscordGatewayChannel(agent: unknown): boolean {",
+          "  if (!agent || typeof agent !== 'object' || !('channels' in agent) || !agent.channels || typeof agent.channels !== 'object') return false",
+          "  return Object.values(agent.channels).some(channel => {",
+          "    const definition = channel as { adapter?: unknown, kind?: unknown, messages?: unknown } | undefined",
+          "    return definition?.kind === 'discord' && Boolean(definition.adapter) && definition.messages !== false",
+          "  })",
+          "}",
+          "",
+          "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasDiscordGatewayChannel(agent)).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
+          `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
+          "const discordGatewayDurationMs = Number(process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS || '') || defaultDiscordGatewayDurationMs",
+          `const discordGatewayRetryMs = ${JSON.stringify(5 * 1000)}`,
+          "",
+          "function waitForDiscordGatewayRetry(signal: AbortSignal): Promise<void> {",
+          "  if (signal.aborted) return Promise.resolve()",
+          "  return new Promise(resolve => {",
+          "    const done = () => {",
+          "      clearTimeout(timer)",
+          "      signal.removeEventListener('abort', done)",
+          "      resolve()",
+          "    }",
+          "    const timer = setTimeout(done, discordGatewayRetryMs)",
+          "    signal.addEventListener('abort', done, { once: true })",
+          "  })",
+          "}",
+          "",
+          "export function startDiscordGateways(): () => Promise<void> {",
+          "  const controller = new AbortController()",
+          "  const running = Promise.all(Object.entries(discordGatewayHandlers).map(async ([name, handler]) => {",
+          "    while (!controller.signal.aborted) {",
+          "      try {",
+          `        const response = await handler(new Request("http://vitehub.local/api/_vitehub/agents/" + encodeURIComponent(name) + "/discord/gateway"), { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}${gatewayStateOption}abortSignal: controller.signal, durationMs: discordGatewayDurationMs })`,
+          "        if (!response.ok) throw new Error(`Discord Gateway listener failed with ${response.status}.`)",
+          "      }",
+          "      catch (error) {",
+          "        if (controller.signal.aborted) break",
+          "        console.error('[vitehub:agent] Discord Gateway listener failed and will retry.', error)",
+          "        await waitForDiscordGatewayRetry(controller.signal)",
+          "      }",
+          "    }",
+          "  }))",
+          "  return async () => {",
+          "    controller.abort()",
+          "    await running",
+          "  }",
+          "}",
+          "",
+        ]
+      : []),
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     "",
@@ -1900,7 +1955,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
@@ -1910,6 +1965,29 @@ async function writeAgentWebhookRouteHandler(
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
+  const gatewayPluginPath = join(root, generatedAgentDiscordGatewayPlugin)
+  if (options.processDiscordGateway) {
+    await writeFile(gatewayPluginPath, [
+      `import { startDiscordGateways } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      "",
+      "export default function viteHubDiscordGatewayPlugin(nitroApp) {",
+      "  const stop = startDiscordGateways()",
+      "  let stopping",
+      "  const nodeProcess = typeof process === 'object' && process?.release?.name === 'node' ? process : undefined",
+      "  const shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listenerCount(signal))",
+      "  function stopDiscordGateways() {",
+      "    for (const signal of shutdownSignals) nodeProcess?.off(signal, stopDiscordGateways)",
+      "    return stopping ||= stop()",
+      "  }",
+      "  for (const signal of shutdownSignals) nodeProcess?.prependOnceListener(signal, stopDiscordGateways)",
+      "  nitroApp.hooks.hook('close', stopDiscordGateways)",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+  }
+  else {
+    await rm(gatewayPluginPath, { force: true })
+  }
   const queuePluginPath = join(root, generatedAgentWebhookQueuePlugin)
   if (options.libsqlState) {
     await writeFile(queuePluginPath, [
@@ -2279,6 +2357,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
+    const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
     const schedule = hasScheduleVitePlugin(config)
     const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     const generatedRoot = resolveViteHubGeneratedRoot(config)
@@ -2308,6 +2387,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           chatRoute: normalized.routes.chat,
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
           libsqlState: resolveLibsqlAgentState(normalized, config),
+          processDiscordGateway,
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
           schedule,
@@ -2317,7 +2397,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
         }, definitionServerDirs)
-        if (normalized.routes.discordGateway) {
+        if (normalized.routes.discordGateway && !processDiscordGateway) {
           await writeAgentDiscordGatewayRouteHandler(generatedRoot, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
             discordGatewayRoute: normalized.routes.discordGateway,
@@ -2393,6 +2473,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           moduleIds.push(...[
             generatedAgentDenoServer,
             generatedAgentDiscordGatewayRouteHandler,
+            generatedAgentDiscordGatewayPlugin,
             generatedAgentNetlifyFunction,
             generatedAgentWebhookRouteHandler,
             generatedAgentWebhookQueuePlugin,
@@ -2513,6 +2594,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         && !installCloudflareState
         && (stateProvider === "auto" || stateProvider === "sqlite" || stateProvider === "libsql"),
       )
+      const installProcessDiscordGateway = Boolean(
+        resolved
+        && hasHostedAgents
+        && !denoOutput
+        && getInternalAgentOptions(agent)?.processDiscordGateway,
+      )
       const nitroHandlers = [
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.chat
           ? [{
@@ -2526,7 +2613,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
-        ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.discordGateway
+        ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.discordGateway && !installProcessDiscordGateway
           ? [{
               handler: join(generatedRoot, generatedAgentDiscordGatewayRouteHandler),
               route: normalizeNitroRoute(resolved.routes.discordGateway),
@@ -2541,7 +2628,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
       const mergedNitro = (nitroContext ? mergeAgentNitroExternals : cloneNitroConfig)(mergeNitroPlugins(
         mergeNitroHandlers(nitro, nitroHandlers),
-        installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : [],
+        [
+          ...(installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : []),
+          ...(installProcessDiscordGateway ? [join(generatedRoot, generatedAgentDiscordGatewayPlugin)] : []),
+        ],
       ))
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
@@ -2554,7 +2644,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               build: mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals),
             }
           : {}),
-        ...(nitroContext || nitroHandlers.length || installCloudflareState
+        ...(nitroContext || nitroHandlers.length || installCloudflareState || installProcessDiscordGateway
           ? {
               nitro: mergedNitro,
             }

@@ -126,7 +126,9 @@ export default defineAgent({
 })
 ```
 
-Set `routes.discordGateway: true` on `hubAgent()` when the deployment needs a generated Nitro route that wakes the Discord Gateway listener and forwards events into the Agent webhook route. The default route is `/api/_vitehub/agents/[agent]/discord/gateway`; set the required production `VITEHUB_DISCORD_GATEWAY_SECRET` bearer token, `VITEHUB_DISCORD_GATEWAY_DURATION_MS` to tune listener duration, or `VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL` when the generated webhook URL is not externally reachable.
+The `node` deployment preset starts Discord Gateway listeners inside the generated Nitro process and closes them with the application. Run one application replica and keep one operating-system or container supervisor for that process; a separate gateway script, timer, or service is unnecessary.
+
+On request-isolated hosts, set `routes.discordGateway: true` on `hubAgent()` to generate a protected route that wakes the Discord Gateway listener and forwards events into the Agent webhook route. The default route is `/api/_vitehub/agents/[agent]/discord/gateway`; set the required production `VITEHUB_DISCORD_GATEWAY_SECRET` bearer token, `VITEHUB_DISCORD_GATEWAY_DURATION_MS` to tune listener duration, or `VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL` when the generated webhook URL is not externally reachable.
 
 ## Telegram
 

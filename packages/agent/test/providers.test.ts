@@ -1202,6 +1202,45 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("owns Discord Gateway listeners in the Node process", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-process-discord-gateway-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ processDiscordGateway: true, routes: { discordGateway: true } } as never)
+      const config = typeof plugin.config === "function"
+        ? await plugin.config.call({} as never, { root }, { command: "build", mode: "production" })
+        : undefined
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "build", plugins: [], root } as never)
+      }
+
+      expect(config).toMatchObject({
+        nitro: {
+          plugins: expect.arrayContaining([join(root, ".vitehub/agent/discord-gateway-plugin.ts")]),
+        },
+      })
+      expect((config as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: "/api/_vitehub/agents/**:agent/discord/gateway" }),
+      ]))
+      const gatewayPlugin = await readFile(join(root, ".vitehub/agent/discord-gateway-plugin.ts"), "utf8")
+      expect(gatewayPlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listenerCount(signal))")
+      expect(gatewayPlugin).toContain("nodeProcess?.prependOnceListener(signal, stopDiscordGateways)")
+      expect(gatewayPlugin).toContain("nitroApp.hooks.hook('close', stopDiscordGateways)")
+      await expect(readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")).rejects.toThrow()
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+      expect(webhookRoute).toContain("export function startDiscordGateways()")
+      expect(webhookRoute).toContain("abortSignal: controller.signal")
+      expect(webhookRoute).toContain("process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS")
+      expect(webhookRoute).toContain("if (signal.aborted) return Promise.resolve()")
+      expect(webhookRoute).not.toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("injects the canonical Schedule runtime into generated hosted Agent routes", async () => {
     const { hubSchedule } = await import("../../schedule/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
@@ -5301,6 +5340,91 @@ describe("server helpers", () => {
       undefined,
       "https://example.com/api/_vitehub/agents/support/webhooks/alerts-events",
     )
+  })
+
+  it("starts Discord Gateway in process and closes the chat", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const disconnect = vi.fn(async () => {})
+    let finishListener!: () => void
+    const listener = new Promise<void>(resolve => {
+      finishListener = resolve
+    })
+    const startGatewayListener = vi.fn(async (options: { waitUntil?: (promise: Promise<unknown>) => void }) => {
+      options.waitUntil?.(listener)
+      return Response.json({ ok: true })
+    })
+    const stateRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-process-gateway-state-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateRoot, "state.sqlite")}` })
+    const disconnectState = vi.spyOn(state, "disconnect")
+    const stateResolver = Object.assign(() => state, { ownsScope: false })
+    const adapter = {
+      ...createTestChatAdapter(),
+      disconnect,
+      name: "discord",
+      startGatewayListener,
+    }
+    const agent = defineAgent({
+      channels: {
+        support: discord({ adapter: () => adapter as never }),
+      },
+      driver: { run: vi.fn() },
+    })
+    const abortController = new AbortController()
+
+    const responsePromise = createDiscordGatewayRouteHandler(agent as never)(
+      new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"),
+      { abortSignal: abortController.signal, state: stateResolver },
+    )
+
+    await vi.waitFor(() => expect(startGatewayListener).toHaveBeenCalledOnce())
+    let settled = false
+    void responsePromise.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finishListener()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+    expect(startGatewayListener).toHaveBeenCalledWith(
+      expect.objectContaining({ waitUntil: expect.any(Function) }),
+      undefined,
+      abortController.signal,
+      undefined,
+    )
+    expect(disconnect).toHaveBeenCalledOnce()
+    expect(disconnectState).not.toHaveBeenCalled()
+    await state.disconnect()
+    await rm(stateRoot, { force: true, recursive: true })
+  })
+
+  it("keeps request-isolated Discord Gateway chats alive for background listener work", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const disconnect = vi.fn(async () => {})
+    const adapter = {
+      ...createTestChatAdapter(),
+      disconnect,
+      name: "discord",
+      startGatewayListener: vi.fn(async () => Response.json({ ok: true })),
+    }
+    const agent = defineAgent({
+      channels: { support: discord({ adapter: () => adapter as never }) },
+      driver: { run: vi.fn() },
+    })
+
+    const response = await createDiscordGatewayRouteHandler(agent as never)(
+      new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"),
+      { webhookUrl: "https://example.com/api/_vitehub/agents/support/webhooks/support" },
+    )
+
+    expect(response.status).toBe(200)
+    expect(disconnect).not.toHaveBeenCalled()
   })
 
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {

@@ -158,6 +158,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
       importBase: "vite-hub/_internal/agent",
+      processDiscordGateway: true,
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },

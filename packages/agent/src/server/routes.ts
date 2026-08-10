@@ -92,10 +92,11 @@ export interface AgentChannelWebhookRouteHandler {
 }
 
 export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOptions {
+  abortSignal?: AbortSignal
   agentName?: string
   durationMs?: number
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
-  webhookUrl: string | ((adapterName: string) => string)
+  webhookUrl?: string | ((adapterName: string) => string)
 }
 
 export interface AgentTelegramPollingRouteOptions extends AgentRouteRuntimeOptions {
@@ -2028,7 +2029,9 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
     connect: () => state.connect(),
     delete: cacheKey => state.delete(key(cacheKey)),
     dequeue: threadId => state.dequeue(key(threadId)),
-    disconnect: () => state.disconnect(),
+    disconnect: async () => {
+      // Scoped views share their backing state with other Channels and process handlers.
+    },
     enqueue: (threadId, entry, maxSize) => state.enqueue(key(threadId), entry, maxSize),
     extendLock: (value, ttlMs) => state.extendLock(lock(value), ttlMs),
     forceReleaseLock: threadId => state.forceReleaseLock(key(threadId)),
@@ -4503,48 +4506,65 @@ export function createDiscordGatewayRouteHandler(
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }
 
-      const responsePromises: Array<Promise<Response>> = []
-      for (const [adapterName, adapter] of entries) {
-        const startGatewayListener = (adapter as {
-          startGatewayListener?: (
-            options: { waitUntil?: (promise: Promise<unknown>) => void },
-            durationMs?: number,
-            abortSignal?: AbortSignal,
-            webhookUrl?: string,
-          ) => Promise<Response>
-        }).startGatewayListener
-        if (typeof startGatewayListener !== "function") {
-          return createJsonErrorResponse(500, `Discord chat adapter "${adapterName}" does not expose startGatewayListener().`)
+      const chats: Chat[] = []
+      try {
+        const responsePromises: Array<Promise<Response>> = []
+        for (const [adapterName, adapter] of entries) {
+          const startGatewayListener = (adapter as {
+            startGatewayListener?: (
+              options: { waitUntil?: (promise: Promise<unknown>) => void },
+              durationMs?: number,
+              abortSignal?: AbortSignal,
+              webhookUrl?: string,
+            ) => Promise<Response>
+          }).startGatewayListener
+          if (typeof startGatewayListener !== "function") {
+            return createJsonErrorResponse(500, `Discord chat adapter "${adapterName}" does not expose startGatewayListener().`)
+          }
+
+          const registration = await resolveDiscordWebhookRegistration(agent, context, adapters, adapterName) || {
+            adapter: adapterName,
+            channelId: adapterName,
+            id: adapterName,
+            provider: "discord",
+          }
+          const chat = await createChannelChat(
+            agent,
+            context,
+            registration,
+            adapterName,
+            adapter,
+            getChannelChatOptions(agent, registration.channelId, chatOptions),
+            handlerOptions,
+          )
+          await (chat as { initialize?: () => Promise<void> }).initialize?.()
+          chats.push(chat)
+          const webhookId = registration.id || adapterName
+          const webhookUrl = typeof handlerOptions.webhookUrl === "function"
+            ? handlerOptions.webhookUrl(webhookId)
+            : handlerOptions.webhookUrl
+
+          responsePromises.push(startGatewayListener.call(
+            adapter,
+            { waitUntil: context.waitUntil },
+            handlerOptions.durationMs,
+            handlerOptions.abortSignal,
+            webhookUrl,
+          ))
         }
 
-        const { state } = await resolveChatState(chatOptions, context, {
-          adapter: adapterName,
-          channelId: adapterName,
-          id: adapterName,
-          provider: "discord",
-        }, handlerOptions)
-        const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, chatOptions))
-        await (chat as { initialize?: () => Promise<void> }).initialize?.()
-        const registration = await resolveDiscordWebhookRegistration(agent, context, adapters, adapterName)
-        const webhookId = registration?.id || adapterName
-        const webhookUrl = typeof handlerOptions.webhookUrl === "function"
-          ? handlerOptions.webhookUrl(webhookId)
-          : handlerOptions.webhookUrl
-
-        responsePromises.push(startGatewayListener.call(
-          adapter,
-          { waitUntil: context.waitUntil },
-          handlerOptions.durationMs,
-          undefined,
-          webhookUrl,
-        ))
+        const responses = await Promise.all(responsePromises)
+        if (!handlerOptions.webhookUrl) await context.flushWaitUntil?.()
+        if (responses.length === 1) return responses[0]!
+        const failed = responses.find(response => !response.ok)
+        if (failed) return failed
+        return Response.json({ gateways: responses.length, ok: true })
       }
-
-      const responses = await Promise.all(responsePromises)
-      if (responses.length === 1) return responses[0]!
-      const failed = responses.find(response => !response.ok)
-      if (failed) return failed
-      return Response.json({ gateways: responses.length, ok: true })
+      finally {
+        if (!handlerOptions.webhookUrl) {
+          await Promise.allSettled(chats.map(chat => chat.shutdown()))
+        }
+      }
     })
   }
 }
