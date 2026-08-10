@@ -68,10 +68,15 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
   if (typeof value === "number") return Number.isFinite(value)
   if (!value || typeof value !== "object" || seen.has(value)) return false
   seen.add(value)
-  if (Array.isArray(value)) return value.every(item => item === undefined || isJsonWorkflowValue(item, seen))
-  if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return false
-  if (value instanceof Date) return false
-  return Object.values(value).every(item => item === undefined || isJsonWorkflowValue(item, seen))
+  let portable = false
+  if (Array.isArray(value)) {
+    portable = value.length === Object.keys(value).length && value.every(item => item !== undefined && isJsonWorkflowValue(item, seen))
+  }
+  else if (!(value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value) || value instanceof Date)) {
+    portable = Object.values(value).every(item => item !== undefined && isJsonWorkflowValue(item, seen))
+  }
+  seen.delete(value)
+  return portable
 }
 
 function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowValue {

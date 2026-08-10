@@ -10815,6 +10815,30 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("preserves repeated references in JSON-compatible outputs", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const shared = { score: 1 }
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "repeated-result",
+        name: "repeated-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ first: shared, second: shared }))).resolves.toEqual({
+        first: { score: 1 },
+        second: { score: 1 },
+      })
+    })
+
+    it("rejects undefined array entries that JSON would change", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "undefined-result",
+        name: "undefined-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("serializes Response results before Workflow completion", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
