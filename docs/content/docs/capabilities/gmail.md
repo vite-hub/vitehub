@@ -107,7 +107,7 @@ Draft authorization may grant the Gmail account scope that `gog` needs to create
 
 ## Inspect and verify
 
-Run `vitehub agent info --agent <name> --json` and inspect the resolved tools and requirements. Read mode should list only `gmail_auth` and `gmail_search`; draft mode should add only `gmail_draft`. Both modes should report a writable Workspace requirement and a Box requirement.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tools. Read mode should list only `gmail_auth` and `gmail_search`; draft mode should add only `gmail_draft`.
 
 Start with a test Gmail account. Search for `in:inbox`, create a draft in draft mode, and verify in Gmail that the message remains in Drafts and was not sent.
 
