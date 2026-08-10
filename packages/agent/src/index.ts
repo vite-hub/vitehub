@@ -2354,8 +2354,12 @@ function withStreamedResult(
     finishResult(resultOverride: unknown = result) {
       return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
-    finishUsage() {
-      return usageRecord ?? fallbackUsageRecord
+    async finishUsage() {
+      const usage = usageRecord ?? fallbackUsageRecord
+      if (!usage) return
+      const usageSource = result && typeof result === "object" ? Object.create(result) : {}
+      Object.defineProperty(usageSource, "usageRecord", { value: usage })
+      return await resolveAgentUsageRecord(usageSource)
     },
     stream: (async function* () {
       for await (const chunk of stream) {
@@ -2921,7 +2925,7 @@ async function finalizeAgentInvocationResult<
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
-            const usage = streamed.finishUsage()
+            const usage = await streamed.finishUsage()
             if (!outcome.failed && !outcome.completed) {
               return lifecycle.finish({
                 result,
@@ -3362,12 +3366,13 @@ async function executeAgentInvocationWithCapacityLease<
             if (finishTask) return await finishTask
             const finishResult = streamed.finishResult(preserved)
             finishTask = (async () => {
+              const finishUsage = await streamed.finishUsage()
               if (!finalOutcome.failed && !finalOutcome.completed) {
                 await lifecycle.finish({
                   result: finishResult,
                   status: "success",
-                  ...(streamed.finishUsage()
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+                  ...(finishUsage
+                    ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsage }, invocation.run) }
                     : {}),
                   usageResolved: true,
                 })
@@ -3758,12 +3763,13 @@ async function executeAgentInvocationWithCapacityLease<
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = streamed.finishResult()
+          const finishUsage = await streamed.finishUsage()
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,
               status: "success",
-              ...(streamed.finishUsage()
-                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
+              ...(finishUsage
+                ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsage }, invocation.run) }
                 : {}),
               usageResolved: true,
             })

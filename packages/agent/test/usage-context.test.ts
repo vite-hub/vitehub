@@ -182,6 +182,30 @@ describe("usage context", () => {
     })
   })
 
+  it("resolves promised result metadata for held object streams", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      hooks: { "agent:finish": finish },
+      driver: { run: () => ({
+        get providerMetadata() {
+          return Promise.resolve({ openrouter: { usage: { cost: 0.00123 } } })
+        },
+        stream: (async function* () {
+          yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+        })(),
+      }) },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      cost: { estimated: false, source: "provider", usd: "0.00123" },
+      usage: { totalTokens: 4 },
+    })
+  })
+
   it("exposes non-token usage details in the invocation record", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

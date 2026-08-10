@@ -408,6 +408,7 @@ async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>)
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
+  value = await withResolvedProviderMetadata(value)
   if (!isRecord(value)) return
   const usageRecord = ownValue(value, "usageRecord")
   if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
