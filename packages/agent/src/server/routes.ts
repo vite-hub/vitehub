@@ -2415,25 +2415,20 @@ async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversi
   return parts
 }
 
-function escapeChatReplyText(part: MessagePart): MessagePart {
-  return part.type === "text"
-    ? { ...part, text: part.text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;") }
-    : part
-}
-
 async function chatMessagePartsWithReply(message: ChatSdkMessageWithReply, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts = await chatMessageParts(message, options)
   if (!message.replyTo) return parts
+  const replyContext = chatReplyMetadata(message)!
+  delete replyContext.text
   const replyParts = (await chatMessageParts(message.replyTo, options)).map((part, index) => ({
-    ...escapeChatReplyText(part),
+    ...(part.type === "text" ? { data: { text: part.text }, type: "data-chat-reply-text" as const } : part),
     id: `reply-${part.id || index + 1}`,
   }))
   return [
-    { id: "reply-context-start", text: "<reply_to_message>\n", type: "text" },
+    { data: { ...replyContext, kind: "reply_to_message" }, id: "reply-context", type: "data-chat-reply-context" },
     ...replyParts,
-    { id: "reply-context-end", text: "\n</reply_to_message>\n<user_message>\n", type: "text" },
-    ...parts.map(escapeChatReplyText),
-    { id: "user-message-end", text: "\n</user_message>", type: "text" },
+    { data: { kind: "user_message", messageId: message.id }, id: "user-message-context", type: "data-chat-user-message-context" },
+    ...parts,
   ]
 }
 
