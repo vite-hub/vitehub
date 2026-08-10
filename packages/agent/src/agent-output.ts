@@ -272,7 +272,7 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
   if (!isRecord(result) || !isRecord(result.providerMetadata)) return
   for (const metadata of Object.values(result.providerMetadata)) {
     const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
-    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0 && !Object.is(cost, -0)) {
       return materializeAgentUsageCost({
         estimated: false,
         source: "provider",
