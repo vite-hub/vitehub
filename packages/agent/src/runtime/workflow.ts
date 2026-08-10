@@ -71,7 +71,7 @@ function workflowResultBase64(data: Uint8Array): string {
 }
 
 function isTextResponseMediaType(mediaType: string): boolean {
-  return mediaType.startsWith("text/")
+  return mediaType.toLowerCase().startsWith("text/")
     || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
 }
 
@@ -106,7 +106,7 @@ function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknow
 
 async function portableWorkflowResult(result: unknown): Promise<unknown> {
   if (result instanceof Response) {
-    const headers = Object.fromEntries(result.headers)
+    const headers = Array.from(result.headers)
     const mediaType = result.headers.get("content-type") || "application/octet-stream"
     const bytes = new Uint8Array(await result.arrayBuffer())
     return {

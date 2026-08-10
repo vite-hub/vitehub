@@ -10764,7 +10764,12 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         driver: { run: () => new Response("portable response", {
-          headers: { "content-type": "text/plain", "x-agent": "portable" },
+          headers: [
+            ["content-type", "Text/Plain"],
+            ["set-cookie", "first=one"],
+            ["set-cookie", "second=two"],
+            ["x-agent", "portable"],
+          ],
           status: 202,
           statusText: "Accepted",
         }) },
@@ -10780,8 +10785,13 @@ describe("agent message protocol", () => {
       await expect(getWorkflowRun("portable-response", run.id)).resolves.toMatchObject({
         result: {
           raw: {
-            body: { data: "cG9ydGFibGUgcmVzcG9uc2U=", encoding: "base64", mediaType: "text/plain" },
-            headers: { "content-type": "text/plain", "x-agent": "portable" },
+            body: { data: "cG9ydGFibGUgcmVzcG9uc2U=", encoding: "base64", mediaType: "Text/Plain" },
+            headers: [
+              ["content-type", "Text/Plain"],
+              ["set-cookie", "first=one"],
+              ["set-cookie", "second=two"],
+              ["x-agent", "portable"],
+            ],
             status: 202,
             statusText: "Accepted",
           },
@@ -10816,7 +10826,7 @@ describe("agent message protocol", () => {
         result: {
           raw: {
             body: { data: "/wCA", encoding: "base64", mediaType: "image/png" },
-            headers: { "content-type": "image/png" },
+            headers: [["content-type", "image/png"]],
             status: 200,
           },
         },
