@@ -11694,6 +11694,7 @@ describe("agent message protocol", () => {
           return {
             async generate({ runtime }) {
               return {
+                provider: "test",
                 raw: {
                   resolveRuntimeConfig: context.runtimeConfig,
                   runtimeConfig: runtime.runtimeConfig,
