@@ -70,7 +70,8 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
   seen.add(value)
   let portable = false
   if (Array.isArray(value)) {
-    portable = value.length === Object.keys(value).length && value.every(item => item !== undefined && isJsonWorkflowValue(item, seen))
+    portable = value.length === Object.keys(value).length
+      && Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index) && value[index] !== undefined && isJsonWorkflowValue(value[index], seen)).every(Boolean)
   }
   else if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
     portable = Object.values(value).every(item => item !== undefined && isJsonWorkflowValue(item, seen))

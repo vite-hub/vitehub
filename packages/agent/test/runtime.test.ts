@@ -10839,6 +10839,18 @@ describe("agent message protocol", () => {
       }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
     })
 
+    it("rejects sparse arrays whose custom properties mask missing indices", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = Array(1) as unknown[] & { note?: string }
+      result.note = "not an array entry"
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "sparse-result",
+        name: "sparse-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("rejects custom output instances with non-JSON prototypes", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       await expect(runAgentWorkflowDefinition({} as never, {
