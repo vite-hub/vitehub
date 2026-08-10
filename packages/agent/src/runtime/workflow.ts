@@ -152,6 +152,7 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   const providerResultKeys = ["_output", "content", "output", "provider", "steps", "totalUsage"]
   if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) unsupportedWorkflowResult()
   if (!Object.keys(result).every(key => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
+  if (!providerResultKeys.some(key => key in result)) unsupportedWorkflowResult()
   const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(toAgentRunResult(result))
   const jsonProjected = jsonWorkflowValue(projected)
   if (jsonProjected !== unportableWorkflowValue) return jsonProjected

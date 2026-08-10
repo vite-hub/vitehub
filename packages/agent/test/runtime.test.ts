@@ -10827,6 +10827,18 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("rejects lossy custom outputs containing only Agent result keys", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-result-keys",
+        name: "custom-result-keys",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ raw: new Uint8Array([1]), text: "portable text" }))).rejects.toMatchObject({
+        isRetryable: false,
+      })
+    })
+
     it("rejects lossy custom result instances that share Agent result keys", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       class CustomResult {
