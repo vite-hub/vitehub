@@ -2138,15 +2138,14 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
-    const toolNames = new Map<string, string>()
-    const textPhases = new Map<string, AgentMessagePhase | "hidden">()
-    for await (const chunk of stream) {
-      const event = toAgentStreamEvent(chunk, toolNames, textPhases)
-      const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
-      if (!rawUsageRecord) {
-        yield chunk
-        continue
-      }
+    const providerMetadata = result && typeof result === "object"
+      ? (result as { providerMetadata?: unknown }).providerMetadata
+      : undefined
+    const deferUsageUntilComplete = providerMetadata && typeof providerMetadata === "object"
+      && typeof (providerMetadata as { then?: unknown }).then === "function"
+    let terminalChunks: unknown[] | undefined
+
+    const enrichUsageChunk = async (chunk: unknown, rawUsageRecord: AgentUsageRecord): Promise<unknown[]> => {
       const usageSource = result && typeof result === "object" ? Object.create(result) : {}
       Object.defineProperty(usageSource, "usageRecord", { value: rawUsageRecord })
       const usageRecord = await resolveAgentUsageRecord(usageSource) ?? rawUsageRecord
@@ -2175,21 +2174,40 @@ function withEagerStreamUsageExtensions<
                 value: usage,
                 writable: true,
               })
-              yield chunk
-              continue
+              return [chunk]
             }
             catch {
               // Preserve the custom chunk and emit the canonical record separately.
             }
           }
-          yield chunk
-          yield { type: "usage", usageRecord: usage }
-          continue
+          return [chunk, { type: "usage", usageRecord: usage }]
         }
-        yield { ...chunk, usageRecord: usage }
+        return [{ ...chunk, usageRecord: usage }]
+      }
+      return [{ type: "usage", usageRecord: usage }]
+    }
+
+    for await (const chunk of stream) {
+      if (terminalChunks) {
+        terminalChunks.push(chunk)
         continue
       }
-      yield { type: "usage", usageRecord: usage }
+      const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
+      if (!rawUsageRecord) {
+        yield chunk
+        continue
+      }
+      if (deferUsageUntilComplete) {
+        terminalChunks = [chunk]
+        continue
+      }
+      yield* await enrichUsageChunk(chunk, rawUsageRecord)
+    }
+
+    for (const chunk of terminalChunks ?? []) {
+      const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
+      if (rawUsageRecord) yield* await enrichUsageChunk(chunk, rawUsageRecord)
+      else yield chunk
     }
   })()
 }

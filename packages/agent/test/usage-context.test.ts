@@ -187,15 +187,24 @@ describe("usage context", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const pricing = vi.fn(() => ({ estimated: true, source: "custom", usd: "0.02" }))
+    let resolveProviderMetadata!: (value: { openrouter: { usage: { cost: number } } }) => void
+    const providerMetadata = new Promise<{ openrouter: { usage: { cost: number } } }>((resolve) => {
+      resolveProviderMetadata = resolve
+    })
     const agent = defineAgent({
       capabilities: [cost({ pricing })],
       hooks: { "agent:finish": finish },
       driver: { run: () => ({
         get providerMetadata() {
-          return Promise.resolve({ openrouter: { usage: { cost: 0.00123 } } })
+          return providerMetadata
         },
         stream: (async function* () {
-          yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+          try {
+            yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+          }
+          finally {
+            resolveProviderMetadata({ openrouter: { usage: { cost: 0.00123 } } })
+          }
         })(),
       }) },
     })

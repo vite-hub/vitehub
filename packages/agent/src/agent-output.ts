@@ -295,7 +295,9 @@ function decimalStringFromNumber(value: number): string {
 async function withResolvedProviderMetadata(result: unknown): Promise<unknown> {
   if (!isRecord(result) || !isPromiseLike(result.providerMetadata)) return result
   try {
-    const metadataSource = Object.create(result) as Record<string, unknown>
+    const descriptors = Object.getOwnPropertyDescriptors(result)
+    delete descriptors.providerMetadata
+    const metadataSource = Object.create(Object.getPrototypeOf(result), descriptors) as Record<string, unknown>
     Object.defineProperty(metadataSource, "providerMetadata", {
       enumerable: true,
       value: await result.providerMetadata,
