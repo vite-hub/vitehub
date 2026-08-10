@@ -22,6 +22,7 @@ import {
   email,
   fetch,
   git,
+  gmail,
   inputCommands,
   kv,
   llmGate,
@@ -88,6 +89,7 @@ import {
 | Fetch tools | [`fetch()`](/docs/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |
 | OpenAPI tools | [`openapi()`](/docs/capabilities/openapi) | The Agent needs a selected OpenAPI operation catalog exposed as bounded HTTP tools or a generated Capability CLI. |
 | Transcription | [`transcribe()`](/docs/capabilities/transcribe) | Audio input parts should become text before model execution. |
+| Gmail | [`gmail()`](/docs/capabilities/gmail) | A Harness Agent should search Gmail or create unsent drafts through structured tools. |
 
 ### Decisions and output
 

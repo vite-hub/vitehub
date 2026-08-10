@@ -334,6 +334,9 @@ export function validateAgentCapabilityComposition(
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
     }
+    if (capability.requires?.some(requirement => requirement.primitive === "box") && !options.hasBox) {
+      throw new Error(`[vitehub] ${capability.id}() requires defineAgent({ box }).`)
+    }
     if (!options.hasWorkspace) {
       if (capabilityRequiresWorkspace(capability)) {
         const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id

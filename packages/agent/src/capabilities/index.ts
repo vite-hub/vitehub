@@ -28,6 +28,13 @@ export {
   git,
 } from "./git.ts"
 export {
+  gmail,
+} from "./gmail.ts"
+export type {
+  GmailCapabilityMode,
+  GmailCapabilityOptions,
+} from "./gmail.ts"
+export {
   inputCommands,
 } from "./input-commands.ts"
 export {
