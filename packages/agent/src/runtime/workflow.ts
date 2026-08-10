@@ -85,6 +85,12 @@ function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowV
   }
 }
 
+function unsupportedWorkflowResult(): never {
+  const error = new TypeError("Agent Workflow results must contain only JSON-compatible values.") as TypeError & { isRetryable: false }
+  error.isRetryable = false
+  throw error
+}
+
 function isTextResponseMediaType(mediaType: string): boolean {
   return mediaType.toLowerCase().startsWith("text/")
     || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
@@ -136,16 +142,14 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   const jsonResult = jsonWorkflowValue(result)
   if (jsonResult !== unportableWorkflowValue) return jsonResult
   const agentResultKeys = ["artifacts", "finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
-  if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) {
-    const error = new TypeError("Agent Workflow results must contain only JSON-compatible values.") as TypeError & { isRetryable: false }
-    error.isRetryable = false
-    throw error
-  }
+  if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) unsupportedWorkflowResult()
   const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(toAgentRunResult(result))
   const jsonProjected = jsonWorkflowValue(projected)
   if (jsonProjected !== unportableWorkflowValue) return jsonProjected
   const { raw: _raw, ...normalized } = toAgentRunResult(result)
-  return portableWorkflowValue(normalized)
+  const portable = portableWorkflowValue(normalized)
+  if (jsonWorkflowValue(portable) === unportableWorkflowValue) unsupportedWorkflowResult()
+  return portable
 }
 
 export async function runAgentWorkflowDefinition<

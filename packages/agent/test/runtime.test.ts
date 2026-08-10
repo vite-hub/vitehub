@@ -10802,6 +10802,19 @@ describe("agent message protocol", () => {
       await expect(getWorkflowRun("typed-json-result", run.id)).resolves.toMatchObject({ status: "failed" })
     })
 
+    it("rejects Agent result envelopes with no portable fields", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "unsupported-result",
+        name: "unsupported-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ raw: new Map() }))).rejects.toMatchObject({
+        isRetryable: false,
+        message: "Agent Workflow results must contain only JSON-compatible values.",
+      })
+    })
+
     it("serializes Response results before Workflow completion", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
