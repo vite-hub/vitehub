@@ -5342,7 +5342,14 @@ describe("server helpers", () => {
     const { discord } = await import("../src/channels.ts")
     const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
     const disconnect = vi.fn(async () => {})
-    const startGatewayListener = vi.fn(async () => Response.json({ ok: true }))
+    let finishListener!: () => void
+    const listener = new Promise<void>(resolve => {
+      finishListener = resolve
+    })
+    const startGatewayListener = vi.fn(async (options: { waitUntil?: (promise: Promise<unknown>) => void }) => {
+      options.waitUntil?.(listener)
+      return Response.json({ ok: true })
+    })
     const adapter = {
       ...createTestChatAdapter(),
       disconnect,
@@ -5357,10 +5364,20 @@ describe("server helpers", () => {
     })
     const abortController = new AbortController()
 
-    const response = await createDiscordGatewayRouteHandler(agent as never)(
+    const responsePromise = createDiscordGatewayRouteHandler(agent as never)(
       new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"),
       { abortSignal: abortController.signal },
     )
+
+    await vi.waitFor(() => expect(startGatewayListener).toHaveBeenCalledOnce())
+    let settled = false
+    void responsePromise.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finishListener()
+    const response = await responsePromise
 
     expect(response.status).toBe(200)
     expect(startGatewayListener).toHaveBeenCalledWith(

@@ -4552,6 +4552,7 @@ export function createDiscordGatewayRouteHandler(
         }
 
         const responses = await Promise.all(responsePromises)
+        if (!handlerOptions.webhookUrl) await context.flushWaitUntil?.()
         if (responses.length === 1) return responses[0]!
         const failed = responses.find(response => !response.ok)
         if (failed) return failed
