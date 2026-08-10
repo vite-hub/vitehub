@@ -52,6 +52,7 @@ describe("gmail capability", () => {
     expect(Object.keys(readRuntime.tools).sort()).toEqual(["gmail_auth", "gmail_search"])
     expect(readWorkspace.sources["skill.gmail"]!.content).toContain("Use `gmail_search`")
     expect(readWorkspace.sources["skill.gmail"]!.content).toContain("authorization codes separately from the required full redirect URL")
+    expect(readWorkspace.sources["skill.gmail"]!.content).toContain("using the `access` returned")
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("gog")
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("shell")
     expect(() => gmail({ mode: "send" as never })).toThrow('must be "read" or "draft"')
@@ -127,6 +128,7 @@ describe("gmail capability", () => {
 
     state = "disconnected"
     await expect(runtime.tools.gmail_auth!.execute?.({ action: "start", account: "test@example.com" })).resolves.toEqual({
+      access: "read",
       account: "test@example.com",
       authorizationUrl: "https://accounts.google.com/o/oauth2/auth?state=test",
       status: "authorization_required",
@@ -230,6 +232,23 @@ describe("gmail capability", () => {
     })).rejects.toThrow("gmail_draft body")
     await expect(runtime.tools.gmail_search!.execute?.({ max: 51 })).rejects.toThrow("integer from 1 to 50")
     expect(calls).toHaveLength(beforeInvalidInput)
+  })
+
+  it("keeps searches on read authorization in draft mode", async () => {
+    const calls: string[][] = []
+    const runtime = await capabilityTools(gmail({ mode: "draft" }), (args) => {
+      calls.push(args)
+      if (args[0] === "auth" && args[1] === "list") {
+        return result('{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}')
+      }
+      if (args[0] === "gmail" && args[1] === "search") return result('{"threads":[]}')
+      throw new Error(`Unexpected gog args: ${args.join(" ")}`)
+    })
+
+    await expect(runtime.tools.gmail_search!.execute?.({ account: "test@example.com" })).resolves.toMatchObject({
+      status: "ok",
+    })
+    expect(calls.some(args => args.includes("--gmail-scope"))).toBe(false)
   })
 
   it("closes the Box-backed Workspace Session when a Gmail command fails", async () => {
