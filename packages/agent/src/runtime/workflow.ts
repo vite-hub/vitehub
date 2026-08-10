@@ -63,20 +63,40 @@ function waitUntil(promise: Promise<unknown>): void {
 
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
+function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true
+  if (typeof value === "number") return Number.isFinite(value)
+  if (!value || typeof value !== "object" || seen.has(value)) return false
+  seen.add(value)
+  if (Array.isArray(value)) return value.every(item => item === undefined || isJsonWorkflowValue(item, seen))
+  if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return false
+  if (value instanceof Date) return Number.isFinite(value.getTime())
+  return Object.values(value).every(item => item === undefined || isJsonWorkflowValue(item, seen))
+}
+
+function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowValue {
+  if (!isJsonWorkflowValue(value)) return unportableWorkflowValue
+  try {
+    const serialized = JSON.stringify(value)
+    return serialized === undefined ? unportableWorkflowValue : JSON.parse(serialized)
+  }
+  catch {
+    return unportableWorkflowValue
+  }
+}
+
 function isTextResponseMediaType(mediaType: string): boolean {
   return mediaType.toLowerCase().startsWith("text/")
     || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
 }
 
 function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
-  try {
-    return structuredClone(value)
-  }
-  catch {}
-
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : unportableWorkflowValue
   if (!value || typeof value !== "object") return unportableWorkflowValue
-  const existing = seen.get(value)
-  if (existing) return existing
+  if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : unportableWorkflowValue
+  if (seen.has(value)) return unportableWorkflowValue
   if (Array.isArray(value)) {
     const projected: unknown[] = []
     seen.set(value, projected)
@@ -84,17 +104,18 @@ function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknow
       const portable = portableWorkflowValue(item, seen)
       projected.push(portable === unportableWorkflowValue ? undefined : portable)
     }
+    seen.delete(value)
     return projected
   }
 
   const projected: Record<string, unknown> = {}
   seen.set(value, projected)
   for (const [key, item] of Object.entries(value)) {
-    if (key === "raw") continue
     const portable = portableWorkflowValue(item, seen)
     if (portable !== unportableWorkflowValue) projected[key] = portable
   }
-  return projected
+  seen.delete(value)
+  return Object.keys(projected).length || Object.keys(value).length === 0 ? projected : unportableWorkflowValue
 }
 
 async function portableWorkflowResult(result: unknown): Promise<unknown> {
@@ -112,13 +133,13 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
       ...(isTextResponseMediaType(mediaType) ? { text: new TextDecoder().decode(bytes) } : {}),
     } satisfies AgentRunResult
   }
-  try {
-    return structuredClone(result)
-  }
-  catch {
-    const { raw: _raw, ...normalized } = toAgentRunResult(result)
-    return portableWorkflowValue(normalized)
-  }
+  const jsonResult = jsonWorkflowValue(result)
+  if (jsonResult !== unportableWorkflowValue) return jsonResult
+  const projected = portableWorkflowValue(result)
+  const jsonProjected = jsonWorkflowValue(projected)
+  if (jsonProjected !== unportableWorkflowValue) return jsonProjected
+  const { raw: _raw, ...normalized } = toAgentRunResult(result)
+  return portableWorkflowValue(normalized)
 }
 
 export async function runAgentWorkflowDefinition<

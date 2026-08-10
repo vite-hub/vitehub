@@ -10755,6 +10755,35 @@ describe("agent message protocol", () => {
       expect(() => structuredClone(completed.result)).not.toThrow()
     })
 
+    it("normalizes structured-cloneable results to the Workflow JSON contract", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => ({
+          bytes: new Uint8Array([1, 2]),
+          count: 1n,
+          metadata: new Map([["provider", "custom"]]),
+          text: "portable text",
+        }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "json-portable-result" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("json-portable-result", run.id)).resolves.toMatchObject({
+        result: { text: "portable text" },
+        status: "completed",
+      })
+    })
+
     it("serializes Response results before Workflow completion", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
