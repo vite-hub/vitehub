@@ -2387,7 +2387,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
         }, definitionServerDirs)
-        if (normalized.routes.discordGateway) {
+        if (normalized.routes.discordGateway && !processDiscordGateway) {
           await writeAgentDiscordGatewayRouteHandler(generatedRoot, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
             discordGatewayRoute: normalized.routes.discordGateway,
@@ -2603,7 +2603,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
-        ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.discordGateway
+        ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.discordGateway && !installProcessDiscordGateway
           ? [{
               handler: join(generatedRoot, generatedAgentDiscordGatewayRouteHandler),
               route: normalizeNitroRoute(resolved.routes.discordGateway),

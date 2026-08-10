@@ -1208,7 +1208,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ processDiscordGateway: true } as never)
+      const plugin = hubAgent({ processDiscordGateway: true, routes: { discordGateway: true } } as never)
       const config = typeof plugin.config === "function"
         ? await plugin.config.call({} as never, { root }, { command: "build", mode: "production" })
         : undefined
@@ -1221,7 +1221,11 @@ describe("agent Vite plugin", () => {
           plugins: expect.arrayContaining([join(root, ".vitehub/agent/discord-gateway-plugin.ts")]),
         },
       })
+      expect((config as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: "/api/_vitehub/agents/**:agent/discord/gateway" }),
+      ]))
       await expect(readFile(join(root, ".vitehub/agent/discord-gateway-plugin.ts"), "utf8")).resolves.toContain("nitroApp.hooks.hook('close', stop)")
+      await expect(readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")).rejects.toThrow()
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       expect(webhookRoute).toContain("export function startDiscordGateways()")
       expect(webhookRoute).toContain("abortSignal: controller.signal")
