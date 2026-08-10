@@ -23,6 +23,7 @@ const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
+const harnessDisposableProfile = Symbol.for("vitehub.harnessDisposableProfile")
 declare const __VITEHUB_CODEX_BRIDGE_ASSETS__: Record<CodexBridgeAssetName, string> | undefined
 const bundledCodexBridgeAssets = typeof __VITEHUB_CODEX_BRIDGE_ASSETS__ === "undefined" ? undefined : __VITEHUB_CODEX_BRIDGE_ASSETS__
 export function createCodexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(options: CodexDriverOptions<CALL_OPTIONS, TOutput> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS, AgentInvocationContextValues, TOutput> {
@@ -176,6 +177,7 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   })
   return {
     ...harness,
+    [harnessDisposableProfile]: true,
     [harnessGlobalSkillsDirectory]: (context: { box?: unknown }, invocation?: { id: string, isolateBoxHome: boolean }) => context.box
       ? invocation?.isolateBoxHome
         ? `.vitehub/codex-home-${invocation.id}/skills`
