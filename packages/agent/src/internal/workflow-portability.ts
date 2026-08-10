@@ -8,10 +8,13 @@ export function workflowBytesToBase64(data: Uint8Array): string {
 
 const omittedWorkflowValue = Symbol("vitehub.agent.omitted-workflow-value")
 
-export function cloneWorkflowJsonValue(value: unknown): unknown {
+export function cloneWorkflowJsonValue(value: unknown, options: { omitUndefinedObjectProperties?: boolean } = {}): unknown {
   const seen = new WeakSet<object>()
   const clone = (input: unknown, objectProperty = false): unknown | typeof omittedWorkflowValue => {
-    if (input === undefined && objectProperty) return omittedWorkflowValue
+    if (input === undefined && objectProperty) {
+      if (options.omitUndefinedObjectProperties !== false) return omittedWorkflowValue
+      throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+    }
     if (input === null || typeof input === "string" || typeof input === "boolean") return input
     if (typeof input === "number" && Number.isFinite(input) && !Object.is(input, -0)) return input
     if (!input || typeof input !== "object" || seen.has(input)) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")

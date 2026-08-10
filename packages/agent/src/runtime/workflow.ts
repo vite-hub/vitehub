@@ -84,7 +84,7 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
 
 function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowValue {
   try {
-    const cloned = cloneWorkflowJsonValue(value)
+    const cloned = cloneWorkflowJsonValue(value, { omitUndefinedObjectProperties: false })
     if (!isJsonWorkflowValue(cloned)) return unportableWorkflowValue
     const serialized = JSON.stringify(cloned)
     return serialized === undefined ? unportableWorkflowValue : JSON.parse(serialized)
