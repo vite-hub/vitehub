@@ -21,6 +21,7 @@ Application code should use Stable ViteHub Import Paths instead of importing gen
 | `.vitehub/markdown-template/templates.mjs` | Markdown Template Package | Bundled named-template registry used by Workspace and Provider builds. |
 | `.vitehub/rate-limit/manifest.json` | Rate Limit Package | Sorted Rate Limit IDs, resolved providers, and inspectable driver capabilities. |
 | `.vitehub/agent/chat-webhook-route.ts` | Agent Package | Generated Chat Webhook Route handler for discovered chat-capable Agents. |
+| `.vitehub/agent/discord-gateway-plugin.ts` | Agent Package | Generated Nitro process lifecycle for Discord Gateway listeners on the Node preset. |
 | `.vitehub/agent/discord-gateway-route.ts` | Agent Package | Generated Nitro route handler that wakes the Discord Gateway listener for discovered Discord Agents. |
 | `.vitehub/agent/deno-server.ts` | Agent Package | Generated Deno server output for Agent chat and webhook routes. |
 | `.vitehub/schedule/deno-cron.mjs` | Schedule Package | Deno `Deno.cron` wake output for Static Schedule Definitions. |

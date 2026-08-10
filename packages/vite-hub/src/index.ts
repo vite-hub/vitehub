@@ -567,6 +567,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       ...(options.agent === true ? {} : options.agent),
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
       importBase: `${generatedImportBase}/agent`,
+      processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports: {
         blob: blobEnabled ? `${generatedImportBase}/blob` : false,
