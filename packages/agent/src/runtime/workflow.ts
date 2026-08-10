@@ -49,7 +49,6 @@ export type AgentWorkflowRunner<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options?: { output: "raw" },
 ) => Promise<Response | AgentRunResult | unknown>
 
 function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRuntimeName {
@@ -153,9 +152,10 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   if (jsonResult !== unportableWorkflowValue) return jsonResult
   const agentResultKeys = ["artifacts", "finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
   const providerResultKeys = ["_output", "content", "output", "provider", "steps", "totalUsage"]
+  const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
   if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) unsupportedWorkflowResult()
   if (!Object.keys(result).every(key => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
-  if (!providerResultKeys.some(key => key in result)) unsupportedWorkflowResult()
+  if (!providerResultKeys.some(key => key in result) && !normalizedAgentResultKeys.every(key => Object.hasOwn(result, key))) unsupportedWorkflowResult()
   const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(toAgentRunResult(result))
   const jsonProjected = jsonWorkflowValue(projected)
   if (jsonProjected !== unportableWorkflowValue) return jsonProjected
@@ -203,6 +203,5 @@ export async function runAgentWorkflowDefinition<
     payload.resolvedInvoker
       ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
       : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
-    { output: "raw" },
   ))
 }
