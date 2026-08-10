@@ -10718,33 +10718,6 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("removes request timeouts from required Agent Workflow payloads", async () => {
-      const { defineAgent, runAgent } = await import("../src/index.ts")
-      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
-      const { getWorkflowRun } = await import("@vite-hub/workflow")
-      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
-
-      const agent = defineAgent({ driver: { run: context => ({ timeout: context.input.timeout ?? null }) } })
-      const run = await runAgent(agent, {
-        agentIdentity: { name: "required-workflow-timeout" },
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {
-        context: { [requireAgentWorkflowContextKey]: true },
-        prompt: "hello",
-        timeout: 28_000,
-      }) as { id: string }
-
-      await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("required-workflow-timeout", run.id)).resolves.toMatchObject({
-        result: { timeout: null },
-        status: "completed",
-      })
-    })
-
     it("normalizes noncloneable Agent results before Workflow completion", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

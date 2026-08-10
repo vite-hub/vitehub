@@ -631,6 +631,7 @@ interface AgentWorkflowRun<TOutput = unknown> {
   result?: TOutput
   status: "cancelled" | "completed" | "failed" | "queued" | "running" | "unknown"
 }
+type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
   run: AgentWorkflowRun<TOutput>
@@ -697,19 +698,19 @@ async function getAgentWorkflowHandle<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   name: string,
   reuseRegistry: boolean,
-): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>> {
+): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>> {
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
   const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
   const existing = handles.get(cacheKey)
-  if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
+  if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
 
   const { createWorkflow } = await loadAgentWorkflowModule()
   const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await loadAgentWorkflowRuntimeStateModule()
   const handle = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
-    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>(name)
-    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>(name, async (workflowContext) => {
+    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name)
+    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
-        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as TOutput
+        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
       })
   agentWorkflowNames.add(name)
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
@@ -757,7 +758,7 @@ async function runAgentAsWorkflow<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { fresh?: boolean } = {},
-): Promise<StartedAgentWorkflow<CALL_OPTIONS, TOutput> | undefined> {
+): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
@@ -781,7 +782,6 @@ async function runAgentAsWorkflow<
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
-  if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
   if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
   if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
@@ -4045,7 +4045,7 @@ export async function startAgentInvocation<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { runId?: string } = {},
-): Promise<AgentInvocationController<TOutput | Response, CALL_OPTIONS>> {
+): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,
@@ -4066,7 +4066,7 @@ export async function runAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-): Promise<TOutput | Response | AgentWorkflowRun<TOutput>> {
+): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflow) return workflow.run

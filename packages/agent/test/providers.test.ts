@@ -9508,7 +9508,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => {
         expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Durable reply" })
       })
-      expect(observedTimeout).toBeUndefined()
+      expect(observedTimeout).toBe(60_000)
     }
     finally {
       release()
