@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { validateAgentCapabilityComposition, validateCapabilityRuntimeRequirement } from "../src/capability-runtime.ts"
 import { gmail } from "../src/capabilities.ts"
+import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
 
 import type { AgentCapabilityDefinition, AgentToolSet } from "../src/types.ts"
 import type { ExecResult, WorkspaceSession } from "@vite-hub/workspace"
@@ -67,6 +68,17 @@ describe("gmail capability", () => {
     expect(draft).toMatchObject({ metadata: { mode: "draft" }, mode: "write" })
     expect(Object.keys(draftRuntime.tools).sort()).toEqual(["gmail_auth", "gmail_draft", "gmail_search"])
     expect(draftWorkspace.sources["skill.gmail"]!.content).toContain("create an unsent draft")
+
+    const inspected = createAgentInspectionMetadata(defineAgent({
+      box: { runtime: "trusted-host" },
+      capabilities: [draft],
+      driver: "codex",
+      workspace: { mode: "write" },
+    }))
+    expect(inspected.tools).toContainEqual(expect.objectContaining({
+      commands: ["gmail_auth", "gmail_search", "gmail_draft"],
+      name: "gmail",
+    }))
   })
 
   it("returns structured authorization states and validates the continuation", async () => {
@@ -169,6 +181,14 @@ describe("gmail capability", () => {
     const draftCall = calls.find(args => args[0] === "gmail" && args[1] === "drafts")!
     expect(draftCall).toContain("--gmail-no-send")
     expect(draftCall).not.toContain("send")
+
+    await expect(runtime.tools.gmail_draft!.execute?.({
+      body: "  Indented body\n\n",
+      subject: "Whitespace",
+      to: ["person@example.com"],
+    })).resolves.toMatchObject({ status: "ok" })
+    const whitespaceDraftCall = calls.findLast(args => args[0] === "gmail" && args[1] === "drafts")!
+    expect(whitespaceDraftCall[whitespaceDraftCall.indexOf("--body") + 1]).toBe("  Indented body\n\n")
 
     connected = false
     await expect(runtime.tools.gmail_auth!.execute?.({ action: "start", account: "test@example.com" })).resolves.toMatchObject({

@@ -454,6 +454,19 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
       status: "available",
     }
   }
+  if (capability.id === "gmail") {
+    const mode = (capability.metadata as { mode?: unknown } | undefined)?.mode
+    return {
+      category: "capability",
+      commands: ["gmail_auth", "gmail_search", ...(mode === "draft" ? ["gmail_draft"] : [])],
+      description: mode === "draft"
+        ? "Authorize Gmail, search threads, and create unsent drafts."
+        : "Authorize Gmail and search threads.",
+      icon: "i-lucide-mail-search",
+      name: "gmail",
+      status: "available",
+    }
+  }
   if (options.driverKind === "harness") return undefined
   if (capability.id === "sandbox") {
     return {

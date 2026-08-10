@@ -122,6 +122,13 @@ function gmailText(value: unknown, label: string): string {
   return text
 }
 
+function gmailDraftBody(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.includes("\0")) {
+    throw new TypeError("[vitehub] gmail_draft body must be non-empty text.")
+  }
+  return value
+}
+
 function gmailRedirectUrl(value: unknown): string {
   let url: URL
   try {
@@ -285,7 +292,7 @@ async function gmailDraft(input: GmailDraftInput, context: AgentCapabilityContex
   const cc = gmailOptionalRecipients(input?.cc, "cc")
   const bcc = gmailOptionalRecipients(input?.bcc, "bcc")
   const subject = gmailText(input?.subject, "gmail_draft subject")
-  const body = gmailText(input?.body, "gmail_draft body")
+  const body = gmailDraftBody(input?.body)
 
   const accounts = await gmailAccounts(context)
   const writableAccounts = accounts.filter(candidate => typeof candidate.email === "string"
