@@ -5908,7 +5908,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       releaseRun()
       await vi.waitFor(async () => {
-        await expect(getWorkflowRun("support-agent", "vitehub-invalid-9c275643d82405183e9293c71c825199e9297cba8a1fa1c92d6067b1dbbd0df7")).resolves.toMatchObject({
+        await expect(getWorkflowRun("support-agent", "github:delivery-workflow")).resolves.toMatchObject({
           result: "accepted github delivery",
           status: "completed",
         })

@@ -11686,23 +11686,18 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      let resolveRuntimeConfig: unknown
       let runtimeConfig: unknown
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = {
-        runtime: workflow("configured-agent"),
-        async resolve(context) {
-          resolveRuntimeConfig = context.runtimeConfig
-          return {
-            async generate({ runtime }) {
-              runtimeConfig = runtime.runtimeConfig
-              return "configured"
-            },
-            name: "configured",
-          }
+      const agent = defineAgent({
+        driver: {
+          run({ runtime }) {
+            runtimeConfig = runtime.runtimeConfig
+            return "configured"
+          },
         },
-      } as ReturnType<typeof defineAgent>
+        runtime: workflow("configured-agent"),
+      })
       const run = await runAgent(agent, {
         memo: vi.fn(),
         runtime: "vercel",
@@ -11715,7 +11710,6 @@ describe("agent message protocol", () => {
         result: "configured",
         status: "completed",
       })
-      expect(resolveRuntimeConfig).toEqual({ region: "iad" })
       expect(runtimeConfig).toEqual({ region: "iad" })
     })
 
