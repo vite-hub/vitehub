@@ -10668,8 +10668,6 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      let resolveRuntimeConfig: unknown
-      let runtimeConfig: unknown
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
@@ -11688,6 +11686,8 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
+      let resolveRuntimeConfig: unknown
+      let runtimeConfig: unknown
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = {
