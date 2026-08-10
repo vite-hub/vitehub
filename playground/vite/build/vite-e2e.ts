@@ -1269,6 +1269,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
       "@vercel/sandbox",
       "askweb",
       "cloudflare:workers",
+      "cloudflare:workflows",
       "files-sdk",
       "files-sdk/akamai",
       "files-sdk/azure",
