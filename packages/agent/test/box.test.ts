@@ -410,6 +410,20 @@ describe("Agent Box", () => {
     })).toThrow("defineAgent({ box }) owns harness execution")
   })
 
+  it("accepts and inspects Box-only Capabilities without a Workspace", async () => {
+    const { defineAgent, defineCapability, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({
+      box: { runtime: "trusted-host" },
+      capabilities: [defineCapability({
+        id: "box-only",
+        requires: [{ primitive: "box" }],
+      })],
+      driver: "codex",
+    })
+
+    await expect(resolveAgentInspectionMetadata(agent)).resolves.toMatchObject({ tools: [] })
+  })
+
   it("preserves the harness work directory for custom runtimes with an authoritative path", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({

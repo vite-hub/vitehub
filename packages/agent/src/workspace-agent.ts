@@ -1497,7 +1497,10 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
   const channelInstructions = agentChannelMetadataInstructions(definition)
 
   const selection = await resolveMetadataCapabilitySelection(settings as never, resolution)
-  validateAgentCapabilityComposition(selection.capabilities, { hasWorkspace: false })
+  validateAgentCapabilityComposition(selection.capabilities, {
+    hasBox: Boolean(settings.box),
+    hasWorkspace: false,
+  })
   const capabilities = await resolveAgentCapabilities({
     capabilities: selection.capabilities,
     hooks: settings.hooks as never,

@@ -1136,7 +1136,10 @@ function defineBaseAgent<
   const normalizedCapabilities = channelChat
     ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
     : baseCapabilities
-  if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, { hasWorkspace: false })
+  if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
+    hasBox: Boolean(box),
+    hasWorkspace: false,
+  })
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
