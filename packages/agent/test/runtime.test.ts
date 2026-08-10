@@ -10815,6 +10815,18 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("rejects lossy custom outputs that share Agent result keys", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-result",
+        name: "custom-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ samples: new Uint8Array([1, 2]), text: "portable text" }))).rejects.toMatchObject({
+        isRetryable: false,
+      })
+    })
+
     it("preserves repeated references in JSON-compatible outputs", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const shared = { score: 1 }
