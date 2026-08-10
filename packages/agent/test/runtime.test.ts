@@ -10851,6 +10851,16 @@ describe("agent message protocol", () => {
       }, async () => result)).rejects.toMatchObject({ isRetryable: false })
     })
 
+    it("rejects negative zero that JSON would change", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "negative-zero-result",
+        name: "negative-zero-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => -0)).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("rejects custom output instances with non-JSON prototypes", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       await expect(runAgentWorkflowDefinition({} as never, {

@@ -65,7 +65,7 @@ const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value"
 
 function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): boolean {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true
-  if (typeof value === "number") return Number.isFinite(value)
+  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0)
   if (!value || typeof value !== "object" || seen.has(value)) return false
   seen.add(value)
   let portable = false
@@ -104,7 +104,7 @@ function isTextResponseMediaType(mediaType: string): boolean {
 
 function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value
-  if (typeof value === "number") return Number.isFinite(value) ? value : unportableWorkflowValue
+  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
   if (!value || typeof value !== "object") return unportableWorkflowValue
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
   if (value instanceof Date) return unportableWorkflowValue
