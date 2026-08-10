@@ -131,6 +131,7 @@ function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknow
 }
 
 async function portableWorkflowResult(result: unknown): Promise<unknown> {
+  try {
   if (result instanceof Response) {
     const headers = Array.from(result.headers)
     const mediaType = result.headers.get("content-type") || "application/octet-stream"
@@ -159,6 +160,11 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   const portable = portableWorkflowValue(normalized)
   if (jsonWorkflowValue(portable) === unportableWorkflowValue) unsupportedWorkflowResult()
   return portable
+  }
+  catch (error) {
+    if (error && typeof error === "object" && (error as { isRetryable?: unknown }).isRetryable === false) throw error
+    unsupportedWorkflowResult()
+  }
 }
 
 export async function runAgentWorkflowDefinition<

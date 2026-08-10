@@ -6,7 +6,7 @@ import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./i
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
-import { workflowBytesToBase64 } from "./internal/workflow-portability.ts"
+import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import {
   createBackedAgentInvocationController,
@@ -731,13 +731,14 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
   return await Promise.all(materialized.map(async message => ({
     ...message,
     parts: await Promise.all(message.parts.map(async (part) => {
-      if (!isAttachmentPart(part)) return part
+      if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
       if (data instanceof Blob) data = await data.arrayBuffer()
       if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      return data instanceof Uint8Array
+      const portable = data instanceof Uint8Array
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
+      return cloneWorkflowJsonValue(portable) as typeof part
     })),
   })))
 }

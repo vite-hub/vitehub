@@ -10827,6 +10827,17 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("marks result property access failures as non-retryable", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = Object.defineProperty({}, "value", { enumerable: true, get: () => { throw new Error("getter failed") } })
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "throwing-result",
+        name: "throwing-result",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => result)).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("preserves repeated references in JSON-compatible outputs", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const shared = { score: 1 }
@@ -11035,6 +11046,21 @@ describe("agent message protocol", () => {
         ],
         status: "completed",
       })
+    })
+
+    it("rejects non-JSON data in non-attachment message parts", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({ driver: { run: () => "unused" } })
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "portable-message-parts" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {
+        message: { parts: [{ data: 1n, type: "data" }], role: "user" } as never,
+      })).rejects.toThrow("Agent Workflow inputs must contain only JSON-compatible values.")
     })
 
     it("reconstructs Blob and Database tools inside required Workflows", async () => {
