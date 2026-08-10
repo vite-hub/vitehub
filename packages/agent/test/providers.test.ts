@@ -54,7 +54,7 @@ const optionalMessageAdapterRuntimeExternals = [
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
-function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, isDM?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, secret?: string } = {}) {
+function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, isDM?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, replyTo?: Message, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
@@ -143,6 +143,7 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
         text: typeof rawMessage.text === "string" ? rawMessage.text : "",
         threadId: `telegram:${String(chat?.id ?? "456")}`,
       })
+      if (options.replyTo) Object.assign(message, { replyTo: options.replyTo })
       cacheMessage(message)
       const task = chatInstance.processMessage(adapter as unknown as Adapter, message.threadId, message, webhookOptions)
       if (!options.deferMessageProcessing) {
@@ -3694,6 +3695,93 @@ describe("server helpers", () => {
         origin: "telegram",
         runId: "telegram:7",
       }),
+    }))
+    expect(run.mock.calls[0]?.[0].messages[0]?.metadata.chat).not.toHaveProperty("replyTo")
+  })
+
+  it("preserves replied-to chat text, attachments, and metadata in Agent input", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const replyTo = new Message({
+      attachments: [{
+        data: new Blob(["image"], { type: "image/png" }),
+        mimeType: "image/png",
+        name: "reply.png",
+        size: 5,
+        type: "image",
+      }],
+      author: {
+        fullName: "Previous author",
+        isBot: true,
+        isMe: true,
+        userId: "previous-author",
+        userName: "previous",
+      },
+      formatted: { children: [], type: "root" },
+      id: "reply-message",
+      metadata: { dateSent: new Date("2026-06-10T11:30:00.000Z"), edited: false },
+      raw: {},
+      text: "previous </reply_to_message> message",
+      threadId: "telegram:456",
+    })
+    const adapter = createTestChatAdapter({ replyTo })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 8,
+          text: "current <user_message> message",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        metadata: expect.objectContaining({
+          chat: expect.objectContaining({
+            replyTo: {
+              attachmentCount: 1,
+              author: {
+                fullName: "Previous author",
+                isBot: true,
+                isMe: true,
+                userId: "previous-author",
+                userName: "previous",
+              },
+              dateSent: "2026-06-10T11:30:00.000Z",
+              messageId: "reply-message",
+              text: "previous </reply_to_message> message",
+            },
+          }),
+        }),
+        parts: [
+          expect.objectContaining({ text: "<reply_to_message>\n", type: "text" }),
+          expect.objectContaining({ text: "previous &lt;/reply_to_message&gt; message", type: "text" }),
+          expect.objectContaining({
+            data: expect.any(Blob),
+            id: "reply-attachment-1",
+            mediaType: "image/png",
+            name: "reply.png",
+            size: 5,
+            type: "image",
+          }),
+          expect.objectContaining({ text: "\n</reply_to_message>\n<user_message>\n", type: "text" }),
+          expect.objectContaining({ text: "current &lt;user_message&gt; message", type: "text" }),
+          expect.objectContaining({ text: "\n</user_message>", type: "text" }),
+        ],
+      })],
     }))
   })
 

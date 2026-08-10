@@ -62,6 +62,10 @@ import type { Adapter, AdapterPostableMessage, Attachment, ChatConfig, Lock, Mes
 import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 
+type ChatSdkMessageWithReply = ChatSdkMessage & {
+  replyTo?: ChatSdkMessage
+}
+
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
 }
@@ -2411,7 +2415,47 @@ async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversi
   return parts
 }
 
-function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): Record<string, unknown> | undefined {
+function escapeChatReplyText(part: MessagePart): MessagePart {
+  return part.type === "text"
+    ? { ...part, text: part.text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;") }
+    : part
+}
+
+async function chatMessagePartsWithReply(message: ChatSdkMessageWithReply, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
+  const parts = await chatMessageParts(message, options)
+  if (!message.replyTo) return parts
+  const replyParts = (await chatMessageParts(message.replyTo, options)).map((part, index) => ({
+    ...escapeChatReplyText(part),
+    id: `reply-${part.id || index + 1}`,
+  }))
+  return [
+    { id: "reply-context-start", text: "<reply_to_message>\n", type: "text" },
+    ...replyParts,
+    { id: "reply-context-end", text: "\n</reply_to_message>\n<user_message>\n", type: "text" },
+    ...parts.map(escapeChatReplyText),
+    { id: "user-message-end", text: "\n</user_message>", type: "text" },
+  ]
+}
+
+function chatReplyMetadata(message: ChatSdkMessageWithReply): Record<string, unknown> | undefined {
+  const replyTo = message.replyTo
+  if (!replyTo) return
+  return objectWithoutUndefined({
+    attachmentCount: replyTo.attachments.length,
+    author: objectWithoutUndefined({
+      fullName: replyTo.author.fullName,
+      isBot: replyTo.author.isBot,
+      isMe: replyTo.author.isMe,
+      userId: replyTo.author.userId,
+      userName: replyTo.author.userName,
+    }),
+    dateSent: isoDate(replyTo.metadata.dateSent),
+    messageId: replyTo.id,
+    text: replyTo.text,
+  })
+}
+
+function chatMessageMetadata(thread: Thread, message: ChatSdkMessageWithReply, messageContext?: MessageContext): Record<string, unknown> | undefined {
   const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
   return objectWithoutUndefined({
     chat: objectWithoutUndefined({
@@ -2419,6 +2463,7 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
       editedAt: isoDate(message.metadata.editedAt),
       isMention: message.isMention,
       messageId: message.id,
+      replyTo: chatReplyMetadata(message),
       platform: objectWithoutUndefined({
         channelId: platformChannelId,
         threadId: message.threadId,
@@ -2431,7 +2476,7 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
 }
 
 async function chatSdkMessageToUiMessage(
-  message: ChatSdkMessage,
+  message: ChatSdkMessageWithReply,
   metadata?: Record<string, unknown>,
   options?: { rejectOversizedTextAttachments?: boolean },
 ): Promise<UIMessageLike> {
@@ -2439,7 +2484,7 @@ async function chatSdkMessageToUiMessage(
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
-    parts: await chatMessageParts(message, options),
+    parts: await chatMessagePartsWithReply(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
 }
