@@ -2942,7 +2942,7 @@ async function finalizeAgentInvocationResult<
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
-            const usage = await streamed.finishUsage(outcome.completed === true)
+            const usage = await streamed.finishUsage(!outcome.failed && outcome.completed === true)
             if (!outcome.failed && !outcome.completed) {
               return lifecycle.finish({
                 result,
@@ -3383,7 +3383,7 @@ async function executeAgentInvocationWithCapacityLease<
             if (finishTask) return await finishTask
             const finishResult = streamed.finishResult(preserved)
             finishTask = (async () => {
-              const finishUsage = await streamed.finishUsage(finalOutcome.completed === true)
+              const finishUsage = await streamed.finishUsage(!finalOutcome.failed && finalOutcome.completed === true)
               if (!finalOutcome.failed && !finalOutcome.completed) {
                 await lifecycle.finish({
                   result: finishResult,
@@ -3780,7 +3780,7 @@ async function executeAgentInvocationWithCapacityLease<
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = streamed.finishResult()
-          const finishUsage = await streamed.finishUsage(outcome.completed === true)
+          const finishUsage = await streamed.finishUsage(!outcome.failed && outcome.completed === true)
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,
