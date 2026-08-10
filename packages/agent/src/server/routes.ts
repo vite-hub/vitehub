@@ -4561,7 +4561,9 @@ export function createDiscordGatewayRouteHandler(
         return Response.json({ gateways: responses.length, ok: true })
       }
       finally {
-        await Promise.allSettled(chats.map(chat => chat.shutdown()))
+        if (!handlerOptions.webhookUrl) {
+          await Promise.allSettled(chats.map(chat => chat.shutdown()))
+        }
       }
     })
   }

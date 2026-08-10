@@ -1229,6 +1229,8 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       expect(webhookRoute).toContain("export function startDiscordGateways()")
       expect(webhookRoute).toContain("abortSignal: controller.signal")
+      expect(webhookRoute).toContain("process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS")
+      expect(webhookRoute).toContain("if (signal.aborted) return Promise.resolve()")
       expect(webhookRoute).not.toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
     }
     finally {
@@ -5395,6 +5397,31 @@ describe("server helpers", () => {
     expect(disconnectState).not.toHaveBeenCalled()
     await state.disconnect()
     await rm(stateRoot, { force: true, recursive: true })
+  })
+
+  it("keeps request-isolated Discord Gateway chats alive for background listener work", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const disconnect = vi.fn(async () => {})
+    const adapter = {
+      ...createTestChatAdapter(),
+      disconnect,
+      name: "discord",
+      startGatewayListener: vi.fn(async () => Response.json({ ok: true })),
+    }
+    const agent = defineAgent({
+      channels: { support: discord({ adapter: () => adapter as never }) },
+      driver: { run: vi.fn() },
+    })
+
+    const response = await createDiscordGatewayRouteHandler(agent as never)(
+      new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"),
+      { webhookUrl: "https://example.com/api/_vitehub/agents/support/webhooks/support" },
+    )
+
+    expect(response.status).toBe(200)
+    expect(disconnect).not.toHaveBeenCalled()
   })
 
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
