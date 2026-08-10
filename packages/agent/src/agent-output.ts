@@ -268,6 +268,20 @@ function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undef
   }
 }
 
+function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | undefined {
+  if (!isRecord(result) || !isRecord(result.providerMetadata)) return
+  for (const metadata of Object.values(result.providerMetadata)) {
+    const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+      return materializeAgentUsageCost({
+        estimated: false,
+        source: "provider",
+        usd: cost.toLocaleString("en-US", { maximumFractionDigits: 20, useGrouping: false }),
+      })
+    }
+  }
+}
+
 function usageRecordFromUsage(
   rawUsage: unknown,
   metadataSource?: unknown,
@@ -296,7 +310,9 @@ function usageRecordFromUsage(
   const response = responseFromResult(metadataSource) ?? responseFromResult(fallbackMetadataSource)
   const latency = latencyFromResult(metadataSource) ?? latencyFromResult(fallbackMetadataSource)
   const credentialSource = credentialSourceFromMetadata(readAgentUsageMetadata(metadataSource, fallbackMetadataSource))
+  const cost = providerCostFromResult(metadataSource) ?? providerCostFromResult(fallbackMetadataSource)
   return {
+    ...(cost ? { cost } : {}),
     ...(credentialSource ? { credentialSource } : {}),
     ...(latency ? { latency } : {}),
     ...modelMetadata,
@@ -314,12 +330,12 @@ function withFallbackUsageMetadata(
   const modelMetadata = modelMetadataFromResult(fallbackMetadataSource)
   const model = record.model ?? modelMetadata?.model
   const transport = record.transport ?? modelMetadata?.transport
-  let cost: AgentUsageRecord["cost"] | undefined
+  let cost = providerCostFromResult(fallbackMetadataSource)
   try {
-    cost = record.cost ? materializeAgentUsageCost(record.cost) : undefined
+    if (record.cost) cost = materializeAgentUsageCost(record.cost)
   }
   catch {
-    cost = undefined
+    cost = providerCostFromResult(fallbackMetadataSource)
   }
   const response = record.response ?? responseFromResult(fallbackMetadataSource)
   const latency = record.latency ?? latencyFromResult(fallbackMetadataSource)
@@ -343,7 +359,11 @@ export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSourc
   if (!isRecord(chunk)) return
   const type = String(chunk.type || "")
   if (type === "usage" && isUsageRecord(chunk.usageRecord)) {
-    return withFallbackUsageMetadata(chunk.usageRecord, fallbackMetadataSource, run)
+    return withFallbackUsageMetadata(
+      withFallbackUsageMetadata(chunk.usageRecord, chunk, run),
+      fallbackMetadataSource,
+      run,
+    )
   }
   return usageRecordFromUsage(type === "finish-step"
     ? chunk.usage

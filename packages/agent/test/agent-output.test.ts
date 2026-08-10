@@ -8,6 +8,7 @@ import {
   streamAgentOutputToEvents,
   toAgentRunResult,
   toAgentStreamEvent,
+  usageRecordFromStreamChunk,
 } from "../src/agent-output.ts"
 
 describe("agent output helpers", () => {
@@ -70,6 +71,47 @@ describe("agent output helpers", () => {
       provider: "custom-provider",
       usage: { inputTokens: 1 },
     }).usageRecord?.model).toBe(`custom-provider/${modelId}`)
+  })
+
+  it("normalizes provider-reported cost with canonical precedence", () => {
+    const usage = { inputTokens: 1 }
+    const providerMetadata = (cost: unknown) => ({ openrouter: { usage: { cost } } })
+
+    expect(toAgentRunResult({
+      providerMetadata: providerMetadata(0.00123),
+      usage,
+    }).usageRecord?.cost).toEqual({
+      display: "$0.00123",
+      estimated: false,
+      source: "provider",
+      usd: "0.00123",
+    })
+
+    for (const cost of [-1, Number.NaN, Number.POSITIVE_INFINITY, "0.00123"]) {
+      expect(toAgentRunResult({ providerMetadata: providerMetadata(cost), usage }).usageRecord?.cost).toBeUndefined()
+    }
+
+    const canonicalCost = {
+      display: "$0.02",
+      estimated: false,
+      source: "custom" as const,
+      usd: "0.02",
+    }
+    expect(toAgentRunResult({
+      providerMetadata: providerMetadata(0.00123),
+      usageRecord: { cost: canonicalCost, usage },
+    }).usageRecord?.cost).toEqual(canonicalCost)
+
+    const raw = { providerMetadata: providerMetadata(0.02), usage }
+    const selected = { providerMetadata: providerMetadata(0.00123), raw }
+    Object.defineProperty(selected, finalChannelOutputSelectedSymbol, { value: true })
+    expect(toAgentRunResult(selected).usageRecord?.cost?.usd).toBe("0.00123")
+
+    expect(usageRecordFromStreamChunk({
+      providerMetadata: providerMetadata(0.00123),
+      type: "usage",
+      usageRecord: { usage },
+    })?.cost?.usd).toBe("0.00123")
   })
 
   it("preserves published delivery artifacts in Agent run results", () => {
