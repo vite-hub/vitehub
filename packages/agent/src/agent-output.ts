@@ -560,7 +560,10 @@ async function* streamChunksToEvents(
     }
     yield event
   }
-  usageRecord ??= await usageFromResult(usageSource)
+  const resolvedUsageSource = await withResolvedProviderMetadata(usageSource)
+  usageRecord = usageRecord
+    ? withFallbackUsageMetadata(usageRecord, resolvedUsageSource)
+    : await usageFromResult(resolvedUsageSource)
   if (usageRecord) yield { type: "usage", usageRecord }
   yield finishEvent ?? { type: "finish" }
 }

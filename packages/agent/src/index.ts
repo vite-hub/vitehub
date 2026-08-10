@@ -2375,7 +2375,7 @@ function withStreamedResult(
           ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
           : undefined
         usageRecord = event?.type === "usage"
-          ? event.usageRecord
+          ? usageRecordFromStreamChunk(chunk, result) ?? event.usageRecord
           : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
         yield chunk
       }

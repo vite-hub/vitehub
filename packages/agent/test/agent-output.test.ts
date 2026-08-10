@@ -157,6 +157,18 @@ describe("agent output helpers", () => {
       type: "usage",
       usageRecord: expect.objectContaining({ cost: expect.objectContaining({ usd: "0.00123" }) }),
     }))
+
+    const promisedMetadataEvents = []
+    for await (const event of streamAgentOutputToEvents({
+      providerMetadata: Promise.resolve(providerMetadata),
+      stream: (async function* () {
+        yield { type: "usage", usageRecord: { usage: { inputTokens: 1 } } }
+      })(),
+    })) promisedMetadataEvents.push(event)
+    expect(promisedMetadataEvents).toContainEqual(expect.objectContaining({
+      type: "usage",
+      usageRecord: expect.objectContaining({ cost: expect.objectContaining({ usd: "0.00123" }) }),
+    }))
   })
 
   it("preserves published delivery artifacts in Agent run results", () => {

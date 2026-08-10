@@ -158,7 +158,11 @@ describe("usage context", () => {
       },
       driver: { run: () => (async function* () {
         yield { text: "ok", type: "text-delta" }
-        yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+        yield {
+          providerMetadata: { openrouter: { usage: { cost: 0.00123 } } },
+          type: "usage",
+          usageRecord: { usage: { totalTokens: 4 } },
+        }
         yield { type: "finish" }
       })(), },
     })
@@ -168,6 +172,12 @@ describe("usage context", () => {
 
     expect(finish).toHaveBeenCalledTimes(1)
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      cost: {
+        display: "$0.00123",
+        estimated: false,
+        source: "provider",
+        usd: "0.00123",
+      },
       usage: { totalTokens: 4 },
     })
   })
