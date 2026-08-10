@@ -272,40 +272,13 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
   if (!isRecord(result) || !isRecord(result.providerMetadata)) return
   for (const metadata of Object.values(result.providerMetadata)) {
     const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
-    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0 && !Object.is(cost, -0)) {
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
         estimated: false,
         source: "provider",
-        usd: decimalStringFromNumber(cost),
+        usd: (Object.is(cost, -0) ? 0 : cost).toLocaleString("en-US", { maximumFractionDigits: 20, useGrouping: false }),
       })
     }
-  }
-}
-
-function decimalStringFromNumber(value: number): string {
-  const [coefficient, rawExponent] = value.toString().split("e")
-  if (rawExponent === undefined) return coefficient
-  const digits = coefficient.replace(".", "")
-  const decimalIndex = (coefficient.indexOf(".") === -1 ? coefficient.length : coefficient.indexOf(".")) + Number(rawExponent)
-  if (decimalIndex <= 0) return `0.${"0".repeat(-decimalIndex)}${digits}`
-  if (decimalIndex >= digits.length) return `${digits}${"0".repeat(decimalIndex - digits.length)}`
-  return `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
-}
-
-async function withResolvedProviderMetadata(result: unknown): Promise<unknown> {
-  if (!isRecord(result) || !isPromiseLike(result.providerMetadata)) return result
-  try {
-    const descriptors = Object.getOwnPropertyDescriptors(result)
-    delete descriptors.providerMetadata
-    const metadataSource = Object.create(Object.getPrototypeOf(result), descriptors) as Record<string, unknown>
-    Object.defineProperty(metadataSource, "providerMetadata", {
-      enumerable: true,
-      value: await result.providerMetadata,
-    })
-    return metadataSource
-  }
-  catch {
-    return result
   }
 }
 
@@ -401,16 +374,10 @@ export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSourc
 
 async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(
-    await resolveUsageValue(result.usage ?? result.totalUsage),
-    await withResolvedProviderMetadata(result),
-    undefined,
-    run,
-  )
+  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result, undefined, run)
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
-  value = await withResolvedProviderMetadata(value)
   if (!isRecord(value)) return
   const usageRecord = ownValue(value, "usageRecord")
   if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
@@ -543,26 +510,19 @@ async function* streamChunksToEvents(
   let usageRecord: AgentUsageRecord | undefined
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
-  let resolvedUsageSource = usageSource
-  if (isRecord(usageSource) && isPromiseLike(usageSource.providerMetadata)) {
-    void withResolvedProviderMetadata(usageSource).then((resolved) => {
-      resolvedUsageSource = resolved
-    })
-  }
   for await (const chunk of chunks) {
     const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
       && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
       && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
     if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
-    const chunkUsageRecord = !explicitUsageEvent ? usageRecordFromStreamChunk(chunk, usageSource) : undefined
-    if (chunkUsageRecord) usageRecord = chunkUsageRecord
+    if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
     const event = toAgentStreamEvent(chunk, toolNames, textPhases)
     if (!event) continue
     if (event.type === "text-delta" && event.phase !== undefined && observation) {
       observation.explicitTextPhaseSeen = true
     }
     if (event.type === "usage") {
-      usageRecord = chunkUsageRecord ?? withFallbackUsageMetadata(event.usageRecord, usageSource)
+      usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)
       explicitUsageEvent = true
       continue
     }
@@ -572,9 +532,7 @@ async function* streamChunksToEvents(
     }
     yield event
   }
-  usageRecord = usageRecord
-    ? withFallbackUsageMetadata(usageRecord, resolvedUsageSource)
-    : await usageFromResult(resolvedUsageSource)
+  usageRecord ??= await usageFromResult(usageSource)
   if (usageRecord) yield { type: "usage", usageRecord }
   yield finishEvent ?? { type: "finish" }
 }

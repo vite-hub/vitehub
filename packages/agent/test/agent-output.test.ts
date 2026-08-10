@@ -87,10 +87,12 @@ describe("agent output helpers", () => {
       usd: "0.00123",
     })
 
-    expect(toAgentRunResult({ providerMetadata: providerMetadata(5e-21), usage }).usageRecord?.cost?.usd)
-      .toBe("0.000000000000000000005")
+    expect(toAgentRunResult({ providerMetadata: providerMetadata(-0), usage }).usageRecord?.cost).toMatchObject({
+      display: "$0",
+      usd: "0",
+    })
 
-    for (const cost of [-1, -0, Number.NaN, Number.POSITIVE_INFINITY, "0.00123"]) {
+    for (const cost of [-1, Number.NaN, Number.POSITIVE_INFINITY, "0.00123"]) {
       expect(toAgentRunResult({ providerMetadata: providerMetadata(cost), usage }).usageRecord?.cost).toBeUndefined()
     }
 
@@ -115,81 +117,6 @@ describe("agent output helpers", () => {
       type: "usage",
       usageRecord: { usage },
     })?.cost?.usd).toBe("0.00123")
-  })
-
-  it("preserves provider-reported cost through streamed usage events and promised metadata", async () => {
-    const providerMetadata = { openrouter: { usage: { cost: 0.00123 } } }
-    const stream = async function* () {
-      yield {
-        providerMetadata,
-        type: "usage",
-        usageRecord: { usage: { inputTokens: 1 } },
-      }
-    }
-
-    const events = []
-    for await (const event of streamAgentOutputToEvents({
-      providerMetadata: Promise.resolve(providerMetadata),
-      stream: stream(),
-      usage: Promise.resolve({ inputTokens: 1 }),
-    })) events.push(event)
-
-    expect(events).toContainEqual({
-      type: "usage",
-      usageRecord: {
-        cost: {
-          display: "$0.00123",
-          estimated: false,
-          source: "provider",
-          usd: "0.00123",
-        },
-        usage: { inputTokens: 1 },
-      },
-    })
-
-    const fallbackEvents = []
-    for await (const event of streamAgentOutputToEvents({
-      providerMetadata: Promise.resolve(providerMetadata),
-      stream: (async function* () {})(),
-      usage: Promise.resolve({ inputTokens: 1 }),
-    })) fallbackEvents.push(event)
-    expect(fallbackEvents).toContainEqual(expect.objectContaining({
-      type: "usage",
-      usageRecord: expect.objectContaining({ cost: expect.objectContaining({ usd: "0.00123" }) }),
-    }))
-
-    const promisedMetadataEvents = []
-    for await (const event of streamAgentOutputToEvents({
-      get providerMetadata() {
-        return Promise.resolve(providerMetadata)
-      },
-      stream: (async function* () {
-        yield { type: "usage", usageRecord: { usage: { inputTokens: 1 } } }
-      })(),
-    })) promisedMetadataEvents.push(event)
-    expect(promisedMetadataEvents).toContainEqual(expect.objectContaining({
-      type: "usage",
-      usageRecord: expect.objectContaining({ cost: expect.objectContaining({ usd: "0.00123" }) }),
-    }))
-
-    const pendingMetadataEvents = (async () => {
-      const events = []
-      for await (const event of streamAgentOutputToEvents({
-        providerMetadata: new Promise(() => {}),
-        stream: (async function* () {
-          yield { type: "usage", usageRecord: { usage: { inputTokens: 1 } } }
-          yield { type: "finish" }
-        })(),
-      })) events.push(event)
-      return events
-    })()
-    await expect(Promise.race([
-      pendingMetadataEvents,
-      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
-    ])).resolves.toEqual([
-      { type: "usage", usageRecord: { usage: { inputTokens: 1 } } },
-      { type: "finish" },
-    ])
   })
 
   it("preserves published delivery artifacts in Agent run results", () => {

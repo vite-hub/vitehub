@@ -27,8 +27,6 @@ By default, `cost()` prices regular input, cache-read, cache-write, and output t
 
 Pricing is best-effort. A missing model match, unavailable catalog, timeout, invalid price, or pricing callback error leaves the usage record and successful Agent Invocation unchanged. A cost already reported by the provider remains authoritative.
 
-Providers such as OpenRouter may report cost in `providerMetadata.*.usage.cost`. ViteHub normalizes a finite, non-negative numeric value into the canonical record as exact provider cost even without `cost()`; the Capability only prices usage when no canonical or provider-reported cost is available.
-
 ## Read the enriched record
 
 Finish Hooks read the canonical record from `event.invocation.usage`. Use `cost.usd` for arithmetic or persistence and `cost.display` for UI; consumers do not need to format the value themselves. The Capability's typed `cost` finish extension returns the same record.

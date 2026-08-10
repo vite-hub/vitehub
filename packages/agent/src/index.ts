@@ -2138,26 +2138,15 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
-    const providerMetadata = result && typeof result === "object"
-      ? (result as { providerMetadata?: unknown }).providerMetadata
-      : undefined
-    const deferUsageUntilComplete = providerMetadata && typeof providerMetadata === "object"
-      && typeof (providerMetadata as { then?: unknown }).then === "function"
-    let completionMetadataSettled = !deferUsageUntilComplete
-    if (deferUsageUntilComplete) {
-      void Promise.resolve(providerMetadata).then(
-        () => { completionMetadataSettled = true },
-        () => { completionMetadataSettled = true },
-      )
-    }
-    let deferredUsage: AgentUsageRecord | undefined
-    let terminalChunks: unknown[] | undefined
-
-    const enrichUsageChunk = async (chunk: unknown, rawUsageRecord: AgentUsageRecord, resolveCompletionMetadata = true): Promise<unknown[]> => {
-      const usageSource = result && typeof result === "object" ? Object.create(result) : {}
-      Object.defineProperty(usageSource, "usageRecord", { value: rawUsageRecord })
-      if (!resolveCompletionMetadata) Object.defineProperty(usageSource, "providerMetadata", { value: undefined })
-      const usageRecord = await resolveAgentUsageRecord(usageSource) ?? rawUsageRecord
+    const toolNames = new Map<string, string>()
+    const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+    for await (const chunk of stream) {
+      const event = toAgentStreamEvent(chunk, toolNames, textPhases)
+      const usageRecord = usageRecordFromStreamChunk(chunk, result)
+      if (!usageRecord) {
+        yield chunk
+        continue
+      }
       const usage = { ...usageRecord }
       const eventBase = {
         actor: context.actor,
@@ -2183,45 +2172,22 @@ function withEagerStreamUsageExtensions<
                 value: usage,
                 writable: true,
               })
-              return [chunk]
+              yield chunk
+              continue
             }
             catch {
               // Preserve the custom chunk and emit the canonical record separately.
             }
           }
-          return [chunk, { type: "usage", usageRecord: usage }]
+          yield chunk
+          yield { type: "usage", usageRecord: usage }
+          continue
         }
-        return [{ ...chunk, usageRecord: usage }]
+        yield { ...chunk, usageRecord: usage }
+        continue
       }
-      return [{ type: "usage", usageRecord: usage }]
+      yield { type: "usage", usageRecord: usage }
     }
-
-    for await (const chunk of stream) {
-      if (terminalChunks) {
-        terminalChunks.push(chunk)
-        continue
-      }
-      if (deferredUsage && chunk && typeof chunk === "object" && (chunk as { type?: unknown }).type === "finish") {
-        terminalChunks = [chunk]
-        continue
-      }
-      const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
-      if (!rawUsageRecord) {
-        yield chunk
-        continue
-      }
-      if (deferUsageUntilComplete) {
-        deferredUsage = rawUsageRecord
-        yield chunk
-        continue
-      }
-      yield* await enrichUsageChunk(chunk, rawUsageRecord)
-    }
-
-    if (deferredUsage) {
-      yield* await enrichUsageChunk(undefined, deferredUsage, completionMetadataSettled)
-    }
-    yield* terminalChunks ?? []
   })()
 }
 
@@ -2384,29 +2350,12 @@ function withStreamedResult(
   let finalText = ""
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-  const providerMetadata = result && typeof result === "object"
-    ? (result as { providerMetadata?: unknown }).providerMetadata
-    : undefined
-  const promisedProviderMetadata = providerMetadata && typeof providerMetadata === "object"
-    && typeof (providerMetadata as { then?: unknown }).then === "function"
-  let completionMetadataSettled = !promisedProviderMetadata
-  if (promisedProviderMetadata) {
-    void Promise.resolve(providerMetadata).then(
-      () => { completionMetadataSettled = true },
-      () => { completionMetadataSettled = true },
-    )
-  }
   return {
     finishResult(resultOverride: unknown = result) {
       return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
-    async finishUsage(resolveCompletionMetadata = true) {
-      const usage = usageRecord ?? fallbackUsageRecord
-      if (!usage) return
-      if (!resolveCompletionMetadata || !completionMetadataSettled) return usage
-      const usageSource = result && typeof result === "object" ? Object.create(result) : {}
-      Object.defineProperty(usageSource, "usageRecord", { value: usage })
-      return await resolveAgentUsageRecord(usageSource)
+    finishUsage() {
+      return usageRecord ?? fallbackUsageRecord
     },
     stream: (async function* () {
       for await (const chunk of stream) {
@@ -2425,37 +2374,9 @@ function withStreamedResult(
         const attachedUsageRecord = chunk && typeof chunk === "object" && "usageRecord" in chunk
           ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
           : undefined
-        const normalizedUsageRecord = event?.type === "usage"
-          ? usageRecordFromStreamChunk(chunk, result) ?? event.usageRecord
-          : undefined
         usageRecord = event?.type === "usage"
-          ? normalizedUsageRecord
+          ? event.usageRecord
           : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
-        if (event?.type === "usage" && normalizedUsageRecord !== event.usageRecord && chunk && typeof chunk === "object") {
-          const prototype = Object.getPrototypeOf(chunk)
-          if (prototype === Object.prototype || prototype === null) {
-            yield { ...chunk, usageRecord: normalizedUsageRecord }
-            continue
-          }
-          if (Object.isExtensible(chunk)) {
-            try {
-              Object.defineProperty(chunk, "usageRecord", {
-                configurable: true,
-                enumerable: true,
-                value: normalizedUsageRecord,
-                writable: true,
-              })
-              yield chunk
-              continue
-            }
-            catch {
-              // Preserve the custom chunk and emit the canonical record separately.
-            }
-          }
-          yield chunk
-          yield { type: "usage", usageRecord: normalizedUsageRecord }
-          continue
-        }
         yield chunk
       }
     })(),
@@ -2472,7 +2393,6 @@ async function finishStreamAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
   failureMessage: string,
   outputExtensions = new Map<string, unknown>(),
-  resolvedUsage?: AgentUsageRecord,
 ): Promise<void> {
   if (outcome.status === "error") {
     await lifecycle.finish(outcome)
@@ -2481,9 +2401,7 @@ async function finishStreamAgentInvocation<
   let finishResult: unknown
   let finishUsage: AgentUsageRecord | undefined
   try {
-    const usageRecord = resolvedUsage
-      ? await resolveAgentUsageRecord({ usageRecord: resolvedUsage }, context.run)
-      : await resolveFinishUsageRecord(context, result)
+    const usageRecord = await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
     if (usageRecord && resolvedResult !== result && result && typeof result === "object" && Object.isExtensible(result)) {
@@ -3003,7 +2921,7 @@ async function finalizeAgentInvocationResult<
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
-            const usage = await streamed.finishUsage(!outcome.failed && outcome.completed === true)
+            const usage = streamed.finishUsage()
             if (!outcome.failed && !outcome.completed) {
               return lifecycle.finish({
                 result,
@@ -3444,19 +3362,18 @@ async function executeAgentInvocationWithCapacityLease<
             if (finishTask) return await finishTask
             const finishResult = streamed.finishResult(preserved)
             finishTask = (async () => {
-              const finishUsage = await streamed.finishUsage(!finalOutcome.failed && finalOutcome.completed === true)
               if (!finalOutcome.failed && !finalOutcome.completed) {
                 await lifecycle.finish({
                   result: finishResult,
                   status: "success",
-                  ...(finishUsage
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsage }, invocation.run) }
+                  ...(streamed.finishUsage()
+                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
                     : {}),
                   usageResolved: true,
                 })
               }
               else {
-                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions, finishUsage)
+                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
                 const usageRecord = finishResult && typeof finishResult === "object"
                   ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                   : undefined
@@ -3841,19 +3758,18 @@ async function executeAgentInvocationWithCapacityLease<
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = streamed.finishResult()
-          const finishUsage = await streamed.finishUsage(!outcome.failed && outcome.completed === true)
           if (!outcome.failed && !outcome.completed) {
             await lifecycle.finish({
               result: finishResult,
               status: "success",
-              ...(finishUsage
-                ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsage }, invocation.run) }
+              ...(streamed.finishUsage()
+                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
                 : {}),
               usageResolved: true,
             })
           }
           else {
-            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions, finishUsage)
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
           }
         }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
       : tracedStream

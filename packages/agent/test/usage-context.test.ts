@@ -158,11 +158,7 @@ describe("usage context", () => {
       },
       driver: { run: () => (async function* () {
         yield { text: "ok", type: "text-delta" }
-        yield {
-          providerMetadata: { openrouter: { usage: { cost: 0.00123 } } },
-          type: "usage",
-          usageRecord: { usage: { totalTokens: 4 } },
-        }
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
         yield { type: "finish" }
       })(), },
     })
@@ -172,140 +168,8 @@ describe("usage context", () => {
 
     expect(finish).toHaveBeenCalledTimes(1)
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
-      cost: {
-        display: "$0.00123",
-        estimated: false,
-        source: "provider",
-        usd: "0.00123",
-      },
       usage: { totalTokens: 4 },
     })
-  })
-
-  it("resolves promised result metadata for held object streams", async () => {
-    const { cost } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const finish = vi.fn()
-    const pricing = vi.fn(() => ({ estimated: true, source: "custom", usd: "0.02" }))
-    let resolveProviderMetadata!: (value: { openrouter: { usage: { cost: number } } }) => void
-    const providerMetadata = new Promise<{ openrouter: { usage: { cost: number } } }>((resolve) => {
-      resolveProviderMetadata = resolve
-    })
-    const agent = defineAgent({
-      capabilities: [cost({ pricing })],
-      hooks: { "agent:finish": finish },
-      driver: { run: () => ({
-        get providerMetadata() {
-          return providerMetadata
-        },
-        stream: (async function* () {
-          try {
-            yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
-            yield { type: "finish" }
-          }
-          finally {
-            resolveProviderMetadata({ openrouter: { usage: { cost: 0.00123 } } })
-          }
-        })(),
-      }) },
-    })
-
-    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
-    const events = []
-    for await (const event of stream) events.push(event)
-
-    expect(events).toEqual([
-      { type: "usage", usageRecord: { usage: { totalTokens: 4 } } },
-      { type: "usage", usageRecord: expect.objectContaining({ cost: { estimated: false, source: "provider", display: "$0.00123", usd: "0.00123" } }) },
-      { type: "finish" },
-    ])
-    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
-      cost: { estimated: false, source: "provider", usd: "0.00123" },
-      usage: { totalTokens: 4 },
-    })
-    expect(pricing).not.toHaveBeenCalled()
-  })
-
-  it("normalizes provider cost on custom usage events without cost()", async () => {
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      driver: { run: () => (async function* () {
-        yield {
-          providerMetadata: { openrouter: { usage: { cost: 0.00123 } } },
-          type: "usage",
-          usageRecord: { usage: { totalTokens: 4 } },
-        }
-      })() },
-    })
-
-    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
-    await expect(stream[Symbol.asyncIterator]().next()).resolves.toMatchObject({
-      value: {
-        type: "usage",
-        usageRecord: { cost: { estimated: false, source: "provider", usd: "0.00123" } },
-      },
-    })
-  })
-
-  it("exposes usage before promised provider metadata settles", async () => {
-    const { cost } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
-      driver: { run: () => {
-        const stream = (async function* () {
-          yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
-          await new Promise(() => {})
-        })()
-        Object.defineProperty(stream, "providerMetadata", { value: new Promise(() => {}) })
-        return stream
-      } },
-    })
-
-    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
-    const consume = (async () => {
-      for await (const event of stream) return event
-    })()
-
-    await expect(Promise.race([
-      consume,
-      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
-    ])).resolves.toMatchObject({ type: "usage", usageRecord: { usage: { totalTokens: 4 } } })
-  })
-
-  it("finishes eager usage streams when provider metadata never settles", async () => {
-    const { cost } = await import("../src/capabilities.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const providerMetadata = new Promise(() => {})
-    const finish = vi.fn()
-    const agent = defineAgent({
-      capabilities: [cost({ pricing: () => ({ estimated: true, source: "custom", usd: "0.02" }) })],
-      driver: { run: () => ({
-        providerMetadata,
-        stream: (async function* () {
-          yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
-          yield { type: "finish" }
-        })(),
-      }) },
-      hooks: { "agent:finish": finish },
-    })
-
-    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
-    const consume = (async () => {
-      const events = []
-      for await (const event of stream) events.push(event)
-      return events
-    })()
-
-    await expect(Promise.race([
-      consume,
-      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
-    ])).resolves.toEqual([
-      { type: "usage", usageRecord: expect.objectContaining({ usage: { totalTokens: 4 } }) },
-      { type: "usage", usageRecord: expect.objectContaining({ cost: { display: "~$0.02", estimated: true, source: "custom", usd: "0.02" } }) },
-      { type: "finish" },
-    ])
-    expect(finish.mock.calls[0]![0].result.providerMetadata).toBe(providerMetadata)
   })
 
   it("exposes non-token usage details in the invocation record", async () => {
