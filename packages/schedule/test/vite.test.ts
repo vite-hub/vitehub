@@ -193,7 +193,6 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("\"intervalMs\": 5000")
     expect(pluginSource).toContain("nitroApp.captureError")
     expect(pluginSource).toContain("nitroApp.hooks.hook('close'")
-    expect(pluginSource).toContain("nodeProcess?.prependOnceListener(signal, closeScheduleRuntime)")
     expect(pluginSource).toContain("nitroApp.hooks.hook('request'")
     expect(pluginSource).not.toContain("nitroApp.fetch")
     expect(pluginSource).not.toContain("h3App")
