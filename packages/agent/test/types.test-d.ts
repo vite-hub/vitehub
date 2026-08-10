@@ -269,9 +269,9 @@ describe("agent public types", () => {
 
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
     expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
-    expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<{ summary: string, title: string } | undefined>()
+    expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<AgentRunResult | { summary: string, title: string } | undefined>()
     expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, steer: boolean }>()
-    expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<Response | { summary: string, title: string } | undefined>()
+    expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
   })
 
   it("accepts literal false as the inline runtime opt-out", () => {

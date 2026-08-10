@@ -199,6 +199,8 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
     const cloudflareWorkerBundleContents = await readFile(cloudflareWorkerBundle, "utf8")
     expect(cloudflareWorkerBundleContents).toContain("runViteHubWorkflowDefinition")
+    expect(cloudflareWorkerBundleContents).toContain("NonRetryableError")
+    expect(cloudflareWorkerBundleContents).toContain("cloudflare:workflows")
     expect(cloudflareWorkerBundleContents).toContain("Repository host context loaded through Vite raw semantics.")
     expect(cloudflareWorkerBundleContents).toContain("bundled Markdown template")
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)

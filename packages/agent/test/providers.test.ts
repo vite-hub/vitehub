@@ -5905,6 +5905,7 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       expect(json).toEqual({ accepted: true, ok: true })
       await Promise.all(waitUntilTasks)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       releaseRun()
       await vi.waitFor(async () => {
         await expect(getWorkflowRun("support-agent", "github:delivery-workflow")).resolves.toMatchObject({
@@ -5912,7 +5913,6 @@ describe("server helpers", () => {
           status: "completed",
         })
       })
-      expect(run).toHaveBeenCalledOnce()
     }
     finally {
       resetWorkflowRuntime()

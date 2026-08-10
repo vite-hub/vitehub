@@ -10718,6 +10718,301 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("normalizes noncloneable Agent results before Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => ({
+          provider: { request: () => "raw" },
+          text: "portable text",
+          usageRecord: { raw: { inspect: () => "provider usage" }, usage: { inputTokens: 3 } },
+          warnings: [{ inspect: () => "provider warning", message: "portable warning" }],
+        }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-result" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      const completed = await getWorkflowRun("portable-result", run.id)
+      expect(completed).toMatchObject({
+        result: {
+          text: "portable text",
+          usageRecord: { usage: { inputTokens: 3 } },
+          warnings: [{ message: "portable warning" }],
+        },
+        status: "completed",
+      })
+      expect(completed.result).not.toHaveProperty("provider")
+      expect(completed.result).not.toHaveProperty("usageRecord.raw")
+      expect(() => structuredClone(completed.result)).not.toThrow()
+    })
+
+    it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => ({
+          bytes: new Uint8Array([1, 2]),
+          count: 1n,
+          metadata: new Map([["provider", "custom"]]),
+          score: 1,
+        }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "json-portable-result" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("json-portable-result", run.id)).resolves.toMatchObject({
+        status: "failed",
+      })
+    })
+
+    it("rejects outputs whose JSON representation would change their declared type", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({ driver: { run: () => ({ createdAt: new Date(0) }) } })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "typed-json-result" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("typed-json-result", run.id)).resolves.toMatchObject({ status: "failed" })
+    })
+
+    it("rejects Agent result envelopes with no portable fields", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "unsupported-result",
+        name: "unsupported-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ raw: new Map() }))).rejects.toMatchObject({
+        isRetryable: false,
+        message: "Agent Workflow results must contain only JSON-compatible values.",
+      })
+    })
+
+    it("rejects lossy custom outputs that share Agent result keys", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-result",
+        name: "custom-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ samples: new Uint8Array([1, 2]), text: "portable text" }))).rejects.toMatchObject({
+        isRetryable: false,
+      })
+    })
+
+    it("rejects lossy custom outputs containing only Agent result keys", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-result-keys",
+        name: "custom-result-keys",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ raw: new Uint8Array([1]), text: "portable text" }))).rejects.toMatchObject({
+        isRetryable: false,
+      })
+    })
+
+    it("rejects lossy custom result instances that share Agent result keys", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      class CustomResult {
+        samples = new Uint8Array([1, 2])
+        text = "portable text"
+      }
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-result-instance",
+        name: "custom-result-instance",
+        payload: {},
+        provider: "vercel",
+      }, async () => new CustomResult())).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("marks result property access failures as non-retryable", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = Object.defineProperty({}, "value", { enumerable: true, get: () => { throw new Error("getter failed") } })
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "throwing-result",
+        name: "throwing-result",
+        payload: {},
+        provider: "cloudflare",
+      }, async () => result)).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("preserves repeated references in JSON-compatible outputs", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const shared = { score: 1 }
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "repeated-result",
+        name: "repeated-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({ first: shared, second: shared }))).resolves.toEqual({
+        first: { score: 1 },
+        second: { score: 1 },
+      })
+    })
+
+    it("does not execute custom toJSON hooks in Workflow results", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = Object.defineProperty({ score: 1 }, "toJSON", {
+        value: () => ({ score: 2 }),
+      })
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-json-result",
+        name: "custom-json-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).resolves.toEqual({ score: 1 })
+    })
+
+    it("rejects undefined array entries that JSON would change", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "undefined-result",
+        name: "undefined-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("rejects sparse arrays whose custom properties mask missing indices", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = Array(1) as unknown[] & { note?: string }
+      result.note = "not an array entry"
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "sparse-result",
+        name: "sparse-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("rejects negative zero that JSON would change", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "negative-zero-result",
+        name: "negative-zero-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => -0)).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("rejects custom output instances with non-JSON prototypes", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "prototype-result",
+        name: "prototype-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => /portable/)).rejects.toMatchObject({ isRetryable: false })
+    })
+
+    it("serializes Response results before Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => new Response("portable response", {
+          headers: [
+            ["content-type", "Text/Plain"],
+            ["set-cookie", "first=one"],
+            ["set-cookie", "second=two"],
+            ["x-agent", "portable"],
+          ],
+          status: 202,
+          statusText: "Accepted",
+        }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-response" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("portable-response", run.id)).resolves.toMatchObject({
+        result: {
+          raw: {
+            body: { data: "cG9ydGFibGUgcmVzcG9uc2U=", encoding: "base64", mediaType: "Text/Plain" },
+            headers: [
+              ["content-type", "Text/Plain"],
+              ["set-cookie", "first=one"],
+              ["set-cookie", "second=two"],
+              ["x-agent", "portable"],
+            ],
+            status: 202,
+            statusText: "Accepted",
+          },
+          text: "portable response",
+        },
+        status: "completed",
+      })
+    })
+
+    it("preserves binary Response bodies before Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => new Response(new Uint8Array([0xff, 0x00, 0x80]), {
+          headers: { "content-type": "image/png" },
+        }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-binary-response" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      const completed = await getWorkflowRun("portable-binary-response", run.id)
+      expect(completed).toMatchObject({
+        result: {
+          raw: {
+            body: { data: "/wCA", encoding: "base64", mediaType: "image/png" },
+            headers: [["content-type", "image/png"]],
+            status: 200,
+          },
+        },
+        status: "completed",
+      })
+      expect(completed.result).not.toHaveProperty("text")
+    })
+
     it("preserves only the request URL across Agent Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -10752,7 +11047,7 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("materializes a lazy message attachment before Workflows", async () => {
+    it("serializes binary message attachments before Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -10760,7 +11055,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        driver: { run: context => context.messages[0]?.parts[0] },
+        driver: { run: context => context.messages[0]?.parts },
       })
       const run = await runAgent(agent, {
         agentIdentity: { name: "portable-attachments" },
@@ -10770,20 +11065,49 @@ describe("agent message protocol", () => {
       }, {
         message: {
           id: "message-1",
-          parts: [{ fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" }],
+          parts: [
+            { fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" },
+            { data: new Blob([new Uint8Array([4, 5, 6])]), mediaType: "audio/mpeg", type: "audio" },
+            { data: new Uint8Array([7, 8, 9]).buffer, mediaType: "application/pdf", type: "file" },
+            { data: new Uint8Array([10, 11, 12]), mediaType: "text/plain", type: "file" },
+          ],
           role: "user",
         },
       }) as { id: string }
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("portable-attachments", run.id)).resolves.toMatchObject({
-        result: {
-          data: new Uint8Array([1, 2, 3]),
-          mediaType: "image/jpeg",
-          type: "image",
-        },
+        result: [
+          { data: "data:image/jpeg;base64,AQID", mediaType: "image/jpeg", type: "image" },
+          { data: "data:audio/mpeg;base64,BAUG", mediaType: "audio/mpeg", type: "audio" },
+          { data: "data:application/pdf;base64,BwgJ", mediaType: "application/pdf", type: "file" },
+          { data: "data:text/plain;base64,CgsM", mediaType: "text/plain", type: "file" },
+        ],
         status: "completed",
       })
+    })
+
+    it("rejects non-JSON data in non-attachment message parts", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({ driver: { run: () => "unused" } })
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "portable-message-parts" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {
+        message: { parts: [{ data: 1n, type: "data" }], role: "user" } as never,
+      })).rejects.toThrow("Agent Workflow inputs must contain only JSON-compatible values.")
+    })
+
+    it("preserves __proto__ as an own Workflow input property", async () => {
+      const { cloneWorkflowJsonValue } = await import("../src/internal/workflow-portability.ts")
+      const cloned = cloneWorkflowJsonValue(JSON.parse('{"__proto__":{"privileged":true}}')) as Record<string, unknown>
+      expect(Object.hasOwn(cloned, "__proto__")).toBe(true)
+      expect(Object.getPrototypeOf(cloned)).toBe(Object.prototype)
+      expect(cloned.__proto__).toEqual({ privileged: true })
     })
 
     it("reconstructs Blob and Database tools inside required Workflows", async () => {
@@ -11362,23 +11686,20 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
+      let runtimeConfig: unknown
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = {
-        runtime: workflow("configured-agent"),
         async resolve(context) {
+          runtimeConfig = context.runtimeConfig
           return {
-            async generate({ runtime }) {
-              return {
-                raw: {
-                  resolveRuntimeConfig: context.runtimeConfig,
-                  runtimeConfig: runtime.runtimeConfig,
-                },
-              }
+            async generate() {
+              return { finishReason: "stop", text: "configured", usage: {} }
             },
             name: "configured",
           }
         },
+        runtime: workflow("configured-agent"),
       } as ReturnType<typeof defineAgent>
       const run = await runAgent(agent, {
         memo: vi.fn(),
@@ -11389,16 +11710,10 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("configured-agent", run.id)).resolves.toMatchObject({
-        result: {
-          raw: {
-            raw: {
-              resolveRuntimeConfig: { region: "iad" },
-              runtimeConfig: { region: "iad" },
-            },
-          },
-        },
+        result: { text: "configured" },
         status: "completed",
       })
+      expect(runtimeConfig).toEqual({ region: "iad" })
     })
 
     it("reuses generated workflow definitions across equivalent agent instances", async () => {
@@ -11458,7 +11773,7 @@ describe("agent message protocol", () => {
             message: {
               invoke: (_context, input: { text: string }) => ({
                 input: { prompt: input.text },
-                run: { origin: "portal", runId: "portal-run" },
+                run: { origin: "portal", runId: "portal:run" },
               }),
             },
           },
@@ -11473,18 +11788,91 @@ describe("agent message protocol", () => {
       }, "portal.message", { text: "hello" }) as { id: string }
 
       expect(run).toMatchObject({
-        id: "portal-run",
+        id: "portal:run",
         provider: "vercel",
         status: "queued",
       })
       await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("portal-agent", "portal-run")).resolves.toMatchObject({
+      await expect(getWorkflowRun("portal-agent", "portal:run")).resolves.toMatchObject({
         result: "received hello",
         status: "completed",
       })
     })
 
-    it("passes Cloudflare env through workflow inline fallback", async () => {
+    it("maps invalid trigger run ids to deterministic Workflow ids", async () => {
+      const { defineAgent, runAgentTrigger, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const workflowRunId = "vitehub-invalid-3f69a017b830c1f1fff0bccb6bee512d714787164444d45f1a92c14b11a3ff37"
+      let consumerRunId = "telegram:42:103"
+      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+      const agent = defineAgent({
+        capabilities: [{
+          id: "telegram",
+          triggers: {
+            message: {
+              invoke: () => ({
+                input: { prompt: "hello" },
+                run: { origin: "telegram", runId: consumerRunId },
+              }),
+            },
+          },
+        }],
+        driver: { run: context => context.run?.runId },
+        runtime: workflow("telegram-agent"),
+      })
+      const run = await runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "cloudflare-agents",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, "telegram.message", {}) as { id: string }
+
+      expect(run.id).toBe(workflowRunId)
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("telegram-agent", workflowRunId)).resolves.toMatchObject({
+        result: workflowRunId,
+        status: "completed",
+      })
+
+      consumerRunId = workflowRunId
+      const reservedRun = await runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "cloudflare-agents",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, "telegram.message", {}) as { id: string }
+      expect(reservedRun.id).not.toBe(workflowRunId)
+      expect(reservedRun.id).toMatch(/^vitehub-invalid-[a-f0-9]{64}$/)
+    })
+
+    it("passes explicit Cloudflare env through workflow inline fallback", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+      const agent = defineAgent({
+        runtime: workflow("explicit-cloudflare-env-agent"),
+        driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
+      })
+      const run = await runAgent(agent, {
+        cloudflare: { env: { NUXT_SITE: "explicit.nuxt.com" } },
+        memo: vi.fn(),
+        runtime: "cloudflare-agents",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("explicit-cloudflare-env-agent", run.id)).resolves.toMatchObject({
+        result: "explicit.nuxt.com",
+        status: "completed",
+      })
+    })
+
+    it("passes the active Cloudflare env through workflow inline fallback", async () => {
+      const { runWithActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -11495,21 +11883,22 @@ describe("agent message protocol", () => {
         runtime: workflow("cloudflare-agent"),
         driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
       })
-      const run = await runAgent(agent, {
-        cloudflare: { env: { NUXT_SITE: "nuxt.com" } },
-        memo: vi.fn(),
-        runtime: "cloudflare-agents",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      await runWithActiveCloudflareEnv({ NUXT_SITE: "nuxt.com" }, async () => {
+        const run = await runAgent(agent, {
+          memo: vi.fn(),
+          runtime: "cloudflare-agents",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string }
 
-      expect(run).toMatchObject({
-        provider: "cloudflare",
-        status: "queued",
-      })
-      await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("cloudflare-agent", run.id)).resolves.toMatchObject({
-        result: "nuxt.com",
-        status: "completed",
+        expect(run).toMatchObject({
+          provider: "cloudflare",
+          status: "queued",
+        })
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("cloudflare-agent", run.id)).resolves.toMatchObject({
+          result: "nuxt.com",
+          status: "completed",
+        })
       })
     })
   })

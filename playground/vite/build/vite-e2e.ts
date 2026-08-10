@@ -926,6 +926,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   }
   if (artifacts.workflowBindings.length) {
     imports.push(`import { WorkflowEntrypoint } from "cloudflare:workers"`)
+    imports.push(`import { NonRetryableError } from "cloudflare:workflows"`)
   }
   if (artifacts.sandboxConfig && options.sandbox) {
     imports.push(`import { Sandbox as CloudflareSandbox } from "@cloudflare/sandbox"`)
@@ -936,7 +937,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     return [
       `export class ${binding?.class_name || getCloudflareWorkflowClassName(definition.name)} extends WorkflowEntrypoint {`,
       "  async run(event, step) {",
-      `    return await runCloudflareWorkflow({ config: workflowConfig, env: this.env || {}, event, name: ${JSON.stringify(definition.name)}, registry: workflowRegistry, step })`,
+      `    return await runCloudflareWorkflow({ config: workflowConfig, createNonRetryableError: error => new NonRetryableError(error.message, error.name), env: this.env || {}, event, name: ${JSON.stringify(definition.name)}, registry: workflowRegistry, step })`,
       "  }",
       "}",
       "",
@@ -1268,6 +1269,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
       "@vercel/sandbox",
       "askweb",
       "cloudflare:workers",
+      "cloudflare:workflows",
       "files-sdk",
       "files-sdk/akamai",
       "files-sdk/azure",

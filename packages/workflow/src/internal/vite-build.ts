@@ -276,12 +276,13 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function mergeCloudflareWorkersExternal(external: unknown): unknown {
-  if (external === undefined) return ["cloudflare:workers"]
-  if (typeof external === "string") return external === "cloudflare:workers" ? [external] : [external, "cloudflare:workers"]
-  if (external instanceof RegExp) return [external, "cloudflare:workers"]
-  if (Array.isArray(external)) return external.includes("cloudflare:workers") ? external : [...external, "cloudflare:workers"]
+  const cloudflareRuntimeModules = ["cloudflare:workers", "cloudflare:workflows"]
+  if (external === undefined) return cloudflareRuntimeModules
+  if (typeof external === "string") return [...new Set([external, ...cloudflareRuntimeModules])]
+  if (external instanceof RegExp) return [external, ...cloudflareRuntimeModules]
+  if (Array.isArray(external)) return [...new Set([...external, ...cloudflareRuntimeModules])]
   if (typeof external === "function") {
-    return (source: string, importer?: string, isResolved?: boolean) => source === "cloudflare:workers" || external(source, importer, isResolved)
+    return (source: string, importer?: string, isResolved?: boolean) => cloudflareRuntimeModules.includes(source) || external(source, importer, isResolved)
   }
   return external
 }
@@ -612,6 +613,7 @@ function renderProviderEntry(
   ]
   if (spec.name === "cloudflare") {
     imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/cloudflare-runner")))}`)
+    imports.push(`import { NonRetryableError } from "cloudflare:workflows"`)
   }
   if (userAppEntry) {
     imports.push(`import workflowApp from ${JSON.stringify(createImportPath(entryFile, userAppEntry))}`)
@@ -625,7 +627,7 @@ function renderProviderEntry(
         "}",
         "",
         "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
-        "  return await runCloudflareWorkflow({ config: workflowConfig, env: env || {}, event, name, registry: workflowRegistry, step })",
+        "  return await runCloudflareWorkflow({ config: workflowConfig, createNonRetryableError: error => new NonRetryableError(error.message, error.name), env: env || {}, event, name, registry: workflowRegistry, step })",
         "}",
       ]
     : []
@@ -719,6 +721,7 @@ function createCloudflareOutput(
         "@vercel/queue",
         "@vercel/sandbox",
         "cloudflare:workers",
+        "cloudflare:workflows",
         ...nodeBuiltinExternals,
         "workflow",
         "workflow/api",

@@ -6,6 +6,7 @@ import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./i
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
+import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import {
   createBackedAgentInvocationController,
@@ -18,6 +19,7 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from "@vite-hub/runtime"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
@@ -43,7 +45,7 @@ import {
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
-import { materializeMessageAttachmentData, type AgentMessagePhase } from "./messages.ts"
+import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasResolvedAgentInvokerInput,
@@ -630,6 +632,7 @@ interface AgentWorkflowRun<TOutput = unknown> {
   result?: TOutput
   status: "cancelled" | "completed" | "failed" | "queued" | "running" | "unknown"
 }
+type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
   run: AgentWorkflowRun<TOutput>
@@ -696,24 +699,48 @@ async function getAgentWorkflowHandle<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   name: string,
   reuseRegistry: boolean,
-): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>> {
+): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>> {
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
   const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
   const existing = handles.get(cacheKey)
-  if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
+  if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
 
   const { createWorkflow } = await loadAgentWorkflowModule()
   const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await loadAgentWorkflowRuntimeStateModule()
   const handle = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
-    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>(name)
-    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>(name, async (workflowContext) => {
+    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name)
+    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
-        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as TOutput
+        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
       })
   agentWorkflowNames.add(name)
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
   agentWorkflowHandles.set(agent as object, handles)
   return handle
+}
+
+async function portableAgentWorkflowRunId(runId: string): Promise<string> {
+  const generatedPrefix = "vitehub-invalid-"
+  if (/^[a-zA-Z0-9_][a-zA-Z0-9-_]{0,99}$/.test(runId) && !runId.startsWith(generatedPrefix)) return runId
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(runId))
+  return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
+}
+
+async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
+  const materialized = await materializeMessageAttachmentData(messages)
+  return await Promise.all(materialized.map(async message => ({
+    ...message,
+    parts: await Promise.all(message.parts.map(async (part) => {
+      if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
+      let data = part.data
+      if (data instanceof Blob) data = await data.arrayBuffer()
+      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
+      const portable = data instanceof Uint8Array
+        ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
+        : part
+      return cloneWorkflowJsonValue(portable) as typeof part
+    })),
+  })))
 }
 
 async function runAgentAsWorkflow<
@@ -725,12 +752,14 @@ async function runAgentAsWorkflow<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { fresh?: boolean } = {},
-): Promise<StartedAgentWorkflow<CALL_OPTIONS, TOutput> | undefined> {
+): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
+  const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
+  const { getWorkflowRuntimeConfig, runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
+  const workflowConfig = getWorkflowRuntimeConfig()
   if ("discoveryDefault" in binding) {
-    const { getWorkflowRuntimeConfig } = await loadAgentWorkflowRuntimeStateModule()
-    if (!getWorkflowRuntimeConfig()) return undefined
+    if (!workflowConfig) return undefined
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
@@ -748,16 +777,16 @@ async function runAgentAsWorkflow<
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
-  if (workflowInput.messages) workflowInput.messages = await materializeMessageAttachmentData(workflowInput.messages)
-  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await materializeMessageAttachmentData([workflowInput.message])
-  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await materializeMessageAttachmentData(workflowInput.prompt)
+  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
+  if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
+  if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
   const inheritedRun = options.fresh && context.run
     ? Object.fromEntries(Object.entries(context.run).filter(([key]) => key !== "runId"))
     : context.run
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
-    input: workflowInput,
+    input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
@@ -766,17 +795,21 @@ async function runAgentAsWorkflow<
     ...(inheritedRun ? { run: inheritedRun } : {}),
   }
   const workflowEvent = {
-    ...(context.cloudflare?.env ? { env: context.cloudflare.env } : {}),
+    ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
     waitUntil: context.waitUntil,
     context: {
       ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
       waitUntil: context.waitUntil,
     },
   }
-  const { runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
+  const workflowRunId = !options.fresh && context.run?.runId
+    ? workflowConfig && workflowConfig.provider === "cloudflare"
+      ? await portableAgentWorkflowRunId(context.run.runId)
+      : context.run.runId
+    : undefined
   const run = await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
     payload,
-    !options.fresh && context.run?.runId ? { id: context.run.runId } : {},
+    workflowRunId ? { id: workflowRunId } : {},
   ))
   return { handle, run }
 }
@@ -4008,7 +4041,7 @@ export async function startAgentInvocation<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { runId?: string } = {},
-): Promise<AgentInvocationController<TOutput | Response, CALL_OPTIONS>> {
+): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,
@@ -4029,7 +4062,7 @@ export async function runAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-): Promise<TOutput | Response | AgentWorkflowRun<TOutput>> {
+): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflow) return workflow.run
