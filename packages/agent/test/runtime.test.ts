@@ -11689,15 +11689,18 @@ describe("agent message protocol", () => {
       let runtimeConfig: unknown
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = defineAgent({
-        driver: {
-          run({ runtime }) {
-            runtimeConfig = runtime.runtimeConfig
-            return "configured"
-          },
+      const agent = {
+        async resolve(context) {
+          runtimeConfig = context.runtimeConfig
+          return {
+            async generate() {
+              return { finishReason: "stop", text: "configured", usage: {} }
+            },
+            name: "configured",
+          }
         },
         runtime: workflow("configured-agent"),
-      })
+      } as ReturnType<typeof defineAgent>
       const run = await runAgent(agent, {
         memo: vi.fn(),
         runtime: "vercel",
@@ -11707,7 +11710,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("configured-agent", run.id)).resolves.toMatchObject({
-        result: "configured",
+        result: { text: "configured" },
         status: "completed",
       })
       expect(runtimeConfig).toEqual({ region: "iad" })
