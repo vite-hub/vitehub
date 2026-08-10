@@ -235,14 +235,14 @@ describe("usage context", () => {
     })
 
     const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
-    const first = stream[Symbol.asyncIterator]().next()
+    const consume = (async () => {
+      for await (const event of stream) return event
+    })()
 
     await expect(Promise.race([
-      first,
+      consume,
       new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
-    ])).resolves.toMatchObject({
-      value: { type: "usage", usageRecord: { usage: { totalTokens: 4 } } },
-    })
+    ])).resolves.toMatchObject({ type: "usage", usageRecord: { usage: { totalTokens: 4 } } })
   })
 
   it("exposes non-token usage details in the invocation record", async () => {
