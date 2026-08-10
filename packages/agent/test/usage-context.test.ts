@@ -201,6 +201,7 @@ describe("usage context", () => {
         stream: (async function* () {
           try {
             yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+            yield { type: "finish" }
           }
           finally {
             resolveProviderMetadata({ openrouter: { usage: { cost: 0.00123 } } })
@@ -210,13 +211,40 @@ describe("usage context", () => {
     })
 
     const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
-    for await (const _event of stream) {}
+    const events = []
+    for await (const event of stream) events.push(event)
 
+    expect(events).toEqual([
+      { type: "usage", usageRecord: expect.objectContaining({ cost: { estimated: false, source: "provider", display: "$0.00123", usd: "0.00123" } }) },
+      { type: "usage", usageRecord: expect.objectContaining({ cost: { estimated: false, source: "provider", display: "$0.00123", usd: "0.00123" } }) },
+      { type: "finish" },
+    ])
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
       cost: { estimated: false, source: "provider", usd: "0.00123" },
       usage: { totalTokens: 4 },
     })
     expect(pricing).not.toHaveBeenCalled()
+  })
+
+  it("normalizes provider cost on custom usage events without cost()", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+        yield {
+          providerMetadata: { openrouter: { usage: { cost: 0.00123 } } },
+          type: "usage",
+          usageRecord: { usage: { totalTokens: 4 } },
+        }
+      })() },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    await expect(stream[Symbol.asyncIterator]().next()).resolves.toMatchObject({
+      value: {
+        type: "usage",
+        usageRecord: { cost: { estimated: false, source: "provider", usd: "0.00123" } },
+      },
+    })
   })
 
   it("exposes usage before promised provider metadata settles", async () => {

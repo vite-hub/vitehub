@@ -2144,6 +2144,7 @@ function withEagerStreamUsageExtensions<
     const deferUsageUntilComplete = providerMetadata && typeof providerMetadata === "object"
       && typeof (providerMetadata as { then?: unknown }).then === "function"
     let deferredUsage: AgentUsageRecord | undefined
+    let terminalChunks: unknown[] | undefined
 
     const enrichUsageChunk = async (chunk: unknown, rawUsageRecord: AgentUsageRecord): Promise<unknown[]> => {
       const usageSource = result && typeof result === "object" ? Object.create(result) : {}
@@ -2188,6 +2189,14 @@ function withEagerStreamUsageExtensions<
     }
 
     for await (const chunk of stream) {
+      if (terminalChunks) {
+        terminalChunks.push(chunk)
+        continue
+      }
+      if (deferredUsage && chunk && typeof chunk === "object" && (chunk as { type?: unknown }).type === "finish") {
+        terminalChunks = [chunk]
+        continue
+      }
       const rawUsageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!rawUsageRecord) {
         yield chunk
@@ -2204,6 +2213,7 @@ function withEagerStreamUsageExtensions<
     if (deferredUsage) {
       yield* await enrichUsageChunk(undefined, deferredUsage)
     }
+    yield* terminalChunks ?? []
   })()
 }
 
@@ -2395,9 +2405,37 @@ function withStreamedResult(
         const attachedUsageRecord = chunk && typeof chunk === "object" && "usageRecord" in chunk
           ? (chunk as { usageRecord?: AgentUsageRecord }).usageRecord
           : undefined
-        usageRecord = event?.type === "usage"
+        const normalizedUsageRecord = event?.type === "usage"
           ? usageRecordFromStreamChunk(chunk, result) ?? event.usageRecord
+          : undefined
+        usageRecord = event?.type === "usage"
+          ? normalizedUsageRecord
           : attachedUsageRecord ?? usageRecordFromStreamChunk(chunk, result) ?? usageRecord
+        if (event?.type === "usage" && normalizedUsageRecord !== event.usageRecord && chunk && typeof chunk === "object") {
+          const prototype = Object.getPrototypeOf(chunk)
+          if (prototype === Object.prototype || prototype === null) {
+            yield { ...chunk, usageRecord: normalizedUsageRecord }
+            continue
+          }
+          if (Object.isExtensible(chunk)) {
+            try {
+              Object.defineProperty(chunk, "usageRecord", {
+                configurable: true,
+                enumerable: true,
+                value: normalizedUsageRecord,
+                writable: true,
+              })
+              yield chunk
+              continue
+            }
+            catch {
+              // Preserve the custom chunk and emit the canonical record separately.
+            }
+          }
+          yield chunk
+          yield { type: "usage", usageRecord: normalizedUsageRecord }
+          continue
+        }
         yield chunk
       }
     })(),
