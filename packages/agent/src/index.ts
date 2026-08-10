@@ -3456,7 +3456,7 @@ async function executeAgentInvocationWithCapacityLease<
                 })
               }
               else {
-                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
+                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions, finishUsage)
                 const usageRecord = finishResult && typeof finishResult === "object"
                   ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                   : undefined
