@@ -10825,6 +10825,7 @@ describe("agent message protocol", () => {
             { fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" },
             { data: new Blob([new Uint8Array([4, 5, 6])]), mediaType: "audio/mpeg", type: "audio" },
             { data: new Uint8Array([7, 8, 9]).buffer, mediaType: "application/pdf", type: "file" },
+            { data: new Uint8Array([10, 11, 12]), mediaType: "text/plain", type: "file" },
           ],
           role: "user",
         },
@@ -10833,9 +10834,10 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("portable-attachments", run.id)).resolves.toMatchObject({
         result: [
-          { data: "AQID", mediaType: "image/jpeg", type: "image" },
-          { data: "BAUG", mediaType: "audio/mpeg", type: "audio" },
-          { data: "BwgJ", mediaType: "application/pdf", type: "file" },
+          { data: "data:image/jpeg;base64,AQID", mediaType: "image/jpeg", type: "image" },
+          { data: "data:audio/mpeg;base64,BAUG", mediaType: "audio/mpeg", type: "audio" },
+          { data: "data:application/pdf;base64,BwgJ", mediaType: "application/pdf", type: "file" },
+          { data: "data:text/plain;base64,CgsM", mediaType: "text/plain", type: "file" },
         ],
         status: "completed",
       })

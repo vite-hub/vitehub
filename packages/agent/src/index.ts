@@ -740,7 +740,9 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       let data = part.data
       if (data instanceof Blob) data = await data.arrayBuffer()
       if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      return data instanceof Uint8Array ? { ...part, data: workflowAttachmentBase64(data) } : part
+      return data instanceof Uint8Array
+        ? { ...part, data: `data:${part.mediaType};base64,${workflowAttachmentBase64(data)}` }
+        : part
     })),
   })))
 }
