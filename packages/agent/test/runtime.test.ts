@@ -10839,6 +10839,16 @@ describe("agent message protocol", () => {
       }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
     })
 
+    it("rejects custom output instances with non-JSON prototypes", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "prototype-result",
+        name: "prototype-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => /portable/)).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("serializes Response results before Workflow completion", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

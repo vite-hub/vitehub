@@ -72,7 +72,7 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
   if (Array.isArray(value)) {
     portable = value.length === Object.keys(value).length && value.every(item => item !== undefined && isJsonWorkflowValue(item, seen))
   }
-  else if (!(value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value) || value instanceof Date)) {
+  else if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
     portable = Object.values(value).every(item => item !== undefined && isJsonWorkflowValue(item, seen))
   }
   seen.delete(value)
