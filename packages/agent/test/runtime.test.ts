@@ -10827,6 +10827,20 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("rejects lossy custom result instances that share Agent result keys", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      class CustomResult {
+        samples = new Uint8Array([1, 2])
+        text = "portable text"
+      }
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-result-instance",
+        name: "custom-result-instance",
+        payload: {},
+        provider: "vercel",
+      }, async () => new CustomResult())).rejects.toMatchObject({ isRetryable: false })
+    })
+
     it("marks result property access failures as non-retryable", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const result = Object.defineProperty({}, "value", { enumerable: true, get: () => { throw new Error("getter failed") } })
