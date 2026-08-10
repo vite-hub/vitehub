@@ -2029,7 +2029,9 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
     connect: () => state.connect(),
     delete: cacheKey => state.delete(key(cacheKey)),
     dequeue: threadId => state.dequeue(key(threadId)),
-    disconnect: () => state.disconnect(),
+    disconnect: async () => {
+      // Scoped views share their backing state with other Channels and process handlers.
+    },
     enqueue: (threadId, entry, maxSize) => state.enqueue(key(threadId), entry, maxSize),
     extendLock: (value, ttlMs) => state.extendLock(lock(value), ttlMs),
     forceReleaseLock: threadId => state.forceReleaseLock(key(threadId)),

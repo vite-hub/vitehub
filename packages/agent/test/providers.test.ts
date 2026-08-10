@@ -5341,6 +5341,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const disconnect = vi.fn(async () => {})
     let finishListener!: () => void
     const listener = new Promise<void>(resolve => {
@@ -5350,6 +5351,10 @@ describe("server helpers", () => {
       options.waitUntil?.(listener)
       return Response.json({ ok: true })
     })
+    const stateRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-process-gateway-state-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateRoot, "state.sqlite")}` })
+    const disconnectState = vi.spyOn(state, "disconnect")
+    const stateResolver = Object.assign(() => state, { ownsScope: false })
     const adapter = {
       ...createTestChatAdapter(),
       disconnect,
@@ -5366,7 +5371,7 @@ describe("server helpers", () => {
 
     const responsePromise = createDiscordGatewayRouteHandler(agent as never)(
       new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"),
-      { abortSignal: abortController.signal },
+      { abortSignal: abortController.signal, state: stateResolver },
     )
 
     await vi.waitFor(() => expect(startGatewayListener).toHaveBeenCalledOnce())
@@ -5387,6 +5392,9 @@ describe("server helpers", () => {
       undefined,
     )
     expect(disconnect).toHaveBeenCalledOnce()
+    expect(disconnectState).not.toHaveBeenCalled()
+    await state.disconnect()
+    await rm(stateRoot, { force: true, recursive: true })
   })
 
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
