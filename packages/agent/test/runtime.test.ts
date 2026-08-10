@@ -10780,6 +10780,7 @@ describe("agent message protocol", () => {
       await expect(getWorkflowRun("portable-response", run.id)).resolves.toMatchObject({
         result: {
           raw: {
+            body: { data: "cG9ydGFibGUgcmVzcG9uc2U=", encoding: "base64", mediaType: "text/plain" },
             headers: { "content-type": "text/plain", "x-agent": "portable" },
             status: 202,
             statusText: "Accepted",
@@ -10788,6 +10789,40 @@ describe("agent message protocol", () => {
         },
         status: "completed",
       })
+    })
+
+    it("preserves binary Response bodies before Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: () => new Response(new Uint8Array([0xff, 0x00, 0x80]), {
+          headers: { "content-type": "image/png" },
+        }) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "portable-binary-response" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      const completed = await getWorkflowRun("portable-binary-response", run.id)
+      expect(completed).toMatchObject({
+        result: {
+          raw: {
+            body: { data: "/wCA", encoding: "base64", mediaType: "image/png" },
+            headers: { "content-type": "image/png" },
+            status: 200,
+          },
+        },
+        status: "completed",
+      })
+      expect(completed.result).not.toHaveProperty("text")
     })
 
     it("preserves only the request URL across Agent Workflows", async () => {

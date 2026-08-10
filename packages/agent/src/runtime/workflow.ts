@@ -62,6 +62,19 @@ function waitUntil(promise: Promise<unknown>): void {
 
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
+function workflowResultBase64(data: Uint8Array): string {
+  let binary = ""
+  for (let offset = 0; offset < data.length; offset += 0x8000) {
+    binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+function isTextResponseMediaType(mediaType: string): boolean {
+  return mediaType.startsWith("text/")
+    || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
+}
+
 function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
   try {
     return structuredClone(value)
@@ -93,14 +106,17 @@ function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknow
 
 async function portableWorkflowResult(result: unknown): Promise<unknown> {
   if (result instanceof Response) {
-    const text = await result.text()
+    const headers = Object.fromEntries(result.headers)
+    const mediaType = result.headers.get("content-type") || "application/octet-stream"
+    const bytes = new Uint8Array(await result.arrayBuffer())
     return {
       raw: {
-        headers: Object.fromEntries(result.headers),
+        body: { data: workflowResultBase64(bytes), encoding: "base64", mediaType },
+        headers,
         status: result.status,
         statusText: result.statusText,
       },
-      text,
+      ...(isTextResponseMediaType(mediaType) ? { text: new TextDecoder().decode(bytes) } : {}),
     } satisfies AgentRunResult
   }
   try {
