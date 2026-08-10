@@ -31,7 +31,9 @@ export function cloneWorkflowJsonValue(value: unknown): unknown {
       const output: Record<string, unknown> = {}
       for (const key of Object.keys(input)) {
         const item = clone((input as Record<string, unknown>)[key], true)
-        if (item !== omittedWorkflowValue) output[key] = item
+        if (item !== omittedWorkflowValue) {
+          Object.defineProperty(output, key, { configurable: true, enumerable: true, value: item, writable: true })
+        }
       }
       return output
     }

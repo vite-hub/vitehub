@@ -11063,6 +11063,14 @@ describe("agent message protocol", () => {
       })).rejects.toThrow("Agent Workflow inputs must contain only JSON-compatible values.")
     })
 
+    it("preserves __proto__ as an own Workflow input property", async () => {
+      const { cloneWorkflowJsonValue } = await import("../src/internal/workflow-portability.ts")
+      const cloned = cloneWorkflowJsonValue(JSON.parse('{"__proto__":{"privileged":true}}')) as Record<string, unknown>
+      expect(Object.hasOwn(cloned, "__proto__")).toBe(true)
+      expect(Object.getPrototypeOf(cloned)).toBe(Object.prototype)
+      expect(cloned.__proto__).toEqual({ privileged: true })
+    })
+
     it("reconstructs Blob and Database tools inside required Workflows", async () => {
       const blobList = vi.fn(async () => ({ blobs: [{ pathname: "workflow/input.jpg" }] }))
       const dbSchema = vi.fn(async () => ({ meals: true }))
