@@ -5,7 +5,7 @@ import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
-import { workflowBytesToBase64 } from "../internal/workflow-portability.ts"
+import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 
@@ -83,7 +83,7 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
 function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowValue {
   if (!isJsonWorkflowValue(value)) return unportableWorkflowValue
   try {
-    const serialized = JSON.stringify(value)
+    const serialized = JSON.stringify(cloneWorkflowJsonValue(value))
     return serialized === undefined ? unportableWorkflowValue : JSON.parse(serialized)
   }
   catch {

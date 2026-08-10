@@ -10866,6 +10866,19 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("does not execute custom toJSON hooks in Workflow results", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = Object.defineProperty({ score: 1 }, "toJSON", {
+        value: () => ({ score: 2 }),
+      })
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-json-result",
+        name: "custom-json-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).resolves.toEqual({ score: 1 })
+    })
+
     it("rejects undefined array entries that JSON would change", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       await expect(runAgentWorkflowDefinition({} as never, {
