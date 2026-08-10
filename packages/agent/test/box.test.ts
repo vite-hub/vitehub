@@ -17,6 +17,7 @@ const harnessObservation = vi.hoisted(() => ({
   generateCount: 0,
   globalSkills: ["global"] as string[],
   live: undefined as string | undefined,
+  sessionOptions: [] as Array<Record<string, unknown> | undefined>,
 }))
 
 vi.mock("@ai-sdk/harness/agent", () => ({
@@ -28,7 +29,8 @@ vi.mock("@ai-sdk/harness/agent", () => ({
       harnessSettings.push(settings)
     }
 
-    async createSession() {
+    async createSession(options?: Record<string, unknown>) {
+      harnessObservation.sessionOptions.push(options)
       const session = await this.settings.sandbox.createSession()
       const sessionWorkDir = this.settings.sandboxConfig.workDir
         ? join(session.defaultWorkingDirectory, this.settings.sandboxConfig.workDir)
@@ -85,6 +87,7 @@ afterEach(async () => {
   harnessObservation.generateCount = 0
   harnessObservation.globalSkills = ["global"]
   harnessObservation.live = undefined
+  harnessObservation.sessionOptions = []
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -151,6 +154,7 @@ describe("Agent Box", () => {
     try {
       const { custom } = await import("@vite-hub/workspace")
       const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { createCodexDriver } = await import("../src/harness/codex.ts")
       const { skills } = await import("../src/capabilities.ts")
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
@@ -179,7 +183,7 @@ describe("Agent Box", () => {
             source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
           }),
         ],
-        driver: "codex",
+        driver: { ...createCodexDriver(), sessionKey: "thread-1" },
       }), {
         [Symbol.for("vitehub.agent.colocatedSkills")]: {
           review: {
@@ -208,6 +212,7 @@ describe("Agent Box", () => {
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
       await expect(stat(codexHome)).rejects.toMatchObject({ code: "ENOENT" })
+      expect(harnessObservation.sessionOptions).toEqual([undefined])
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }

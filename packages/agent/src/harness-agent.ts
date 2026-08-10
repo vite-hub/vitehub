@@ -1438,6 +1438,7 @@ export function createHarnessAgentAdapter<
     context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
     getWorkspaceSession: () => { close: (error?: unknown) => MaybePromise<void> } | undefined,
     agentIdentity: Omit<HarnessSessionIdentity, "box">,
+    disableResume: boolean,
   ) {
     const identity: HarnessSessionIdentity = {
       ...agentIdentity,
@@ -1451,7 +1452,10 @@ export function createHarnessAgentAdapter<
           }
         : {}),
     }
-    const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
+    // Invocation-owned Codex Homes are disposable, including the local files
+    // that Codex needs to resume a thread. Keep these invocations honest by
+    // starting a fresh provider session instead of advertising broken resume.
+    const sessionId = disableResume ? undefined : await resolveHarnessSessionKey(options.sessionKey, context)
     const resumeKey = sessionId ? JSON.stringify([sessionId, identity.instructions, identity.workDir, identity.box]) : undefined
     const providerSessionId = sessionId && resumeKey
       ? await resolveHarnessProviderSessionId(sessionId, resumeKey, identity)
@@ -1639,7 +1643,7 @@ export function createHarnessAgentAdapter<
     }
     let created: Awaited<ReturnType<typeof createSession>>
     try {
-      created = await createSession(resolved.agent, context, () => preparationSession, resolved)
+      created = await createSession(resolved.agent, context, () => preparationSession, resolved, invocation.isolateBoxHome)
     }
     catch (error) {
       await preparationSession.close(error)
