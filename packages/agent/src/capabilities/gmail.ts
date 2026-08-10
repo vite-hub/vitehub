@@ -302,9 +302,10 @@ async function gmailDraft(input: GmailDraftInput, context: AgentCapabilityContex
   const body = gmailDraftBody(input?.body)
 
   const accounts = await gmailAccounts(context)
-  const writableAccounts = accounts.filter(candidate => typeof candidate.email === "string"
-    && gmailConnectedAccount(accounts, candidate.email, "draft"))
-  const account = requestedAccount || (writableAccounts.length === 1 ? gmailEmail(writableAccounts[0]?.email, "gmail_draft") : undefined)
+  const connectedAccounts = accounts.filter(candidate => candidate.valid === true
+    && Array.isArray(candidate.services)
+    && candidate.services.includes("gmail"))
+  const account = requestedAccount || (connectedAccounts.length === 1 ? gmailEmail(connectedAccounts[0]?.email, "gmail_draft") : undefined)
   if (!account) return { status: "account_required" as const }
   if (!gmailConnectedAccount(accounts, account, "draft")) return await gmailAuth({ account, action: "start" }, context, "draft")
 

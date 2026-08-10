@@ -206,6 +206,17 @@ describe("gmail capability", () => {
       "--remote", "--step", "1", "--json", "--no-input",
     ])
 
+    connected = true
+    const ambiguous = await capabilityTools(gmail({ mode: "draft" }), args => args[0] === "auth"
+      ? result('{"accounts":[{"email":"draft@example.com","services":["gmail"],"scopes":["https://mail.google.com/"],"valid":true},{"email":"read@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}')
+      : result('{"draft":{"id":"unexpected"}}'))
+    await expect(ambiguous.tools.gmail_draft!.execute?.({
+      body: "Body",
+      subject: "Choose an account",
+      to: ["person@example.com"],
+    })).resolves.toEqual({ status: "account_required" })
+    expect(ambiguous.sessions).toHaveLength(1)
+
     const beforeInvalidInput = calls.length
     await expect(runtime.tools.gmail_draft!.execute?.({
       body: "Body",
