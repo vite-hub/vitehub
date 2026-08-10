@@ -5,6 +5,7 @@ import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 
@@ -62,14 +63,6 @@ function waitUntil(promise: Promise<unknown>): void {
 
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
-function workflowResultBase64(data: Uint8Array): string {
-  let binary = ""
-  for (let offset = 0; offset < data.length; offset += 0x8000) {
-    binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000))
-  }
-  return btoa(binary)
-}
-
 function isTextResponseMediaType(mediaType: string): boolean {
   return mediaType.toLowerCase().startsWith("text/")
     || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
@@ -111,7 +104,7 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
     const bytes = new Uint8Array(await result.arrayBuffer())
     return {
       raw: {
-        body: { data: workflowResultBase64(bytes), encoding: "base64", mediaType },
+        body: { data: workflowBytesToBase64(bytes), encoding: "base64", mediaType },
         headers,
         status: result.status,
         statusText: result.statusText,

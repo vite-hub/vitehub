@@ -6,6 +6,7 @@ import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./i
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
+import { workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import {
   createBackedAgentInvocationController,
@@ -725,14 +726,6 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
-function workflowAttachmentBase64(data: Uint8Array): string {
-  let binary = ""
-  for (let offset = 0; offset < data.length; offset += 0x8000) {
-    binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000))
-  }
-  return btoa(binary)
-}
-
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
   const materialized = await materializeMessageAttachmentData(messages)
   return await Promise.all(materialized.map(async message => ({
@@ -743,7 +736,7 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       if (data instanceof Blob) data = await data.arrayBuffer()
       if (data instanceof ArrayBuffer) data = new Uint8Array(data)
       return data instanceof Uint8Array
-        ? { ...part, data: `data:${part.mediaType};base64,${workflowAttachmentBase64(data)}` }
+        ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
     })),
   })))
