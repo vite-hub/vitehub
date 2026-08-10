@@ -215,7 +215,7 @@ describe("usage context", () => {
     for await (const event of stream) events.push(event)
 
     expect(events).toEqual([
-      { type: "usage", usageRecord: expect.objectContaining({ cost: { estimated: false, source: "provider", display: "$0.00123", usd: "0.00123" } }) },
+      { type: "usage", usageRecord: { usage: { totalTokens: 4 } } },
       { type: "usage", usageRecord: expect.objectContaining({ cost: { estimated: false, source: "provider", display: "$0.00123", usd: "0.00123" } }) },
       { type: "finish" },
     ])
