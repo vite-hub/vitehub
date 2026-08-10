@@ -186,7 +186,7 @@ export function portableResolvedAgentInvokerInput<CALL_OPTIONS>(input: AgentRunI
   return {
     ...input,
     context: {
-      ...context,
+      ...Object.fromEntries(Object.entries(context)),
       [agentActorContextKey]: portableInvoker,
       [agentInvokerContextKey]: portableInvoker,
     },
