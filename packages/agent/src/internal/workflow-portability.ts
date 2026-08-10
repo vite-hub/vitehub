@@ -17,6 +17,7 @@ export function cloneWorkflowJsonValue(value: unknown): unknown {
     if (!input || typeof input !== "object" || seen.has(input)) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
     seen.add(input)
     try {
+      if (Reflect.ownKeys(input).some(key => typeof key === "symbol")) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
       if (Array.isArray(input)) {
         if (input.length !== Object.keys(input).length) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
         return Array.from({ length: input.length }, (_, index) => {

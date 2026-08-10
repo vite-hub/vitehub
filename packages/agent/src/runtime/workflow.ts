@@ -68,6 +68,7 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
   if (value === null || typeof value === "string" || typeof value === "boolean") return true
   if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0)
   if (!value || typeof value !== "object" || seen.has(value)) return false
+  if (Reflect.ownKeys(value).some(key => typeof key === "symbol")) return false
   seen.add(value)
   let portable = false
   if (Array.isArray(value)) {
@@ -82,9 +83,10 @@ function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): bool
 }
 
 function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowValue {
-  if (!isJsonWorkflowValue(value)) return unportableWorkflowValue
   try {
-    const serialized = JSON.stringify(cloneWorkflowJsonValue(value))
+    const cloned = cloneWorkflowJsonValue(value)
+    if (!isJsonWorkflowValue(cloned)) return unportableWorkflowValue
+    const serialized = JSON.stringify(cloned)
     return serialized === undefined ? unportableWorkflowValue : JSON.parse(serialized)
   }
   catch {

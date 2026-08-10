@@ -786,7 +786,7 @@ async function runAgentAsWorkflow<
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
-    input: workflowInput,
+    input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
     ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
