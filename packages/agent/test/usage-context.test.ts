@@ -276,15 +276,18 @@ describe("usage context", () => {
   it("finishes eager usage streams when provider metadata never settles", async () => {
     const { cost } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const providerMetadata = new Promise(() => {})
+    const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [cost({ pricing: () => ({ estimated: true, source: "custom", usd: "0.02" }) })],
       driver: { run: () => ({
-        providerMetadata: new Promise(() => {}),
+        providerMetadata,
         stream: (async function* () {
           yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
           yield { type: "finish" }
         })(),
       }) },
+      hooks: { "agent:finish": finish },
     })
 
     const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
@@ -299,9 +302,10 @@ describe("usage context", () => {
       new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 50)),
     ])).resolves.toEqual([
       { type: "usage", usageRecord: expect.objectContaining({ usage: { totalTokens: 4 } }) },
-      { type: "usage", usageRecord: expect.objectContaining({ usage: { totalTokens: 4 } }) },
+      { type: "usage", usageRecord: expect.objectContaining({ cost: { display: "~$0.02", estimated: true, source: "custom", usd: "0.02" } }) },
       { type: "finish" },
     ])
+    expect(finish.mock.calls[0]![0].result.providerMetadata).toBe(providerMetadata)
   })
 
   it("exposes non-token usage details in the invocation record", async () => {

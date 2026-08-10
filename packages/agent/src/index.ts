@@ -2153,9 +2153,10 @@ function withEagerStreamUsageExtensions<
     let deferredUsage: AgentUsageRecord | undefined
     let terminalChunks: unknown[] | undefined
 
-    const enrichUsageChunk = async (chunk: unknown, rawUsageRecord: AgentUsageRecord): Promise<unknown[]> => {
+    const enrichUsageChunk = async (chunk: unknown, rawUsageRecord: AgentUsageRecord, resolveCompletionMetadata = true): Promise<unknown[]> => {
       const usageSource = result && typeof result === "object" ? Object.create(result) : {}
       Object.defineProperty(usageSource, "usageRecord", { value: rawUsageRecord })
+      if (!resolveCompletionMetadata) Object.defineProperty(usageSource, "providerMetadata", { value: undefined })
       const usageRecord = await resolveAgentUsageRecord(usageSource) ?? rawUsageRecord
       const usage = { ...usageRecord }
       const eventBase = {
@@ -2218,8 +2219,7 @@ function withEagerStreamUsageExtensions<
     }
 
     if (deferredUsage) {
-      if (completionMetadataSettled) yield* await enrichUsageChunk(undefined, deferredUsage)
-      else yield { type: "usage", usageRecord: deferredUsage }
+      yield* await enrichUsageChunk(undefined, deferredUsage, completionMetadataSettled)
     }
     yield* terminalChunks ?? []
   })()
@@ -2398,11 +2398,6 @@ function withStreamedResult(
   }
   return {
     finishResult(resultOverride: unknown = result) {
-      if (!completionMetadataSettled && resultOverride && typeof resultOverride === "object") {
-        const descriptors = Object.getOwnPropertyDescriptors(resultOverride)
-        delete descriptors.providerMetadata
-        resultOverride = Object.create(Object.getPrototypeOf(resultOverride), descriptors)
-      }
       return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
     async finishUsage(resolveCompletionMetadata = true) {
@@ -2477,6 +2472,7 @@ async function finishStreamAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
   failureMessage: string,
   outputExtensions = new Map<string, unknown>(),
+  resolvedUsage?: AgentUsageRecord,
 ): Promise<void> {
   if (outcome.status === "error") {
     await lifecycle.finish(outcome)
@@ -2485,7 +2481,9 @@ async function finishStreamAgentInvocation<
   let finishResult: unknown
   let finishUsage: AgentUsageRecord | undefined
   try {
-    const usageRecord = await resolveFinishUsageRecord(context, result)
+    const usageRecord = resolvedUsage
+      ? await resolveAgentUsageRecord({ usageRecord: resolvedUsage }, context.run)
+      : await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
     const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
     if (usageRecord && resolvedResult !== result && result && typeof result === "object" && Object.isExtensible(result)) {
@@ -3855,7 +3853,7 @@ async function executeAgentInvocationWithCapacityLease<
             })
           }
           else {
-            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions, finishUsage)
           }
         }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
       : tracedStream
