@@ -316,6 +316,9 @@ describe("Agent Box", () => {
       await expect(readFile(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), "utf8"))
         .resolves.toMatch(/^vitehub-colocated-skills-v2\n/)
       await rm(join(persistentCodexHome, "skills.vitehub-colocated-v2"))
+      Reflect.deleteProperty(Reflect.get(agent, colocatedSkills) as object, "newline")
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles/review", "global", "global-trailing\n", "legacy", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      harnessObservation.absentGlobalSkills = ["line\nbreak"]
       await writeFile(join(persistentCodexHome, "skills/siblings/custom"), "Unmanaged sibling.\n")
       await mkdir(join(persistentCodexHome, "skills/.git"))
       await writeFile(
@@ -328,7 +331,7 @@ describe("Agent Box", () => {
         source: custom({ files: [{ content: "Ancestor bundle skill.\n", path: "SKILL.md" }] }),
       }))
       Object.assign(agent, { capabilities: globalSkills })
-      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "global-trailing\n", "legacy", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
       await chmod(join(persistentCodexHome, "skills"), 0o444)
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -346,6 +349,8 @@ describe("Agent Box", () => {
         .resolves.toBe("Ancestor bundle skill.\n")
       await expect(readFile(join(persistentCodexHome, "skills/siblings/custom"), "utf8"))
         .resolves.toBe("Unmanaged sibling.\n")
+      await expect(stat(join(persistentCodexHome, "skills/line\nbreak")))
+        .rejects.toMatchObject({ code: "ENOENT" })
       expect((await stat(join(persistentCodexHome, "skills"))).mode & 0o300).toBe(0o300)
       expect(harnessObservation.sessionOptions).toHaveLength(2)
       expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")

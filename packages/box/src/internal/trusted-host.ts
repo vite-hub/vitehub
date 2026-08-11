@@ -109,10 +109,12 @@ const trustedHostExecutionAuthority = {
 } as const satisfies ExecutionAuthority;
 
 export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxRuntime {
+  const preparedInputs = new WeakMap<BoxRuntimeInput, Awaited<ReturnType<typeof resolveTrustedHostInput>>>();
   return markBuiltInBoxRuntime({
     name: "trusted-host",
     async prepare(input) {
       const { cwd, stateRoot } = await resolveTrustedHostInput(input, options);
+      preparedInputs.set(input, { cwd, stateRoot });
       return {
         cache: { state: "disposable" },
         environment: { env: {} },
@@ -136,7 +138,7 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
       } satisfies BoxRuntimePlan;
     },
     async open(input, openOptions) {
-      const resolved = await resolveTrustedHostInput(input, options);
+      const resolved = preparedInputs.get(input) ?? await resolveTrustedHostInput(input, options);
       let initializedSession: ReturnType<typeof createBoxSession> | undefined;
       const runtimeSession = await createSession(
         { ...input, ...(resolved.cwd ? { cwd: resolved.cwd } : {}) },

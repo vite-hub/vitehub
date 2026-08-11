@@ -837,6 +837,27 @@ describe("createTrustedHostRuntime", () => {
     ).rejects.toThrow("outside the authoritative workspace");
   });
 
+  it("pins a canonical state root from prepare through open", async () => {
+    const root = await temporaryRoot();
+    const first = join(root, "first");
+    const second = join(root, "second");
+    const linked = join(root, "linked");
+    await Promise.all([mkdir(first), mkdir(second)]);
+    await symlink(first, linked);
+    const box = await resolveBox({
+      home: { state: { ".acme": { key: "portable-box-test/pinned-root", seed: { marker: { contents: "first" } } } } },
+      runtime: createTrustedHostRuntime({ stateRoot: join(linked, "state") }),
+    }, {});
+
+    await rm(linked);
+    await symlink(second, linked);
+    const session = await box.open();
+    await expect(readFile(join(session.env.HOME, ".acme", "marker"), "utf8")).resolves.toBe("first");
+    await session.destroy?.();
+    await expect(stat(join(first, "state"))).resolves.toBeDefined();
+    await expect(stat(join(second, "state"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("requires a durable root for writable state", async () => {
     await expect(
       resolveBox(
