@@ -852,8 +852,8 @@ describe("createTrustedHostRuntime", () => {
     await rm(linked);
     await symlink(second, linked);
     const session = await box.open();
-    await expect(readFile(join(session.env.HOME, ".acme", "marker"), "utf8")).resolves.toBe("first");
-    await session.destroy?.();
+    await expect(session.exec("sh", ["-c", 'cat "$HOME/.acme/marker"'])).resolves.toMatchObject({ stdout: "first" });
+    await session.close();
     await expect(stat(join(first, "state"))).resolves.toBeDefined();
     await expect(stat(join(second, "state"))).rejects.toMatchObject({ code: "ENOENT" });
   });
