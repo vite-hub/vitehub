@@ -8841,6 +8841,7 @@ describe("agent message protocol", () => {
         },
       } as never,
       context: invocationContext,
+      driverKind: "harness",
       harnessSandboxProvider: sandbox,
       invocationKind: "stream",
     })
@@ -9026,6 +9027,20 @@ describe("agent message protocol", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       prompt: "Check inventory",
     })).resolves.toEqual({ text: "Inventory checked." })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("does not generate progress summaries when a streaming invocation returns a plain value", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute })],
+      driver: { run: () => "Inventory checked." },
+    })
+
+    await expect(streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "Check inventory",
+    })).resolves.toBe("Inventory checked.")
     expect(execute).not.toHaveBeenCalled()
   })
 

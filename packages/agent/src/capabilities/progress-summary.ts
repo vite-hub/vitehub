@@ -588,7 +588,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
         return state
       }
       invocationStarts.set(context.context, () => {
-        if (context.invocation?.kind === "stream") getState()
+        if (context.invocation?.kind === "stream" && context.driver?.kind === "harness") getState()
       })
       context.output.render((result) => {
         if (isStreamResult(result)) {
