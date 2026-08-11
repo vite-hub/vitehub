@@ -1050,6 +1050,8 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close })
     harnessFileSession.run
       .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "" })
+      .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "" })
+      .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "" })
       .mockResolvedValueOnce({ exitCode: 1, stderr: "copy failed", stdout: "" })
       .mockRejectedValueOnce(new Error("cleanup failed"))
     const agent = defineAgent({
@@ -1063,7 +1065,7 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("copy failed")
-    expect(harnessFileSession.run).toHaveBeenNthCalledWith(3, expect.objectContaining({
+    expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
       command: expect.stringMatching(/^rm -rf -- 'tmp\/harness\/codex-home\/skills\.vitehub-global-skills-/),
     }))
     expect(close).toHaveBeenCalledWith(expect.any(Error))
@@ -1135,7 +1137,7 @@ describe("defineAgent workspace option", () => {
       workingDirectory: "/workspace/codex-session",
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringMatching(/cp -Rn \.vitehub-agent-skills-[^/]+\/skills\/\. \./),
+      command: expect.stringMatching(/manifest=\.\/\.vitehub-colocated-v2;.*cp -R -- \.vitehub-agent-skills-[^/]+\/skills\/"\$managed" \./),
       workingDirectory: "tmp/harness/codex-home/skills",
     }))
     expect(workspaceClose).toHaveBeenCalledWith()
@@ -1209,7 +1211,7 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("materialization failed")
-    expect(harnessFileSession.run).toHaveBeenNthCalledWith(3, expect.objectContaining({
+    expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
       command: expect.stringMatching(/^rm -rf -- \.vitehub-agent-skills-/),
       workingDirectory: "tmp/harness/codex-home/skills",
     }))
