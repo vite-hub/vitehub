@@ -10788,6 +10788,12 @@ describe("agent message protocol", () => {
         text: "portable text",
         usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
       })
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "ai-sdk-result",
+        name: "ai-sdk-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).resolves.not.toHaveProperty("raw.initialResponseMessages")
     })
 
     it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {
