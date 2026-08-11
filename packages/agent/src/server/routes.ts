@@ -2791,17 +2791,18 @@ async function postChatErrorFallback(
     else {
       await enforceChatInvocationTimeout(
         cleanup,
-        Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - Date.now()),
+        Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - chatFallbackDeliveryReserveMs - Date.now()),
       ).catch(() => undefined)
     }
   }
+  const fallbackPlaceholder = manualDelivery?.placeholderCleanup ? undefined : manualDelivery?.placeholder
   const fallbackDeliveryAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   const fallbackDelivery = (async () => {
     if (!fallback) {
-      if (manualDelivery?.placeholder) await deleteManualDeliveryPlaceholder(manualDelivery.placeholder)
+      if (fallbackPlaceholder) await deleteManualDeliveryPlaceholder(fallbackPlaceholder)
       return
     }
-    if (await deliverToManualDeliveryPlaceholder(manualDelivery?.placeholder, fallback)) return
+    if (await deliverToManualDeliveryPlaceholder(fallbackPlaceholder, fallback)) return
     fallbackDeliveryAbort?.signal.throwIfAborted()
     const sent = await thread.post(fallback).catch(() => undefined)
     if (!sent) return
@@ -2899,26 +2900,29 @@ async function flushChatFinishExtensionMessages(
         abortSignal?.throwIfAborted()
       }
       const placeholder = manualDelivery.placeholder
-      const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder)
+      let deliveredToPlaceholder = false
+      const placeholderCleanup = (async () => {
+        try {
+          await deleteManualDeliveryPlaceholder(placeholder)
+        }
+        catch {
+          abortSignal?.throwIfAborted()
+          deliveredToPlaceholder = await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)
+          abortSignal?.throwIfAborted()
+        }
+        manualDelivery.placeholder = undefined
+        abortSignal?.throwIfAborted()
+      })()
       manualDelivery.placeholderCleanup = placeholderCleanup
       try {
         await placeholderCleanup
-      }
-      catch (cause) {
-        abortSignal?.throwIfAborted()
-        if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) {
-          manualDelivery.placeholder = undefined
-          continue
-        }
-        throw cause
       }
       finally {
         if (manualDelivery.placeholderCleanup === placeholderCleanup) {
           manualDelivery.placeholderCleanup = undefined
         }
       }
-      manualDelivery.placeholder = undefined
-      abortSignal?.throwIfAborted()
+      if (deliveredToPlaceholder) continue
     }
     await postChatMessage(thread, message, abortSignal)
   }
