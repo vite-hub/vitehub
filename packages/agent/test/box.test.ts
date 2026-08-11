@@ -324,8 +324,10 @@ describe("Agent Box", () => {
       await chmod(externalReview, 0o700)
       await chmod(join(externalReview, "SKILL.md"), 0o600)
       const externalSkills = join(root, "external-skills")
-      await mkdir(externalSkills)
+      await mkdir(join(externalSkills, "managed"), { recursive: true })
       await writeFile(join(externalSkills, "untouched"), "external\n")
+      await writeFile(join(externalSkills, "managed/owned"), "managed\n")
+      await writeFile(join(externalSkills, ".vitehub-colocated-v2"), `${Buffer.from("managed").toString("base64")}\n`)
       await rm(join(persistentCodexHome, "skills"), { recursive: true })
       await symlink(externalSkills, join(persistentCodexHome, "skills"))
       await expect(runAgent(agent, {
@@ -335,8 +337,9 @@ describe("Agent Box", () => {
       }, {
         options: { worktreePath: removedSkillWorktree },
         prompt: "Do not follow the replaced Skills root.",
-      })).rejects.toThrow("Global Skill directory cannot be a symlink")
+      })).rejects.toThrow("Persisted Skill directory cannot be a symlink")
       await expect(readFile(join(externalSkills, "untouched"), "utf8")).resolves.toBe("external\n")
+      await expect(readFile(join(externalSkills, "managed/owned"), "utf8")).resolves.toBe("managed\n")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
