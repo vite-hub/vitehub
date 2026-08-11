@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
@@ -293,15 +293,21 @@ describe("Database Nuxt integration", () => {
     })
   })
 
-  it("keeps the discovered migration directory in Nitro's D1 binding", async () => {
+  it("materializes discovered migrations in Nitro's Cloudflare output", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-migrations-"))
     const definition = join(rootDir, "server/databases/config.ts")
+    const migrationsDir = join(rootDir, "server/databases/migrations")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
       "export default defineDatabase({ schema: {} })",
       "",
     ].join("\n"))
+    await mkdir(migrationsDir, { recursive: true })
+    await Promise.all([
+      writeFile(join(migrationsDir, "0001_portable.sql"), "SELECT 1;\n"),
+      writeFile(join(migrationsDir, "journal.json"), "{}\n"),
+    ])
 
     try {
       const { hooks, nuxt } = createNuxt({
@@ -322,8 +328,20 @@ describe("Database Nuxt integration", () => {
 
       expect(nitroConfig).toHaveProperty(
         "cloudflare.wrangler.d1_databases.0.migrations_dir",
-        join(rootDir, "server/databases/migrations"),
+        ".vitehub/database/migrations",
       )
+
+      const modules = (nitroConfig as { modules: Array<(nitro: unknown) => void> }).modules
+      let compiled: (() => Promise<void>) | undefined
+      modules[0]!({
+        hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => { compiled = callback } },
+        options: { output: { serverDir: join(rootDir, ".output/server") } },
+      })
+      await compiled!()
+
+      const outputMigrationsDir = resolve(rootDir, ".output/server/.vitehub/database/migrations")
+      await expect(readFile(join(outputMigrationsDir, "0001_portable.sql"), "utf8")).resolves.toBe("SELECT 1;\n")
+      await expect(readFile(join(outputMigrationsDir, "journal.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
