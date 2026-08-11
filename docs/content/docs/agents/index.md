@@ -22,7 +22,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ agent: true, workspace: true })],
+  plugins: [vitehub({ preset: 'node', agent: true, workspace: true })],
 })
 ```
 
