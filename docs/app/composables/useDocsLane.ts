@@ -25,7 +25,7 @@ export function useDocsLane() {
   const lane = useState<DocsLane>(docsLaneCookie, resolveLane);
 
   if (import.meta.client) {
-    watch(() => route.fullPath, () => {
+    watch([() => route.path, () => route.query.lane], () => {
       lane.value = resolveLane();
     });
     watch(lane, (nextLane) => {
