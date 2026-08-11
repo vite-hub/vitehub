@@ -6,7 +6,7 @@ navigation.group: Verify
 icon: i-lucide-clipboard-check
 ---
 
-Agent Evals run the real Agent Definition against repeatable inputs. They preserve its Driver, Capabilities, Workspace, and runtime behavior, so a passing eval covers more than a standalone model prompt test.
+Agent Evals run the real Agent Definition against repeatable inputs. They preserve its Driver, Capabilities, and Workspace while running inline, so a passing eval covers more than a standalone model prompt test. Verify Workflow scheduling, durability, and provider lifecycle separately on the configured host.
 
 ## Add one behavior check
 

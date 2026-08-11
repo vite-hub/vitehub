@@ -69,7 +69,7 @@ Use `runAgent()` when the caller needs one final result.
 Define the application boundary that adapts the current H3 host event into Runtime Context:
 
 ```ts [server/runtime-context.ts]
-import type { AgentWaitUntil } from '@vite-hub/agent'
+import type { AgentRuntimeName, AgentWaitUntil } from '@vite-hub/agent'
 import type { H3Event } from 'h3'
 
 function waitUntilFrom(value: unknown): AgentWaitUntil | undefined {
@@ -96,6 +96,26 @@ function waitUntilFor(event: H3Event): AgentWaitUntil {
     ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
 }
 
+function runtimeFor(event: H3Event): AgentRuntimeName {
+  const runtimeEvent = event as H3Event & {
+    env?: Record<string, unknown>
+    context: H3Event['context'] & {
+      cloudflare?: { env?: Record<string, unknown> }
+      _platform?: { cloudflare?: { env?: Record<string, unknown> } }
+    }
+    node?: { req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }
+  }
+  const cloudflare = runtimeEvent.env
+    ?? runtimeEvent.context.cloudflare?.env
+    ?? runtimeEvent.context._platform?.cloudflare?.env
+    ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env
+
+  if (cloudflare) return 'cloudflare-agents'
+  if ('Deno' in globalThis) return 'deno'
+  if (typeof process === 'object' && process.env.VERCEL) return 'vercel'
+  return process.env.NODE_ENV === 'development' ? 'vite' : 'unknown'
+}
+
 export function getRuntimeContext(event: H3Event) {
   const values = new Map<string, unknown>()
 
@@ -104,7 +124,7 @@ export function getRuntimeContext(event: H3Event) {
       if (!values.has(key)) values.set(key, create())
       return values.get(key) as T
     },
-    runtime: 'vite' as const,
+    runtime: runtimeFor(event),
     waitUntil: waitUntilFor(event),
   }
 }
