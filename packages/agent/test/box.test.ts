@@ -434,8 +434,9 @@ describe("Agent Box", () => {
       await mkdir(join(persistentCodexHome, "skills"))
       await rm(join(persistentCodexHome, "skills.vitehub-managed"))
       await symlink(externalSkills, join(persistentCodexHome, "skills/bundles"))
+      await mkdir(join(persistentCodexHome, "skills/.vitehub"))
       await writeFile(
-        join(persistentCodexHome, "skills.vitehub-managed-parents"),
+        join(persistentCodexHome, "skills/.vitehub/managed-skill-parents"),
         `vitehub-managed-skill-parents-v1\n${Buffer.from("bundles/generated").toString("base64")}\n`,
       )
       await expect(runAgent(agent, {

@@ -170,8 +170,9 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
 }
 
 async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedHostOptions) {
-  const cwd = input.cwd ? resolve(input.cwd) : undefined;
-  if (cwd) await assertDirectory(cwd, "workspace");
+  const requestedCwd = input.cwd ? resolve(input.cwd) : undefined;
+  if (requestedCwd) await assertDirectory(requestedCwd, "workspace");
+  const cwd = requestedCwd ? await realpath(requestedCwd) : undefined;
   const configuredStateRoot = options.stateRoot;
   if (input.plan.state.length && (!configuredStateRoot || !isAbsolute(configuredStateRoot))) {
     throw new Error(
@@ -185,8 +186,7 @@ async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedH
     throw new Error("[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.");
   }
   if (cwd && input.plan.state.length && stateRoot) {
-    const workspace = await realpath(cwd);
-    if (pathsOverlap(workspace, stateRoot))
+    if (pathsOverlap(cwd, stateRoot))
       throw new Error("[vitehub] Box stateRoot must be outside the authoritative workspace.");
   }
   return { cwd, stateRoot };
