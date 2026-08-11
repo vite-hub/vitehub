@@ -193,7 +193,7 @@ describe("Agent Box", () => {
                 key: "agent-box-test/codex",
                 seed: {
                   "auth.json": { contents: '{"token":"box"}\n' },
-                  "skills/.vitehub-colocated": { contents: "legacy\n" },
+                  "skills/.vitehub-colocated": { contents: "legacy\nlocal\n" },
                   "skills/legacy/SKILL.md": { contents: "Legacy managed skill.\n" },
                   "skills/local/SKILL.md": { contents: "Local skill.\n" },
                 },
@@ -246,8 +246,7 @@ describe("Agent Box", () => {
         },
       })
       harnessObservation.detach = true
-      harnessObservation.absentGlobalSkills = ["legacy"]
-      harnessObservation.globalSkills = ["global", "line\nbreak", "local", "review", "trailing\n"]
+      harnessObservation.globalSkills = ["global", "legacy", "line\nbreak", "local", "review", "trailing\n"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -296,8 +295,8 @@ describe("Agent Box", () => {
       await chmod(join(externalReview, "SKILL.md"), 0o400)
       await chmod(externalReview, 0o500)
       Reflect.deleteProperty(agent, colocatedSkills)
-      harnessObservation.globalSkills = ["global", "local"]
-      harnessObservation.absentGlobalSkills = ["legacy", "line\nbreak", "review", "trailing\n"]
+      harnessObservation.globalSkills = ["global", "legacy", "local"]
+      harnessObservation.absentGlobalSkills = ["line\nbreak", "review", "trailing\n"]
       await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",

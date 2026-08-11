@@ -1107,8 +1107,10 @@ async function prepareHarnessColocatedSkills(
   workingDirectory = destination,
   stagingDirectoryName = ".vitehub-agent-skills",
 ): Promise<boolean> {
+  // The legacy manifest recorded collisions it did not create, so its entries
+  // cannot safely be treated as owned during migration.
   const cleanupCommand = refresh
-    ? `legacy=${target}/.vitehub-colocated; manifest=${target}/.vitehub-colocated-v2; if [ -f "$legacy" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$legacy"; fi && rm -f -- "$legacy" || exit $?; if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest" || exit $?`
+    ? `legacy=${target}/.vitehub-colocated; manifest=${target}/.vitehub-colocated-v2; rm -f -- "$legacy" || exit $?; if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest" || exit $?`
     : undefined
   if (!workspace) {
     if (!cleanupCommand) return false
