@@ -10,6 +10,7 @@ const docsLaneCookie = "vitehub-docs-lane";
 
 export function useDocsLane() {
   const route = useRoute();
+  const router = useRouter();
   const persistedLane = useCookie<DocsLane | null>(docsLaneCookie, {
     default: () => null,
     sameSite: "lax",
@@ -34,6 +35,14 @@ export function useDocsLane() {
 
   function selectLane(targetLane: DocsLane) {
     lane.value = targetLane;
+
+    if (route.path === "/docs" || (currentPage.value?.lanes.length ?? 0) > 1) {
+      void router.replace({
+        hash: route.hash,
+        path: route.path,
+        query: { ...route.query, lane: targetLane },
+      });
+    }
   }
 
   function pageTarget(page: DocsPage) {
