@@ -7,13 +7,11 @@ export const docsLaneOptions = [
     id: "agents" as const,
     label: "Agents",
     icon: "i-ph-robot-light",
-    path: "/docs/agents",
   },
   {
     id: "server-primitives" as const,
     label: "Server Primitives",
     icon: "i-ph-cube-light",
-    path: "/docs/server-primitives",
   },
 ];
 
@@ -24,10 +22,11 @@ type DocsLaneResolution = {
   persistedLane?: unknown;
 };
 
-type DocsLaneTargetInput = {
+type DocsLaneSelectionInput = {
+  hash?: string;
   lane: DocsLane;
-  path: string;
   page: DocsPage | null;
+  path: string;
   query?: LocationQueryRaw;
 };
 
@@ -67,27 +66,21 @@ export function getDocsSectionsForLane(sections: DocsSection[], lane: DocsLane) 
     .filter(section => section.pages.length > 0);
 }
 
-export function getDocsLaneTarget({ lane, path, page, query = {} }: DocsLaneTargetInput) {
-  const normalizedPath = normalizeDocsPath(path);
-  const canStayOnPage = normalizedPath === "/docs" || Boolean(page?.lanes.includes(lane));
-
-  if (!canStayOnPage) {
-    return {
-      path: docsLaneOptions.find(option => option.id === lane)!.path,
-      query: {},
-    };
-  }
-
-  const nextQuery: LocationQueryRaw = { ...query };
-  delete nextQuery.lane;
-
-  if (normalizedPath === "/docs" || page?.lanes.length !== 1) {
-    nextQuery.lane = lane;
+export function getDocsLaneSelectionTarget({
+  hash,
+  lane,
+  page,
+  path,
+  query = {},
+}: DocsLaneSelectionInput) {
+  if (normalizeDocsPath(path) !== "/docs" && (page?.lanes.length ?? 0) <= 1) {
+    return null;
   }
 
   return {
-    path: normalizedPath,
-    query: nextQuery,
+    hash,
+    path,
+    query: { ...query, lane },
   };
 }
 

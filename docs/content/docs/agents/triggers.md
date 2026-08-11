@@ -1,36 +1,33 @@
 ---
 title: Triggers
-description: Start Agent Invocations from product events without mixing trigger behavior into Agent Drivers.
-navigation.order: 26
+description: Translate product events into Agent Invocations while the Driver continues to own execution.
+navigation.order: 41
+navigation.group: Connect
 icon: i-lucide-route
 ---
 
-An Agent Trigger is server-side behavior that starts an Agent Invocation for a specific product event. Triggers prepare input, run metadata, and context values; the Agent Driver still owns execution.
+A Trigger turns a product event into Agent Invocation input. Use it when a Capability owns the event's shape or policy. The Agent Driver still owns execution.
 
-Triggers are not Channels, Chat Platform Adapters, or model adapters. A trigger may receive message-shaped input, but message input is not required for every trigger.
+## Call an Agent directly
 
-## Use a route for direct invocation
-
-An app route can call `runAgent` directly when no Capability owns the event shape.
+An application route can call `runAgent()` when no Capability needs to prepare the event.
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support'
+import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
-
-  return runAgent(support, { runtime: 'unknown' }, {
-    prompt: body.prompt,
-  })
+  const { prompt } = await readBody<{ prompt: string }>(event)
+  return runAgent(support, getRuntimeContext(event), { prompt })
 })
 ```
 
-This route is a direct Agent Invocation consumer. It does not register an Agent Trigger.
+This is a direct consumer, not a registered Trigger. Prefer it for ordinary authenticated server routes and scheduled application code.
 
-## Use Capability-owned triggers
+## Use a Capability Trigger
 
-Capabilities can register Agent Trigger behavior when an ability owns a product event. The Chat Capability registers `chat.message`.
+Use a Trigger when a Capability owns event preparation. The Chat Capability registers `chat.message` and can apply history, session, concurrency, and delivery behavior before the Driver runs.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -42,119 +39,104 @@ export default defineAgent({
     instructions: 'Answer support messages.',
   },
   capabilities: [
-    chat({
-      sessions: true,
-      threadHistory: { maxMessages: 20 },
-    }),
+    chat({ triggerHistory: { maxMessages: 20, source: 'thread' } }),
   ],
 })
 ```
 
-The Chat Capability owns Chat History behavior and the `chat.message` trigger. Message-shaped Channels own delivery and webhook admission; the Agent Definition still owns the active Agent Driver.
+### Consume a Capability Trigger
 
-## Consume a trigger from an app route
-
-Application routes can consume a resolved trigger when the app owns authentication, request validation, or UI-specific delivery.
+Call the trigger from a server-owned route:
 
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from '@vite-hub/agent'
 import support from '../agents/support'
+import { loadAuthorizedSupportThreadMessages } from '../support-history'
+import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ text: string }>(event)
+  const { text, threadId } = await readBody<{
+    text: string
+    threadId?: string
+  }>(event)
   const user = await requireAuthenticatedUser(event)
   const runId = crypto.randomUUID()
-
-  return streamAgentTrigger(support, { runtime: 'unknown' }, 'chat.message', {
-    invoker: {
-      id: user.id,
-      kind: 'customer',
-      meta: { customer: user.customer },
-    },
-    messages: [{
-      id: runId,
-      parts: [{ text: body.text, type: 'text' }],
-      role: 'user',
-    }],
-    run: { origin: 'portal', runId },
-  }, {
-    output: 'ui-message-stream',
+  const messages = await loadAuthorizedSupportThreadMessages({
+    actorId: user.id,
+    threadId,
   })
+  messages.push({
+    id: runId,
+    role: 'user',
+    parts: [{ type: 'text', text }],
+  })
+
+  return streamAgentTrigger(
+    support,
+    getRuntimeContext(event),
+    'chat.message',
+    {
+      messages,
+      run: {
+        channelId: 'portal',
+        messageId: runId,
+        origin: 'portal',
+        runId,
+        threadId,
+      },
+    },
+    { output: 'ui-message-stream' },
+  )
 })
 ```
 
-The route is an Agent Trigger Consumer. It does not declare Chat Capability behavior itself. The `run` field is invocation provenance; Chat context stays focused on message, session, user, and chat-scoped metadata.
+`run` contains origin and trace metadata; it is not chat context. Authenticate before passing Actor identity, session selection, or trusted metadata into the Trigger input.
 
-## Add app-owned Channel triggers
+Direct Trigger consumers must authenticate first, reject threads the caller does not own, then load and supply the current thread's ordered messages, including the new message. `triggerHistory` limits that input; it does not backfill messages from `threadId` or a session id.
 
-Use a custom Channel for app-owned product events that need a named trigger but have not earned a more specific Channel Kind.
+## Add an application-owned Trigger
 
-```ts [server/agents/tickets.ts]
+Use `defineChannel()` when an application-owned Channel Kind should prepare its own event.
+
+```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { defineChannel } from '@vite-hub/agent/channels'
 
-export default defineAgent({
-  driver: {
-    model: 'openai/gpt-5.1-mini',
-    instructions: 'Triage incoming tickets.',
-  },
-  channels: {
-    tickets: defineChannel('tickets', {
-      messages: false,
-      triggers: {
-        created: {
-          invoke(context, ticket: { id: string, title: string }) {
-            return {
-              input: {
-                prompt: `Triage ticket ${ticket.id}: ${ticket.title}`,
-              },
-              run: {
-                channelId: context.trigger.channelId,
-                origin: 'tickets',
-                runId: ticket.id,
-              },
-            }
+const ticketing = defineChannel('ticketing', {
+  messages: false,
+  triggers: {
+    'ticket.opened': {
+      invoke(context, event: { ticketId: string, summary: string }) {
+        return {
+          input: {
+            prompt: `Triage ticket ${event.ticketId}: ${event.summary}`,
           },
-        },
+          run: {
+            channelId: context.trigger.channelId,
+            origin: 'ticketing',
+            runId: event.ticketId,
+          },
+        }
       },
-    }),
+    },
   },
+})
+
+export default defineAgent({
+  channels: { ticketing },
+  driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 
-Create a custom Capability when the event has reusable product behavior, requirements, tools, or policy. Keep one-off app route logic in the app, and keep app-owned reachability on Channels.
+The Trigger should translate the event and attach trusted context. Keep model selection, tools, and execution behavior in the Agent Definition.
 
-## Own webhook delivery execution
+## Choose the boundary
 
-A Channel trigger can ask the generated webhook route to claim a provider delivery before starting the Agent Driver. Add a stable provider delivery ID to the trigger result to make repeated deliveries idempotent. Add a concurrency key when only one matching execution may run at a time.
+| Situation | Use |
+| --- | --- |
+| A server route already owns validation and input | `runAgent()` or `streamAgent()` |
+| A Capability owns history, policy, or event preparation | `runAgentTrigger()` or `streamAgentTrigger()` |
+| A messaging provider delivers an event | A [Channel](/docs/agents/channels) and its Trigger |
+| A model should delegate to another Agent | [Subagents Capability](/docs/capabilities/subagents) |
 
-```ts [server/agents/review.ts]
-invoke(context, event: { deliveryId: string, pullRequest: number, head: string }) {
-  return {
-    input: { prompt: `Review pull request #${event.pullRequest}` },
-    webhook: {
-      deliveryId: event.deliveryId,
-      concurrencyGroup: 'pull-requests',
-      concurrencyKey: `pull-request:${event.pullRequest}`,
-      concurrencyLimit: 2,
-      busy: 'steer',
-    },
-  }
-}
-```
-
-Setting `concurrencyLimit` persists each delivery before returning from the webhook route. Eligible deliveries run in FIFO order within their webhook state scope, while the group limit caps total active work and the concurrency key excludes matching work. Group names and limits should remain stable across deliveries. The generated server resumes queued work on startup, so a new webhook is not required after a process restart.
-
-Add `rehydrate` when queued work must rebuild editable source data instead of running the input captured at admission. After claiming capacity, ViteHub resolves the trigger again from the persisted webhook request, calls `rehydrate` under the active runtime environment, and normalizes its result through the same trigger boundary before starting the Agent. The refreshed invocation must keep the claimed `deliveryId`; a mismatch fails the attempt and leaves it eligible for retry. ViteHub also records that the delivery requires rehydration, so removing the callback before a queued attempt retries instead of running stale input. `rehydrate` requires `concurrencyLimit` because inline ownership is never reconstructed from the durable queue, and it cannot be combined with `busy: 'steer'` because successful steering bypasses that queue-time lifecycle.
-
-Setting `busy: 'steer'` first offers the full Agent input to an active inline Harness invocation with the same scoped concurrency key in the current server process. An accepted input remains durably reserved by delivery ID until that invocation succeeds. When the active invocation is on another process, or no matching prompt control accepts the input, the delivery follows the same durable queue path.
-
-Queue leases default to 30 seconds and heartbeat while the Agent runs. A dead owner releases its delivery for retry; set `concurrencyTtlMs` when an integration needs a different recovery window. Delivery IDs remain durable after completion, so duplicates do not start another Agent Invocation. Completed delivery records are retained indefinitely: budget database storage for delivery history and use a separate state database when an integration requires its own retention lifecycle.
-
-Without `concurrencyLimit`, the route keeps the inline ownership path: `concurrencyKey` prevents matching work from running concurrently, and a busy delivery remains unclaimed so the provider can retry it. Both paths require durable Agent State and reject execution that would be queued to a Workflow because the route cannot retain ownership across that boundary. Persistent concurrency additionally requires a queue-capable SQLite or libSQL Agent State provider.
-
-## Next steps
-
-- Read [Channels](/docs/agents/channels) to keep delivery separate from identity.
-- Read [Invocations](/docs/agents/invocations) for trigger runtime helpers.
-- Read [Capabilities](/docs/capabilities) for `chat()`, `inputCommands()`, and `schedule()`.
+Webhook adapters may retain ownership until delivery finishes. Configure Channel timeout, concurrency, and durable delivery there rather than adding webhook policy to the Driver.

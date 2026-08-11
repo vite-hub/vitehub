@@ -169,7 +169,7 @@ Source keys identify named origins inside the Workspace Source Map. A Source-Bac
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
 | `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
 
-Instruction text reads scalar bindings with `{{ workspace.<name> }}` and file-backed bindings with `@workspace.<name>`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#read-workspace-bindings).
+Instruction text reads scalar bindings with `{{ workspace.<name> }}` and file-backed bindings with `@workspace.<name>`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
 
 ## Source Binding options
 

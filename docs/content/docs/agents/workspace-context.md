@@ -1,29 +1,18 @@
 ---
 title: Workspace context
-description: Give Agents scoped file-tree state and Sources without granting unrestricted filesystem access.
-navigation.order: 28
+description: Give an Agent scoped files and Sources with explicit read and write authority.
+navigation.order: 32
+navigation.group: Configure
 icon: i-lucide-folder-search
 ---
 
-Workspace context gives an Agent a named Workspace File Tree and optional Sources. The Workspace owns file visibility, Source materialization, and Workspace Scope, while Capabilities decide which runtime surfaces the active Agent Driver can use.
+Workspace context gives an Agent a named file tree and optional Sources. The Workspace decides what exists; Capabilities and the selected Driver decide how the Agent can access it.
 
-Use Workspace context when the Agent needs project files, documentation, generated state, Source-backed paths, or controlled file mutation. Do not use it as a hidden prompt bag.
+Use a Workspace for project files, documentation, generated state, Source-backed paths, and controlled writeback. Do not use it as hidden prompt storage; model-facing policy belongs in [Instructions](/docs/agents/instructions).
 
-## Add Agent Instructions
+## Add a read-only Workspace
 
-Put shared Agent instructions beside the colocated Agent config:
-
-```md [server/agents/docs/instructions.md]
-Answer from the docs workspace. Say when the answer is not present.
-```
-
-ViteHub materializes `server/agents/<name>/instructions.md` into the Agent Workspace as `AGENTS.md`. Model-backed Agent Drivers use it as the default instructions when `driver.instructions` is not configured. Harness-backed Agent Drivers receive the rendered document in their Workspace session as `AGENTS.md`, plus `CLAUDE.md` for Claude Code-compatible harnesses.
-
-## Declare Sources
-
-Declare a colocated Workspace when the Agent primarily owns the file-tree context. Put model-facing guidance about how to use a Source in Agent Driver Instructions or deterministic imported instruction Markdown.
-
-Install the Workspace Package and register its Vite integration before the Agent integration when the Agent declares Workspace Sources.
+Install the Workspace package and register its Vite plugin before the Agent plugin.
 
 ```bash [Terminal]
 pnpm add @vite-hub/workspace
@@ -42,6 +31,8 @@ export default defineConfig({
 })
 ```
 
+Declare a Source and grant a model-backed Driver read-only shell access:
+
 ```ts [server/agents/docs/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
@@ -51,152 +42,102 @@ export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',
     instructions: [
-      'Answer from the docs Source before using outside knowledge.',
-      'Say when the docs do not cover the answer.',
+      'Answer from the docs Source.',
+      'Use Workspace inspection before answering. Say when evidence is missing.',
     ],
   },
+  capabilities: [workspaceShell({ mode: 'read' })],
   workspace: {
+    sourceRootDir: process.cwd(),
     sources: {
-      docs: glob({
-        cwd: '.',
-        include: ['README.md', 'docs/**/*.md'],
-      }),
+      docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
     },
   },
-  capabilities: [
-    workspaceShell({ mode: 'read' }),
-  ],
 })
 ```
 
-The Workspace supplies files. The Workspace Shell Capability exposes read or write tools to compatible Agent Drivers.
+The Source makes files available under the Workspace. `workspaceShell({ mode: 'read' })` exposes read operations to the model. Without that Capability, declaring a Source alone does not grant model-facing file access.
 
 ## Reuse a Workspace
 
-Use a string when another Agent should read an existing Workspace. Use `{ name, mode: 'write' }` when it should write artifacts into that same Workspace File Tree.
+Use `defineWorkspace()` when several Agents share the same file tree or Source configuration.
 
-```ts [server/agents/summary/agent.ts]
-export default defineAgent({
-  workspace: { name: 'review', mode: 'write' },
-  capabilities: [
-    workspaceShell({ mode: 'write' }),
-  ],
+```ts [server/workspaces/product-docs.ts]
+import { defineWorkspace, glob } from '@vite-hub/workspace'
+
+export default defineWorkspace({
+  sourceRootDir: process.cwd(),
+  sources: {
+    docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
+  },
 })
 ```
 
-## Cover Source usage
-
-Put model-facing Source guidance in Agent Driver Instructions or deterministic imported instruction Markdown. Use an explicit coverage wrapper around the authored prose:
-
-```md [server/agents/docs/instructions.md]
-::source{key="docs"}
-Use the docs Source for published product behavior. Say when the docs do not answer.
-::
-```
-
-ViteHub warns in Agent inspection metadata when a configured Source lacks explicit instruction coverage. The warning clears only when Agent Driver Instructions, or a deterministic imported instruction file, contains a `::source{key="..."}` block for that Source.
-
-Explicit `driver.instructions` still wins when the Agent needs custom prompt composition. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
-
-Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues.
-
-## Start with read access
-
-Use read mode when the Agent only needs to inspect files. Use write mode only when the product expects the Agent to mutate Workspace files and Workspace Rules allow the target paths.
-
-```ts [server/agents/docs/agent.ts]
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
 
-export const workspaceAccess = [
-  workspaceShell({ mode: 'read' }),
-]
-```
-
-Workspace access is not process access by default. Use execution Capabilities deliberately when the Agent needs commands, shell behavior, or sandboxed mutation.
-
-## Harness Workspace Sessions
-
-Harness-backed Agent Drivers receive Workspace state through a Harness Workspace Session instead of model-facing Workspace Tools by default.
-
-```ts [server/agents/review/agent.ts]
-import { createCodex } from '@ai-sdk/harness-codex'
-import { defineAgent } from '@vite-hub/agent'
-import { skills } from '@vite-hub/agent/capabilities'
-
 export default defineAgent({
-  driver: {
-    harness: createCodex({
-      model: 'gpt-5.5',
-    }),
-  },
-  workspace: {
-    mode: 'write',
-  },
-  capabilities: [
-    skills({ path: '.agents/skills/review' }),
-  ],
+  driver: { model: 'openai/gpt-5.1-mini' },
+  capabilities: [workspaceShell({ mode: 'read' })],
+  workspace: 'product-docs',
 })
 ```
 
-Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Capabilities can also contribute harness-only Workspace paths, such as skill directories, without broadening the product-data Workspace Scope. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in colocated `instructions.md`; Sources, Capabilities, and Skills do not inject additional harness instructions.
+## Scope access by Actor
 
-## Scope by Agent Actor
+Use `access()` when trusted caller identity should narrow the files visible to one invocation. Place it before `workspaceShell()` so the shell receives the scoped Workspace.
 
-Use the Access Capability when the Agent Actor should narrow the visible Workspace Scope for one Agent Invocation. The current callback field remains `invoker`.
-
-```ts [server/agents/support/agent.ts]
+```ts [server/agents/editor.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { access, workspaceShell } from '@vite-hub/agent/capabilities'
 
-export const supportCapabilities = [
-  access({
-    workspace: {
-      resolve({ invoker }) {
-        if (invoker.meta?.scope === 'all') {
-          return { all: true, role: 'admin', scope: 'support' }
-        }
-
-        const customer = String(invoker.meta?.customer ?? '')
-        return {
-          grants: [
-            { path: 'AGENTS.md' },
-            { path: `customers/${customer}` },
-          ],
-          scope: customer || 'public',
-        }
+export default defineAgent({
+  capabilities: [
+    access({
+      workspace: {
+        defaultScope: 'support',
+        scopes: {
+          support: { paths: ['support'] },
+        },
       },
-    },
-  }),
-  workspaceShell({ mode: 'read' }),
-]
+    }),
+    workspaceShell({ mode: 'read' }),
+  ],
+  driver: { model: 'openai/gpt-5.1-mini' },
+  workspace: 'product-docs',
+})
 ```
 
-ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or Actor metadata.
-When the Agent needs scope-specific model guidance, write it in Agent Driver Instructions or an imported instruction file and mark the Access coverage with `::capability{key="access"}`.
+Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy is an authorization boundary, so it should depend only on trusted identity and application-owned facts. Actor-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; harness-backed Drivers can receive writable scoped sessions. Without Actor-scoped Access, write authority depends on the Workspace mode, its rules, and the Capabilities exposed to the Driver: model-backed Drivers can receive write tools, and custom Drivers can receive a writable Workspace facade.
 
-## Resolve Sources per invocation
+## Use Workspace context with a harness
 
-Source Resolution can narrow a Source from trusted invocation context, such as a Selected Workspace Scope or an Agent Invocation Context Value. Source Resolution is source shaping, not authorization.
+Harness-backed Drivers receive the rendered instruction document in their Workspace session. A Box can also prepare a private Home and process requirements for the harness.
 
-```ts [server/agents/support/agent.ts]
-import { github } from '@vite-hub/workspace'
+```ts [server/agents/review/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
 
-export const supportSources = {
-  ingestion: github(({ invocation }) => {
-    const customer = invocation.context.get<{ customer?: string }>('support.customer')?.customer
-
-    return {
-      repo: 'acme/ingestion',
-      root: customer ? `dbt/${customer}` : 'dbt',
-      mount: customer ? `ingestion/${customer}` : 'ingestion',
-    }
-  }),
-}
+export default defineAgent({
+  driver: { kind: 'codex', model: 'gpt-5.5' },
+  workspace: { mode: 'write' },
+  box: {
+    runtime: 'trusted-host',
+    requires: ['git', 'pnpm'],
+  },
+})
 ```
 
-Access remains the boundary that decides which Workspace paths are visible. Source Resolution changes where visible Source-backed paths come from.
+Read [Boxes](/docs/agents/boxes) before using `trusted-host`: it provides process setup, not isolation from untrusted code.
 
-## Next steps
+## Keep context explicit
 
-- Read [Actors](/docs/agents/actors) for trusted identity.
-- Read [Instructions](/docs/agents/instructions) for explicit instruction coverage.
-- Read [Capabilities](/docs/capabilities) for `access()` and `workspaceShell()`.
+| Need | Use |
+| --- | --- |
+| Files or generated state | Workspace files and Sources |
+| Model-facing rules | Colocated or Driver Instructions |
+| Read or write tools | Capabilities such as `workspaceShell` |
+| Caller-specific file scope | Access plus a trusted Agent Actor |
+| Harness Home and checkout | A Box |
+
+Inspect the resolved Workspace, Sources, and access policy through the [CLI](/docs/development/cli) before relying on them in production.

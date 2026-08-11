@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { docsManifest, getDocsPageByPath } from "../modules/vitehub-docs/runtime/utils/docs";
 import {
-  getDocsLaneTarget,
+  getDocsLaneSelectionTarget,
   getDocsSectionsForLane,
   resolveDocsLane,
 } from "../modules/vitehub-docs/runtime/utils/docs-navigation";
@@ -51,26 +51,36 @@ describe("docs lane navigation", () => {
     expect(primitives.find(section => section.id === "getting-started")?.pages.map(page => page.id)).not.toContain("first-agent");
   });
 
-  it("keeps shared pages in place and sends incompatible pages to the other lane overview", () => {
+  it("persists in-place lane selections without navigating exclusive pages", () => {
     const sharedPage = getDocsPageByPath("/docs/concepts");
     const agentPage = getDocsPageByPath("/docs/agents/invocations");
 
-    expect(getDocsLaneTarget({
+    expect(getDocsLaneSelectionTarget({
+      hash: "#runtime",
       lane: "server-primitives",
-      path: sharedPage!.path,
-      page: sharedPage,
+      page: null,
+      path: "/docs/",
       query: { source: "test" },
     })).toEqual({
-      path: "/docs/concepts",
+      hash: "#runtime",
+      path: "/docs/",
       query: { source: "test", lane: "server-primitives" },
     });
-    expect(getDocsLaneTarget({
+    expect(getDocsLaneSelectionTarget({
+      hash: "#runtime",
       lane: "server-primitives",
-      path: agentPage!.path,
-      page: agentPage,
+      page: sharedPage,
+      path: sharedPage!.path,
+      query: { lane: "agents", source: "test" },
     })).toEqual({
-      path: "/docs/server-primitives",
-      query: {},
+      hash: "#runtime",
+      path: "/docs/concepts",
+      query: { lane: "server-primitives", source: "test" },
     });
+    expect(getDocsLaneSelectionTarget({
+      lane: "server-primitives",
+      page: agentPage,
+      path: agentPage!.path,
+    })).toBeNull();
   });
 });

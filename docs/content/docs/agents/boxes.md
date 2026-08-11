@@ -1,305 +1,173 @@
 ---
 title: Boxes
-description: Prepare one portable Home and process environment for every harness and command.
-navigation.order: 22.5
+description: Prepare a private Home, checkout, credentials, and process requirements for a harness Agent.
+navigation.order: 50
+navigation.group: Advanced execution
 icon: i-lucide-package-open
 ---
 
-A Box is the execution environment for a harness Agent. The project declares what the Box needs, and the runtime prepares one private Home and process environment before any harness bootstrap or command runs.
+A Box prepares the process environment for a harness Agent. It declares the working tree, private Home, environment, durable CLI state, and boot checks before the harness starts.
 
-Use `"trusted-host"` when the Agent may use the current host's filesystem, processes, and installed executables. Use `"crabbox"` to run the same Box declaration through Crabbox Static SSH. Hosted runtimes use tagged values for ASCII, Cloudflare Sandbox, Cloudflare Computer, or Vercel Sandbox. No runtime reads credentials or configuration from the machine's normal Home.
+Use a Box when the Agent needs more than an ephemeral harness workspace. A Box does not grant model-backed Drivers Workspace tools; [Workspace context](/docs/agents/workspace-context) and Capabilities own that boundary. A harness-backed Driver can inspect its Box `cwd` or checkout through native file and command tools, so treat that working tree as model-visible and rely on the selected Box runtime for its isolation boundary.
 
-## Run Codex in an exact disposable checkout
+## Start on a trusted host
 
-Install the Agent and Box packages. The Agent Package includes the supported Codex adapter:
+Install the Agent and Box packages:
 
 ```bash [Terminal]
 pnpm add @vite-hub/agent @vite-hub/box
 ```
 
-Declare the checkout, immutable inputs, writable state, and validation checks together:
+This Agent gives Codex a private Home and verifies its required CLIs before the invocation begins:
 
-```ts [server/agents/babysitter/agent.ts]
-import { defineAgent } from "@vite-hub/agent";
-import { useServerEnv } from "#vitehub/env/server";
+```ts [server/agents/review/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
 
-interface BabysitterRunOptions {
-  ref: string;
-  remote: string;
-  sha: string;
+export default defineAgent({
+  box: {
+    runtime: 'trusted-host',
+    requires: ['git', 'pnpm'],
+  },
+  driver: 'codex',
+})
+```
+
+For each invocation, the Box creates a private Home, runs its requirements, and starts the harness only after boot succeeds.
+
+:::warning
+`trusted-host` isolates Home and declared environment values, but it does not isolate the filesystem, network, processes, or installed executables. Use it only when the Agent may act with the host user's authority.
+:::
+
+## Pin an exact checkout
+
+Resolve repository facts from trusted invocation options when every run must inspect an exact commit.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+interface ReviewOptions {
+  ref: string
+  remote: string
+  sha: string
 }
 
-export default defineAgent<any, BabysitterRunOptions>({
+export default defineAgent<any, ReviewOptions>({
   box: {
-    runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
+    runtime: {
+      kind: 'trusted-host',
+      stateRoot: '/var/lib/vitehub/boxes',
+    },
     checkout: {
       ref: ({ input }) => input.options?.ref,
       remote: ({ input }) => input.options?.remote,
       sha: ({ input }) => input.options?.sha,
     },
     env: {
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_TERMINAL_PROMPT: '0',
+    },
+    requires: [
+      'git',
+      { name: 'GitHub CLI', command: 'gh', args: ['auth', 'status'] },
+    ],
+  },
+  driver: 'codex',
+})
+```
+
+The Box fetches `ref`, verifies the fetched commit against the full `sha`, and starts in a detached real Git repository. Use `cwd` instead when the caller already owns the authoritative directory; `cwd` and `checkout` are mutually exclusive.
+
+## Add credentials and CLI state
+
+Keep secret values outside the repository. Resolve them into Box `env`, immutable Home files, or a first-use seed for writable state.
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { useServerEnv } from '#vitehub/env/server'
+
+export default defineAgent({
+  box: {
+    runtime: {
+      kind: 'trusted-host',
+      stateRoot: '/var/lib/vitehub/boxes',
+    },
+    env: {
       GH_TOKEN: () => useServerEnv().githubToken.unseal(),
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
     },
     home: {
       files: {
-        ".gitconfig": { from: ".vitehub/box/gitconfig" },
-        ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
+        '.gitconfig': { from: '.vitehub/box/gitconfig' },
+        '.codex/config.toml': { from: '.vitehub/box/codex.toml' },
       },
       state: {
-        ".codex": {
-          key: "babysitter/codex",
+        '.codex': {
+          key: 'review/codex',
           seed: {
-            "auth.json": {
+            'auth.json': {
               contents: () => useServerEnv().codexAuthJson.unseal(),
             },
           },
         },
       },
     },
-    requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
-  driver: "codex",
-});
+  driver: 'codex',
+})
 ```
 
-For every invocation, `checkout` fetches `ref` from `remote`, verifies the fetched commit against the full `sha`, and starts Codex in a detached real Git repository. The checkout supports ordinary commits and explicit pushes such as `git push origin HEAD:<branch>`, then the Box deletes it on completion or boot failure. For a fork pull request, use the fork repository as `remote`; keep credentials in Box env or Home instead of embedding them in the remote URL.
+| Declaration | Use it for | Lifecycle |
+| --- | --- | --- |
+| `env` | Tokens and CLI controls | Resolves on every boot and reaches every Box process. |
+| `home.files` | Immutable configuration | Writes private files on every boot. |
+| `home.state` | CLI-owned writable directories | Persists beneath `stateRoot` under an exclusive lease. |
+| `seed` | First-use state | Resolves only when the durable state directory is absent. |
+| `requires` | Executable and authentication checks | Runs after materialization and fails boot on error. |
 
-Use `cwd` instead when the caller already owns an authoritative directory. `checkout` and `cwd` are mutually exclusive. Git is an implicit checkout requirement and appears in resolved Box metadata.
+Targets are relative POSIX paths below the Box Home. State keys should be stable and project-qualified. Existing state wins over its seed, so a failed authentication check never silently restores older credentials.
 
-The runtime creates an owner-only Home outside the checkout, sets the XDG directories beneath it, and exposes the same environment to Codex, Git, `gh`, MCP servers, and ordinary Box commands. The `"codex"` driver contributes `codex login status` automatically. When an invocation installs colocated Agent Skills, ViteHub creates `$HOME/.vitehub/codex-home-<invocation-id>`, seeds only `auth.json` and `config.toml` from the Box-owned `$HOME/.codex`, installs the Skills there, and deletes that invocation Home after success or failure. Other Codex files are neither copied into the invocation nor written back, so mutable invocation state and authentication refreshes are disposable. Because Codex cannot resume without those local files, `sessionKey` starts a fresh provider session for these isolated invocations. Without colocated Agent Skills, Codex uses the Box-owned `$HOME/.codex` directly and its changes remain in declared Box state.
-
-The example's committed `.vitehub/box/gitconfig` can configure Git without containing a token:
-
-```gitconfig [.vitehub/box/gitconfig]
-[credential "https://github.com"]
-  helper = !gh auth git-credential
-```
-
-The helper consumes the same declared `GH_TOKEN` as `gh`. Core does not need GitHub- or Codex-specific authentication helpers.
-
-## Choose the correct lifecycle
-
-| Declaration  | Use it for                                                                | Boot behavior                                                  |
-| ------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `env`        | Tokens such as `GH_TOKEN` and non-secret CLI controls                     | Resolves every boot and reaches every Box process.             |
-| `home.files` | Committed config, opaque credential files, and project-generated settings | Writes private files atomically every boot.                    |
-| `home.state` | OAuth caches and other CLI-owned writable directories                     | Attaches durable state under an exclusive session lease.       |
-| `seed`       | First-use state such as an imported `auth.json`                           | Resolves only when the durable state directory does not exist. |
-| `requires`   | Executable checks and safe authentication status commands                 | Runs after materialization and aborts boot on failure.         |
-
-Targets are relative POSIX paths below Home. A `{ from }` source is relative to `cwd`, or the ViteHub process directory when `cwd` is omitted. A `{ contents }` source accepts text, bytes, or a `BoxValue` callback. All declared values are required.
-
-Files may be projected beneath a state directory. The runtime attaches state first and applies immutable files afterward, which lets `.codex/config.toml` remain project-controlled while `.codex/auth.json` remains writable.
-
-State keys identify durable data within the runtime's `stateRoot`. Use stable project-qualified keys such as `babysitter/codex`. A second session requesting the same state waits until the first session stops its processes and releases the lease. Existing state always wins over its seed, including when an authentication check later rejects it; ViteHub never silently rolls refreshed credentials back.
-
-## Keep projects public safely
-
-A public repository may contain:
-
-- Box declarations and target paths.
-- Non-secret native configuration such as `.gitconfig` and `config.toml`.
-- Optional ciphertext decrypted during a `contents` callback.
-
-It must not contain plaintext bearer credentials or the capability that decrypts committed ciphertext. Supply that root capability through Server Env, workload identity, an interactive unlock, or another deployment-owned source.
-
-Resolved env values, materialized file contents, mutable state, decryption capabilities, physical Home paths, and sandbox handles are excluded from serialized Box metadata and ViteHub-generated workspaces or artifacts. Requirement failures report bounded stderr or stdout diagnostics after redacting declared env and Home file values. When durable Home state is mounted, ViteHub omits command output because mutable state cannot be exhaustively redacted. Crabbox sends materialization bytes over stdin instead of command arguments. Every process inside the Box remains trusted and can still read or log its credentials.
-
-## Understand fail-closed boot
-
-Box boot follows one order:
-
-1. ViteHub validates declaration names, paths, state keys, and requirement argv without resolving secret bytes.
-2. The runtime acquires state leases and creates a private Home.
-3. The runtime inspects existing state and resolves seeds only for missing state.
-4. The runtime resolves env and files; if any required input fails, no new state becomes authoritative.
-5. The runtime attaches state, writes files with private permissions, and builds a sanitized environment.
-6. When declared, the runtime creates the disposable Git checkout and verifies its exact SHA.
-7. The runtime runs requirements inside that environment.
-8. Only a successful Box is exposed to harness bootstrap and commands.
-
-`HOME`, the XDG paths, and working-directory variables are runtime-owned and cannot be declared or overridden by a command. The runtime inherits a small operational allowlist such as `PATH`, shell, locale, and temporary-directory variables; it does not spread the launcher process environment. An absent declaration cannot be masked by a host token or dotfile.
-
-Some CLIs can also consult system configuration or an operating-system keychain. Select their file- or environment-backed mode through ordinary project config and validate that mode with `requires`. For Codex, set `cli_auth_credentials_store = "file"`. For Git, the example disables system config and terminal prompting through declared env.
-
-## Check arbitrary CLIs
-
-A string checks only that an executable exists. An object supplies a fixed command and argv, so the runtime never parses a project-supplied shell command:
+Requirement objects use fixed command and argument arrays; they do not parse shell strings:
 
 ```ts
 requires: [
-  "git",
-  "kubectl",
-  { name: "GitHub CLI", command: "gh", args: ["auth", "status"], timeout: 10_000 },
-  { name: "Acme CLI", command: "acme", args: ["auth", "status"] },
-];
+  'git',
+  'kubectl',
+  { name: 'GitHub CLI', command: 'gh', args: ['auth', 'status'], timeout: 10_000 },
+]
 ```
 
-An arbitrary CLI can consume a declared env value, a native file such as `.kube/config`, or both. If it later refreshes files, move its writable directory to `home.state`; the Box API does not change.
+Keep credentials out of arguments because requirement metadata is inspectable.
 
-Requirement names, commands, argv, and optional millisecond timeouts are inspectable declaration metadata, so keep credentials in `env` or Home files rather than arguments. Direct command checks use the declared `timeout`; trusted-host checks default to 10 seconds when it is omitted.
+## Choose a runtime
 
-## Run through Crabbox
+The Box declaration remains portable while the runtime decides where commands execute.
 
-Crabbox accepts the same Box declaration:
+| Runtime | Use it when |
+| --- | --- |
+| `trusted-host` | Trusted work may use the current machine's authority. |
+| `crabbox` | The same declaration should run through Crabbox Static SSH on a Linux host. |
+| Tagged hosted runtime | The Agent should use a configured ASCII, Cloudflare Sandbox, Cloudflare Computer, or Vercel Sandbox provider. |
 
-```ts
-box: {
-  runtime: {
-    kind: 'crabbox',
-    profile: 'babysitter',
-    stateRoot: '/var/lib/vitehub/boxes',
-  },
-  checkout: {
-    ref: ({ input }) => input.options?.ref,
-    remote: ({ input }) => input.options?.remote,
-    sha: ({ input }) => input.options?.sha,
-  },
-  env: {
-    GH_TOKEN: () => useServerEnv().githubToken.unseal(),
-  },
-  home: {
-    files: {
-      '.gitconfig': { from: '.vitehub/box/gitconfig' },
-    },
-  },
-}
-```
+Crabbox requires `cwd` or `checkout`, keeps its private Home on the target, and synchronizes only an authoritative `cwd` back. A disposable checkout remains target-local.
 
-Crabbox creates the private Home on the target and sends resolved material through its protected stdin channel. Its `stateRoot` is an absolute target-host path and remains outside Workspace synchronization. The runtime creates private children without changing permissions on an existing caller-owned root. An authoritative `cwd` is synchronized back; a disposable `checkout` remains target-local and is deleted with the Box session.
+Cloudflare Computer is currently a preview and its Worker shell backend does not provide the Linux userland required by Node.js, Git, package managers, or Codex. Use a configured Container backend for those commands and inspect the provider's isolation and secret boundary before production use.
 
-Crabbox requires either `cwd` or `checkout` and targets Linux/POSIX Static SSH hosts. File reads and writes use Crabbox's resolved SSH copy transport. Port URLs wait for and reuse one loopback-only Crabbox tunnel per port by default, and session teardown stops those tunnels. Set `network: 'direct'` only when the target shares the ViteHub process loopback namespace.
+## Understand boot order
 
-Commands must remain owned by their Box session. Daemonizing or escaping the session's process supervision is outside the v1 concurrency guarantee.
+1. ViteHub validates names, paths, state keys, and requirement arguments without resolving secrets.
+2. The runtime acquires state leases and creates a private Home.
+3. It resolves first-use seeds, environment values, and Home files.
+4. It creates and verifies the checkout when configured.
+5. It runs requirements inside the prepared environment.
+6. Only a successful Box is exposed to the harness.
 
-On a VPS, the Agent definition is the boot declaration. The invocation path creates and validates its Box session before in-session harness bootstrap, MCP servers, or user commands run, so the service must not provision a separate auth Home or launch commands outside that session. `stateRoot` is the only host-owned storage that must exist across service restarts; the runtime creates its private contents and session leases.
-
-## Run through Cloudflare Computer
-
-Cloudflare Computer stores an authoritative virtual filesystem in a Durable Object and runs commands through a selected Computer backend. ViteHub adapts that filesystem and command surface to a Box session, so Agent definitions keep the same `env`, `home.files`, `checkout`, and `requires` declarations.
-
-::warning
-Cloudflare Computer is currently a preview. Its API is unstable, and Cloudflare does not recommend it for production workloads yet.
-::
-
-Install Computer beside the Box package:
-
-```bash [Terminal]
-pnpm add @vite-hub/box @cloudflare/computer
-```
-
-Configure the Durable Object with `@cloudflare/computer` before selecting it from a Box. The Durable Object must use `withWorkspace()` and register at least one shell backend; ViteHub does not generate the Computer class, Worker Loader binding, Container configuration, or Durable Object migration.
-
-```ts [src/agent-computer.ts]
-import { withWorkspace } from '@cloudflare/computer'
-import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
-import { DurableObject } from 'cloudflare:workers'
-
-export { WorkspaceServiceProxy } from '@cloudflare/computer'
-
-export class AgentComputer extends withWorkspace(
-  class extends DurableObject<Env> {},
-  self => {
-    const { ctx, env } = self as unknown as { ctx: DurableObjectState, env: Env }
-    return {
-      storage: ctx.storage,
-      backends: [
-        new WorkerShellBackend({
-          loader: env.LOADER,
-          workspace: {
-            binding: 'AGENT_COMPUTER',
-            id: ctx.id.toString(),
-          },
-          ctx,
-        }),
-      ],
-    }
-  },
-) {}
-```
-
-Add the Durable Object, migration, Worker Loader binding, and required compatibility flags to the Cloudflare deployment configuration:
-
-```jsonc [wrangler.jsonc]
-{
-  "compatibility_flags": ["nodejs_compat", "experimental"],
-  "durable_objects": {
-    "bindings": [
-      { "name": "AGENT_COMPUTER", "class_name": "AgentComputer" }
-    ]
-  },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["AgentComputer"] }
-  ],
-  "worker_loaders": [
-    { "binding": "LOADER" }
-  ]
-}
-```
-
-Pass the Durable Object namespace to the Box and select the registered backend by ID:
-
-```ts [src/index.ts]
-import { resolveBox } from '@vite-hub/box'
-
-export default {
-  async fetch(_request: Request, env: Env) {
-    const box = await resolveBox({
-      runtime: {
-        kind: 'cloudflare-computer',
-        namespace: env.AGENT_COMPUTER,
-        backend: 'worker-shell',
-      },
-    }, {})
-    const session = await box.open({ id: 'agent-123' })
-
-    try {
-      return Response.json(await session.exec('ls', ['-la']))
-    }
-    finally {
-      await session.close()
-    }
-  },
-} satisfies ExportedHandler<Env>
-```
-
-The Worker shell backend uses `just-bash` in an isolate. It does not provide the full Linux userland required by Node.js, package managers, Git, Codex, or other native CLIs. Select a configured Computer Container backend for those commands, and use its registered backend ID in the Box declaration.
-
-ViteHub derives the Durable Object name from `box.open({ id })`. It resets `/home/vitehub` and `/workspace`, materializes the Box declaration, and runs requirement checks through the selected backend. Closing the Box stops active executions, clears those managed roots, and disposes Computer RPC handles without deleting the Durable Object or files elsewhere in its authoritative filesystem.
-
-Computer chooses the execution backend at runtime, so ViteHub reports its isolation, network, process, and credential authority as unknown. Inspect the selected Computer backend and deployment configuration before giving the Box secrets or untrusted code.
-
-## Migrate from path-valued `home`
-
-Path-valued `box.home` and ambient Home fallback have been removed. Migrate in this order:
-
-1. Move non-secret dotfiles from the managed Home into a committed directory such as `.vitehub/box`.
-2. Bind immutable credentials through `env` or `home.files` using Server Env callbacks.
-3. Import only writable CLI state, such as `.codex`, into the runtime's protected `stateRoot` under its declared key.
-4. Replace `home: '/srv/vitehub/home'` with structured `home.files` and `home.state`.
-5. Delete the old Home provisioning or synchronization path after the new requirement checks pass.
-
-Do not copy a general user Home into Box state. It mixes unrelated credentials and config into one trust boundary, makes rotation unclear, and restores ambient behavior under a managed path.
+Any required input or boot check failure stops the invocation before harness execution. Box metadata excludes resolved secret values, file contents, physical Home paths, and provider handles.
 
 ## Keep execution boundaries separate
 
-| Primitive | Owns                                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------------------- |
-| Box       | Provider isolation, process environment, private Home, immutable inputs, writable CLI state, working checkout, and boot checks. |
-| Workspace | Model-visible file context, Sources, rules, snapshots, and writeback.                                       |
-| Sandbox   | Named package-project discovery, preparation, invocation, timeout, and lifecycle orchestration.              |
+| Primitive | Owns |
+| --- | --- |
+| Box | Process environment, private Home, credentials, checkout, state, and boot checks. |
+| Workspace | Agent-visible files, Sources, rules, snapshots, and writeback. |
+| Sandbox | Package-project discovery, preparation, invocation, timeout, and lifecycle orchestration. |
 
-Box `cwd` and `checkout` cannot be combined with Agent Workspace materialization because each owns the working tree. Omit both when an Agent Workspace should be materialized into a disposable Box session.
-
-Home and environment isolation do not isolate the filesystem, network, installed executables, or trusted project code. Use `"trusted-host"` only when the Agent may act with the host user's authority.
-
-V1 deliberately stops at env values, Home files, writable directory state, generic Git checkout, and direct boot checks. Secret-manager registries, a ViteHub encryption format, live rotation, per-command credential narrowing, keychain forwarding, and provider-specific auth helpers can be added outside core or later when a concrete runtime needs them.
-
-## Related pages
-
-- [Agent Drivers](/docs/agents/agent-drivers)
-- [Workspace context](/docs/agents/workspace-context)
-- [Cloudflare host configuration](/docs/frameworks-hosts/cloudflare)
-- [Sandbox](/docs/server-primitives/sandbox)
+Do not combine Box `cwd` or `checkout` with Agent Workspace materialization because both would own the working tree. Omit them when the Workspace should materialize into a disposable Box session.
