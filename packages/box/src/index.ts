@@ -256,6 +256,9 @@ export interface BoxPlan {
   };
   readonly environment: BoxEnvironment;
   readonly executionAuthority: ExecutionAuthority;
+  readonly home?: {
+    readonly state: readonly string[];
+  };
   readonly identity: string;
   readonly requirements: readonly BoxResolvedRequirement[];
   readonly runtime: string;
@@ -406,7 +409,11 @@ export async function resolveBox<Context>(
       `[vitehub] Box runtime ${runtime.name} must declare executionAuthority.`,
     );
   }
-  const boxPlan = Object.freeze({ ...prepared, executionAuthority });
+  const boxPlan = Object.freeze({
+    ...prepared,
+    executionAuthority,
+    home: Object.freeze({ state: Object.freeze(plan.state.map(state => state.path)) }),
+  });
   return Object.freeze({
     async open(options?: BoxOpenOptions) {
       options?.signal?.throwIfAborted();

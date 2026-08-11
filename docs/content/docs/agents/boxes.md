@@ -123,6 +123,8 @@ export default defineAgent({
 | `seed` | First-use state | Resolves only when the durable state directory is absent. |
 | `requires` | Executable and authentication checks | Runs after materialization and fails boot on error. |
 
+When a Codex Agent persists `.codex`, that leased directory remains its authoritative Codex Home across Agent Invocations. Boxes without persisted `.codex` state keep invocation-owned Codex Homes when colocated Skills require profile isolation, and ViteHub removes those disposable profiles after each invocation.
+
 Targets are relative POSIX paths below the Box Home. State keys should be stable and project-qualified. Existing state wins over its seed, so a failed authentication check never silently restores older credentials.
 
 Requirement objects use fixed command and argument arrays; they do not parse shell strings:

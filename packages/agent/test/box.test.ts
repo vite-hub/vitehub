@@ -11,6 +11,7 @@ const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
 const harnessObservation = vi.hoisted(() => ({
   before: undefined as string | undefined,
   command: false,
+  expectPreviousCodexState: false,
   exitCode: undefined as number | undefined,
   firstGenerateBlock: undefined as Promise<void> | undefined,
   firstGenerateStarted: undefined as (() => void) | undefined,
@@ -65,7 +66,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         return { text: live }
       }
       const result = await session.host.run({
-        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; ${harnessObservation.globalSkills.map(skill => `test -f "$codex_home/skills/${skill}/SKILL.md"; `).join("")}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
+        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; ${harnessObservation.globalSkills.map(skill => `test -f "$codex_home/skills/${skill}/SKILL.md"; `).join("")}${harnessObservation.expectPreviousCodexState && harnessObservation.generateCount > 1 ? `test -f "$codex_home/session-state-${harnessObservation.generateCount - 1}"; ` : ""}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -81,6 +82,7 @@ afterEach(async () => {
   harnessSettings.length = 0
   harnessObservation.command = false
   harnessObservation.before = undefined
+  harnessObservation.expectPreviousCodexState = false
   harnessObservation.exitCode = undefined
   harnessObservation.firstGenerateBlock = undefined
   harnessObservation.firstGenerateStarted = undefined
@@ -136,14 +138,17 @@ describe("Agent Box", () => {
   it("runs Codex in the authoritative trusted-host workspace with the selected Home", async () => {
     const root = await temporaryRoot()
     const worktree = join(root, "worktree")
+    const continuedWorktree = join(root, "continued-worktree")
     const stateRoot = join(root, "state")
     const bin = join(root, "bin")
     await Promise.all([
       mkdir(worktree),
+      mkdir(continuedWorktree),
       mkdir(bin),
     ])
     await Promise.all([
       writeFile(join(worktree, "AGENTS.md"), "Repository instructions.\n"),
+      writeFile(join(continuedWorktree, "AGENTS.md"), "Repository instructions.\n"),
       executable(bin, "codex", "exit 0"),
       executable(bin, "gh", "exit 0"),
       executable(bin, "pnpm", "exit 0"),
@@ -195,6 +200,7 @@ describe("Agent Box", () => {
         },
       })
       harnessObservation.globalSkills = ["global", "review"]
+      harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -208,11 +214,21 @@ describe("Agent Box", () => {
 
       expect(reportedWorktree).toBe(await realpath(worktree))
       expect(reportedHome).toMatch(/\/vitehub-box-[^/]+\/home$/)
-      expect(codexHome).toMatch(new RegExp(`^${reportedHome}/\\.vitehub/codex-home-[^/]+$`))
+      expect(codexHome).toBe(join(reportedHome, ".codex"))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
-      await expect(stat(codexHome)).rejects.toMatchObject({ code: "ENOENT" })
-      expect(harnessObservation.sessionOptions).toEqual([undefined])
+      const continued = await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: continuedWorktree },
+        prompt: "Continue repairing the project.",
+      }) as { text: string }
+      const [, continuedHome, continuedCodexHome] = continued.text.trim().split("\n")
+      expect(continuedCodexHome).toBe(join(continuedHome, ".codex"))
+      expect(harnessObservation.sessionOptions).toHaveLength(2)
+      expect(harnessObservation.sessionOptions.every(options => typeof options?.sessionId === "string")).toBe(true)
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
