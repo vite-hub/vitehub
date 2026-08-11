@@ -31,6 +31,15 @@ interface WorkspaceCommandToolOptions {
   toolName?: string
 }
 
+interface BoxCommandOptions {
+  abortSignal?: AbortSignal
+  check?: boolean
+  commitMessage?: string
+  cwd?: string
+  env?: Record<string, string>
+  timeout?: number
+}
+
 const unsafeCommand = /[\s\x00-\x1F\x7F]/
 const blockedEnvKeys = new Set([
   "NODE_OPTIONS",
@@ -134,6 +143,48 @@ function assertWorkspace(workspace: unknown, message: string): asserts workspace
   }
 }
 
+export async function executeBoxCommand(
+  workspace: unknown,
+  command: string,
+  args: string[] = [],
+  options: BoxCommandOptions = {},
+): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
+  assertWorkspace(workspace, "[vitehub] Capability command execution requires a Box-backed Workspace Session.")
+  const session = await workspace.startSession()
+  let result
+  try {
+    result = await session.exec(command, args, {
+      abortSignal: options.abortSignal,
+      cwd: options.cwd,
+      env: options.env,
+      timeout: options.timeout,
+    })
+    if (options.check && result.exitCode !== 0) {
+      throw Object.assign(new Error(`[vitehub] Box command "${command}" exited with code ${result.exitCode}.`), {
+        command,
+        exitCode: result.exitCode,
+        name: "BoxCommandError",
+        stderr: result.stderr,
+        stdout: result.stdout,
+      })
+    }
+    if (options.commitMessage !== undefined && result.exitCode === 0) {
+      await session.commit({ message: options.commitMessage })
+    }
+  }
+  catch (error) {
+    try {
+      await session.close()
+    }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] Box command failed and session cleanup also failed.")
+    }
+    throw error
+  }
+  await session.close()
+  return result
+}
+
 export function workspaceCommandTools(
   commands: readonly (string | WorkspaceCommandEntry)[] | "all",
   mode: AgentCapabilityMode,
@@ -176,23 +227,12 @@ export function workspaceCommandTools(
         const env = envRecord(value.env)
         const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout ?? defaultWorkspaceCommandTimeout
         assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires a Box-backed writable Workspace Session.")
-        const session = await workspace.startSession()
-        let result
-        try {
-          result = await session.exec(value.command, args, { cwd, env, timeout: commandTimeout })
-          if (mode === "write" && result.exitCode === 0) await session.commit({ message: options.commitMessage || "workspace shell command" })
-        }
-        catch (error) {
-          try {
-            await session.close()
-          }
-          catch (closeError) {
-            throw new AggregateError([error, closeError], "[vitehub] Workspace command failed and session cleanup also failed.")
-          }
-          throw error
-        }
-        await session.close()
-        return result
+        return await executeBoxCommand(workspace, value.command, args, {
+          ...(mode === "write" ? { commitMessage: options.commitMessage || "workspace shell command" } : {}),
+          cwd,
+          env,
+          timeout: commandTimeout,
+        })
       },
     }),
   }
