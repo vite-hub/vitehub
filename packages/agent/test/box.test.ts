@@ -264,6 +264,15 @@ describe("Agent Box", () => {
       expect(codexHome).toBe(join(reportedHome, ".codex"))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
+      const persistentCodexHome = join(
+        stateRoot,
+        createHash("sha256").update("agent-box-test/codex").digest("hex"),
+      )
+      await mkdir(join(persistentCodexHome, "skills/.git"))
+      await writeFile(
+        join(persistentCodexHome, "skills/.git/config"),
+        "[core]\n\trepositoryformatversion = 0\n",
+      )
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
@@ -274,6 +283,8 @@ describe("Agent Box", () => {
       }) as { text: string }
       const [, continuedHome, continuedCodexHome] = continued.text.trim().split("\n")
       expect(continuedCodexHome).toBe(join(continuedHome, ".codex"))
+      await expect(readFile(join(persistentCodexHome, "skills/.git/config"), "utf8"))
+        .resolves.toContain("repositoryformatversion")
       expect(harnessObservation.sessionOptions).toHaveLength(2)
       expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")
       expect(harnessObservation.sessionOptions[1]).toMatchObject({
@@ -281,10 +292,6 @@ describe("Agent Box", () => {
         sessionId: harnessObservation.sessionOptions[0]?.sessionId,
       })
 
-      const persistentCodexHome = join(
-        stateRoot,
-        createHash("sha256").update("agent-box-test/codex").digest("hex"),
-      )
       await expect(readFile(join(persistentCodexHome, "skills/local/colocated-only.md"), "utf8"))
         .rejects.toMatchObject({ code: "ENOENT" })
       const externalReview = join(root, "external-review")

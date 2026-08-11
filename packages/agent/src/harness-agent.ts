@@ -1179,7 +1179,7 @@ async function prepareHarnessGlobalSkills(
   const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
     ...(workingDirectory ? { workingDirectory } : {}),
-    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then if [ ! -L ${quotedDirectory}/.git ]; then chmod -R u+w -- ${quotedDirectory}/.git 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/.git || exit $?; while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; if [ ! -L ${quotedDirectory}/"$managed" ]; then chmod -R u+w -- ${quotedDirectory}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/"$managed" || exit $?; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
+    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; if [ ! -L ${quotedDirectory}/"$managed" ]; then chmod -R u+w -- ${quotedDirectory}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/"$managed" || exit $?; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
   })
   if (ensure.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
@@ -1198,7 +1198,7 @@ async function prepareHarnessGlobalSkills(
   const install = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
     ...(workingDirectory ? { workingDirectory } : {}),
-    command: `cp -R ${quotedStagingDirectory}/. ${quotedDirectory} && rm -rf -- ${quotedStagingDirectory} && find ${skillDirectories} -type f -path "*/scripts/*" -exec chmod +x {} + && printf '%s\\n' ${resolved.paths.map(path => `'${Buffer.from(path).toString("base64")}'`).join(" ")} > ${quotedManagedManifest}`,
+    command: `rm -rf -- ${quotedStagingDirectory}/.git && cp -R ${quotedStagingDirectory}/. ${quotedDirectory} && rm -rf -- ${quotedStagingDirectory} && find ${skillDirectories} -type f -path "*/scripts/*" -exec chmod +x {} + && printf '%s\\n' ${resolved.paths.map(path => `'${Buffer.from(path).toString("base64")}'`).join(" ")} > ${quotedManagedManifest}`,
   })
   if (install.exitCode !== 0) {
     const error = new Error(`[vitehub] Failed to refresh global Skills: ${install.stderr || "sandbox command failed"}`)
