@@ -719,6 +719,8 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   abortSignal?: AbortSignal
+  box?: Box
+  harnessSandboxProvider?: object
   invocation?: { input: AgentCapabilityInputContext }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext

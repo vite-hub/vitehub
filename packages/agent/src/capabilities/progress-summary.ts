@@ -1,6 +1,6 @@
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
-import { defineCapability } from "../capability-runtime.ts"
+import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
@@ -9,6 +9,7 @@ import { markAuxiliaryMessageChannelInstructionContext } from "../internal/chann
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeUiMessageStreamChunk } from "../stream-output.ts"
+import { traceAgentEvent } from "../trace.ts"
 
 import type {
   AgentAdapterRunContext,
@@ -173,7 +174,9 @@ function progressSummaryAdapterRunContext(
   }
   return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
+    box: context.box,
     context: context.context,
+    harnessSandboxProvider: context.harnessSandboxProvider,
     toolStepReporter: context.runtimeContext.toolStepReporter,
     input: progressSummaryDriverInput(input, prompt),
     invoker: context.invoker,
@@ -206,6 +209,7 @@ function progressSummaryRunContext(
 async function resultText(result: unknown): Promise<string | undefined> {
   let text = ""
   for await (const event of streamAgentOutputToEvents(result)) {
+    if (event.type === "error" && !event.recoverable) throw new Error(event.error)
     if (event.type === "text-delta") text += event.text
   }
   return text || toAgentRunResult(result).text
@@ -334,85 +338,116 @@ function progressData(summary: string, revision: number) {
   }
 }
 
-function withProgressSummaryStream(
-  stream: AsyncIterable<unknown> | ReadableStream<unknown>,
+interface ProgressSummaryState {
+  attach: (controller: TransformStreamDefaultController<unknown>) => void
+  close: () => void
+  observe: (chunk: unknown) => void
+}
+
+function createProgressSummaryState(
   context: AgentCapabilityRuntimeContext,
   options: ProgressSummaryOptions,
   messages: Message[],
-): AsyncIterable<unknown> & ReadableStream<unknown> {
-  const source = isAsyncIterable(stream)
-    ? toReadableAsyncIterableStream(stream)
-    : stream
+): ProgressSummaryState {
   const activeTools = new Map<string, string>()
   const completedTools: string[] = []
   const activeReasoning = new Set<string>()
+  const controllers = new Set<TransformStreamDefaultController<unknown>>()
+  const generations = new Set<AbortController>()
   const startedAt = Date.now()
   const intervalMs = Math.max(0, options.intervalMs ?? 10_000)
   let reasoningActive = false
   let previous: string | undefined
   let revision = 0
+  let emittedRevision = 0
   let dirty = true
   let running = false
   let closed = false
   let scheduled = false
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let controller: TransformStreamDefaultController<unknown> | undefined
-  let generationAbortController: AbortController | undefined
+  let latest: ReturnType<typeof progressData> | undefined
+  let timer: ReturnType<typeof setInterval> | undefined
   const abortSignal = context.abortSignal ?? context.input.get().abortSignal
   const close = () => {
-    // Progress is transient: never hold the primary stream open or emit stale
-    // activity after its terminal event while independent generation finishes.
+    if (closed) return
     closed = true
-    if (timer) clearTimeout(timer)
-    generationAbortController?.abort()
+    if (timer) clearInterval(timer)
+    for (const generation of generations) generation.abort()
+    generations.clear()
+    controllers.clear()
     scheduled = false
     abortSignal?.removeEventListener("abort", close)
   }
   abortSignal?.addEventListener("abort", close, { once: true })
 
-  const schedule = (immediate = false) => {
-    if (closed || running || scheduled || !dirty) return
-    scheduled = true
-    const run = () => {
-      scheduled = false
-      timer = undefined
-      if (closed || running || !dirty) return
+  const reportError = (error: unknown) => {
+    console.warn("[vitehub] progressSummary() generation failed.")
+    if (!context.runtimeContext) return
+    const task = traceAgentEvent({
+      context: context.context,
+      input: context.input.get(),
+      invoker: context.invoker,
+      run: context.run,
+      runtime: context.runtimeContext,
+    }, {
+      attributes: {
+        "capability.id": context.capability.id,
+        "error.name": error instanceof Error ? error.name : "Error",
+      },
+      name: "agent.progress-summary.error",
+      type: "error",
+    })
+    context.runtimeContext.waitUntil?.(task)
+  }
+
+  const startGeneration = () => {
+    if (closed || (intervalMs === 0 && running)) return
+    if (intervalMs === 0) {
       dirty = false
       running = true
-      const currentRevision = ++revision
-      const inputValue = context.input.get()
-      const generationAbort = new AbortController()
-      generationAbortController = generationAbort
-      const input: ProgressSummaryExecuteInput = {
-        activeTools: [...activeTools.values()],
-        completedTools: completedTools.slice(-5),
-        elapsedMs: Date.now() - startedAt,
-        input: {
-          ...inputValue,
-          abortSignal: inputValue.abortSignal
-            ? AbortSignal.any([inputValue.abortSignal, generationAbort.signal])
-            : generationAbort.signal,
-        },
-        messages,
-        previous,
-        reasoning: reasoningActive ? "Active" : undefined,
-        userText: firstUserText(messages, inputValue),
-      }
-      void generateProgressSummary(context, options, input)
-        .then((summary) => {
-          if (closed || !summary || summary === previous) return
-          previous = summary
-          controller?.enqueue(progressData(summary, currentRevision))
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          if (generationAbortController === generationAbort) generationAbortController = undefined
-          running = false
-          schedule()
-        })
     }
-    if (immediate || intervalMs === 0) queueMicrotask(run)
-    else timer = setTimeout(run, intervalMs)
+    const currentRevision = ++revision
+    const inputValue = context.input.get()
+    const generationAbort = new AbortController()
+    generations.add(generationAbort)
+    const input: ProgressSummaryExecuteInput = {
+      activeTools: [...activeTools.values()],
+      completedTools: completedTools.slice(-5),
+      elapsedMs: Date.now() - startedAt,
+      input: {
+        ...inputValue,
+        abortSignal: inputValue.abortSignal
+          ? AbortSignal.any([inputValue.abortSignal, generationAbort.signal])
+          : generationAbort.signal,
+      },
+      messages,
+      previous,
+      reasoning: reasoningActive ? "Active" : undefined,
+      userText: firstUserText(messages, inputValue),
+    }
+    void generateProgressSummary(context, options, input)
+      .then((summary) => {
+        if (closed || !summary || currentRevision <= emittedRevision || summary === previous) return
+        emittedRevision = currentRevision
+        previous = summary
+        latest = progressData(summary, currentRevision)
+        for (const controller of controllers) controller.enqueue(latest)
+      })
+      .catch(reportError)
+      .finally(() => {
+        generations.delete(generationAbort)
+        if (intervalMs !== 0) return
+        running = false
+        scheduleEventDriven()
+      })
+  }
+
+  const scheduleEventDriven = () => {
+    if (closed || running || scheduled || !dirty) return
+    scheduled = true
+    queueMicrotask(() => {
+      scheduled = false
+      if (!closed && dirty) startGeneration()
+    })
   }
 
   const observe = (chunk: unknown) => {
@@ -453,25 +488,49 @@ function withProgressSummaryStream(
       if (name) completedTools.push(name)
       dirty = true
     }
-    schedule()
+    if (intervalMs === 0) scheduleEventDriven()
   }
 
+  if (intervalMs === 0) scheduleEventDriven()
+  else {
+    startGeneration()
+    timer = setInterval(startGeneration, intervalMs)
+  }
+
+  return {
+    attach(controller) {
+      if (closed) return
+      controllers.add(controller)
+      if (latest) controller.enqueue(latest)
+    },
+    close,
+    observe,
+  }
+}
+
+function withProgressSummaryStream(
+  stream: AsyncIterable<unknown> | ReadableStream<unknown>,
+  state: ProgressSummaryState,
+): AsyncIterable<unknown> & ReadableStream<unknown> {
+  const source = isAsyncIterable(stream)
+    ? toReadableAsyncIterableStream(stream)
+    : stream
   const transformed = source.pipeThrough(new TransformStream({
     start(streamController) {
-      controller = streamController
-      schedule(true)
+      state.attach(streamController)
     },
-    flush: close,
+    flush() {
+      state.close()
+    },
     transform(chunk, streamController) {
-      controller = streamController
       streamController.enqueue(chunk)
-      observe(chunk)
+      state.observe(chunk)
     },
   }))
   const reader = transformed.getReader()
   return toReadableAsyncIterableStream(new ReadableStream({
     async cancel(reason) {
-      close()
+      state.close()
       await reader.cancel(reason)
     },
     async pull(outputController) {
@@ -481,7 +540,7 @@ function withProgressSummaryStream(
         else outputController.enqueue(value)
       }
       catch (error) {
-        close()
+        state.close()
         outputController.error(error)
       }
     },
@@ -505,19 +564,26 @@ function isStreamResult(value: unknown): value is {
 export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: ProgressSummaryOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
-  return defineCapability({
+  const states = new WeakMap<object, ProgressSummaryState>()
+  return Object.assign(defineCapability({
+    close(context) {
+      states.get(context.context)?.close()
+      states.delete(context.context)
+    },
     id: options.id || "progress-summary",
     output(context) {
       context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
+      const messages = context.input.messages()
+      if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return
+      const state = createProgressSummaryState(context, options, messages)
+      states.set(context.context, state)
       context.output.render((result) => {
-        const messages = context.input.messages()
-        if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return result
         if (isStreamResult(result)) {
           const wrapped = new WeakMap<object, AsyncIterable<unknown> & ReadableStream<unknown>>()
           const wrap = (stream: AsyncIterable<unknown> | ReadableStream<unknown>) => {
             const existing = wrapped.get(stream)
             if (existing) return existing
-            const value = withProgressSummaryStream(stream, context, options, messages)
+            const value = withProgressSummaryStream(stream, state)
             wrapped.set(stream, value)
             return value
           }
@@ -548,8 +614,11 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
           })
         }
         if (!isAsyncIterable(result)) return result
-        return withProgressSummaryStream(result, context, options, messages)
+        return withProgressSummaryStream(result, state)
       })
     },
+    finish() {},
+  }), {
+    [eagerFinishExtensionSymbol]: true,
   })
 }

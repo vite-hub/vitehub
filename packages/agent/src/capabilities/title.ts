@@ -273,7 +273,9 @@ function titleAdapterRunContext(
   }
   return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
+    box: context.box,
     context: context.context,
+    harnessSandboxProvider: context.harnessSandboxProvider,
     toolStepReporter: context.runtimeContext.toolStepReporter,
     input: titleDriverInput(input, prompt),
     invoker: context.invoker,

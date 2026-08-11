@@ -21,7 +21,10 @@ const loadAiSdk = vi.hoisted(() => vi.fn())
 
 vi.mock("@ai-sdk/harness/agent", () => ({
   HarnessAgent: class {
+    settings: Record<string, unknown>
+
     constructor(settings: Record<string, unknown>) {
+      this.settings = settings
       harnessAgentSettings.push(settings)
     }
 
@@ -62,6 +65,16 @@ function projectedHarnessMessages(entries: Array<["assistant" | "system" | "tool
     ]),
     role: "user",
   }]
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
 }
 
 async function failedTitleInvocation(options: {
@@ -8743,6 +8756,237 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("starts and buffers progress before delayed Harness setup reaches the HTTP UI stream", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const primarySession = deferred<{ destroy: ReturnType<typeof vi.fn> }>()
+    const titleGeneration = deferred<string>()
+    harnessCreateSession.mockImplementation(function (this: { settings: Record<string, unknown> }) {
+      return this.settings.instructions ? { destroy: vi.fn() } : primarySession.promise
+    })
+    harnessGenerate.mockResolvedValue({ text: "Preparing the inventory check." })
+    harnessStream.mockReturnValue({
+      toUIMessageStream() {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({ messageId: "assistant-1", type: "start" })
+            controller.enqueue({ finishReason: "stop", type: "finish" })
+            controller.close()
+          },
+        })
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [
+        title({ execute: () => titleGeneration.promise }),
+        progressSummary({
+          driver: { kind: "codex", model: "gpt-5.6-luna", sandbox: false },
+          intervalMs: 60_000,
+        }),
+      ],
+      channels: { portal: webChat },
+      driver: { harness: { provider: "codex" } },
+    })
+    const responseTask = createChannelChatRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{ id: "user-1", parts: [{ text: "Check inventory", type: "text" }], role: "user" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { agentName: "support" })
+
+    await vi.waitFor(() => expect(harnessGenerate).toHaveBeenCalledOnce())
+    let responseResolved = false
+    void responseTask.then(() => { responseResolved = true })
+    await Promise.resolve()
+    expect(responseResolved).toBe(false)
+
+    primarySession.resolve({ destroy: vi.fn() })
+    titleGeneration.resolve("Inventory check")
+    const response = await responseTask
+
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain('"type":"data-progress-summary"')
+  })
+
+  it("propagates the invocation Box sandbox to title and progress Harness drivers", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const harness = { harnessId: "test" }
+    const sandbox = { providerId: "box-test" }
+    const invocationContext = createAgentInvocationContextStore()
+    invocationContext.set("agent.finishHook", true)
+    harnessCreateSession.mockResolvedValue({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValue({ text: "Auxiliary result" })
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        title({ driver: { harness } }),
+        progressSummary({ driver: { harness }, intervalMs: 60_000 }),
+      ],
+    }, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Check inventory" })],
+    }, undefined, "read", {
+      box: {
+        plan: {
+          identity: "box-test",
+          runtime: "test",
+          workspace: { path: "/workspace" },
+        },
+      } as never,
+      context: invocationContext,
+      harnessSandboxProvider: sandbox,
+    })
+
+    await resolved.start?.()
+    await vi.waitFor(() => expect(harnessGenerate).toHaveBeenCalledTimes(2))
+    await resolved.close()
+
+    expect(harnessAgentSettings).toHaveLength(2)
+    expect(harnessAgentSettings.every(settings => settings.sandbox === sandbox)).toBe(true)
+  })
+
+  it("runs fixed-cadence progress generations concurrently and ignores stale completions", async () => {
+    vi.useFakeTimers()
+    try {
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
+      const generations = [deferred<string>(), deferred<string>()]
+      let sourceController!: ReadableStreamDefaultController<unknown>
+      const execute = vi.fn(() => generations[execute.mock.calls.length - 1]!.promise)
+      const agent = defineAgent({
+        capabilities: [progressSummary({ execute, intervalMs: 10_000 })],
+        driver: { run: () => ({
+            toUIMessageStream() {
+              return new ReadableStream({
+                start(controller) {
+                  sourceController = controller
+                },
+              })
+            },
+          }) },
+      })
+      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "Check inventory" })],
+      }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const reader = stream.getReader()
+
+      expect(execute).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(execute).toHaveBeenCalledTimes(2)
+
+      const progress = reader.read()
+      generations[1]!.resolve("Second snapshot")
+      await expect(progress).resolves.toEqual({
+        done: false,
+        value: {
+          data: { revision: 2, summary: "Second snapshot", type: "progress-summary" },
+          transient: true,
+          type: "data-progress-summary",
+        },
+      })
+      generations[0]!.resolve("Stale first snapshot")
+      await Promise.resolve()
+      sourceController.enqueue({ finishReason: "stop", type: "finish" })
+      sourceController.close()
+      const remaining = []
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        remaining.push(next.value)
+      }
+
+      expect(remaining).not.toContainEqual(expect.objectContaining({
+        data: expect.objectContaining({ revision: 1 }),
+        type: "data-progress-summary",
+      }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("aborts every concurrent progress generation when the primary stream closes", async () => {
+    vi.useFakeTimers()
+    try {
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
+      let sourceController!: ReadableStreamDefaultController<unknown>
+      const aborted: number[] = []
+      const execute = vi.fn(input => new Promise<string>((resolve) => {
+        const call = execute.mock.calls.length
+        input.input.abortSignal?.addEventListener("abort", () => {
+          aborted.push(call)
+          resolve("")
+        }, { once: true })
+      }))
+      const agent = defineAgent({
+        capabilities: [progressSummary({ execute, intervalMs: 10_000 })],
+        driver: { run: () => ({
+            toUIMessageStream() {
+              return new ReadableStream({
+                start(controller) {
+                  sourceController = controller
+                },
+              })
+            },
+          }) },
+      })
+      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "Check inventory" })],
+      }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const reader = stream.getReader()
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(execute).toHaveBeenCalledTimes(3)
+      sourceController.enqueue({ finishReason: "stop", type: "finish" })
+      sourceController.close()
+      await reader.read()
+
+      expect(aborted).toEqual([1, 2, 3])
+      await reader.cancel()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("fails lifecycle cleanup for nonrecoverable UI errors before finish", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agentError = vi.fn()
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ errorText: "provider failed", type: "error" })
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            })
+          },
+        }) },
+      hooks: {
+        "agent:error": agentError,
+        "agent:finish": finish,
+      },
+    })
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "hello",
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+
+    await expect((async () => {
+      for await (const _chunk of stream) {}
+    })()).rejects.toThrow("provider failed")
+    expect(agentError).toHaveBeenCalledOnce()
+    expect(finish).not.toHaveBeenCalled()
+  })
+
   it("emits an initial progress summary before revising it for later activity", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let sourceController!: ReadableStreamDefaultController<unknown>
@@ -9011,6 +9255,48 @@ describe("agent message protocol", () => {
     await new Promise(resolve => setTimeout(resolve, 30))
 
     expect(execute).toHaveBeenCalledOnce()
+  })
+
+  it("reports progress driver error events without exposing their messages", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const agent = defineAgent({
+        capabilities: [progressSummary({
+          driver: { run: () => (async function* () {
+              yield { error: new Error("secret progress failure"), type: "error" }
+            })() },
+          intervalMs: 0,
+        })],
+        driver: { run: () => ({
+            toUIMessageStream() {
+              return new ReadableStream({
+                async start(controller) {
+                  await new Promise(resolve => setTimeout(resolve, 20))
+                  controller.enqueue({ finishReason: "stop", type: "finish" })
+                  controller.close()
+                },
+              })
+            },
+          }) },
+      })
+      const stream = await streamAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      }, { prompt: "Check inventory" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      for await (const _chunk of stream) {}
+
+      expect(warning).toHaveBeenCalledWith("[vitehub] progressSummary() generation failed.")
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("secret progress failure")
+      await vi.waitFor(() => expect(traceLog.entries().some(event => event.name === "agent.progress-summary.error")).toBe(true))
+      expect(JSON.stringify(traceLog.entries().find(event => event.name === "agent.progress-summary.error"))).not.toContain("secret progress failure")
+    }
+    finally {
+      warning.mockRestore()
+    }
   })
 
   it("observes phased reasoning text without exposing its contents", async () => {

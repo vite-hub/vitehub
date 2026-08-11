@@ -1987,8 +1987,10 @@ async function createAgentInvocationContext<
     const agentModel = internalDefinition?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
+      box,
       context: invocationContext,
       driverKind,
+      harnessSandboxProvider,
       invoker,
       model: agentModel as never,
       resolveCapabilityCli,
