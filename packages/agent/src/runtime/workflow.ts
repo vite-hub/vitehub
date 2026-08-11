@@ -151,12 +151,26 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   const jsonResult = jsonWorkflowValue(result)
   if (jsonResult !== unportableWorkflowValue) return jsonResult
   const agentResultKeys = ["artifacts", "finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
-  const providerResultKeys = ["_output", "content", "output", "provider", "steps", "totalUsage"]
+  const providerResultMarkerKeys = ["_output", "content", "output", "provider", "steps", "totalUsage"]
+  const aiSdkTextResultMarkerKeys = ["_output", "steps", "totalUsage"]
+  const providerResultKeys = [...providerResultMarkerKeys, "initialResponseMessages"]
   const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
   if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) unsupportedWorkflowResult()
   if (!Object.keys(result).every(key => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
-  if (!providerResultKeys.some(key => key in result) && !normalizedAgentResultKeys.every(key => Object.hasOwn(result, key))) unsupportedWorkflowResult()
-  const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(toAgentRunResult(result))
+  if (Object.hasOwn(result, "initialResponseMessages")) {
+    const prototype = Object.getPrototypeOf(result)
+    const aiSdkTextResultGetterKeys = ["content", "finalStep", "text"]
+    if (!aiSdkTextResultMarkerKeys.every(key => Object.hasOwn(result, key)) || !aiSdkTextResultGetterKeys.every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.get === "function")) unsupportedWorkflowResult()
+  }
+  if (!providerResultMarkerKeys.some(key => key in result) && !normalizedAgentResultKeys.every(key => Object.hasOwn(result, key))) unsupportedWorkflowResult()
+  const normalizedResult = toAgentRunResult(result)
+  if (Object.hasOwn(result, "initialResponseMessages")) {
+    const { initialResponseMessages: _initialResponseMessages, ...raw } = result as Record<string, unknown>
+    normalizedResult.finishReason = (result as Record<string, unknown>).finishReason
+    normalizedResult.raw = raw
+    normalizedResult.warnings = (result as Record<string, unknown>).warnings
+  }
+  const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(normalizedResult)
   const jsonProjected = jsonWorkflowValue(projected)
   if (jsonProjected !== unportableWorkflowValue) return jsonProjected
   const { raw: _raw, ...normalized } = toAgentRunResult(result)

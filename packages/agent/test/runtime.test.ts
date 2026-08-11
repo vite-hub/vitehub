@@ -10755,6 +10755,49 @@ describe("agent message protocol", () => {
       expect(() => structuredClone(completed.result)).not.toThrow()
     })
 
+    it("normalizes real AI SDK text results before Workflow completion", async () => {
+      const { generateText } = await import("ai")
+      const { MockLanguageModelV3 } = await import("ai/test")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const result = await generateText({
+        model: new MockLanguageModelV3({
+          doGenerate: {
+            content: [{ text: "portable text", type: "text" }],
+            finishReason: { raw: "stop", unified: "stop" },
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 2, total: 2 },
+            },
+            warnings: [],
+          },
+        }),
+        prompt: "hello",
+      })
+
+      expect(Object.keys(result)).toContain("initialResponseMessages")
+      ;(result as unknown as Record<string, unknown>).initialResponseMessages = [{
+        content: [{ data: new URL("https://example.com/attachment.png"), mediaType: "image/png", type: "file" }],
+        role: "assistant",
+      }]
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "ai-sdk-result",
+        name: "ai-sdk-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).resolves.toMatchObject({
+        finishReason: "stop",
+        text: "portable text",
+        usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+        warnings: [],
+      })
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "ai-sdk-result",
+        name: "ai-sdk-result",
+        payload: {},
+        provider: "vercel",
+      }, async () => result)).resolves.not.toHaveProperty("raw.initialResponseMessages")
+    })
+
     it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -10823,6 +10866,24 @@ describe("agent message protocol", () => {
         payload: {},
         provider: "vercel",
       }, async () => ({ samples: new Uint8Array([1, 2]), text: "portable text" }))).rejects.toMatchObject({
+        isRetryable: false,
+      })
+    })
+
+    it("rejects custom outputs that collide with AI SDK implementation keys", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "custom-ai-sdk-key",
+        name: "custom-ai-sdk-key",
+        payload: {},
+        provider: "vercel",
+      }, async () => ({
+        _output: new Map([["secret", 1]]),
+        initialResponseMessages: [],
+        steps: [],
+        text: "portable text",
+        totalUsage: {},
+      }))).rejects.toMatchObject({
         isRetryable: false,
       })
     })
