@@ -193,6 +193,8 @@ describe("Agent Box", () => {
                 key: "agent-box-test/codex",
                 seed: {
                   "auth.json": { contents: '{"token":"box"}\n' },
+                  "skills/.vitehub-colocated": { contents: "legacy\n" },
+                  "skills/legacy/SKILL.md": { contents: "Legacy managed skill.\n" },
                   "skills/local/SKILL.md": { contents: "Local skill.\n" },
                 },
               },
@@ -235,10 +237,17 @@ describe("Agent Box", () => {
             mount: "",
             workspacePath: "skills/review/SKILL.md",
           },
+          trailingNewline: {
+            content: new TextEncoder().encode("# Trailing newline\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/trailing\n/SKILL.md",
+          },
         },
       })
       harnessObservation.detach = true
-      harnessObservation.globalSkills = ["global", "line\nbreak", "local", "review"]
+      harnessObservation.absentGlobalSkills = ["legacy"]
+      harnessObservation.globalSkills = ["global", "line\nbreak", "local", "review", "trailing\n"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -288,7 +297,7 @@ describe("Agent Box", () => {
       await chmod(externalReview, 0o500)
       Reflect.deleteProperty(agent, colocatedSkills)
       harnessObservation.globalSkills = ["global", "local"]
-      harnessObservation.absentGlobalSkills = ["review"]
+      harnessObservation.absentGlobalSkills = ["legacy", "line\nbreak", "review", "trailing\n"]
       await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
