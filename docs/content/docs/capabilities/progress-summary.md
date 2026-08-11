@@ -50,6 +50,8 @@ Listen for `data-progress-summary` parts and replace the currently displayed sen
 
 The part is transient, so it does not become conversation history. Keep structured reasoning and tool logs separate when your interface exposes them.
 
+With manual chat delivery, ViteHub edits the current placeholder as summaries arrive. When the Agent finishes, ViteHub deletes that placeholder and posts the final reply as a new message so chat platforms can deliver their normal notification.
+
 ## Understand the runtime behavior
 
 The Capability generates an initial summary when the stream starts. Reasoning deltas and tool start or completion events then mark the current activity dirty. While new activity exists, the Capability generates at most one summary per interval and never overlaps generations. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.

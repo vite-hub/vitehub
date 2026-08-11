@@ -2899,19 +2899,9 @@ async function flushChatFinishExtensionMessages(
         abortSignal?.throwIfAborted()
       }
       const placeholder = manualDelivery.placeholder
-      if (await deliverToManualDeliveryPlaceholder(placeholder, message, abortSignal
-        ? () => {
-            manualDelivery.placeholder = undefined
-          }
-        : undefined)) {
-        if (abortSignal?.aborted && manualDelivery.errorFallback) {
-          await replaceManualDeliveryPlaceholder(placeholder, manualDelivery.errorFallback)
-        }
-        abortSignal?.throwIfAborted()
-        manualDelivery.placeholder = undefined
-        continue
-      }
+      await deleteManualDeliveryPlaceholder(placeholder)
       manualDelivery.placeholder = undefined
+      abortSignal?.throwIfAborted()
     }
     await postChatMessage(thread, message, abortSignal)
   }
