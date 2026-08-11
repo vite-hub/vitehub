@@ -149,6 +149,10 @@ interface HarnessSessionIdentity {
   workDir?: string
 }
 
+function persistedCodexBoxState(box: AgentAdapterRunContext["box"]) {
+  return box?.plan.home?.state.find(state => state.path === ".codex")
+}
+
 function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
 }
@@ -1129,7 +1133,7 @@ async function prepareHarnessColocatedSkills(
       sessionWorkDir: stagingDirectory,
     })
     const refreshCommand = cleanupCommand
-      ? `${cleanupCommand} && : > "$manifest" && for source in ${stagingDirectoryName}/skills/* ${stagingDirectoryName}/skills/.[!.]* ${stagingDirectoryName}/skills/..?*; do [ -e "$source" ] || continue; managed=\${source##*/}; [ -e ${target}/"$managed" ] || printf '%s\\n' "$managed" >> "$manifest"; done && `
+      ? `${cleanupCommand} && : > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; | while IFS= read -r managed; do if [ ! -e ${target}/"$managed" ] && [ ! -L ${target}/"$managed" ]; then printf '%s\\n' "$managed" || exit $?; fi; done >> "$manifest" && `
       : ""
     const installCommand = cleanupCommand
       ? `while IFS= read -r managed || [ -n "$managed" ]; do cp -R -- ${stagingDirectoryName}/skills/"$managed" ${target} || exit $?; done < "$manifest"`
@@ -1463,14 +1467,17 @@ export function createHarnessAgentAdapter<
     agentIdentity: Omit<HarnessSessionIdentity, "box">,
     disableResume: boolean,
   ) {
+    const codexState = persistedCodexBoxState(context.box)
     const identity: HarnessSessionIdentity = {
       ...agentIdentity,
-      ...(context.box && !context.box.plan.home?.state.includes(".codex")
+      ...(context.box
         ? {
             box: {
-              identity: context.box.plan.identity,
+              identity: codexState?.identity ?? context.box.plan.identity,
               runtime: context.box.plan.runtime,
-              workspace: context.box.plan.workspace.path,
+              ...(!codexState && context.box.plan.workspace.path
+                ? { workspace: context.box.plan.workspace.path }
+                : {}),
             },
           }
         : {}),
@@ -1540,7 +1547,7 @@ export function createHarnessAgentAdapter<
     const colocatedGlobalSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_global_skills_${harnessInvocationId}`)
     const invocation = {
       id: harnessInvocationId,
-      isolateBoxHome: Boolean(context.box && colocatedGlobalSkills && !context.box.plan.home?.state.includes(".codex")),
+      isolateBoxHome: Boolean(context.box && colocatedGlobalSkills && !persistedCodexBoxState(context.box)),
     }
     const resolved = await createHarnessAgent(options, context, invocation, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
       preparedSandbox = {

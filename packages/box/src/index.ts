@@ -257,7 +257,10 @@ export interface BoxPlan {
   readonly environment: BoxEnvironment;
   readonly executionAuthority: ExecutionAuthority;
   readonly home?: {
-    readonly state: readonly string[];
+    readonly state: readonly {
+      readonly identity: string;
+      readonly path: string;
+    }[];
   };
   readonly identity: string;
   readonly requirements: readonly BoxResolvedRequirement[];
@@ -412,7 +415,12 @@ export async function resolveBox<Context>(
   const boxPlan = Object.freeze({
     ...prepared,
     executionAuthority,
-    home: Object.freeze({ state: Object.freeze(plan.state.map(state => state.path)) }),
+    home: Object.freeze({
+      state: Object.freeze(plan.state.map(state => Object.freeze({
+        identity: createHash("sha256").update(JSON.stringify([state.key, state.path])).digest("hex"),
+        path: state.path,
+      }))),
+    }),
   });
   return Object.freeze({
     async open(options?: BoxOpenOptions) {

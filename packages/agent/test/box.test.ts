@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto"
 import { execFile } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -12,6 +13,7 @@ const harnessObservation = vi.hoisted(() => ({
   absentGlobalSkills: [] as string[],
   before: undefined as string | undefined,
   command: false,
+  detach: false,
   expectPreviousCodexState: false,
   exitCode: undefined as number | undefined,
   firstGenerateBlock: undefined as Promise<void> | undefined,
@@ -42,6 +44,14 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         sessionWorkDir,
       })
       return {
+        ...(harnessObservation.detach
+          ? {
+              detach: async () => {
+                await session.destroy()
+                return { token: "resume" }
+              },
+            }
+          : {}),
         destroy: () => session.destroy(),
         host: session,
         sessionWorkDir,
@@ -83,6 +93,7 @@ afterEach(async () => {
   harnessSettings.length = 0
   harnessObservation.absentGlobalSkills = []
   harnessObservation.command = false
+  harnessObservation.detach = false
   harnessObservation.before = undefined
   harnessObservation.expectPreviousCodexState = false
   harnessObservation.exitCode = undefined
@@ -214,6 +225,7 @@ describe("Agent Box", () => {
           },
         },
       })
+      harnessObservation.detach = true
       harnessObservation.globalSkills = ["global", "local", "review"]
       harnessObservation.expectPreviousCodexState = true
 
@@ -243,8 +255,23 @@ describe("Agent Box", () => {
       const [, continuedHome, continuedCodexHome] = continued.text.trim().split("\n")
       expect(continuedCodexHome).toBe(join(continuedHome, ".codex"))
       expect(harnessObservation.sessionOptions).toHaveLength(2)
-      expect(harnessObservation.sessionOptions[1]?.sessionId).toBe(harnessObservation.sessionOptions[0]?.sessionId)
+      expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")
+      expect(harnessObservation.sessionOptions[1]).toMatchObject({
+        resumeFrom: { token: "resume" },
+        sessionId: harnessObservation.sessionOptions[0]?.sessionId,
+      })
 
+      const persistentCodexHome = join(
+        stateRoot,
+        createHash("sha256").update("agent-box-test/codex").digest("hex"),
+      )
+      const externalReview = join(root, "external-review")
+      await mkdir(externalReview)
+      await writeFile(join(externalReview, "SKILL.md"), "External review skill.\n")
+      await rm(join(persistentCodexHome, "skills/review"), { recursive: true })
+      await symlink(externalReview, join(persistentCodexHome, "skills/review"))
+      await chmod(join(externalReview, "SKILL.md"), 0o400)
+      await chmod(externalReview, 0o500)
       Reflect.deleteProperty(agent, colocatedSkills)
       harnessObservation.globalSkills = ["global", "local"]
       harnessObservation.absentGlobalSkills = ["review"]
@@ -257,7 +284,16 @@ describe("Agent Box", () => {
         prompt: "Continue without the removed Skill.",
       })
       expect(harnessObservation.sessionOptions).toHaveLength(3)
-      expect(harnessObservation.sessionOptions.every(options => typeof options?.sessionId === "string")).toBe(true)
+      expect(harnessObservation.sessionOptions[2]).toMatchObject({
+        resumeFrom: { token: "resume" },
+        sessionId: harnessObservation.sessionOptions[0]?.sessionId,
+      })
+      await expect(readFile(join(persistentCodexHome, "skills/local/SKILL.md"), "utf8"))
+        .resolves.toBe("Local skill.\n")
+      expect((await stat(externalReview)).mode & 0o777).toBe(0o500)
+      expect((await stat(join(externalReview, "SKILL.md"))).mode & 0o777).toBe(0o400)
+      await chmod(externalReview, 0o700)
+      await chmod(join(externalReview, "SKILL.md"), 0o600)
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }

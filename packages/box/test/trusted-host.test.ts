@@ -157,7 +157,9 @@ describe("createTrustedHostRuntime", () => {
         network: "unrestricted",
         processes: "arbitrary",
       },
-      home: { state: [".codex"] },
+      home: {
+        state: [{ identity: expect.any(String), path: ".codex" }],
+      },
       requirements: [{ command: "gh", name: "gh auth status" }],
       runtime: "trusted-host",
       workspace: { path: workspace, state: "authoritative" },
