@@ -412,15 +412,20 @@ export async function resolveBox<Context>(
       `[vitehub] Box runtime ${runtime.name} must declare executionAuthority.`,
     );
   }
+  const homeState = plan.state.map((state) => {
+    const preparedState = prepared.home?.state.find(target => target.path === state.path);
+    if (!preparedState?.identity) {
+      throw new TypeError(
+        `[vitehub] Box runtime ${runtime.name} must declare an opaque Home state identity for ${state.path}.`,
+      );
+    }
+    return Object.freeze({ identity: preparedState.identity, path: state.path });
+  });
   const boxPlan = Object.freeze({
     ...prepared,
     executionAuthority,
     home: Object.freeze({
-      state: Object.freeze(plan.state.map(state => Object.freeze({
-        identity: prepared.home?.state.find(target => target.path === state.path)?.identity
-          ?? createHash("sha256").update(JSON.stringify([state.key, state.path])).digest("hex"),
-        path: state.path,
-      }))),
+      state: Object.freeze(homeState),
     }),
   });
   return Object.freeze({

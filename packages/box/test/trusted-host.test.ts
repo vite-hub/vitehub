@@ -176,6 +176,16 @@ describe("createTrustedHostRuntime", () => {
     );
     expect(otherStateBox.plan.home?.state[0]?.identity)
       .not.toBe(box.plan.home?.state[0]?.identity);
+    const unidentifiedRuntime = createTrustedHostRuntime({ stateRoot });
+    const prepare = unidentifiedRuntime.prepare.bind(unidentifiedRuntime);
+    unidentifiedRuntime.prepare = async input => ({
+      ...await prepare(input),
+      home: undefined,
+    });
+    await expect(resolveBox({
+      home: { state: { ".codex": { key: "portable-box-test/codex" } } },
+      runtime: unidentifiedRuntime,
+    }, {})).rejects.toThrow("must declare an opaque Home state identity");
 
     const session = (await withEnvironment(
       { PATH: bin },
