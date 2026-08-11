@@ -40,7 +40,7 @@ export default defineAgent({
 })
 ```
 
-The window limits messages supplied to the next invocation; it does not delete preserved history. Thread scope is the normal choice for Discord threads, Slack threads, Teams conversations, GitHub comment threads, and application-owned support chats.
+The window limits messages supplied to the next invocation; it does not delete preserved history. For application-owned routes that call `runAgentTrigger()` or `streamAgentTrigger()`, supply the ordered messages for the current thread, including the new message. `triggerHistory` bounds that caller-supplied array; it does not load history from `threadId` or a session id. Adapter-backed Channels can perform their own history backfill. Thread scope is the normal choice for Discord threads, Slack threads, Teams conversations, GitHub comment threads, and application-owned support chats.
 
 ## Add a session
 

@@ -50,6 +50,7 @@ Call the trigger from a server-owned route:
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from '@vite-hub/agent'
 import support from '../agents/support'
+import { loadSupportThreadMessages } from '../support-history'
 
 export default defineEventHandler(async (event) => {
   const { text, threadId } = await readBody<{
@@ -57,17 +58,19 @@ export default defineEventHandler(async (event) => {
     threadId?: string
   }>(event)
   const runId = crypto.randomUUID()
+  const messages = await loadSupportThreadMessages(threadId)
+  messages.push({
+    id: runId,
+    role: 'user',
+    parts: [{ type: 'text', text }],
+  })
 
   return streamAgentTrigger(
     support,
     { runtime: 'unknown' },
     'chat.message',
     {
-      messages: [{
-        id: runId,
-        role: 'user',
-        parts: [{ type: 'text', text }],
-      }],
+      messages,
       run: {
         channelId: 'portal',
         messageId: runId,
@@ -82,6 +85,8 @@ export default defineEventHandler(async (event) => {
 ```
 
 `run` contains origin and trace metadata; it is not chat context. Authenticate before passing Actor identity, session selection, or trusted metadata into the Trigger input.
+
+Direct Trigger consumers must load and supply the current thread's ordered messages, including the new message. `triggerHistory` limits that input; it does not backfill messages from `threadId` or a session id.
 
 ## Add an application-owned Trigger
 
