@@ -2903,6 +2903,7 @@ async function flushChatFinishExtensionMessages(
         await deleteManualDeliveryPlaceholder(placeholder)
       }
       catch (cause) {
+        abortSignal?.throwIfAborted()
         if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) {
           manualDelivery.placeholder = undefined
           continue

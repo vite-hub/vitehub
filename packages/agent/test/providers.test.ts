@@ -10339,7 +10339,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("preserves manual placeholder ownership when cleanup fails after the deadline", async () => {
+  it("preserves the manual error fallback when final reply cleanup fails after the deadline", async () => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -10363,6 +10363,9 @@ describe("server helpers", () => {
         }),
       },
       driver: { run: () => ({ text: "" }) },
+      hooks: {
+        "agent:finish": event => event.reply("Final reply"),
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -10377,6 +10380,7 @@ describe("server helpers", () => {
         message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(adapter.editMessage).toHaveBeenCalledOnce()
       expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
     }
     finally {
