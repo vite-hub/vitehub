@@ -1605,7 +1605,7 @@ export function createHarnessAgentAdapter<
           const destination = globalSkillsDestination || globalSkillsDirectory
           const ensureDestination = await (session as HarnessGlobalSkillsSandbox).run({
             abortSignal,
-            command: `if [ -L '${destination.replace(/'/g, "'\\''")}' ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi && mkdir -p -- '${destination.replace(/'/g, "'\\''")}'`,
+            command: `if [ -L '${destination.replace(/'/g, "'\\''")}' ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi && mkdir -p -- '${destination.replace(/'/g, "'\\''")}' && chmod u+w -- '${destination.replace(/'/g, "'\\''")}'`,
           })
           if (ensureDestination.exitCode !== 0) {
             throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensureDestination.stderr || "sandbox command failed"}`)
