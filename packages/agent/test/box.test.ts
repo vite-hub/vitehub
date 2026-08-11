@@ -210,6 +210,11 @@ describe("Agent Box", () => {
           scope: "global",
           source: custom({ files: [{ content: "Ordered ancestor skill.\n", path: "SKILL.md" }] }),
         }),
+        skills({
+          path: "skills/siblings/review",
+          scope: "global",
+          source: custom({ files: [{ content: "Sibling review skill.\n", path: "SKILL.md" }] }),
+        }),
       ]
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
@@ -274,7 +279,7 @@ describe("Agent Box", () => {
         },
       })
       harnessObservation.detach = true
-      harnessObservation.globalSkills = ["bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "trailing\n"]
+      harnessObservation.globalSkills = ["bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -300,6 +305,7 @@ describe("Agent Box", () => {
         .resolves.toBe("Unmanaged global skill.\n")
       await expect(readFile(join(persistentCodexHome, "skills/ordered/SKILL.md"), "utf8"))
         .resolves.toBe("Ordered ancestor skill.\n")
+      await writeFile(join(persistentCodexHome, "skills/siblings/custom"), "Unmanaged sibling.\n")
       await mkdir(join(persistentCodexHome, "skills/.git"))
       await writeFile(
         join(persistentCodexHome, "skills/.git/config"),
@@ -311,7 +317,7 @@ describe("Agent Box", () => {
         source: custom({ files: [{ content: "Ancestor bundle skill.\n", path: "SKILL.md" }] }),
       }))
       Object.assign(agent, { capabilities: globalSkills })
-      harnessObservation.globalSkills = ["bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "trailing\n"]
+      harnessObservation.globalSkills = ["bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
@@ -326,6 +332,8 @@ describe("Agent Box", () => {
         .resolves.toContain("repositoryformatversion")
       await expect(readFile(join(persistentCodexHome, "skills/bundles/SKILL.md"), "utf8"))
         .resolves.toBe("Ancestor bundle skill.\n")
+      await expect(readFile(join(persistentCodexHome, "skills/siblings/custom"), "utf8"))
+        .resolves.toBe("Unmanaged sibling.\n")
       expect(harnessObservation.sessionOptions).toHaveLength(2)
       expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")
       expect(harnessObservation.sessionOptions[1]).toMatchObject({
@@ -345,7 +353,7 @@ describe("Agent Box", () => {
       Reflect.deleteProperty(agent, colocatedSkills)
       globalSkills.splice(2, 1)
       Object.assign(agent, { capabilities: globalSkills })
-      harnessObservation.globalSkills = ["bundles", "global", "legacy", "local", "ordered", "ordered/review"]
+      harnessObservation.globalSkills = ["bundles", "global", "legacy", "local", "ordered", "ordered/review", "siblings/review"]
       harnessObservation.absentGlobalSkills = ["global-trailing\n", "line\nbreak", "review", "trailing\n"]
       await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
