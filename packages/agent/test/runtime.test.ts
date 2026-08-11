@@ -10785,8 +10785,10 @@ describe("agent message protocol", () => {
         payload: {},
         provider: "vercel",
       }, async () => result)).resolves.toMatchObject({
+        finishReason: "stop",
         text: "portable text",
         usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+        warnings: [],
       })
       await expect(runAgentWorkflowDefinition({} as never, {
         id: "ai-sdk-result",

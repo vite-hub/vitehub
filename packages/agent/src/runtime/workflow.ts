@@ -166,7 +166,9 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   const normalizedResult = toAgentRunResult(result)
   if (Object.hasOwn(result, "initialResponseMessages")) {
     const { initialResponseMessages: _initialResponseMessages, ...raw } = result as Record<string, unknown>
+    normalizedResult.finishReason = (result as Record<string, unknown>).finishReason
     normalizedResult.raw = raw
+    normalizedResult.warnings = (result as Record<string, unknown>).warnings
   }
   const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(normalizedResult)
   const jsonProjected = jsonWorkflowValue(projected)
