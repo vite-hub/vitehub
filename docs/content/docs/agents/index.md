@@ -96,30 +96,41 @@ function waitUntilFor(event: H3Event): AgentWaitUntil {
     ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
 }
 
-function runtimeFor(event: H3Event): AgentRuntimeName {
+function cloudflareFor(event: H3Event) {
   const runtimeEvent = event as H3Event & {
     env?: Record<string, unknown>
     context: H3Event['context'] & {
-      cloudflare?: { env?: Record<string, unknown> }
-      _platform?: { cloudflare?: { env?: Record<string, unknown> } }
+      cloudflare?: { context?: unknown, env?: Record<string, unknown> }
+      _platform?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } }
     }
-    node?: { req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }
+    node?: { req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } } }
   }
-  const cloudflare = runtimeEvent.env
+  const env = runtimeEvent.env
     ?? runtimeEvent.context.cloudflare?.env
     ?? runtimeEvent.context._platform?.cloudflare?.env
     ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env
+  const context = runtimeEvent.context.cloudflare?.context
+    ?? runtimeEvent.context._platform?.cloudflare?.context
+    ?? runtimeEvent.node?.req?.runtime?.cloudflare?.context
 
-  if (cloudflare) return 'cloudflare-agents'
+  return env ? { env, ...(context ? { context } : {}) } : undefined
+}
+
+function runtimeFor(event: H3Event): AgentRuntimeName {
+  const env = typeof process === 'object' && process ? process.env : undefined
+
+  if (cloudflareFor(event)) return 'cloudflare-agents'
   if ('Deno' in globalThis) return 'deno'
-  if (typeof process === 'object' && process.env.VERCEL) return 'vercel'
-  return process.env.NODE_ENV === 'development' ? 'vite' : 'unknown'
+  if (env?.VERCEL) return 'vercel'
+  return env?.NODE_ENV === 'development' ? 'vite' : 'unknown'
 }
 
 export function getRuntimeContext(event: H3Event) {
+  const cloudflare = cloudflareFor(event)
   const values = new Map<string, unknown>()
 
   return {
+    ...(cloudflare ? { cloudflare } : {}),
     memo<T>(key: string, create: () => T): T {
       if (!values.has(key)) values.set(key, create())
       return values.get(key) as T
