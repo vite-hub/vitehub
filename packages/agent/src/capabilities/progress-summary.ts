@@ -578,10 +578,18 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
       context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
       const messages = context.input.messages()
       if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return
-      const state = createProgressSummaryState(context, options, messages)
-      states.set(context.context, state)
+      let state = context.invocation?.kind === "stream"
+        ? createProgressSummaryState(context, options, messages)
+        : undefined
+      if (state) states.set(context.context, state)
+      const getState = () => {
+        state ||= createProgressSummaryState(context, options, messages)
+        states.set(context.context, state)
+        return state
+      }
       context.output.render((result) => {
         if (isStreamResult(result)) {
+          const state = getState()
           const wrapped = new WeakMap<object, AsyncIterable<unknown> & ReadableStream<unknown>>()
           const wrap = (stream: AsyncIterable<unknown> | ReadableStream<unknown>) => {
             const existing = wrapped.get(stream)
@@ -617,7 +625,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
           })
         }
         if (!isAsyncIterable(result)) return result
-        return withProgressSummaryStream(result, state)
+        return withProgressSummaryStream(result, getState())
       })
     },
     finish() {},

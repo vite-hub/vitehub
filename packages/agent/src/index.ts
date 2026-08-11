@@ -1866,6 +1866,7 @@ async function createAgentInvocationContext<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  invocationKind: "run" | "stream" = "run",
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -1991,6 +1992,7 @@ async function createAgentInvocationContext<
       context: invocationContext,
       driverKind,
       harnessSandboxProvider,
+      invocationKind,
       invoker,
       model: agentModel as never,
       resolveCapabilityCli,
@@ -3142,7 +3144,7 @@ async function executeAgentInvocationWithCapacityLease<
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
-  const invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input)
+  const invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input, options.kind)
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
@@ -3882,6 +3884,7 @@ async function executeAgentInvocation<
         agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
         context,
         input,
+        options.kind,
       )
     : undefined
   if (preparedInvocation?.handledResponse) {

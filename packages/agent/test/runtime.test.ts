@@ -8842,6 +8842,7 @@ describe("agent message protocol", () => {
       } as never,
       context: invocationContext,
       harnessSandboxProvider: sandbox,
+      invocationKind: "stream",
     })
 
     await resolved.start?.()
@@ -9008,6 +9009,23 @@ describe("agent message protocol", () => {
     await expect(reader.read()).rejects.toThrow("provider failed")
     expect(agentError).toHaveBeenCalledOnce()
     expect(finish).not.toHaveBeenCalled()
+  })
+
+  it("does not generate progress summaries for non-streaming invocations", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 1 })],
+      driver: { run: async () => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        return { text: "Inventory checked." }
+      } },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "Check inventory",
+    })).resolves.toEqual({ text: "Inventory checked." })
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it("emits an initial progress summary before revising it for later activity", async () => {

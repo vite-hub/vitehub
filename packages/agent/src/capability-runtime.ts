@@ -137,6 +137,7 @@ export interface AgentCapabilityInvocationOptions<
   context?: AgentInvocationContextStore
   driverKind?: AgentDriverKind
   harnessSandboxProvider?: object
+  invocationKind?: "run" | "stream"
   invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
   phases?: readonly AgentCapabilityRuntimePhase[]
@@ -1036,7 +1037,7 @@ export async function resolveAgentCapabilities<
         capability,
         mode: capability.mode,
         input,
-        invocation: { input },
+        invocation: { input, kind: invocationOptions.invocationKind || "run" },
         delivery: {
           effect(intent) {
             if (!intent || typeof intent !== "object" || typeof intent.kind !== "string" || !intent.kind.trim()) {
