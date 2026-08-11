@@ -64,7 +64,7 @@ Declaring a Workspace does not automatically grant file access. The Driver recei
 
 ## Return structured output
 
-Set `output` when downstream code needs validated data instead of free-form text.
+Set `driver.output` when downstream code needs validated data instead of free-form text.
 
 ```ts [server/agents/triage.ts]
 import * as v from 'valibot'
@@ -74,12 +74,12 @@ export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',
     instructions: 'Classify the request and explain the next action.',
-  },
-  output: {
-    schema: v.object({
-      priority: v.picklist(['low', 'normal', 'urgent']),
-      nextAction: v.string(),
-    }),
+    output: {
+      schema: v.object({
+        priority: v.picklist(['low', 'normal', 'urgent']),
+        nextAction: v.string(),
+      }),
+    },
   },
 })
 ```
@@ -100,7 +100,7 @@ Direct `runAgent()` calls without a discovered host identity remain inline.
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
 | `instructions` | Lives on the selected Driver; see [Instructions](/docs/agents/instructions). |
-| `output` | Validates structured Agent output. |
+| `driver.output` | Validates structured Agent output. |
 | `channels` | Declares named Agent Channels and generated routes. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
