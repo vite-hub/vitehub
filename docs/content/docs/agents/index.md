@@ -15,6 +15,17 @@ If this is your first Agent, follow [Build your first Agent](/docs/getting-start
 
 This support Agent uses a model, reads a scoped documentation Workspace, and answers from inspected files.
 
+Enable both discovery integrations before using a named Workspace:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ agent: true, workspace: true })],
+})
+```
+
 ```ts [server/workspaces/product-docs.ts]
 import { defineWorkspace, glob } from '@vite-hub/workspace'
 
@@ -81,7 +92,7 @@ function waitUntilFor(event: H3Event): AgentWaitUntil {
     ?? waitUntilFrom(context)
     ?? waitUntilFrom(context.cloudflare?.context)
     ?? waitUntilFrom(context._platform?.cloudflare?.context)
-    ?? waitUntilFrom(node.req?.runtime?.cloudflare?.context)
+    ?? waitUntilFrom(node?.req?.runtime?.cloudflare?.context)
     ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
 }
 
