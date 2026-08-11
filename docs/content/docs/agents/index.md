@@ -62,21 +62,17 @@ function waitUntilFrom(value: unknown): AgentWaitUntil | undefined {
     : undefined
 }
 
-function requireWaitUntil(event: H3Event): AgentWaitUntil {
+function waitUntilFor(event: H3Event): AgentWaitUntil {
   const context = event.context as {
     cloudflare?: { context?: unknown }
     _platform?: { cloudflare?: { context?: unknown } }
   }
 
-  const waitUntil = waitUntilFrom(event)
+  return waitUntilFrom(event)
     ?? waitUntilFrom(context)
     ?? waitUntilFrom(context.cloudflare?.context)
     ?? waitUntilFrom(context._platform?.cloudflare?.context)
-
-  if (!waitUntil) {
-    throw new Error('This host must provide a request-lifetime waitUntil() adapter')
-  }
-  return waitUntil
+    ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
 }
 
 export function getRuntimeContext(event: H3Event) {
@@ -88,12 +84,12 @@ export function getRuntimeContext(event: H3Event) {
       return values.get(key) as T
     },
     runtime: 'vite' as const,
-    waitUntil: requireWaitUntil(event),
+    waitUntil: waitUntilFor(event),
   }
 }
 ```
 
-Keep this helper host-owned: add provider resources here, and delegate `waitUntil` to the real host lifetime rather than replacing it with a no-op.
+Keep this helper host-owned: add provider resources here and delegate `waitUntil` to the real host lifetime when one exists. The fallback observes failures for long-lived local Node processes; serverless deployments must expose their provider lifetime adapter through the event context.
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
