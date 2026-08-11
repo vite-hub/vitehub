@@ -396,6 +396,24 @@ describe("Agent Box", () => {
       await expect(stat(`${persistentCodexHome}.lock`)).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(join(externalSkills, "untouched"), "utf8")).resolves.toBe("external\n")
       await expect(readFile(join(externalSkills, "managed/owned"), "utf8")).resolves.toBe("managed\n")
+      await mkdir(join(externalSkills, "generated"))
+      await rm(join(persistentCodexHome, "skills"), { recursive: true })
+      await mkdir(join(persistentCodexHome, "skills"))
+      await rm(join(persistentCodexHome, "skills.vitehub-managed"))
+      await symlink(externalSkills, join(persistentCodexHome, "skills/bundles"))
+      await writeFile(
+        join(persistentCodexHome, "skills.vitehub-managed-parents"),
+        `${Buffer.from("bundles/generated").toString("base64")}\n`,
+      )
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Do not follow generated Skill parents.",
+      })).rejects.toThrow("ViteHub-managed Skill parent cannot traverse a symlink")
+      await expect(stat(join(externalSkills, "generated"))).resolves.toBeDefined()
       await writeFile(join(externalSkills, ".vitehub-colocated-v2"), `${Buffer.from("managed").toString("base64")}\n`)
       await rm(join(persistentCodexHome, "skills"), { recursive: true })
       await symlink(externalSkills, join(persistentCodexHome, "skills"))
