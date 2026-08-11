@@ -9029,6 +9029,29 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("does not start progress before later Capability input handling finishes", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [
+        progressSummary({ execute }),
+        defineCapability({
+          id: "handled-input",
+          input: () => new Response("handled"),
+        }),
+      ],
+      driver: { run: () => {
+        throw new Error("primary Driver should not run")
+      } },
+    })
+
+    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "Check inventory",
+    }) as Response
+    await expect(response.text()).resolves.toBe("handled")
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("emits an initial progress summary before revising it for later activity", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let sourceController!: ReadableStreamDefaultController<unknown>

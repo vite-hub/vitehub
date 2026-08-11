@@ -1,6 +1,6 @@
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
-import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
+import { capabilityInvocationStartSymbol, defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
@@ -568,28 +568,32 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
   options: ProgressSummaryOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   const states = new WeakMap<object, ProgressSummaryState>()
+  const invocationStarts = new WeakMap<object, () => void>()
   return Object.assign(defineCapability({
     close(context) {
       states.get(context.context)?.close()
       states.delete(context.context)
+      invocationStarts.delete(context.context)
     },
     id: options.id || "progress-summary",
     output(context) {
       context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
-      const messages = context.input.messages()
-      if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return
-      let state = context.invocation?.kind === "stream"
-        ? createProgressSummaryState(context, options, messages)
-        : undefined
-      if (state) states.set(context.context, state)
+      let state: ProgressSummaryState | undefined
       const getState = () => {
-        state ||= createProgressSummaryState(context, options, messages)
+        if (state) return state
+        const messages = context.input.messages()
+        if (!messages.some(message => message.role === "user") && !context.input.get().prompt) return
+        state = createProgressSummaryState(context, options, messages)
         states.set(context.context, state)
         return state
       }
+      invocationStarts.set(context.context, () => {
+        if (context.invocation?.kind === "stream") getState()
+      })
       context.output.render((result) => {
         if (isStreamResult(result)) {
           const state = getState()
+          if (!state) return result
           const wrapped = new WeakMap<object, AsyncIterable<unknown> & ReadableStream<unknown>>()
           const wrap = (stream: AsyncIterable<unknown> | ReadableStream<unknown>) => {
             const existing = wrapped.get(stream)
@@ -625,11 +629,15 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
           })
         }
         if (!isAsyncIterable(result)) return result
-        return withProgressSummaryStream(result, getState())
+        const state = getState()
+        return state ? withProgressSummaryStream(result, state) : result
       })
     },
     finish() {},
   }), {
+    [capabilityInvocationStartSymbol](context: AgentCapabilityRuntimeContext<TRuntimeConfig>) {
+      invocationStarts.get(context.context)?.()
+    },
     [eagerFinishExtensionSymbol]: true,
   })
 }
