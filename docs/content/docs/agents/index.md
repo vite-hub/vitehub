@@ -52,7 +52,32 @@ Use `runAgent()` when the caller needs one final result.
 Define the application boundary that adapts the current H3 host event into Runtime Context:
 
 ```ts [server/runtime-context.ts]
+import type { AgentWaitUntil } from '@vite-hub/agent'
 import type { H3Event } from 'h3'
+
+function waitUntilFrom(value: unknown): AgentWaitUntil | undefined {
+  const owner = value as { waitUntil?: AgentWaitUntil } | undefined
+  return typeof owner?.waitUntil === 'function'
+    ? owner.waitUntil.bind(value)
+    : undefined
+}
+
+function requireWaitUntil(event: H3Event): AgentWaitUntil {
+  const context = event.context as {
+    cloudflare?: { context?: unknown }
+    _platform?: { cloudflare?: { context?: unknown } }
+  }
+
+  const waitUntil = waitUntilFrom(event)
+    ?? waitUntilFrom(context)
+    ?? waitUntilFrom(context.cloudflare?.context)
+    ?? waitUntilFrom(context._platform?.cloudflare?.context)
+
+  if (!waitUntil) {
+    throw new Error('This host must provide a request-lifetime waitUntil() adapter')
+  }
+  return waitUntil
+}
 
 export function getRuntimeContext(event: H3Event) {
   const values = new Map<string, unknown>()
@@ -62,8 +87,8 @@ export function getRuntimeContext(event: H3Event) {
       if (!values.has(key)) values.set(key, create())
       return values.get(key) as T
     },
-    runtime: 'nitro',
-    waitUntil: (task: Promise<unknown>) => event.waitUntil(task),
+    runtime: 'vite' as const,
+    waitUntil: requireWaitUntil(event),
   }
 }
 ```
