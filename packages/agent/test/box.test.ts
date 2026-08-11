@@ -362,9 +362,13 @@ describe("Agent Box", () => {
       await expect(stat(join(persistentCodexHome, "skills/line\nbreak")))
         .rejects.toMatchObject({ code: "ENOENT" })
       expect((await stat(join(persistentCodexHome, "skills"))).mode & 0o300).toBe(0o300)
-      expect(harnessObservation.sessionOptions).toHaveLength(2)
+      expect(harnessObservation.sessionOptions).toHaveLength(3)
       expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")
       expect(harnessObservation.sessionOptions[1]).toMatchObject({
+        resumeFrom: { token: "resume" },
+        sessionId: harnessObservation.sessionOptions[0]?.sessionId,
+      })
+      expect(harnessObservation.sessionOptions[2]).toMatchObject({
         resumeFrom: { token: "resume" },
         sessionId: harnessObservation.sessionOptions[0]?.sessionId,
       })
@@ -391,8 +395,8 @@ describe("Agent Box", () => {
         options: { worktreePath: removedSkillWorktree },
         prompt: "Continue without the removed Skill.",
       })
-      expect(harnessObservation.sessionOptions).toHaveLength(3)
-      expect(harnessObservation.sessionOptions[2]).toMatchObject({
+      expect(harnessObservation.sessionOptions).toHaveLength(4)
+      expect(harnessObservation.sessionOptions[3]).toMatchObject({
         resumeFrom: { token: "resume" },
         sessionId: harnessObservation.sessionOptions[0]?.sessionId,
       })
