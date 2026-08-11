@@ -85,7 +85,7 @@ export default defineAgent({
 })
 ```
 
-`runAgent()` returns the validated structured result. A schema failure fails the invocation instead of returning unchecked model output.
+Inline `runAgent()` execution returns the validated structured result. A schema failure fails the invocation instead of returning unchecked model output. Workflow-backed calls return an `AgentWorkflowRun`; await its Workflow result to read the validated Agent value.
 
 ## Choose hosted execution
 

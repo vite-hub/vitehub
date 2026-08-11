@@ -91,7 +91,9 @@ The default local harness sandbox is a temporary process workspace, not OS isola
 
 Do not combine `box` with `driver.sandbox` or `driver.workDir`; the Box owns those concerns. For Claude Code with a Box, set `{ kind: 'claude-code', sandbox: false }` so the Box owns the process environment.
 
-### Harness options
+### Custom harness options
+
+Use these fields with the custom `{ harness }` Driver variant. Built-in Codex and Claude Code Drivers expose their own typed option subsets.
 
 | Option | Purpose |
 | --- | --- |

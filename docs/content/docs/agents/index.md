@@ -87,11 +87,15 @@ function waitUntilFor(event: H3Event): AgentWaitUntil {
   const node = event.node as {
     req?: { runtime?: { cloudflare?: { context?: unknown } } }
   }
+  const req = event.req as {
+    runtime?: { cloudflare?: { context?: unknown } }
+  }
 
   return waitUntilFrom(event)
     ?? waitUntilFrom(context)
     ?? waitUntilFrom(context.cloudflare?.context)
     ?? waitUntilFrom(context._platform?.cloudflare?.context)
+    ?? waitUntilFrom(req?.runtime?.cloudflare?.context)
     ?? waitUntilFrom(node?.req?.runtime?.cloudflare?.context)
     ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
 }
@@ -103,14 +107,17 @@ function cloudflareFor(event: H3Event) {
       cloudflare?: { context?: unknown, env?: Record<string, unknown> }
       _platform?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } }
     }
+    req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } }
     node?: { req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } } }
   }
   const env = runtimeEvent.env
     ?? runtimeEvent.context.cloudflare?.env
     ?? runtimeEvent.context._platform?.cloudflare?.env
+    ?? runtimeEvent.req?.runtime?.cloudflare?.env
     ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env
   const context = runtimeEvent.context.cloudflare?.context
     ?? runtimeEvent.context._platform?.cloudflare?.context
+    ?? runtimeEvent.req?.runtime?.cloudflare?.context
     ?? runtimeEvent.node?.req?.runtime?.cloudflare?.context
 
   return env ? { env, ...(context ? { context } : {}) } : undefined
