@@ -436,7 +436,7 @@ describe("Agent Box", () => {
       await symlink(externalSkills, join(persistentCodexHome, "skills/bundles"))
       await writeFile(
         join(persistentCodexHome, "skills.vitehub-managed-parents"),
-        `${Buffer.from("bundles/generated").toString("base64")}\n`,
+        `vitehub-managed-skill-parents-v1\n${Buffer.from("bundles/generated").toString("base64")}\n`,
       )
       await expect(runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
