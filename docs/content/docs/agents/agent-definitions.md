@@ -99,7 +99,7 @@ Direct `runAgent()` calls without a discovered host identity remain inline.
 | `driver` | Required. Selects one built-in, model-backed, harness-backed, or custom-run execution path. |
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
-| `instructions` | Lives on the selected Driver; see [Instructions](/docs/agents/instructions). |
+| `driver.instructions` | Configures instructions on the selected Driver; see [Instructions](/docs/agents/instructions). |
 | `driver.output` | Validates structured Agent output. |
 | `channels` | Declares named Agent Channels and generated routes. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |

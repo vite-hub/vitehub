@@ -2,6 +2,7 @@ import type { DocsLane } from "~~/modules/vitehub-docs/docs-lanes";
 import { getDocsPageByPath, type DocsPage } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
   docsLaneOptions,
+  getDocsLaneSelectionTarget,
   getDocsPageTarget,
   resolveDocsLane,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
@@ -36,12 +37,16 @@ export function useDocsLane() {
   function selectLane(targetLane: DocsLane) {
     lane.value = targetLane;
 
-    if (route.path === "/docs" || (currentPage.value?.lanes.length ?? 0) > 1) {
-      void router.replace({
-        hash: route.hash,
-        path: route.path,
-        query: { ...route.query, lane: targetLane },
-      });
+    const target = getDocsLaneSelectionTarget({
+      hash: route.hash,
+      lane: targetLane,
+      page: currentPage.value,
+      path: route.path,
+      query: route.query,
+    });
+
+    if (target) {
+      void router.replace(target);
     }
   }
 

@@ -1,5 +1,6 @@
 import { parseDocsLane, type DocsLane } from "../../docs-lanes";
 import { normalizeDocsPath, type DocsPage, type DocsSection } from "./docs";
+import type { LocationQueryRaw } from "vue-router";
 
 export const docsLaneOptions = [
   {
@@ -19,6 +20,14 @@ type DocsLaneResolution = {
   page: DocsPage | null;
   queryLane?: unknown;
   persistedLane?: unknown;
+};
+
+type DocsLaneSelectionInput = {
+  hash?: string;
+  lane: DocsLane;
+  page: DocsPage | null;
+  path: string;
+  query?: LocationQueryRaw;
 };
 
 function laneFromPath(path: string): DocsLane | null {
@@ -55,6 +64,24 @@ export function getDocsSectionsForLane(sections: DocsSection[], lane: DocsLane) 
       pages: section.pages.filter(page => page.lanes.includes(lane)),
     }))
     .filter(section => section.pages.length > 0);
+}
+
+export function getDocsLaneSelectionTarget({
+  hash,
+  lane,
+  page,
+  path,
+  query = {},
+}: DocsLaneSelectionInput) {
+  if (path !== "/docs" && (page?.lanes.length ?? 0) <= 1) {
+    return null;
+  }
+
+  return {
+    hash,
+    path,
+    query: { ...query, lane },
+  };
 }
 
 export function getDocsPageTarget(page: DocsPage, lane: DocsLane) {
