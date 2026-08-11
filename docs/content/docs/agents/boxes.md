@@ -8,7 +8,7 @@ icon: i-lucide-package-open
 
 A Box prepares the process environment for a harness Agent. It declares the working tree, private Home, environment, durable CLI state, and boot checks before the harness starts.
 
-Use a Box when the Agent needs more than an ephemeral harness workspace. A Box does not grant model-facing file access; [Workspace context](/docs/agents/workspace-context) and Capabilities own that boundary.
+Use a Box when the Agent needs more than an ephemeral harness workspace. A Box does not grant model-backed Drivers Workspace tools; [Workspace context](/docs/agents/workspace-context) and Capabilities own that boundary. A harness-backed Driver can inspect its Box `cwd` or checkout through native file and command tools, so treat that working tree as model-visible and rely on the selected Box runtime for its isolation boundary.
 
 ## Start on a trusted host
 
