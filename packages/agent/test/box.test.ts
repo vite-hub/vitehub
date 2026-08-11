@@ -215,6 +215,11 @@ describe("Agent Box", () => {
           scope: "global",
           source: custom({ files: [{ content: "Sibling review skill.\n", path: "SKILL.md" }] }),
         }),
+        skills({
+          path: "skills/.vitehub-colocated-v2",
+          scope: "global",
+          source: custom({ files: [{ content: "Formerly colliding skill.\n", path: "SKILL.md" }] }),
+        }),
       ]
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
@@ -279,7 +284,7 @@ describe("Agent Box", () => {
         },
       })
       harnessObservation.detach = true
-      harnessObservation.globalSkills = ["bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -317,7 +322,7 @@ describe("Agent Box", () => {
         source: custom({ files: [{ content: "Ancestor bundle skill.\n", path: "SKILL.md" }] }),
       }))
       Object.assign(agent, { capabilities: globalSkills })
-      harnessObservation.globalSkills = ["bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
       await chmod(join(persistentCodexHome, "skills"), 0o555)
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -355,7 +360,7 @@ describe("Agent Box", () => {
       Reflect.deleteProperty(agent, colocatedSkills)
       globalSkills.splice(2, 1)
       Object.assign(agent, { capabilities: globalSkills })
-      harnessObservation.globalSkills = ["bundles", "global", "legacy", "local", "ordered", "ordered/review", "siblings/review"]
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "legacy", "local", "ordered", "ordered/review", "siblings/review"]
       harnessObservation.absentGlobalSkills = ["global-trailing\n", "line\nbreak", "review", "trailing\n"]
       await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),

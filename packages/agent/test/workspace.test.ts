@@ -1137,7 +1137,7 @@ describe("defineAgent workspace option", () => {
       workingDirectory: "/workspace/codex-session",
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringMatching(/manifest=\.\/\.vitehub-colocated-v2;.*cp -R -- \.vitehub-agent-skills-[^/]+\/skills\/"\$managed" \./),
+      command: expect.stringMatching(/manifest=\.\.\/skills\.vitehub-colocated-v2;.*cp -R -- \.vitehub-agent-skills-[^/]+\/skills\/"\$managed" \./),
       workingDirectory: "tmp/harness/codex-home/skills",
     }))
     expect(workspaceClose).toHaveBeenCalledWith()
