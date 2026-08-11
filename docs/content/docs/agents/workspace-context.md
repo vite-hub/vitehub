@@ -48,6 +48,7 @@ export default defineAgent({
   },
   capabilities: [workspaceShell({ mode: 'read' })],
   workspace: {
+    sourceRootDir: process.cwd(),
     sources: {
       docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
     },
@@ -64,7 +65,8 @@ Use `defineWorkspace()` when several Agents share the same file tree or Source c
 ```ts [server/workspaces/product-docs.ts]
 import { defineWorkspace, glob } from '@vite-hub/workspace'
 
-export const productDocs = defineWorkspace({
+export default defineWorkspace({
+  sourceRootDir: process.cwd(),
   sources: {
     docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
   },
@@ -74,12 +76,11 @@ export const productDocs = defineWorkspace({
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { productDocs } from '../workspaces/product-docs'
 
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [workspaceShell({ mode: 'read' })],
-  workspace: productDocs,
+  workspace: 'product-docs',
 })
 ```
 
@@ -103,7 +104,7 @@ export default defineAgent({
     workspaceShell({ mode: 'read' }),
   ],
   driver: { model: 'openai/gpt-5.1-mini' },
-  workspace: productDocs,
+  workspace: 'product-docs',
 })
 ```
 

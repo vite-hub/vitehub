@@ -53,6 +53,7 @@ export default defineAgent({
   },
   capabilities: [workspaceShell({ mode: 'read' })],
   workspace: {
+    sourceRootDir: process.cwd(),
     sources: {
       docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
     },

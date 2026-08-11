@@ -103,6 +103,7 @@ Resolution happens before Capabilities and the Driver run.
 Actor metadata can select a Workspace Scope, but authorization must remain deterministic.
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { access } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
@@ -120,7 +121,7 @@ export default defineAgent({
     }),
   ],
   driver: { model: 'openai/gpt-5.1-mini' },
-  workspace,
+  workspace: 'product-docs',
 })
 ```
 

@@ -15,10 +15,20 @@ If this is your first Agent, follow [Build your first Agent](/docs/getting-start
 
 This support Agent uses a model, reads a scoped documentation Workspace, and answers from inspected files.
 
+```ts [server/workspaces/product-docs.ts]
+import { defineWorkspace, glob } from '@vite-hub/workspace'
+
+export default defineWorkspace({
+  sourceRootDir: process.cwd(),
+  sources: {
+    docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
+  },
+})
+```
+
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -29,11 +39,7 @@ export default defineAgent({
     ],
   },
   capabilities: [workspaceShell({ mode: 'read' })],
-  workspace: {
-    sources: {
-      docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
-    },
-  },
+  workspace: 'product-docs',
 })
 ```
 
@@ -67,11 +73,15 @@ function waitUntilFor(event: H3Event): AgentWaitUntil {
     cloudflare?: { context?: unknown }
     _platform?: { cloudflare?: { context?: unknown } }
   }
+  const node = event.node as {
+    req?: { runtime?: { cloudflare?: { context?: unknown } } }
+  }
 
   return waitUntilFrom(event)
     ?? waitUntilFrom(context)
     ?? waitUntilFrom(context.cloudflare?.context)
     ?? waitUntilFrom(context._platform?.cloudflare?.context)
+    ?? waitUntilFrom(node.req?.runtime?.cloudflare?.context)
     ?? (task => { void Promise.resolve(task).catch(error => console.error(error)) })
 }
 
