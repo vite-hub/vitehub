@@ -327,17 +327,21 @@ describe("Agent Box", () => {
       await mkdir(join(externalSkills, "managed"), { recursive: true })
       await writeFile(join(externalSkills, "untouched"), "external\n")
       await writeFile(join(externalSkills, "managed/owned"), "managed\n")
-      await writeFile(join(externalSkills, ".vitehub-colocated-v2"), `${Buffer.from("managed").toString("base64")}\n`)
       await rm(join(persistentCodexHome, "skills"), { recursive: true })
-      await symlink(externalSkills, join(persistentCodexHome, "skills"))
+      await mkdir(join(persistentCodexHome, "skills"))
+      await writeFile(
+        join(persistentCodexHome, "skills.vitehub-managed"),
+        `${Buffer.from("bundles/managed").toString("base64")}\n`,
+      )
+      await symlink(externalSkills, join(persistentCodexHome, "skills/bundles"))
       await expect(runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
         waitUntil: vi.fn(),
       }, {
         options: { worktreePath: removedSkillWorktree },
-        prompt: "Do not follow the replaced Skills root.",
-      })).rejects.toThrow("Persisted Skill directory cannot be a symlink")
+        prompt: "Do not follow managed Skill parents.",
+      })).rejects.toThrow("ViteHub-managed Skill path cannot traverse a symlink")
       await expect(readFile(join(externalSkills, "untouched"), "utf8")).resolves.toBe("external\n")
       await expect(readFile(join(externalSkills, "managed/owned"), "utf8")).resolves.toBe("managed\n")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })

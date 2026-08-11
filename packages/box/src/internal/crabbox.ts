@@ -109,6 +109,19 @@ export function createCrabboxRuntime(options: CrabboxOptions = {}): BoxRuntime {
         cache: { state: "disposable" },
         environment: { env: {} },
         executionAuthority: crabboxExecutionAuthority,
+        home: options.stateRoot
+          ? {
+              state: input.plan.state.map(state => ({
+                identity: createHash("sha256").update(JSON.stringify([
+                  options.profile ?? null,
+                  posix.normalize(options.stateRoot!),
+                  state.key,
+                  state.path,
+                ])).digest("hex"),
+                path: state.path,
+              })),
+            }
+          : undefined,
         identity: input.identity,
         requirements: boxRequirementPlan(input.requirements),
         runtime: "crabbox",

@@ -167,6 +167,15 @@ describe("createTrustedHostRuntime", () => {
     expect(box.open).toBeTypeOf("function");
     expect(JSON.stringify(box)).not.toContain("declared");
     expect(JSON.stringify(box)).not.toContain("sandbox");
+    const otherStateBox = await resolveBox(
+      {
+        home: { state: { ".codex": { key: "portable-box-test/codex" } } },
+        runtime: createTrustedHostRuntime({ stateRoot: join(root, "other-state") }),
+      },
+      {},
+    );
+    expect(otherStateBox.plan.home?.state[0]?.identity)
+      .not.toBe(box.plan.home?.state[0]?.identity);
 
     const session = (await withEnvironment(
       { PATH: bin },

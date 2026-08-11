@@ -417,7 +417,8 @@ export async function resolveBox<Context>(
     executionAuthority,
     home: Object.freeze({
       state: Object.freeze(plan.state.map(state => Object.freeze({
-        identity: createHash("sha256").update(JSON.stringify([state.key, state.path])).digest("hex"),
+        identity: prepared.home?.state.find(target => target.path === state.path)?.identity
+          ?? createHash("sha256").update(JSON.stringify([state.key, state.path])).digest("hex"),
         path: state.path,
       }))),
     }),
