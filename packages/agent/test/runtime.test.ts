@@ -9000,6 +9000,7 @@ describe("agent message protocol", () => {
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       prompt: "hello",
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    await new Promise(resolve => setTimeout(resolve, 0))
     const reader = stream.getReader()
 
     await expect(reader.read()).resolves.toEqual({

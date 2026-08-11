@@ -182,6 +182,7 @@ export function withReadableStreamCleanup<T>(
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
+  let pendingError: unknown
   let wrappedController: ReadableStreamDefaultController<T> | undefined
   const runCleanup = async (outcome: StreamCleanupOutcome = { completed: true, failed: false }) => {
     if (cleaned) return
@@ -212,6 +213,10 @@ export function withReadableStreamCleanup<T>(
       wrappedController = controller
     },
     async pull(controller) {
+      if (pendingError !== undefined) {
+        controller.error(pendingError)
+        return
+      }
       try {
         const result = await reader.read()
         if (result.done) {
@@ -228,7 +233,7 @@ export function withReadableStreamCleanup<T>(
             reader.cancel(error),
           ].filter((task): task is Promise<void> => task !== undefined))
           await runCleanup({ error, failed: true })
-          controller.error(error)
+          pendingError = error
         }
       }
       catch (error) {
