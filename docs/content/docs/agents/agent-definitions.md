@@ -1,179 +1,114 @@
 ---
 title: Agent Definitions
-description: Declare one Agent, its Agent Driver, Capabilities, Workspace, and trusted invocation boundaries.
+description: Declare how one Agent runs, what it can use, and how callers reach it.
 navigation.order: 21
+navigation.group: Core
 icon: i-lucide-file-user
 ---
 
-An Agent Definition is the code declaration that names one Agent and configures how it runs. It owns the Agent Driver, optional Box, attached Capabilities, Workspace context, Agent Actor configuration, Channels, and lifecycle hooks.
+An Agent Definition is the single configuration object for one Agent. It selects an [Agent Driver](/docs/agents/agent-drivers), attaches Capabilities and Workspace context, and defines any Channels, Actor resolution, hooks, or hosted runtime behavior.
 
-ViteHub discovers Agent Definitions from `server/agents`. The Agent File Name or folder name provides the discovered identity, so `server/agents/support.ts` and `server/agents/support/agent.ts` both create a `support` Agent.
+ViteHub discovers definitions in `server/agents`. Both `server/agents/support.ts` and `server/agents/support/agent.ts` create an Agent named `support`.
 
-Discovered Agent Definitions run as Workflows by default, and ViteHub selects the Workflow provider from the active host integration. Direct `runAgent()` calls using that discovery-default binding remain inline without a discovered host identity. Use `runtime: false` when a hosted Agent must also complete inline, or `runtime: workflow('name')` when direct and hosted calls should use that named Workflow identity.
+## Define an Agent
 
-## Define the Agent
+Start with the execution path. This Agent uses ViteHub's built-in Codex Driver:
 
-Start with a built-in Agent Driver value when ViteHub owns the integration. Use `"codex"` or `"claude-code"` for its defaults, and add a `kind` tag when that driver needs options.
-
-```ts [server/agents/support.ts]
+```ts [server/agents/review.ts]
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
+  description: 'Reviews the current repository change.',
   driver: 'codex',
 })
 ```
 
-Use a structural driver object when the application supplies a custom model, harness adapter, or run function. That object accepts exactly one concrete variant: `model`, `harness`, or `run`; execution options such as `instructions` and `output` stay beside the variant key.
+Use a tagged built-in value when the Driver needs options:
 
-## Agent Definition options
-
-`defineAgent()` requires `driver` and accepts the following top-level fields.
-
-| Option | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `driver` | `AgentDriver` | Required | Selects a built-in Driver value or exactly one custom model, harness, or run execution path. |
-| `box` | `BoxDefinition` | None | Gives a harness driver an explicit execution environment, Home, checkout, and requirements. A Box replaces `driver.sandbox` and `driver.workDir`. |
-| `capabilities` | `AgentCapabilitiesInput` | `[]` | Attaches a static Capability list or an invocation-time resolver. |
-| `channels` | `Record<string, AgentChannelInput>` | None | Declares named Channel factories or definitions for reachability and delivery. |
-| `cli.capabilities` | `boolean` | `true` | Enables or disables Capability-contributed Agent CLI commands for this Definition. |
-| `description` | `string` | None | Adds human-readable metadata for discovery and inspection. |
-| `hooks` | Agent, Capability, and observer hook map | None | Registers `agent:input`, `agent:finish`, `agent:error`, Capability lifecycle, or `hook:observe` callbacks. |
-| `invoker` | `AgentInvokerOptions` | None | Configures Agent Actor profiles and resolution through the current `invoker`-named API. |
-| `messages` | `AgentMessageChannelSettings` | Channel defaults | Applies shared commentary, delivery, concurrency, session, state, and transcript settings across adapter-backed Channels. |
-| `name` | `string` | Discovered identity | Supplies an explicit Definition name for direct metadata and Workspace naming. Discovered host identity still comes from the file or folder path. |
-| `runtime` | `false \| workflow(name?)` | Discovered Workflow | Disables hosted Workflow execution or selects an explicit Workflow binding. Direct calls without discovered Agent identity remain inline. |
-| `runEvents` | `AgentRunEvents` | None | Publishes and reads durable events scoped to the current Agent Invocation run. |
-| `version` | `string` | None | Adds a Definition version to generated and Agent inspection metadata. |
-| `workspace` | `WorkspaceAgentWorkspaceConfig` | None | References a named Workspace or declares an Agent-owned Workspace and access mode. |
-
-The resolved `AgentDefinition` also exposes runtime-owned `resolve()` and, when applicable, `run()`. Those are outputs of `defineAgent()`, not additional authoring fields.
-
-## Declare structured output
-
-Set `driver.output.schema` when server code needs a typed value instead of provider result plumbing. The schema uses [Standard Schema](https://standardschema.dev/), so the Agent Invocation decodes the selected Driver's final JSON, validates it once, and returns the inferred output value.
-
-```ts [server/agents/summary.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { object, string } from 'valibot'
-
-const summaryOutput = object({
-  summary: string(),
-  title: string(),
-})
-
+```ts [server/agents/review.ts]
 export default defineAgent({
   driver: {
     kind: 'codex',
-    output: { schema: summaryOutput },
+    model: 'gpt-5.5',
+    reasoningEffort: 'low',
   },
 })
 ```
 
-Harness Agent Drivers receive a JSON-only output instruction. When the validator also implements Standard JSON Schema, ViteHub includes that JSON Schema as model guidance; Standard Schema validation remains the runtime authority either way. Invalid JSON and schema failures throw `ViteHubError` with distinct `AGENT_OUTPUT_INVALID_JSON` and `AGENT_OUTPUT_SCHEMA_INVALID` codes. Messages are fixed; parser and schema diagnostics remain available through the non-serialized `cause`.
+For application-supplied execution, use exactly one structural Driver variant: `{ model }`, `{ harness }`, or `{ run }`.
 
-## Attach Capabilities
+## Add abilities and context
 
-Capabilities add named abilities. They are the public way to expose model-facing tools, triggers, policy, metadata, and context values. Put free-form guidance for those abilities in Agent Driver Instructions or deterministic imported instruction Markdown.
+Capabilities decide which runtime abilities the selected Driver receives. Workspace context decides which files and Sources those abilities can reach.
 
-```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { webSearch, workspaceShell } from '@vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: {
-    model: 'openai/gpt-5.1-mini',
-    instructions: [
-      'Answer from project context first.',
-      'Use web search only when the workspace does not contain the answer.',
-    ],
-  },
-  capabilities: [
-    workspaceShell({ mode: 'read' }),
-    webSearch({ mode: 'tool' }),
-  ],
-})
-```
-
-Tools are contributed by Capabilities. They are not top-level Agent Definition fields.
-
-When trusted invocation context decides which Agent Definition abilities apply, make `capabilities` a callback. ViteHub resolves the Agent Actor first and uses the returned list for that invocation; Capabilities contributed by the active Channel still compose normally.
-
-```ts [server/agents/support.ts]
-export default defineAgent({
-  driver: { model },
-  capabilities: ({ actor }) => [
-    customerRecords,
-    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
-  ],
-})
-```
-
-The callback also receives the invocation input and runtime handles. Capabilities that contribute Agent Triggers, chat admission, or static Workspace Sources must stay in a static array because ViteHub registers those contributions before an invocation starts.
-
-## Add Workspace context
-
-Workspace context gives the Agent a file tree and Sources. The Workspace owns file visibility, while Capabilities decide whether the active Agent Driver receives model-facing tools or other driver-compatible inputs.
-
-```ts [server/agents/docs/agent.ts]
+```ts [server/agents/support/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { glob } from '@vite-hub/workspace'
+import { file } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',
-    instructions: [
-      'Answer from the docs workspace.',
-      'Use the docs Source for public product behavior.',
-    ],
+    instructions: 'Answer from the docs Workspace. Say when the answer is absent.',
   },
+  capabilities: [workspaceShell({ mode: 'read' })],
   workspace: {
     sources: {
-      docs: glob({
-        cwd: '.',
-        include: ['README.md', 'docs/**/*.md'],
-      }),
+      docs: file({ path: './docs/content' }),
     },
   },
-  capabilities: [
-    workspaceShell({ mode: 'read' }),
-  ],
 })
 ```
 
-Use a writable Workspace Capability only when the product expects the Agent to change Workspace files. Start with read access when the Agent only needs context.
+Declaring a Workspace does not automatically grant file access. The Driver receives only the surfaces contributed by attached Capabilities or its harness environment.
 
-## Configure Agent Actors
+## Return structured output
 
-An Agent Actor carries trusted caller identity for one invocation. The current configuration field and helper are named `invoker` and `defineAgentInvoker()`. Resolved callbacks receive the same Actor as both `actor` and `invoker`.
+Set `output` when downstream code needs validated data instead of free-form text.
 
-```ts [server/agents/support.ts]
-import { defineAgent, defineAgentInvoker } from '@vite-hub/agent'
+```ts [server/agents/triage.ts]
+import * as v from 'valibot'
+import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',
-    instructions: 'Answer support requests.',
+    instructions: 'Classify the request and explain the next action.',
   },
-  invoker: defineAgentInvoker({
-    profiles: [
-      {
-        id: 'dev-support',
-        kind: 'developer',
-        label: 'Support developer',
-        meta: { scope: 'support' },
-      },
-    ],
-  }),
+  output: {
+    schema: v.object({
+      priority: v.picklist(['low', 'normal', 'urgent']),
+      nextAction: v.string(),
+    }),
+  },
 })
 ```
 
-Agent Actors are not Channels, Auth Users, or Access roles. Those systems can produce or consume an Actor, but they do not replace its trusted invocation identity.
+`runAgent()` returns the validated structured result. A schema failure fails the invocation instead of returning unchecked model output.
 
-## Next steps
+## Choose hosted execution
 
-- Read [Agent Drivers](/docs/agents/agent-drivers) for the driver variants.
-- Read [Boxes](/docs/agents/boxes) when a harness Agent needs an explicit execution environment.
-- Read [Workspace context](/docs/agents/workspace-context) before exposing files.
-- Read [Agent Actors](/docs/agents/actors) for trusted caller profiles and exact `invoker` API names.
-- Read [Capabilities](/docs/capabilities) for official and custom ability pages.
+Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
+
+Direct `runAgent()` calls without a discovered host identity remain inline.
+
+## Definition options
+
+| Option | Purpose |
+| --- | --- |
+| `driver` | Required. Selects one built-in, model-backed, harness-backed, or custom-run execution path. |
+| `capabilities` | Attaches a static list or invocation-time Capability resolver. |
+| `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
+| `instructions` | Lives on the selected Driver; see [Instructions](/docs/agents/instructions). |
+| `output` | Validates structured Agent output. |
+| `channels` | Declares named Agent Channels and generated routes. |
+| `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
+| `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
+| `box` | Prepares an explicit process environment for a harness Driver. |
+| `runtime` | Selects inline or Workflow-backed hosted execution. |
+| `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. |
+| `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
+| `name`, `description` | Adds explicit discovery and inspection metadata. |
+| `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |
+
+Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), [Boxes](/docs/agents/boxes), and [Invocations](/docs/agents/invocations).

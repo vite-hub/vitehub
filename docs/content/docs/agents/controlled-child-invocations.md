@@ -1,11 +1,14 @@
 ---
-title: Controlled child invocations
-description: Start, inspect, and cancel a child Agent Invocation without assuming durable runtime support.
-navigation.order: 23.5
+title: Child invocations
+description: Start, inspect, steer, and cancel child Agent work from trusted code.
+navigation.order: 51
+navigation.group: Advanced execution
 icon: i-lucide-workflow
 ---
 
-Use `startAgentInvocation()` when trusted parent or host code needs to control a child after starting it. The call returns after the selected runtime accepts the start and establishes the child Agent Invocation id.
+Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model should choose and await delegation itself.
+
+## Start and inspect a child
 
 ```ts
 import { startAgentInvocation } from '@vite-hub/agent'
@@ -21,13 +24,9 @@ if (current.outcome === 'available') {
 }
 ```
 
-Every start receives a fresh id. The id is stable for that logical invocation, but it does not promise that an inline or serverless runtime can resolve the child after the process ends. Workflow-backed children delegate inspection to their Workflow Run while the returned controller remains available; ViteHub does not add an invocation registry, persistence, or public lookup by id.
+Every start gets a fresh stable id. `inspect()` returns an available snapshot or an explicit unavailable outcome. Available lifecycle states are `pending`, `running`, `completed`, `failed`, and `cancelled`.
 
-## Inspect lifecycle
-
-`inspect()` returns either an available snapshot or an explicit unavailable outcome. Snapshots normalize the lifecycle to `pending`, `running`, `completed`, `failed`, or `cancelled`, and include terminal output or error only when the selected runtime owns it.
-
-An unavailable outcome is not another lifecycle state. It means the selected runtime cannot currently resolve the invocation.
+Inline and serverless runtimes may become unavailable after their process ends. Workflow-backed children delegate inspection to their Workflow Run while the returned controller remains available. ViteHub does not add a separate invocation registry or public lookup by id.
 
 ## Cancel active work
 
@@ -39,24 +38,21 @@ if (cancellation.outcome === 'accepted') {
 }
 ```
 
-Inline cancellation propagates through a child-owned `AbortSignal`. Workflow-backed cancellation delegates to the selected Workflow provider. `accepted` means the cancellation request was accepted; inspect again for the observed terminal state. Providers can return `unsupported`, and completed or failed invocations return `invalid-state` instead of pretending they were cancelled.
+`accepted` means the runtime accepted the request; inspect again for the observed terminal state. A provider may return `unsupported`, and terminal invocations return `invalid-state`.
 
-## Discover input support
+## Steer when supported
 
-Follow-up and active steering are separate operations. Follow-up continues explicit context in a later invocation, while steering changes active work. Check both before sending input, and still handle the operation result because support can depend on lifecycle state.
+Check the controller's current support before sending input, then handle the operation result because support can change with lifecycle state.
 
 ```ts
 if (child.support.steer) {
-  const result = await child.sendInput({ prompt: 'Focus on the migration risk.' }, {
-    mode: 'steer',
-  })
+  const result = await child.sendInput(
+    { prompt: 'Focus on migration risk.' },
+    { mode: 'steer' },
+  )
 }
 ```
 
-Inline Harness runtimes report steering support while an active prompt control can accept user input. Support returns to `false` when the turn or session ends; follow-up and Workflow-backed input remain `unsupported` until their runtime adapters provide equivalent ordering and lifecycle semantics.
+Inline harness runtimes can report steering while an active prompt controller is available. Follow-up and Workflow-backed input remain unsupported until their runtime adapters provide equivalent ordering and lifecycle semantics.
 
-## Subagents
-
-The `subagents()` Capability uses the same lower Agent Invocation start seam, but keeps its model-facing tool result serializable. Each tool call receives a fresh trusted child id and awaits the same compatibility result that `runAgent()` returned previously; the model cannot choose or reuse the child id.
-
-Use `subagents()` for bounded model-selected delegation. Use `startAgentInvocation()` when trusted code needs the controller.
+The `subagents()` Capability uses the same start seam but returns a serializable tool result and waits for the child. The model cannot choose or reuse the trusted child id.

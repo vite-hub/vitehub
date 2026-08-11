@@ -1,256 +1,144 @@
 ---
 title: Invocations
-description: Run, stream, and inspect one Agent Invocation.
-navigation.order: 23
+description: Run, stream, and observe one request to an Agent.
+navigation.order: 22
+navigation.group: Core
 icon: i-lucide-play-circle
 ---
 
-An Agent Invocation is one runtime request to an Agent. It receives input, resolves the Agent Actor, applies Capabilities, runs the selected Agent Driver, records lifecycle state, and returns or streams output.
-
-Invoke Agents from server code, Agent Triggers, schedules, the CLI Dev Loop, or framework-owned routes. The invocation input carries prompt or message content plus trusted context values.
-
-Read [Agent Invocations](/docs/concepts/agent-invocations) for the request boundary and its relationship to Agent Definitions, Channels, Chat Sessions, and Workflow Runs.
+An Agent Invocation is one request to an Agent. ViteHub prepares its input, Actor, Capabilities, Workspace, and Driver, then returns or streams the result.
 
 ## Run an Agent
 
-Use `runAgent` when the caller expects a final result. Pass [Runtime Context](/docs/concepts/runtime-context) separately from invocation input so host resources and task data keep distinct boundaries.
+Use `runAgent()` when the caller needs the final result.
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readBody<{ prompt: string }>(event)
   const user = await requireAuthenticatedUser(event)
 
-  return runAgent(support, {
-    memo: (_key, create) => create(),
-    runtime: 'unknown',
-    waitUntil: task => { void task.catch(() => {}) },
-  }, {
-    prompt: body.prompt,
+  return runAgent(support, { runtime: 'unknown' }, {
+    prompt,
     context: {
       invoker: {
         id: user.id,
         kind: 'customer',
         label: user.email,
-        meta: { customer: user.customer },
       },
     },
   })
 })
 ```
 
-The `context.invoker` input is the current API field for a trusted Agent Actor. Validate the request before passing identity or access facts into ViteHub; callbacks receive the normalized Actor as both `actor` and `invoker`.
+Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Actor](/docs/agents/actors).
+
+The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. Keeping them separate prevents host resources from becoming user-controlled task data.
 
 ## Stream an Agent
 
-Use `streamAgent` when a UI or channel should receive incremental output. The same Agent Driver and Capability boundaries apply.
+Use `streamAgent()` when a chat UI or internal consumer should receive incremental output.
 
 ```ts [server/api/support-stream.post.ts]
 import { streamAgent } from '@vite-hub/agent'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readBody<{ prompt: string }>(event)
 
-  return streamAgent(support, {
-    memo: (_key, create) => create(),
-    runtime: 'unknown',
-    waitUntil: task => { void task.catch(() => {}) },
-  }, {
-    prompt: body.prompt,
-  }, {
-    output: 'ui-message-stream',
-  })
+  return streamAgent(
+    support,
+    { runtime: 'unknown' },
+    { prompt },
+    { output: 'ui-message-stream' },
+  )
 })
 ```
 
-Use `output: 'events'` when an internal caller wants ViteHub stream events. Use `output: 'ui-message-stream'` when a chat UI expects UI message stream chunks.
+Use `output: 'ui-message-stream'` for an AI SDK-compatible chat response. Use `output: 'events'` when server code needs ViteHub stream events.
 
-## Inspect invocation data
+The stream becomes terminal when the caller consumes it, cancels it, or receives an error. A caller that abandons the stream also abandons completion observation.
 
-Every Agent Invocation receives a trace context and a metadata-only in-memory Trace Event Log. Agent runtime callbacks can inspect `runtime.trace` and `runtime.traceLog`. A host can supply its own trace context or Trace Event Log when it needs request-trace continuity, a shared log, a different content policy, or an `onEntry` sink. ViteHub preserves the supplied objects; it does not persist the default log.
+## Invoke a Trigger
 
-That preservation applies to inline Agent Invocations. A workflow-backed invocation crosses a durable serialization boundary, so process-local Trace Event Logs and `onEntry` sinks are not carried into the Workflow Run. The workflow execution creates its own invocation trace instead.
-
-Agent Finish Hooks receive core completion facts by default:
-
-```ts [server/agents/support.ts]
-export default defineAgent({
-  driver: { model },
-  hooks: {
-    'agent:finish'(event) {
-      const { durationMs, resultKind, usage } = event.invocation
-      event.runtime.waitUntil(recordInvocation({ durationMs, resultKind, usage }))
-    },
-  },
-})
-```
-
-The finish hook runs before the invocation's terminal Trace Event. Agent tests and eval observations expose the finalized `TraceRunView` as `result.trace` or `observation.trace` after completion. Stream and Response traces become terminal when the caller consumes, cancels, or encounters an error from the output.
-
-## Publish application run events
-
-Use Agent Run Events when server code needs to expose application-owned progress across Capability input, Agent Driver, and finish phases. Define the store beside the Agent so Workflow execution imports the resolver instead of serializing it in the Workflow payload.
-
-```ts [server/agents/summary/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { defineAgentRunEvents } from '@vite-hub/agent/server'
-import { summaryRunEventStore } from '../../run-event-store'
-
-export const summaryRunEvents = defineAgentRunEvents({
-  store: context => summaryRunEventStore(context),
-})
-
-export default defineAgent({
-  runEvents: summaryRunEvents,
-  capabilities: [{
-    id: 'transcribe',
-    async input(context) {
-      await context.runEvents?.publish({
-        type: 'stage',
-        data: { stage: 'transcribe' },
-      })
-    },
-  }],
-  driver: {
-    async run(context) {
-      await context.runEvents?.publish({
-        type: 'stage',
-        data: { stage: 'summarize' },
-      })
-      return summarize(context)
-    },
-  },
-})
-```
-
-The publisher exists only when the invocation has a stable `runId`; ViteHub does not invent a second identity for inline calls. Workflow-backed Agents use the Workflow Run id, while Capability input, the Agent Driver, and finish hooks remain phases inside that one run rather than separate Workflow steps.
-
-Server routes can call `summaryRunEvents.read(runId, cursor)` for replay or `summaryRunEvents.subscribe(runId, cursor, { signal })` for replay followed by live events. The configured store owns cursor assignment, ordering, timestamps, persistence, and the replay-to-live handoff, and it must stop subscriptions when the abort signal fires. ViteHub supplies no default persistence or authorization; authenticate the server route and scope every store operation to the application's run owner.
-
-## Invoke a trigger
-
-Use `runAgentTrigger` or `streamAgentTrigger` when a Capability owns the product event shape. The trigger prepares Agent Invocation input, metadata, and run state before the Agent Driver starts.
+Use `runAgentTrigger()` or `streamAgentTrigger()` when a Capability owns the event shape. This example invokes the Chat Capability's `chat.message` trigger:
 
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from '@vite-hub/agent'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ text: string }>(event)
+  const { text } = await readBody<{ text: string }>(event)
   const runId = crypto.randomUUID()
 
-  return streamAgentTrigger(support, {
-    memo: (_key, create) => create(),
-    runtime: 'unknown',
-    waitUntil: task => { void task.catch(() => {}) },
-  }, 'chat.message', {
-    messages: [{
-      id: runId,
-      parts: [{ text: body.text, type: 'text' }],
-      role: 'user',
-    }],
-    run: {
-      channelId: 'support-web',
-      messageId: runId,
-      origin: 'portal',
-      runId,
+  return streamAgentTrigger(
+    support,
+    { runtime: 'unknown' },
+    'chat.message',
+    {
+      messages: [{
+        id: runId,
+        role: 'user',
+        parts: [{ type: 'text', text }],
+      }],
+      run: {
+        channelId: 'support-web',
+        messageId: runId,
+        origin: 'portal',
+        runId,
+      },
     },
-  }, {
-    output: 'ui-message-stream',
-  })
+    { output: 'ui-message-stream' },
+  )
 })
 ```
 
-Agent Trigger Consumers call the trigger surface. They do not own the Capability behavior that registered the trigger. The `run` field remains Agent Run metadata for the invocation rather than Chat context.
+The consumer supplies the product event. The Capability prepares the Agent input and policy before the Driver starts. Read [Triggers](/docs/agents/triggers) for when to use this path instead of direct invocation.
 
-## Input lifecycle
+## Validate input
 
-Use an Agent Input Hook when an Agent needs to validate trusted invocation context before its Agent Driver runs. Input hooks run once per Agent Invocation after Capabilities prepare input.
+Use an `agent:input` hook for trusted invocation requirements that must be present before the Driver runs.
 
 ```ts [server/agents/review.ts]
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
-  driver: {
-    run: () => 'ok',
-  },
+  driver: { run: () => 'ok' },
   hooks: {
-    'agent:input'(context) {
-      if (!context.input.context?.pullRequest) {
-        throw new Error('Missing GitHub field: context.pullRequest')
+    'agent:input'({ input }) {
+      if (!input.context?.pullRequest) {
+        throw new Error('Missing context.pullRequest')
       }
     },
   },
 })
 ```
 
-## Outcome hooks
+Validate untrusted request data at the route boundary. The hook protects the Agent contract when multiple trusted callers invoke the same Definition.
 
-Use an Agent Finish Hook to observe a successful invocation. Finish hooks are appropriate for usage export, trace collection, or product-side notifications; use an Agent Error Hook for failed invocations and Capability cleanup for work that must run after either outcome. Read normalized usage directly from `event.invocation.usage`.
+## Observe the outcome
+
+Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-
 export default defineAgent({
-  driver: {
-    model: 'openai/gpt-5.1-mini',
-    instructions: 'Answer support requests.',
-  },
+  driver: { model: 'openai/gpt-5.1-mini' },
   hooks: {
     'agent:finish'(event) {
-      const usage = event.invocation.usage
-      if (!usage) return
-      event.runtime.waitUntil(recordUsage(usage))
+      const { durationMs, resultKind, usage } = event.invocation
+      event.runtime.waitUntil(recordInvocation({ durationMs, resultKind, usage }))
     },
-  },
-})
-```
-
-Finish hooks can also return channel delivery effects. Use `event.reply()`, `event.reaction()`, or `event.status()` and return one effect or an array; ViteHub delivers them after Capability finish effects.
-
-```ts [server/agents/support.ts]
-export default defineAgent({
-  driver: { run: () => 'Done' },
-  hooks: {
-    'agent:finish'(event) {
-      return event.reply('Usage recorded.')
-    },
-  },
-})
-```
-
-`event.reply()` also accepts `AsyncIterable<string>`. Chat-backed Channels stream it through the adapter when available and use Chat SDK's post-and-edit fallback otherwise.
-
-Finish hooks should not quietly grant new abilities. Capabilities and Agent Drivers remain the authority boundaries.
-
-### Handle failures
-
-When Agent execution fails, its Agent Error Hook receives the original thrown value on `event.error` and a normalized message on `event.errorMessage`. Agent Finish Hooks run only after successful execution, so application hooks do not need to branch on `event.error`.
-
-Use `event.errorMessage` for status updates, logs, and delivery effects. Use `event.error` only when you need to inspect the original thrown value.
-
-```ts [server/agents/support.ts]
-export default defineAgent({
-  driver: {
-    run: () => {
-      throw new Error('Support sync failed')
-    },
-  },
-  hooks: {
     'agent:error'(event) {
-      event.runtime.waitUntil(reportFailure(event.errorMessage))
+      event.runtime.waitUntil(recordFailure(event.error))
     },
   },
 })
 ```
 
-These are top-level Agent Definition hooks. Command-scoped `inputCommands(...).hooks['agent:finish']` remains outcome-agnostic, and cleanup or outcome-hook failures are propagated without dispatching the opposite hook.
+Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary. Supply your own trace sink when the application needs durable observability.
 
-## Next steps
+## Control child work
 
-- Read [Triggers](/docs/agents/triggers) for Channel and Capability trigger paths.
-- Read [Agent Actors](/docs/agents/actors) for trusted caller identity and exact `invoker` API names.
-- Read [CLI inspection](/docs/development/cli) to inspect Agent Invocation state.
+Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model should delegate work itself.

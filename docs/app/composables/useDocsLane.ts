@@ -2,7 +2,6 @@ import type { DocsLane } from "~~/modules/vitehub-docs/docs-lanes";
 import { getDocsPageByPath, type DocsPage } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
   docsLaneOptions,
-  getDocsLaneTarget,
   getDocsPageTarget,
   resolveDocsLane,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
@@ -16,29 +15,25 @@ export function useDocsLane() {
     sameSite: "lax",
   });
   const currentPage = computed(() => getDocsPageByPath(route.path));
-  const lane = computed(() => resolveDocsLane({
+  const resolveLane = () => resolveDocsLane({
     path: route.path,
     page: currentPage.value,
     queryLane: route.query.lane,
     persistedLane: persistedLane.value,
-  }));
+  });
+  const lane = useState<DocsLane>(docsLaneCookie, resolveLane);
 
   if (import.meta.client) {
+    watch(() => route.fullPath, () => {
+      lane.value = resolveLane();
+    });
     watch(lane, (nextLane) => {
       persistedLane.value = nextLane;
     }, { immediate: true });
   }
 
-  function laneTarget(targetLane: DocsLane) {
-    return {
-      ...getDocsLaneTarget({
-        lane: targetLane,
-        path: route.path,
-        page: currentPage.value,
-        query: route.query,
-      }),
-      hash: currentPage.value?.lanes.includes(targetLane) ? route.hash : undefined,
-    };
+  function selectLane(targetLane: DocsLane) {
+    lane.value = targetLane;
   }
 
   function pageTarget(page: DocsPage) {
@@ -48,7 +43,7 @@ export function useDocsLane() {
   return {
     lane,
     laneOptions: docsLaneOptions,
-    laneTarget,
     pageTarget,
+    selectLane,
   };
 }

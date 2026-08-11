@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { lane, laneOptions, laneTarget } = useDocsLane();
+const { lane, laneOptions, selectLane } = useDocsLane();
 </script>
 
 <template>
@@ -14,28 +14,35 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
     />
 
     <nav class="vh-docs-lane-switcher" aria-label="Documentation product">
-      <NuxtLink
+      <button
         v-for="(option, index) in laneOptions"
         :key="option.id"
-        :to="laneTarget(option.id)"
-        :class="['vh-docs-lane-option', {
+        type="button"
+        :class="['vh-docs-lane-option w-max lg:w-auto', {
           'is-active': lane === option.id,
           'is-before-active': lane === laneOptions[index + 1]?.id,
           'is-after-active': lane === laneOptions[index - 1]?.id,
         }]"
-        :aria-current="lane === option.id ? 'page' : undefined"
+        :aria-pressed="lane === option.id"
+        @click="selectLane(option.id)"
       >
         <UIcon :name="option.icon" class="size-4 shrink-0" />
         <span>{{ option.label }}</span>
-      </NuxtLink>
+      </button>
     </nav>
   </div>
 </template>
 
 <style scoped>
 .vh-docs-lane-switcher {
-  display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
+  display: flex;
+}
+
+.vh-docs-lane-switcher::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid var(--ui-border-accented);
+  background: var(--ui-bg-muted);
 }
 
 .vh-docs-lane-option {
@@ -43,9 +50,9 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   min-width: 0;
   min-height: 2.5rem;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.375rem;
-  padding: 0.5rem;
+  padding: 0.5rem 1.25rem;
   border: 0;
   border-radius: 0;
   background: var(--ui-bg-muted);
@@ -89,6 +96,10 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
   opacity: 1;
 }
 
+.vh-docs-lane-option:last-child {
+  border-right: 1px solid var(--ui-border-accented);
+}
+
 .vh-docs-lane-option:active {
   transform: scale(0.98);
 }
@@ -96,5 +107,25 @@ const { lane, laneOptions, laneTarget } = useDocsLane();
 .vh-sidebar-search {
   height: 2.5rem;
   font-size: 0.875rem;
+}
+
+@media (min-width: 64rem) {
+  .vh-docs-lane-switcher {
+    display: grid;
+    grid-template-columns: 0.8fr 1.2fr;
+  }
+
+  .vh-docs-lane-switcher::after {
+    display: none;
+  }
+
+  .vh-docs-lane-option {
+    justify-content: center;
+    padding: 0.5rem;
+  }
+
+  .vh-docs-lane-option:last-child {
+    border-right: 0;
+  }
 }
 </style>
