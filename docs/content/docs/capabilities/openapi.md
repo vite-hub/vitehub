@@ -15,7 +15,7 @@ Channel, customer, or tenant admission belongs in `access()`, Agent Trigger rout
 
 ## Installation
 
-Import the Capability factory from `@vite-hub/agent/capabilities`. Add it to `defineAgent({ capabilities })` when every invocation needs it, or to one [Channel's capabilities](/docs/agents/channels#scope-capabilities-to-a-channel) when only that Channel should receive it.
+Import the Capability factory from `@vite-hub/agent/capabilities`. Add it to `defineAgent({ capabilities })` when every invocation needs it, or to one [Channel's capabilities](/docs/agents/channels#scope-abilities-to-one-channel) when only that Channel should receive it.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
