@@ -1103,7 +1103,18 @@ async function prepareHarnessColocatedSkills(
   workingDirectory = destination,
   stagingDirectoryName = ".vitehub-agent-skills",
 ): Promise<boolean> {
-  if (!workspace) return false
+  if (!workspace) {
+    if (!refresh) return false
+    const result = await (session as HarnessGlobalSkillsSandbox).run({
+      abortSignal,
+      command: `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; rm -rf -- ${target}/"$managed"; done < "$manifest"; fi && : > "$manifest"`,
+      workingDirectory,
+    })
+    if (result.exitCode !== 0) {
+      throw new Error(`[vitehub] Failed to refresh colocated Agent Skills: ${result.stderr || "sandbox command failed"}`)
+    }
+    return false
+  }
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
   const stagingDirectory = `${destination.replace(/\/+$/, "")}/${stagingDirectoryName}`
   let prepared: Awaited<ReturnType<typeof prepareHarnessWorkspaceSession>> | undefined

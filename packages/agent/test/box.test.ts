@@ -9,6 +9,7 @@ import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
 const harnessObservation = vi.hoisted(() => ({
+  absentGlobalSkills: [] as string[],
   before: undefined as string | undefined,
   command: false,
   expectPreviousCodexState: false,
@@ -66,7 +67,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         return { text: live }
       }
       const result = await session.host.run({
-        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; ${harnessObservation.globalSkills.map(skill => `test -f "$codex_home/skills/${skill}/SKILL.md"; `).join("")}${harnessObservation.expectPreviousCodexState && harnessObservation.generateCount > 1 ? `test -f "$codex_home/session-state-${harnessObservation.generateCount - 1}"; ` : ""}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
+        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; ${harnessObservation.globalSkills.map(skill => `test -f "$codex_home/skills/${skill}/SKILL.md"; `).join("")}${harnessObservation.absentGlobalSkills.map(skill => `test ! -e "$codex_home/skills/${skill}"; `).join("")}${harnessObservation.expectPreviousCodexState && harnessObservation.generateCount > 1 ? `test -f "$codex_home/session-state-${harnessObservation.generateCount - 1}"; ` : ""}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -79,6 +80,7 @@ const roots: string[] = []
 const exec = promisify(execFile)
 
 afterEach(async () => {
+  harnessObservation.absentGlobalSkills = []
   harnessSettings.length = 0
   harnessObservation.command = false
   harnessObservation.before = undefined
@@ -161,6 +163,14 @@ describe("Agent Box", () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { createCodexDriver } = await import("../src/harness/codex.ts")
       const { skills } = await import("../src/capabilities.ts")
+      const colocatedSkills = {
+        review: {
+          content: new TextEncoder().encode("# Review\n"),
+          materialize: "build" as const,
+          mount: "",
+          workspacePath: "skills/review/SKILL.md",
+        },
+      }
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
@@ -190,14 +200,7 @@ describe("Agent Box", () => {
         ],
         driver: { ...createCodexDriver(), sessionKey: "thread-1" },
       }), {
-        [Symbol.for("vitehub.agent.colocatedSkills")]: {
-          review: {
-            content: new TextEncoder().encode("# Review\n"),
-            materialize: "build",
-            mount: "",
-            workspacePath: "skills/review/SKILL.md",
-          },
-        },
+        [Symbol.for("vitehub.agent.colocatedSkills")]: colocatedSkills,
       })
       harnessObservation.globalSkills = ["global", "review"]
       harnessObservation.expectPreviousCodexState = true
@@ -217,6 +220,9 @@ describe("Agent Box", () => {
       expect(codexHome).toBe(join(reportedHome, ".codex"))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
+      delete (colocatedSkills as Partial<typeof colocatedSkills>).review
+      harnessObservation.globalSkills = ["global"]
+      harnessObservation.absentGlobalSkills = ["review"]
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
