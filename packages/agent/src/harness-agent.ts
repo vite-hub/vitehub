@@ -1131,9 +1131,12 @@ async function prepareHarnessColocatedSkills(
     const refreshCommand = cleanupCommand
       ? `${cleanupCommand} && : > "$manifest" && for source in ${stagingDirectoryName}/skills/* ${stagingDirectoryName}/skills/.[!.]* ${stagingDirectoryName}/skills/..?*; do [ -e "$source" ] || continue; managed=\${source##*/}; [ -e ${target}/"$managed" ] || printf '%s\\n' "$managed" >> "$manifest"; done && `
       : ""
+    const installCommand = cleanupCommand
+      ? `while IFS= read -r managed || [ -n "$managed" ]; do cp -R -- ${stagingDirectoryName}/skills/"$managed" ${target} || exit $?; done < "$manifest"`
+      : `cp -Rn ${stagingDirectoryName}/skills/. ${target}`
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
-      command: `find ${stagingDirectoryName}/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}cp -Rn ${stagingDirectoryName}/skills/. ${target} && rm -rf ${stagingDirectoryName}`,
+      command: `find ${stagingDirectoryName}/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}${installCommand} && rm -rf ${stagingDirectoryName}`,
       workingDirectory,
     })
     if (result.exitCode !== 0) throw new Error(result.stderr || "sandbox command failed")
