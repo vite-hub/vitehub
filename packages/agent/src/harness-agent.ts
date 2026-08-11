@@ -117,6 +117,7 @@ const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessInvocationSandboxAdapter = Symbol.for("vitehub.harnessInvocationSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
+const harnessDisposableProfile = Symbol.for("vitehub.harnessDisposableProfile")
 
 function isHarnessRelativeDirectory(value: unknown): value is string {
   return typeof value === "string"
@@ -971,7 +972,7 @@ async function createHarnessAgent<
     globalSkillsWorkspace: Awaited<ReturnType<typeof resolveHarnessGlobalSkills>>,
     sessionPrepare: unknown,
   ) => Promise<void>,
-): Promise<{ agent: HarnessAgentLike, instructions?: string, workDir?: string }> {
+): Promise<{ agent: HarnessAgentLike, disableResume: boolean, instructions?: string, workDir?: string }> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
@@ -1038,7 +1039,12 @@ async function createHarnessAgent<
     sandbox,
     ...(tools ? { tools } : {}),
   })
-  return { agent, instructions, workDir }
+  return {
+    agent,
+    disableResume: invocation.isolateBoxHome && (harness as Record<PropertyKey, unknown>)[harnessDisposableProfile] === true,
+    instructions,
+    workDir,
+  }
 }
 
 async function resolveHarnessGlobalSkills(
@@ -1438,6 +1444,7 @@ export function createHarnessAgentAdapter<
     context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
     getWorkspaceSession: () => { close: (error?: unknown) => MaybePromise<void> } | undefined,
     agentIdentity: Omit<HarnessSessionIdentity, "box">,
+    disableResume: boolean,
   ) {
     const identity: HarnessSessionIdentity = {
       ...agentIdentity,
@@ -1451,7 +1458,10 @@ export function createHarnessAgentAdapter<
           }
         : {}),
     }
-    const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
+    // Invocation-owned Codex Homes are disposable, including the local files
+    // that Codex needs to resume a thread. Keep these invocations honest by
+    // starting a fresh provider session instead of advertising broken resume.
+    const sessionId = disableResume ? undefined : await resolveHarnessSessionKey(options.sessionKey, context)
     const resumeKey = sessionId ? JSON.stringify([sessionId, identity.instructions, identity.workDir, identity.box]) : undefined
     const providerSessionId = sessionId && resumeKey
       ? await resolveHarnessProviderSessionId(sessionId, resumeKey, identity)
@@ -1639,7 +1649,7 @@ export function createHarnessAgentAdapter<
     }
     let created: Awaited<ReturnType<typeof createSession>>
     try {
-      created = await createSession(resolved.agent, context, () => preparationSession, resolved)
+      created = await createSession(resolved.agent, context, () => preparationSession, resolved, resolved.disableResume)
     }
     catch (error) {
       await preparationSession.close(error)

@@ -15,9 +15,9 @@ const harnessObservation = vi.hoisted(() => ({
   firstGenerateBlock: undefined as Promise<void> | undefined,
   firstGenerateStarted: undefined as (() => void) | undefined,
   generateCount: 0,
-  globalSkill: "global",
+  globalSkills: ["global"] as string[],
   live: undefined as string | undefined,
-  requiredCodexStates: [] as string[],
+  sessionOptions: [] as Array<Record<string, unknown> | undefined>,
 }))
 
 vi.mock("@ai-sdk/harness/agent", () => ({
@@ -29,7 +29,8 @@ vi.mock("@ai-sdk/harness/agent", () => ({
       harnessSettings.push(settings)
     }
 
-    async createSession() {
+    async createSession(options?: Record<string, unknown>) {
+      harnessObservation.sessionOptions.push(options)
       const session = await this.settings.sandbox.createSession()
       const sessionWorkDir = this.settings.sandboxConfig.workDir
         ? join(session.defaultWorkingDirectory, this.settings.sandboxConfig.workDir)
@@ -64,7 +65,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         return { text: live }
       }
       const result = await session.host.run({
-        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/${harnessObservation.globalSkill}/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; ${harnessObservation.requiredCodexStates.map(state => `test -f "$codex_home/${state}"; `).join("")}printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
+        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; ${harnessObservation.globalSkills.map(skill => `test -f "$codex_home/skills/${skill}/SKILL.md"; `).join("")}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -84,9 +85,9 @@ afterEach(async () => {
   harnessObservation.firstGenerateBlock = undefined
   harnessObservation.firstGenerateStarted = undefined
   harnessObservation.generateCount = 0
-  harnessObservation.globalSkill = "global"
+  harnessObservation.globalSkills = ["global"]
   harnessObservation.live = undefined
-  harnessObservation.requiredCodexStates = []
+  harnessObservation.sessionOptions = []
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -153,6 +154,7 @@ describe("Agent Box", () => {
     try {
       const { custom } = await import("@vite-hub/workspace")
       const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { createCodexDriver } = await import("../src/harness/codex.ts")
       const { skills } = await import("../src/capabilities.ts")
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
@@ -181,7 +183,7 @@ describe("Agent Box", () => {
             source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
           }),
         ],
-        driver: "codex",
+        driver: { ...createCodexDriver(), sessionKey: "thread-1" },
       }), {
         [Symbol.for("vitehub.agent.colocatedSkills")]: {
           review: {
@@ -192,7 +194,7 @@ describe("Agent Box", () => {
           },
         },
       })
-      harnessObservation.globalSkill = "review"
+      harnessObservation.globalSkills = ["global", "review"]
 
       const result = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -210,24 +212,7 @@ describe("Agent Box", () => {
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
       await expect(stat(codexHome)).rejects.toMatchObject({ code: "ENOENT" })
-      harnessObservation.requiredCodexStates = ["session-state-1"]
-      await expect(Promise.all([1, 2].map(() => runAgent(agent, {
-        memo: vi.fn((_key, create) => create()),
-        runtime: "vite",
-        waitUntil: vi.fn(),
-      }, {
-        options: { worktreePath: worktree },
-        prompt: "Continue repairing the project concurrently.",
-      })))).resolves.toHaveLength(2)
-      harnessObservation.requiredCodexStates = ["session-state-2", "session-state-3"]
-      await expect(runAgent(agent, {
-        memo: vi.fn((_key, create) => create()),
-        runtime: "vite",
-        waitUntil: vi.fn(),
-      }, {
-        options: { worktreePath: worktree },
-        prompt: "Continue repairing the project.",
-      })).resolves.toMatchObject({ text: expect.any(String) })
+      expect(harnessObservation.sessionOptions).toEqual([undefined])
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
