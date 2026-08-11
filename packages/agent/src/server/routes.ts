@@ -2899,8 +2899,10 @@ async function flushChatFinishExtensionMessages(
         abortSignal?.throwIfAborted()
       }
       const placeholder = manualDelivery.placeholder
+      const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder)
+      manualDelivery.placeholderCleanup = placeholderCleanup
       try {
-        await deleteManualDeliveryPlaceholder(placeholder)
+        await placeholderCleanup
       }
       catch (cause) {
         abortSignal?.throwIfAborted()
@@ -2909,6 +2911,11 @@ async function flushChatFinishExtensionMessages(
           continue
         }
         throw cause
+      }
+      finally {
+        if (manualDelivery.placeholderCleanup === placeholderCleanup) {
+          manualDelivery.placeholderCleanup = undefined
+        }
       }
       manualDelivery.placeholder = undefined
       abortSignal?.throwIfAborted()
