@@ -256,6 +256,25 @@ describe("gmail capability", () => {
     expect(calls.some(args => args.includes("--gmail-scope"))).toBe(false)
   })
 
+  it("accepts compose-only credentials for draft creation", async () => {
+    const calls: string[][] = []
+    const runtime = await capabilityTools(gmail({ mode: "draft" }), (args) => {
+      calls.push(args)
+      if (args[0] === "auth" && args[1] === "list") {
+        return result('{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.compose"],"valid":true}]}')
+      }
+      if (args[0] === "gmail" && args[1] === "drafts") return result('{"draft":{"id":"draft-1"}}')
+      throw new Error(`Unexpected gog args: ${args.join(" ")}`)
+    })
+
+    await expect(runtime.tools.gmail_draft!.execute?.({
+      body: "Body",
+      subject: "Compose only",
+      to: ["person@example.com"],
+    })).resolves.toMatchObject({ status: "ok" })
+    expect(calls.some(args => args.includes("--step"))).toBe(false)
+  })
+
   it("closes the Box-backed Workspace Session when a Gmail command fails", async () => {
     const runtime = await capabilityTools(gmail(), (args) => args[0] === "auth"
       ? result('{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}')

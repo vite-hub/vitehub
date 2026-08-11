@@ -192,8 +192,8 @@ function gmailConnectedAccount(accounts: GmailAccount[], account: string, mode: 
     && Array.isArray(candidate.services)
     && candidate.services.includes("gmail")
     && Array.isArray(candidate.scopes)
-    && candidate.scopes.some(scope => typeof scope === "string" && gmailReadScopes.has(scope))
-    && (mode === "read" || candidate.scopes.some(scope => typeof scope === "string" && gmailDraftScopes.has(scope))))
+    && candidate.scopes.some(scope => typeof scope === "string"
+      && (mode === "read" ? gmailReadScopes : gmailDraftScopes).has(scope)))
 }
 
 function gmailAuthScopeArgs(mode: GmailCapabilityMode): string[] {
