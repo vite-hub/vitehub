@@ -240,6 +240,7 @@ describe("Agent Box", () => {
                   "skills/.vitehub-colocated": { contents: "legacy\nlocal\n" },
                   "skills/legacy/SKILL.md": { contents: "Legacy managed skill.\n" },
                   "skills/local/SKILL.md": { contents: "Local skill.\n" },
+                  "skills.vitehub-colocated-v2": { contents: "foreign state\n" },
                 },
               },
             },
@@ -340,6 +341,8 @@ describe("Agent Box", () => {
         .resolves.toBe("Ancestor bundle skill.\n")
       await expect(readFile(join(persistentCodexHome, "skills/siblings/custom"), "utf8"))
         .resolves.toBe("Unmanaged sibling.\n")
+      await expect(readFile(join(persistentCodexHome, "skills.vitehub-colocated-v2"), "utf8"))
+        .resolves.toBe("foreign state\n")
       expect((await stat(join(persistentCodexHome, "skills"))).mode & 0o200).toBe(0o200)
       expect(harnessObservation.sessionOptions).toHaveLength(2)
       expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")

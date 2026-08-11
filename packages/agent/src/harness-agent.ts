@@ -1109,10 +1109,10 @@ async function prepareHarnessColocatedSkills(
 ): Promise<boolean> {
   // The legacy manifest recorded collisions it did not create, so its entries
   // cannot safely be treated as owned during migration.
-  const colocatedLegacyManifest = target === "." ? "../skills.vitehub-colocated" : `${target}.vitehub-colocated`
   const colocatedManifest = target === "." ? "../skills.vitehub-colocated-v2" : `${target}.vitehub-colocated-v2`
+  const colocatedManifestMarker = "vitehub-colocated-skills-v2"
   const cleanupCommand = refresh
-    ? `if [ -L ${target} ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi; oldLegacy=${target}/.vitehub-colocated; oldManifest=${target}/.vitehub-colocated-v2; legacy=${colocatedLegacyManifest}; manifest=${colocatedManifest}; if [ -f "$oldLegacy" ]; then rm -f -- "$oldLegacy" || exit $?; fi; rm -f -- "$legacy" || exit $?; if [ -f "$oldManifest" ]; then if [ -f "$manifest" ]; then cat "$oldManifest" >> "$manifest" || exit $?; rm -f -- "$oldManifest" || exit $?; else mv -- "$oldManifest" "$manifest" || exit $?; fi; fi; if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest" || exit $?`
+    ? `if [ -L ${target} ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi; oldLegacy=${target}/.vitehub-colocated; oldManifest=${target}/.vitehub-colocated-v2; manifestBase=${colocatedManifest}; manifest="$manifestBase"; manifestIndex=0; while [ -e "$manifest" ]; do if [ -f "$manifest" ] && [ "$(sed -n '1p' "$manifest")" = '${colocatedManifestMarker}' ]; then break; fi; manifestIndex=$((manifestIndex + 1)); manifest="$manifestBase.$manifestIndex"; done; if [ -f "$oldLegacy" ]; then rm -f -- "$oldLegacy" || exit $?; fi; if [ -f "$oldManifest" ]; then printf '%s\\n' '${colocatedManifestMarker}' > "$manifest" || exit $?; cat "$oldManifest" >> "$manifest" || exit $?; rm -f -- "$oldManifest" || exit $?; fi; if [ -f "$manifest" ]; then tail -n +2 "$manifest" | while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done || exit $?; fi && rm -f -- "$manifest" || exit $?`
     : undefined
   if (!workspace) {
     if (!cleanupCommand) return false
@@ -1137,10 +1137,10 @@ async function prepareHarnessColocatedSkills(
       sessionWorkDir: stagingDirectory,
     })
     const refreshCommand = cleanupCommand
-      ? `${cleanupCommand} && : > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec sh -c 'for source do managed=\${source##*/}; if [ ! -e ${target}/"$managed" ] && [ ! -L ${target}/"$managed" ]; then encoded=$(printf "%s" "$managed" | base64) || exit $?; encoded=$(printf "%s" "$encoded" | tr -d "\\n") || exit $?; printf "%s\\n" "$encoded" || exit $?; fi; done' sh {} + >> "$manifest" && `
+      ? `${cleanupCommand} && printf '%s\\n' '${colocatedManifestMarker}' > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec sh -c 'for source do managed=\${source##*/}; if [ ! -e ${target}/"$managed" ] && [ ! -L ${target}/"$managed" ]; then encoded=$(printf "%s" "$managed" | base64) || exit $?; encoded=$(printf "%s" "$encoded" | tr -d "\\n") || exit $?; printf "%s\\n" "$encoded" || exit $?; fi; done' sh {} + >> "$manifest" && `
       : ""
     const installCommand = cleanupCommand
-      ? `while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; cp -R -- ${stagingDirectoryName}/skills/"$managed" ${target} || exit $?; done < "$manifest"`
+      ? `tail -n +2 "$manifest" | while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; cp -R -- ${stagingDirectoryName}/skills/"$managed" ${target} || exit $?; done || exit $?`
       : `cp -Rn ${stagingDirectoryName}/skills/. ${target}`
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
