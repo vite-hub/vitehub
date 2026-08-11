@@ -329,7 +329,7 @@ describe("Agent Box", () => {
       }))
       Object.assign(agent, { capabilities: globalSkills })
       harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
-      await chmod(join(persistentCodexHome, "skills"), 0o555)
+      await chmod(join(persistentCodexHome, "skills"), 0o444)
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
@@ -346,7 +346,7 @@ describe("Agent Box", () => {
         .resolves.toBe("Ancestor bundle skill.\n")
       await expect(readFile(join(persistentCodexHome, "skills/siblings/custom"), "utf8"))
         .resolves.toBe("Unmanaged sibling.\n")
-      expect((await stat(join(persistentCodexHome, "skills"))).mode & 0o200).toBe(0o200)
+      expect((await stat(join(persistentCodexHome, "skills"))).mode & 0o300).toBe(0o300)
       expect(harnessObservation.sessionOptions).toHaveLength(2)
       expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")
       expect(harnessObservation.sessionOptions[1]).toMatchObject({
