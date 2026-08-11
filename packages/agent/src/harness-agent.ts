@@ -1104,7 +1104,7 @@ async function prepareHarnessColocatedSkills(
   stagingDirectoryName = ".vitehub-agent-skills",
 ): Promise<boolean> {
   const cleanupCommand = refresh
-    ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest"`
+    ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest"`
     : undefined
   if (!workspace) {
     if (!cleanupCommand) return false
@@ -1129,7 +1129,7 @@ async function prepareHarnessColocatedSkills(
       sessionWorkDir: stagingDirectory,
     })
     const refreshCommand = cleanupCommand
-      ? `${cleanupCommand} && : > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; >> "$manifest" && `
+      ? `${cleanupCommand} && : > "$manifest" && for source in ${stagingDirectoryName}/skills/* ${stagingDirectoryName}/skills/.[!.]* ${stagingDirectoryName}/skills/..?*; do [ -e "$source" ] || continue; managed=\${source##*/}; [ -e ${target}/"$managed" ] || printf '%s\\n' "$managed" >> "$manifest"; done && `
       : ""
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
@@ -1170,7 +1170,7 @@ async function prepareHarnessGlobalSkills(
   const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
     ...(workingDirectory ? { workingDirectory } : {}),
-    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then chmod -R u+w -- ${quotedDirectory}/.git 2>/dev/null || true; rm -rf -- ${quotedDirectory}/.git || exit $?; while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; chmod -R u+w -- ${quotedDirectory}/"$managed" 2>/dev/null || true; rm -rf -- ${quotedDirectory}/"$managed" || exit $?; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
+    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then if [ ! -L ${quotedDirectory}/.git ]; then chmod -R u+w -- ${quotedDirectory}/.git 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/.git || exit $?; while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; if [ ! -L ${quotedDirectory}/"$managed" ]; then chmod -R u+w -- ${quotedDirectory}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/"$managed" || exit $?; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
   })
   if (ensure.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
@@ -1462,7 +1462,7 @@ export function createHarnessAgentAdapter<
   ) {
     const identity: HarnessSessionIdentity = {
       ...agentIdentity,
-      ...(context.box
+      ...(context.box && !context.box.plan.home?.state.includes(".codex")
         ? {
             box: {
               identity: context.box.plan.identity,
@@ -1583,6 +1583,26 @@ export function createHarnessAgentAdapter<
           if (profile && typeof profile === "object" && typeof (profile as { close?: unknown }).close === "function") {
             harnessProfileSession = profile as { close: (error?: unknown) => MaybePromise<void> }
           }
+        }
+        if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
+          const destination = globalSkillsDestination || globalSkillsDirectory
+          const ensureDestination = await (session as HarnessGlobalSkillsSandbox).run({
+            abortSignal,
+            command: `mkdir -p -- '${destination.replace(/'/g, "'\\''")}'`,
+          })
+          if (ensureDestination.exitCode !== 0) {
+            throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensureDestination.stderr || "sandbox command failed"}`)
+          }
+          await prepareHarnessColocatedSkills(
+            undefined,
+            session,
+            destination,
+            ".",
+            abortSignal,
+            true,
+            destination,
+            skillsStagingDirectory,
+          )
         }
         globalSkillsSession = await prepareHarnessGlobalSkills(
           globalSkillsWorkspace,

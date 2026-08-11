@@ -141,16 +141,19 @@ describe("Agent Box", () => {
     const root = await temporaryRoot()
     const worktree = join(root, "worktree")
     const continuedWorktree = join(root, "continued-worktree")
+    const removedSkillWorktree = join(root, "removed-skill-worktree")
     const stateRoot = join(root, "state")
     const bin = join(root, "bin")
     await Promise.all([
       mkdir(worktree),
       mkdir(continuedWorktree),
+      mkdir(removedSkillWorktree),
       mkdir(bin),
     ])
     await Promise.all([
       writeFile(join(worktree, "AGENTS.md"), "Repository instructions.\n"),
       writeFile(join(continuedWorktree, "AGENTS.md"), "Repository instructions.\n"),
+      writeFile(join(removedSkillWorktree, "AGENTS.md"), "Repository instructions.\n"),
       executable(bin, "codex", "exit 0"),
       executable(bin, "gh", "exit 0"),
       executable(bin, "pnpm", "exit 0"),
@@ -197,6 +200,12 @@ describe("Agent Box", () => {
         driver: { ...createCodexDriver(), sessionKey: "thread-1" },
       }), {
         [colocatedSkills]: {
+          local: {
+            content: new TextEncoder().encode("Colocated local skill.\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/local/SKILL.md",
+          },
           review: {
             content: new TextEncoder().encode("# Review\n"),
             materialize: "build",
@@ -223,9 +232,6 @@ describe("Agent Box", () => {
       expect(codexHome).toBe(join(reportedHome, ".codex"))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
-      Reflect.deleteProperty(agent, colocatedSkills)
-      harnessObservation.globalSkills = ["global", "local"]
-      harnessObservation.absentGlobalSkills = ["review"]
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
@@ -237,6 +243,20 @@ describe("Agent Box", () => {
       const [, continuedHome, continuedCodexHome] = continued.text.trim().split("\n")
       expect(continuedCodexHome).toBe(join(continuedHome, ".codex"))
       expect(harnessObservation.sessionOptions).toHaveLength(2)
+      expect(harnessObservation.sessionOptions[1]?.sessionId).toBe(harnessObservation.sessionOptions[0]?.sessionId)
+
+      Reflect.deleteProperty(agent, colocatedSkills)
+      harnessObservation.globalSkills = ["global", "local"]
+      harnessObservation.absentGlobalSkills = ["review"]
+      await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Continue without the removed Skill.",
+      })
+      expect(harnessObservation.sessionOptions).toHaveLength(3)
       expect(harnessObservation.sessionOptions.every(options => typeof options?.sessionId === "string")).toBe(true)
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
