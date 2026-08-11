@@ -161,7 +161,6 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
     const prototype = Object.getPrototypeOf(result)
     const aiSdkTextResultGetterKeys = ["content", "finalStep", "text"]
     if (!aiSdkTextResultMarkerKeys.every(key => Object.hasOwn(result, key)) || !aiSdkTextResultGetterKeys.every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.get === "function")) unsupportedWorkflowResult()
-    if (jsonWorkflowValue((result as Record<string, unknown>).initialResponseMessages) === unportableWorkflowValue) unsupportedWorkflowResult()
   }
   if (!providerResultMarkerKeys.some(key => key in result) && !normalizedAgentResultKeys.every(key => Object.hasOwn(result, key))) unsupportedWorkflowResult()
   const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(toAgentRunResult(result))

@@ -10775,6 +10775,10 @@ describe("agent message protocol", () => {
       })
 
       expect(Object.keys(result)).toContain("initialResponseMessages")
+      ;(result as unknown as Record<string, unknown>).initialResponseMessages = [{
+        content: [{ data: new URL("https://example.com/attachment.png"), mediaType: "image/png", type: "file" }],
+        role: "assistant",
+      }]
       await expect(runAgentWorkflowDefinition({} as never, {
         id: "ai-sdk-result",
         name: "ai-sdk-result",
