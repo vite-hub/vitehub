@@ -9382,7 +9382,7 @@ describe("server helpers", () => {
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
-  it("delivers only explicit manual replies and replaces the placeholder once", async () => {
+  it("delivers only explicit manual replies after deleting the placeholder", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -9417,8 +9417,9 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     expect(run).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Analyzing photo…")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Calories reply" })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Dashboard reply" })
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Calories reply" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(3, "telegram:456", { markdown: "Dashboard reply" })
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "{\"internal\":\"structured output\"}" })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
     const typingOrder = adapter.startTyping.mock.invocationCallOrder[0]
@@ -9852,7 +9853,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1", { markdown: "Validating the result." })
-    expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", { markdown: "Validated reply" })
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Validated reply" })
   })
 
   it("updates a manual placeholder with progress summaries before the final reply", async () => {
@@ -9898,11 +9900,12 @@ describe("server helpers", () => {
     const response = await handler(chatWebhookRequest(91_013), "telegram")
 
     expect(response.status).toBe(200)
-    expect(adapter.postMessage).toHaveBeenCalledOnce()
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Analyzing photo…")
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Analyzing photo…")
     expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1", { markdown: "Reviewing the request." })
     expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", { markdown: "Checking current inventory." })
-    expect(adapter.editMessage).toHaveBeenNthCalledWith(3, "telegram:456", "sent-1", { markdown: "Final customer reply" })
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final customer reply" })
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", { markdown: "Private model output" })
   })
 
@@ -10063,12 +10066,11 @@ describe("server helpers", () => {
     }
   })
 
-  it("posts a buffered manual stream when placeholder editing fails", async () => {
+  it("posts a streamed manual reply after deleting the placeholder", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    adapter.editMessage.mockRejectedValueOnce(new Error("edit failed"))
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -10092,9 +10094,39 @@ describe("server helpers", () => {
     const response = await handler(chatWebhookRequest(91_011), "telegram")
 
     expect(response.status).toBe(200)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Streamed reply" })
     expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Streamed reply" })
+  })
+
+  it("delivers the final reply through the placeholder when deletion fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockRejectedValueOnce(new Error("delete failed"))
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+          },
+        }),
+      },
+      driver: { run: () => "Private output" },
+      hooks: {
+        "agent:finish": event => event.reply("Final reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_040), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Final reply" })
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
   })
 
   it("does not overwrite the first manual reply when a later reply fails", async () => {
@@ -10105,6 +10137,9 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     adapter.postMessage.mockImplementationOnce(async threadId => ({
       id: "sent-1",
+      threadId,
+    })).mockImplementationOnce(async threadId => ({
+      id: "sent-2",
       threadId,
     })).mockRejectedValueOnce(new Error("post failed"))
     const agent = defineAgent({
@@ -10130,9 +10165,9 @@ describe("server helpers", () => {
 
     try {
       await expect(handler(chatWebhookRequest(91_012), "telegram")).rejects.toThrow("post failed")
-      expect(adapter.editMessage).toHaveBeenCalledOnce()
-      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "First reply" })
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(3, "telegram:456", "Delivery failed.")
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "First reply" })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(4, "telegram:456", "Delivery failed.")
     }
     finally {
       consoleError.mockRestore()
@@ -10304,16 +10339,16 @@ describe("server helpers", () => {
     }
   })
 
-  it("preserves manual placeholder ownership when cleanup fails after the deadline", async () => {
+  it("preserves the manual error fallback when the cleanup edit finishes after the deadline", async () => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
-    adapter.deleteMessage.mockImplementation(async () => {
+    adapter.deleteMessage.mockRejectedValueOnce(new Error("delete failed"))
+    adapter.editMessage.mockImplementationOnce(async () => {
       await new Promise(resolve => setTimeout(resolve, 29_000))
-      throw new Error("delete failed")
     })
     const agent = defineAgent({
       channels: {
@@ -10328,6 +10363,9 @@ describe("server helpers", () => {
         }),
       },
       driver: { run: () => ({ text: "" }) },
+      hooks: {
+        "agent:finish": event => event.reply("Final reply"),
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -10342,7 +10380,60 @@ describe("server helpers", () => {
         message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.postMessage).toHaveBeenCalledOnce()
-      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+      expect(adapter.editMessage).toHaveBeenCalledTimes(2)
+      expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1", { markdown: "Final reply" })
+      expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", "Please try again.")
+    }
+    finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it("posts the manual error fallback before final reply cleanup succeeds at the background deadline", async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 30_000))
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Analyzing photo…",
+            timeout: 50_000,
+          },
+        }),
+      },
+      driver: { run: () => ({ text: "" }) },
+      hooks: {
+        "agent:finish": event => event.reply("Final reply"),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const responseError = handler(chatWebhookRequest(91_041), "telegram", {
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }).catch(error => error)
+      await vi.advanceTimersByTimeAsync(29_000)
+
+      await expect(responseError).resolves.toMatchObject({
+        message: "Chat invocation timed out after 28000ms.",
+      })
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please try again.")
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(adapter.postMessage).toHaveBeenCalledTimes(2)
     }
     finally {
       consoleError.mockRestore()
@@ -11036,7 +11127,7 @@ describe("server helpers", () => {
     }))
   })
 
-  it("fails clearly when an unreplaceable manual reply cannot remove its placeholder", async () => {
+  it("posts an unreplaceable manual reply when placeholder cleanup is ambiguous", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -11070,11 +11161,14 @@ describe("server helpers", () => {
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    await expect(handler(chatWebhookRequest(91_009), "telegram")).rejects.toThrow(
-      "Manual chat delivery could not remove its placeholder.",
-    )
-    expect(adapter.postMessage).toHaveBeenCalledOnce()
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Sorry, I couldn't process that message.")
+    const response = await handler(chatWebhookRequest(91_009), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", expect.objectContaining({
+      attachments: expect.any(Array),
+      markdown: "See the result.",
+    }))
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("lets chat webhooks opt out of streaming model execution", async () => {
