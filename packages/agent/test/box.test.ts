@@ -217,6 +217,18 @@ describe("Agent Box", () => {
             mount: "",
             workspacePath: "skills/local/SKILL.md",
           },
+          localExtra: {
+            content: new TextEncoder().encode("Must not merge.\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/local/colocated-only.md",
+          },
+          newline: {
+            content: new TextEncoder().encode("# Newline\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/line\nbreak/SKILL.md",
+          },
           review: {
             content: new TextEncoder().encode("# Review\n"),
             materialize: "build",
@@ -226,7 +238,7 @@ describe("Agent Box", () => {
         },
       })
       harnessObservation.detach = true
-      harnessObservation.globalSkills = ["global", "local", "review"]
+      harnessObservation.globalSkills = ["global", "line\nbreak", "local", "review"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -265,6 +277,8 @@ describe("Agent Box", () => {
         stateRoot,
         createHash("sha256").update("agent-box-test/codex").digest("hex"),
       )
+      await expect(readFile(join(persistentCodexHome, "skills/local/colocated-only.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" })
       const externalReview = join(root, "external-review")
       await mkdir(externalReview)
       await writeFile(join(externalReview, "SKILL.md"), "External review skill.\n")

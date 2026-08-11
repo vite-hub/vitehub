@@ -1108,7 +1108,7 @@ async function prepareHarnessColocatedSkills(
   stagingDirectoryName = ".vitehub-agent-skills",
 ): Promise<boolean> {
   const cleanupCommand = refresh
-    ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest"`
+    ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest"`
     : undefined
   if (!workspace) {
     if (!cleanupCommand) return false
@@ -1133,10 +1133,10 @@ async function prepareHarnessColocatedSkills(
       sessionWorkDir: stagingDirectory,
     })
     const refreshCommand = cleanupCommand
-      ? `${cleanupCommand} && : > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; | while IFS= read -r managed; do if [ ! -e ${target}/"$managed" ] && [ ! -L ${target}/"$managed" ]; then printf '%s\\n' "$managed" || exit $?; fi; done >> "$manifest" && `
+      ? `${cleanupCommand} && : > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec sh -c 'for source do managed=\${source##*/}; if [ ! -e ${target}/"$managed" ] && [ ! -L ${target}/"$managed" ]; then printf "%s" "$managed" | base64 | tr -d "\\n" || exit $?; printf "\\n" || exit $?; fi; done' sh {} + >> "$manifest" && `
       : ""
     const installCommand = cleanupCommand
-      ? `while IFS= read -r managed || [ -n "$managed" ]; do cp -R -- ${stagingDirectoryName}/skills/"$managed" ${target} || exit $?; done < "$manifest"`
+      ? `while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; cp -R -- ${stagingDirectoryName}/skills/"$managed" ${target} || exit $?; done < "$manifest"`
       : `cp -Rn ${stagingDirectoryName}/skills/. ${target}`
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
