@@ -2899,7 +2899,16 @@ async function flushChatFinishExtensionMessages(
         abortSignal?.throwIfAborted()
       }
       const placeholder = manualDelivery.placeholder
-      await deleteManualDeliveryPlaceholder(placeholder)
+      try {
+        await deleteManualDeliveryPlaceholder(placeholder)
+      }
+      catch (cause) {
+        if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) {
+          manualDelivery.placeholder = undefined
+          continue
+        }
+        throw cause
+      }
       manualDelivery.placeholder = undefined
       abortSignal?.throwIfAborted()
     }
