@@ -38,6 +38,8 @@ ViteHub parses instruction Markdown through Comark. A colocated document becomes
 Use `driver.instructions` for short or invocation-specific text:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
 export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',

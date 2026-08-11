@@ -126,6 +126,8 @@ Validate untrusted request data at the route boundary. The hook protects the Age
 Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
   hooks: {

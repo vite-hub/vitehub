@@ -89,6 +89,7 @@ export default defineAgent({
 Use `access()` when trusted caller identity should narrow the files visible to one invocation. Place it before `workspaceShell()` so the shell receives the scoped Workspace.
 
 ```ts [server/agents/editor.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { access, workspaceShell } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
@@ -108,7 +109,7 @@ export default defineAgent({
 })
 ```
 
-Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy is an authorization boundary, so it should depend only on trusted identity and application-owned facts. Model-backed and custom-run Agents receive read-only scoped Workspaces; writable Workspace sessions are available to harness-backed Drivers.
+Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy is an authorization boundary, so it should depend only on trusted identity and application-owned facts. Read and write authority depends on the Workspace mode, its rules, and the Capabilities exposed to the Driver. Model-backed Drivers can receive write tools, custom Drivers can receive a writable Workspace facade, and harness-backed Drivers can receive writable Workspace sessions.
 
 ## Use Workspace context with a harness
 
