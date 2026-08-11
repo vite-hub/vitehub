@@ -359,7 +359,7 @@ function createProgressSummaryState(
   let reasoningActive = false
   let previous: string | undefined
   let revision = 0
-  let emittedRevision = 0
+  let completedRevision = 0
   let dirty = true
   let running = false
   let closed = false
@@ -426,13 +426,16 @@ function createProgressSummaryState(
     }
     void generateProgressSummary(context, options, input)
       .then((summary) => {
-        if (closed || !summary || currentRevision <= emittedRevision || summary === previous) return
-        emittedRevision = currentRevision
+        if (closed || !summary || currentRevision <= completedRevision) return
+        completedRevision = currentRevision
+        if (summary === previous) return
         previous = summary
         latest = progressData(summary, currentRevision)
         for (const controller of controllers) controller.enqueue(latest)
       })
-      .catch(reportError)
+      .catch((error) => {
+        if (!closed && !generationAbort.signal.aborted) reportError(error)
+      })
       .finally(() => {
         generations.delete(generationAbort)
         if (intervalMs !== 0) return

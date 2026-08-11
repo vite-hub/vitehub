@@ -220,9 +220,16 @@ export function withReadableStreamCleanup<T>(
           return
         }
         const error = uiMessageStreamError(result.value)
-        if (error) throw error
         options.onChunk?.(result.value)
         controller.enqueue(result.value)
+        if (error) {
+          await Promise.allSettled([
+            options.cancelOnAbort?.(error),
+            reader.cancel(error),
+          ].filter((task): task is Promise<void> => task !== undefined))
+          await runCleanup({ error, failed: true })
+          controller.error(error)
+        }
       }
       catch (error) {
         await Promise.allSettled([

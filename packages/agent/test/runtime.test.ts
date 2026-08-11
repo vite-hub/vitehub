@@ -8856,7 +8856,7 @@ describe("agent message protocol", () => {
     vi.useFakeTimers()
     try {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
-      const generations = [deferred<string>(), deferred<string>()]
+      const generations = [deferred<string>(), deferred<string>(), deferred<string>(), deferred<string>()]
       let sourceController!: ReadableStreamDefaultController<unknown>
       const execute = vi.fn(() => generations[execute.mock.calls.length - 1]!.promise)
       const agent = defineAgent({
@@ -8892,6 +8892,12 @@ describe("agent message protocol", () => {
       })
       generations[0]!.resolve("Stale first snapshot")
       await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(execute).toHaveBeenCalledTimes(4)
+      generations[3]!.resolve("Second snapshot")
+      await Promise.resolve()
+      generations[2]!.resolve("Stale third snapshot")
+      await Promise.resolve()
       sourceController.enqueue({ finishReason: "stop", type: "finish" })
       sourceController.close()
       const remaining = []
@@ -8901,10 +8907,12 @@ describe("agent message protocol", () => {
         remaining.push(next.value)
       }
 
-      expect(remaining).not.toContainEqual(expect.objectContaining({
-        data: expect.objectContaining({ revision: 1 }),
-        type: "data-progress-summary",
-      }))
+      for (const revision of [1, 3]) {
+        expect(remaining).not.toContainEqual(expect.objectContaining({
+          data: expect.objectContaining({ revision }),
+          type: "data-progress-summary",
+        }))
+      }
     }
     finally {
       vi.useRealTimers()
@@ -8913,17 +8921,24 @@ describe("agent message protocol", () => {
 
   it("aborts every concurrent progress generation when the primary stream closes", async () => {
     vi.useFakeTimers()
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
       let sourceController!: ReadableStreamDefaultController<unknown>
       const aborted: number[] = []
-      const execute = vi.fn(input => new Promise<string>((resolve) => {
+      const generations: Promise<string>[] = []
+      const execute = vi.fn((input) => {
         const call = execute.mock.calls.length
-        input.input.abortSignal?.addEventListener("abort", () => {
-          aborted.push(call)
-          resolve("")
-        }, { once: true })
-      }))
+        const generation = new Promise<string>((_resolve, reject) => {
+          input.input.abortSignal?.addEventListener("abort", () => {
+            aborted.push(call)
+            reject(new DOMException("Progress generation aborted.", "AbortError"))
+          }, { once: true })
+        })
+        generations.push(generation)
+        return generation
+      })
+      const traceLog = createTraceEventLog()
       const agent = defineAgent({
         capabilities: [progressSummary({ execute, intervalMs: 10_000 })],
         driver: { run: () => ({
@@ -8936,7 +8951,7 @@ describe("agent message protocol", () => {
             },
           }) },
       })
-      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
         messages: [createMessage({ role: "user", text: "Check inventory" })],
       }, { output: "ui-message-stream" }) as ReadableStream<unknown>
       const reader = stream.getReader()
@@ -8946,11 +8961,16 @@ describe("agent message protocol", () => {
       sourceController.enqueue({ finishReason: "stop", type: "finish" })
       sourceController.close()
       await reader.read()
+      await Promise.allSettled(generations)
+      await Promise.resolve()
 
       expect(aborted).toEqual([1, 2, 3])
+      expect(warning).not.toHaveBeenCalled()
+      expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({ name: "agent.progress-summary.error" }))
       await reader.cancel()
     }
     finally {
+      warning.mockRestore()
       vi.useRealTimers()
     }
   })
@@ -8979,10 +8999,13 @@ describe("agent message protocol", () => {
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       prompt: "hello",
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
 
-    await expect((async () => {
-      for await (const _chunk of stream) {}
-    })()).rejects.toThrow("provider failed")
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: { errorText: "provider failed", type: "error" },
+    })
+    await expect(reader.read()).rejects.toThrow("provider failed")
     expect(agentError).toHaveBeenCalledOnce()
     expect(finish).not.toHaveBeenCalled()
   })
@@ -9376,7 +9399,7 @@ describe("agent message protocol", () => {
   it("uses capability-owned instructions and Markdown templates with harness drivers", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
-    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessCreateSession.mockResolvedValue(session)
     harnessGenerate.mockResolvedValue({ text: "Reviewing availability for Acme." })
     const agent = defineAgent({
       capabilities: [
@@ -9428,7 +9451,7 @@ describe("agent message protocol", () => {
 
   it("resolves built-in progress summary drivers", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessCreateSession.mockResolvedValue({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValue({ text: "Checking inventory." })
     const agent = defineAgent({
       capabilities: [
@@ -9465,7 +9488,7 @@ describe("agent message protocol", () => {
   it("keeps user message contents out of the default progress prompt", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
-    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessCreateSession.mockResolvedValue(session)
     harnessGenerate.mockResolvedValue({ text: "Checking inventory." })
     const agent = defineAgent({
       capabilities: [
