@@ -323,6 +323,20 @@ describe("Agent Box", () => {
       expect((await stat(join(externalReview, "SKILL.md"))).mode & 0o777).toBe(0o400)
       await chmod(externalReview, 0o700)
       await chmod(join(externalReview, "SKILL.md"), 0o600)
+      const externalSkills = join(root, "external-skills")
+      await mkdir(externalSkills)
+      await writeFile(join(externalSkills, "untouched"), "external\n")
+      await rm(join(persistentCodexHome, "skills"), { recursive: true })
+      await symlink(externalSkills, join(persistentCodexHome, "skills"))
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Do not follow the replaced Skills root.",
+      })).rejects.toThrow("Global Skill directory cannot be a symlink")
+      await expect(readFile(join(externalSkills, "untouched"), "utf8")).resolves.toBe("external\n")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }

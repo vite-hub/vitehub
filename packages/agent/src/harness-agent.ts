@@ -1110,7 +1110,7 @@ async function prepareHarnessColocatedSkills(
   // The legacy manifest recorded collisions it did not create, so its entries
   // cannot safely be treated as owned during migration.
   const cleanupCommand = refresh
-    ? `legacy=${target}/.vitehub-colocated; manifest=${target}/.vitehub-colocated-v2; rm -f -- "$legacy" || exit $?; if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest" || exit $?`
+    ? `if [ -L ${target} ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi; legacy=${target}/.vitehub-colocated; manifest=${target}/.vitehub-colocated-v2; rm -f -- "$legacy" || exit $?; if [ -f "$manifest" ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+w -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done < "$manifest"; fi && rm -f -- "$manifest" || exit $?`
     : undefined
   if (!workspace) {
     if (!cleanupCommand) return false
@@ -1179,7 +1179,7 @@ async function prepareHarnessGlobalSkills(
   const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
     ...(workingDirectory ? { workingDirectory } : {}),
-    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; if [ ! -L ${quotedDirectory}/"$managed" ]; then chmod -R u+w -- ${quotedDirectory}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/"$managed" || exit $?; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
+    command: `if [ -L ${quotedDirectory} ]; then printf '%s\\n' 'Global Skill directory cannot be a symlink.' >&2; exit 1; fi && mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; if [ ! -L ${quotedDirectory}/"$managed" ]; then chmod -R u+w -- ${quotedDirectory}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/"$managed" || exit $?; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
   })
   if (ensure.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
