@@ -54,15 +54,17 @@ With manual chat delivery, ViteHub edits the current placeholder as summaries ar
 
 ## Understand the runtime behavior
 
-The Capability generates an initial summary when the stream starts. Reasoning deltas and tool start or completion events then mark the current activity dirty. While new activity exists, the Capability generates at most one summary per interval and never overlaps generations. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
+The Capability starts its initial summary before the primary Driver finishes setup. If the summary completes before the UI stream is available, ViteHub buffers the latest transient part and emits it when the stream attaches.
+
+Positive intervals use a fixed cadence from invocation start, so a slow generation does not postpone the next tick. Generations can overlap; each receives a higher revision, and a stale completion cannot replace a newer completed revision. Set `intervalMs: 0` to generate from reasoning and tool activity through the event-driven microtask behavior instead. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
 
 The default prompt uses only reasoning presence, sanitized tool names, and the previous summary. It does not include user message text, code, commands, paths, traces, hidden instructions, credentials, raw tool details, or trusted `<context>` payloads.
 
-The Capability stops pending timers when the parent invocation aborts. It also discards pending or in-flight summaries when the primary stream finishes, so progress never delays completion or arrives after terminal output. A generation failure does not interrupt the primary response stream.
+The Capability stops its cadence and aborts every in-flight generation when the parent invocation aborts or the primary stream finishes, cancels, or errors. A generation failure does not interrupt the primary response stream; ViteHub emits a sanitized warning and trace event without logging the Driver error message.
 
 ## Requirements
 
-The primary Agent Driver must expose a compatible async stream or UI message stream. After the initial summary, the Capability remains silent until reasoning or tool lifecycle events provide new activity to summarize.
+The primary Agent Driver must expose a compatible async stream or UI message stream. With a positive interval, the Capability attempts a summary on every tick and suppresses unchanged output. With `intervalMs: 0`, it remains silent after the initial summary until reasoning or tool lifecycle events provide new activity.
 
 Configure a `driver`, `model`, or `execute` option for summary generation. Without one of those options, the Capability uses the Agent model when available.
 
@@ -76,7 +78,7 @@ Configure a `driver`, `model`, or `execute` option for summary generation. Witho
 
 ## Verify the result
 
-Run an invocation and confirm that the primary stream continues immediately while an initial transient `data-progress-summary` part arrives. Perform at least one tool call or emit reasoning for longer than `intervalMs`, then confirm that a later part arrives with a higher `revision`.
+Run an invocation and confirm that the primary stream continues immediately while an initial transient `data-progress-summary` part arrives. Keep the invocation open beyond `intervalMs`, then confirm that a later changed summary arrives with a higher `revision`.
 
 Stop the invocation before the next interval and confirm that no later progress part appears.
 
@@ -88,7 +90,7 @@ Stop the invocation before the next interval and confirm that no later progress 
 | `execute` | `(input) => string \| { summary?: string }` | none | Custom progress generator. |
 | `id` | `string` | `"progress-summary"` | Capability id. |
 | `instructions` | `string` | Capability-owned instructions | System instructions for model-backed generation. |
-| `intervalMs` | `number` | `10000` | Minimum delay between dirty progress snapshots. |
+| `intervalMs` | `number` | `10000` | Fixed generation cadence. Use `0` for event-driven updates. |
 | `maxLength` | `number` | `180` | Maximum summary length. |
 | `model` | `AgentModelResolver` | Agent model | Model used when no independent Driver is configured. |
 | `template` | `string \| function` | generated | Markdown prompt template. |

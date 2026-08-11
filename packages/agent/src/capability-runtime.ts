@@ -63,6 +63,7 @@ import type {
 } from "./types.ts"
 import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
+import type { Box } from "@vite-hub/box"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputExtensions) => MaybePromise<unknown>) & {
@@ -132,8 +133,11 @@ export interface AgentCapabilityInvocationOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  box?: Box
   context?: AgentInvocationContextStore
   driverKind?: AgentDriverKind
+  harnessSandboxProvider?: object
+  invocationKind?: "run" | "stream"
   invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
   phases?: readonly AgentCapabilityRuntimePhase[]
@@ -998,9 +1002,11 @@ export async function resolveAgentCapabilities<
         ...runtimeContext,
         abortSignal: currentInput.abortSignal,
         actor: invoker,
+        box: invocationOptions.box,
         context: invocationContext,
         driver: { kind: driverKind },
         fs: currentWorkspace?.fs,
+        harnessSandboxProvider: invocationOptions.harnessSandboxProvider,
         invoker,
         runtimeContext: runtime,
         workspace: currentWorkspace,
@@ -1031,7 +1037,7 @@ export async function resolveAgentCapabilities<
         capability,
         mode: capability.mode,
         input,
-        invocation: { input },
+        invocation: { input, kind: invocationOptions.invocationKind || "run" },
         delivery: {
           effect(intent) {
             if (!intent || typeof intent !== "object" || typeof intent.kind !== "string" || !intent.kind.trim()) {

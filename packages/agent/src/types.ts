@@ -719,7 +719,9 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   abortSignal?: AbortSignal
-  invocation?: { input: AgentCapabilityInputContext }
+  box?: Box
+  harnessSandboxProvider?: object
+  invocation?: { input: AgentCapabilityInputContext, kind?: "run" | "stream" }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
@@ -804,7 +806,7 @@ export interface AgentCapabilityRuntimeContext<
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
   input: AgentCapabilityInputContext
-  invocation: { input: AgentCapabilityInputContext }
+  invocation: { input: AgentCapabilityInputContext, kind: "run" | "stream" }
   delivery: {
     effect: (intent: AgentChannelDeliveryEffectIntent) => void
     finishEffect: (effect: AgentChannelDeliveryFinishEffect) => void

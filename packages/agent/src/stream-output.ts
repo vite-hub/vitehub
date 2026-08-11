@@ -182,6 +182,7 @@ export function withReadableStreamCleanup<T>(
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
+  let pendingError: unknown
   let wrappedController: ReadableStreamDefaultController<T> | undefined
   const runCleanup = async (outcome: StreamCleanupOutcome = { completed: true, failed: false }) => {
     if (cleaned) return
@@ -212,6 +213,10 @@ export function withReadableStreamCleanup<T>(
       wrappedController = controller
     },
     async pull(controller) {
+      if (pendingError !== undefined) {
+        controller.error(pendingError)
+        return
+      }
       try {
         const result = await reader.read()
         if (result.done) {
@@ -219,10 +224,23 @@ export function withReadableStreamCleanup<T>(
           controller.close()
           return
         }
+        const error = uiMessageStreamError(result.value)
         options.onChunk?.(result.value)
         controller.enqueue(result.value)
+        if (error) {
+          await Promise.allSettled([
+            options.cancelOnAbort?.(error),
+            reader.cancel(error),
+          ].filter((task): task is Promise<void> => task !== undefined))
+          await runCleanup({ error, failed: true })
+          pendingError = error
+        }
       }
       catch (error) {
+        await Promise.allSettled([
+          options.cancelOnAbort?.(error),
+          reader.cancel(error),
+        ].filter((task): task is Promise<void> => task !== undefined))
         await runCleanup({ error, failed: true })
         controller.error(error)
       }
@@ -267,6 +285,15 @@ export function uiMessageTextDelta(event: unknown): string | undefined {
     ?? (event as { delta?: unknown, textDelta?: unknown }).textDelta
     ?? (event as { delta?: unknown }).delta
   return typeof text === "string" ? text : undefined
+}
+
+function uiMessageStreamError(event: unknown): Error | undefined {
+  if (streamEventType(event) !== "error" || typeof event !== "object" || event === null) return
+  const error = event as { error?: unknown, errorText?: unknown, message?: unknown, recoverable?: unknown }
+  if (error.recoverable === true) return
+  if (error.error instanceof Error) return error.error
+  const message = error.errorText ?? error.message ?? error.error
+  return new Error(typeof message === "string" && message ? message : "Agent stream failed.")
 }
 
 function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
