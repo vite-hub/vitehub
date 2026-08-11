@@ -199,6 +199,7 @@ describe("Agent Box", () => {
                 key: "agent-box-test/codex",
                 seed: {
                   "auth.json": { contents: '{"token":"box"}\n' },
+                  "skills/global/SKILL.md": { contents: "Unmanaged global skill.\n" },
                   "skills/.vitehub-colocated": { contents: "legacy\nlocal\n" },
                   "skills/legacy/SKILL.md": { contents: "Legacy managed skill.\n" },
                   "skills/local/SKILL.md": { contents: "Local skill.\n" },
@@ -274,6 +275,8 @@ describe("Agent Box", () => {
         stateRoot,
         createHash("sha256").update("agent-box-test/codex").digest("hex"),
       )
+      await expect(readFile(join(persistentCodexHome, "skills/global/SKILL.md"), "utf8"))
+        .resolves.toBe("Unmanaged global skill.\n")
       await mkdir(join(persistentCodexHome, "skills/.git"))
       await writeFile(
         join(persistentCodexHome, "skills/.git/config"),

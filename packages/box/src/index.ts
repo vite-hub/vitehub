@@ -108,7 +108,7 @@ export type BoxRuntimeDefinition = BuiltInBoxRuntime | BoxRuntime;
 export interface BoxRuntime {
   readonly name: string;
   open(input: BoxRuntimeInput, options: BoxRuntimeOpenOptions): Promise<BoxSession>;
-  prepare(input: BoxRuntimeInput): Promise<BoxPlan>;
+  prepare(input: BoxRuntimeInput): Promise<BoxRuntimePlan>;
 }
 
 export interface BoxOpenOptions {
@@ -256,7 +256,7 @@ export interface BoxPlan {
   };
   readonly environment: BoxEnvironment;
   readonly executionAuthority: ExecutionAuthority;
-  readonly home?: {
+  readonly home: {
     readonly state: readonly {
       readonly identity: string;
       readonly path: string;
@@ -271,6 +271,10 @@ export interface BoxPlan {
     readonly workDir?: "." | "workspace";
   };
 }
+
+export type BoxRuntimePlan = Omit<BoxPlan, "home"> & {
+  readonly home?: BoxPlan["home"];
+};
 
 export interface Box {
   readonly plan: BoxPlan;

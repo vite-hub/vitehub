@@ -29,7 +29,7 @@ import type { ExecutionAuthority } from "@vite-hub/runtime";
 
 import type {
   BoxFileEntry,
-  BoxPlan,
+  BoxRuntimePlan,
   BoxRuntime,
   ResolvedBoxFile,
   BoxRuntimeInput,
@@ -133,7 +133,7 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
           : input.checkout
             ? { state: "disposable" as const, workDir: "." as const }
             : { state: "disposable" as const, workDir: "." as const },
-      } satisfies BoxPlan;
+      } satisfies BoxRuntimePlan;
     },
     async open(input, openOptions) {
       const resolved = await resolveTrustedHostInput(input, options);

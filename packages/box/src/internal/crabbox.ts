@@ -7,7 +7,7 @@ import { Readable } from "node:stream"
 import type { ExecutionAuthority } from "@vite-hub/runtime"
 
 import type {
-  BoxPlan,
+  BoxRuntimePlan,
   BoxRuntime,
   BoxRuntimeInput,
   ResolvedBoxCheckout,
@@ -128,7 +128,7 @@ export function createCrabboxRuntime(options: CrabboxOptions = {}): BoxRuntime {
         workspace: workspace
           ? { path: workspace, state: "authoritative" as const, workDir: "workspace" as const }
           : { state: "disposable" as const, workDir: "workspace" as const },
-      } satisfies BoxPlan
+      } satisfies BoxRuntimePlan
     },
     async open(input, openOptions) {
       const { workspace } = await resolveCrabboxInput(input, options)
