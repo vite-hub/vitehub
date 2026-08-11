@@ -49,6 +49,27 @@ The Definition has three independent parts:
 
 Use `runAgent()` when the caller needs one final result.
 
+Define the application boundary that adapts the current H3 host event into Runtime Context:
+
+```ts [server/runtime-context.ts]
+import type { H3Event } from 'h3'
+
+export function getRuntimeContext(event: H3Event) {
+  const values = new Map<string, unknown>()
+
+  return {
+    memo<T>(key: string, create: () => T): T {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key) as T
+    },
+    runtime: 'nitro',
+    waitUntil: (task: Promise<unknown>) => event.waitUntil(task),
+  }
+}
+```
+
+Keep this helper host-owned: add provider resources here, and delegate `waitUntil` to the real host lifetime rather than replacing it with a no-op.
+
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support/agent'

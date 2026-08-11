@@ -174,9 +174,9 @@ Channel-scoped Capabilities select abilities, not identity. Authenticate and res
 
 ## Handle attachments
 
-Adapter Channels preserve incoming images, audio, and files as typed message parts. Normalization does not fetch URLs, call lazy provider callbacks, write local files, or persist blobs.
+Adapter Channels preserve incoming images, audio, and files as typed message parts. Normalization can fetch a URL-only text attachment on the server to produce text bytes. It does not call lazy provider callbacks, write local files, or persist blobs.
 
-Model-backed Drivers can consume inline data, adapter-owned `fetchData`, and HTTPS references within one invocation-wide byte budget. The default is 25 MiB; set `driver.execution.attachments.maxBytes` to lower it. ViteHub forwards only HTTPS URLs and never downloads arbitrary URLs on the server, avoiding an SSRF boundary.
+Model-backed Drivers can consume inline data, adapter-owned `fetchData`, and HTTPS references within one invocation-wide byte budget. The default is 25 MiB; set `driver.execution.attachments.maxBytes` to lower it. Image, audio, and file HTTPS references are forwarded, but URL-only text attachments use the runtime's server-side `fetch()` without built-in scheme or host restrictions. Treat adapter-supplied text URLs as an SSRF boundary: reject untrusted URLs or validate them against an application-owned allowlist or fetch proxy before they reach normalization.
 
 Harness-backed Drivers keep serializable URL references. Private callback-only attachments need a Capability that consumes them or an explicit persistence contract before crossing the harness boundary.
 
