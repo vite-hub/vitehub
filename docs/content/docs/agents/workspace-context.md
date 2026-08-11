@@ -109,7 +109,7 @@ export default defineAgent({
 })
 ```
 
-Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy is an authorization boundary, so it should depend only on trusted identity and application-owned facts. Read and write authority depends on the Workspace mode, its rules, and the Capabilities exposed to the Driver. Model-backed Drivers can receive write tools, custom Drivers can receive a writable Workspace facade, and harness-backed Drivers can receive writable Workspace sessions.
+Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy is an authorization boundary, so it should depend only on trusted identity and application-owned facts. Actor-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; harness-backed Drivers can receive writable scoped sessions. Without Actor-scoped Access, write authority depends on the Workspace mode, its rules, and the Capabilities exposed to the Driver: model-backed Drivers can receive write tools, and custom Drivers can receive a writable Workspace facade.
 
 ## Use Workspace context with a harness
 
@@ -120,6 +120,7 @@ import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   driver: { kind: 'codex', model: 'gpt-5.5' },
+  workspace: { mode: 'write' },
   box: {
     runtime: 'trusted-host',
     requires: ['git', 'pnpm'],

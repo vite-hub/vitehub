@@ -91,7 +91,7 @@ export default defineAgent({
 
 Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
 
-Direct `runAgent()` calls without a discovered host identity remain inline.
+With the implicit discovery-default Workflow binding, direct `runAgent()` calls without a discovered host identity remain inline. An explicit `runtime: workflow('support')` binding starts that named Workflow even for a direct call.
 
 ## Definition options
 
@@ -109,7 +109,7 @@ Direct `runAgent()` calls without a discovered host identity remain inline.
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
 | `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. |
 | `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
-| `name`, `description` | Adds explicit discovery and inspection metadata. |
+| `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |
 | `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |
 
 Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), [Boxes](/docs/agents/boxes), and [Invocations](/docs/agents/invocations).
