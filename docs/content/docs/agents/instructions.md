@@ -94,6 +94,8 @@ Conditions support `context.*` paths, scalar literals, equality, `&&`, `||`, `!`
 Declare values or Markdown files under `workspace.bindings`, then reference only those named bindings.
 
 ```ts [server/agents/support/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+
 export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',

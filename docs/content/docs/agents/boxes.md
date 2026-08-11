@@ -82,6 +82,7 @@ The Box fetches `ref`, verifies the fetched commit against the full `sha`, and s
 Keep secret values outside the repository. Resolve them into Box `env`, immutable Home files, or a first-use seed for writable state.
 
 ```ts [server/agents/review/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({

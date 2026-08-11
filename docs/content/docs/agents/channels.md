@@ -60,6 +60,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 Add `route.admission.authenticate` when the generated route needs authentication. ViteHub reads the raw body once, verifies the shared UI-message contract, and copies only fields named in `route.input.trust` after authentication.
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { webChat } from '@vite-hub/agent/channels'
 
 export default defineAgent({
@@ -87,6 +88,7 @@ Use an application-owned route and [`streamAgentTrigger()`](/docs/agents/trigger
 Adapter-backed Channels deliver the completed response by default. Set Agent-level `messages.stream: true` to publish draft and edit updates everywhere, or set `messages.stream` on one Channel.
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { discord } from '@vite-hub/agent/channels'
 
 export default defineAgent({
@@ -108,6 +110,8 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 For Telegram, ViteHub can own the verified webhook route and synchronize it after deployment:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
 export default defineAgent({
   channels: {
     telegram: { allowedUserIds: ['123'] },
@@ -152,6 +156,7 @@ Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Wor
 Channel Capabilities apply only when that Channel is active. Agent-level Capabilities remain available to every invocation.
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
 import { openapi } from '@vite-hub/agent/capabilities'
 import { teams, webChat } from '@vite-hub/agent/channels'
 

@@ -38,6 +38,8 @@ export default defineAgent({
 Model strings run through AI Gateway. ViteHub discovers `AI_GATEWAY_API_KEY` from the process or Cloudflare Server Env. Supply an explicit descriptor when the Definition owns the credential:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
 const apiKey = process.env.SUPPORT_AI_GATEWAY_API_KEY
 if (!apiKey) throw new Error('SUPPORT_AI_GATEWAY_API_KEY is required')
 
