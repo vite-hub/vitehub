@@ -315,6 +315,16 @@ describe("Agent Box", () => {
         .resolves.toBe("foreign state\n")
       await expect(readFile(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), "utf8"))
         .resolves.toMatch(/^vitehub-colocated-skills-v2\n/)
+      await chmod(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), 0o000)
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: continuedWorktree },
+        prompt: "Reject unreadable Skill ownership.",
+      })).rejects.toThrow("Persisted Skill ownership manifest cannot be read")
+      await chmod(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), 0o600)
       await rm(join(persistentCodexHome, "skills.vitehub-colocated-v2"))
       Reflect.deleteProperty(Reflect.get(agent, colocatedSkills) as object, "newline")
       harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles/review", "global", "global-trailing\n", "legacy", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
