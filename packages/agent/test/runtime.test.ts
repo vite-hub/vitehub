@@ -10865,7 +10865,13 @@ describe("agent message protocol", () => {
         name: "custom-ai-sdk-key",
         payload: {},
         provider: "vercel",
-      }, async () => ({ initialResponseMessages: new Map([["secret", 1]]), text: "portable text" }))).rejects.toMatchObject({
+      }, async () => ({
+        _output: null,
+        initialResponseMessages: new Map([["secret", 1]]),
+        steps: [],
+        text: "portable text",
+        totalUsage: {},
+      }))).rejects.toMatchObject({
         isRetryable: false,
       })
     })
