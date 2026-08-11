@@ -39,10 +39,16 @@ vi.mock("@ai-sdk/harness/agent", () => ({
       const sessionWorkDir = this.settings.sandboxConfig.workDir
         ? join(session.defaultWorkingDirectory, this.settings.sandboxConfig.workDir)
         : session.defaultWorkingDirectory
-      await this.settings.sandboxConfig.onSession({
-        session,
-        sessionWorkDir,
-      })
+      try {
+        await this.settings.sandboxConfig.onSession({
+          session,
+          sessionWorkDir,
+        })
+      }
+      catch (error) {
+        await session.destroy().catch(() => {})
+        throw error
+      }
       return {
         ...(harnessObservation.detach
           ? {
@@ -342,7 +348,20 @@ describe("Agent Box", () => {
         options: { worktreePath: removedSkillWorktree },
         prompt: "Do not follow managed Skill parents.",
       })).rejects.toThrow("ViteHub-managed Skill path cannot traverse a symlink")
+      await expect(stat(`${persistentCodexHome}.lock`)).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(join(externalSkills, "untouched"), "utf8")).resolves.toBe("external\n")
+      await expect(readFile(join(externalSkills, "managed/owned"), "utf8")).resolves.toBe("managed\n")
+      await writeFile(join(externalSkills, ".vitehub-colocated-v2"), `${Buffer.from("managed").toString("base64")}\n`)
+      await rm(join(persistentCodexHome, "skills"), { recursive: true })
+      await symlink(externalSkills, join(persistentCodexHome, "skills"))
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Do not follow the replaced Skills root.",
+      })).rejects.toThrow("Persisted Skill directory cannot be a symlink")
       await expect(readFile(join(externalSkills, "managed/owned"), "utf8")).resolves.toBe("managed\n")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
