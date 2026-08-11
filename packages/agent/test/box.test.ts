@@ -184,6 +184,23 @@ describe("Agent Box", () => {
       const { createCodexDriver } = await import("../src/harness/codex.ts")
       const { skills } = await import("../src/capabilities.ts")
       const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
+      const globalSkills = [
+        skills({
+          path: "skills/global",
+          scope: "global",
+          source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/bundles/review",
+          scope: "global",
+          source: custom({ files: [{ content: "Nested review skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/global-trailing\n",
+          scope: "global",
+          source: custom({ files: [{ content: "Trailing global skill.\n", path: "SKILL.md" }] }),
+        }),
+      ]
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
@@ -210,13 +227,7 @@ describe("Agent Box", () => {
           requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
           runtime: { kind: "trusted-host", stateRoot },
         },
-        capabilities: [
-          skills({
-            path: "skills/global",
-            scope: "global",
-            source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
-          }),
-        ],
+        capabilities: globalSkills,
         driver: { ...createCodexDriver(), sessionKey: "thread-1" },
       }), {
         [colocatedSkills]: {
@@ -253,7 +264,7 @@ describe("Agent Box", () => {
         },
       })
       harnessObservation.detach = true
-      harnessObservation.globalSkills = ["global", "legacy", "line\nbreak", "local", "review", "trailing\n"]
+      harnessObservation.globalSkills = ["bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "review", "trailing\n"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -282,6 +293,13 @@ describe("Agent Box", () => {
         join(persistentCodexHome, "skills/.git/config"),
         "[core]\n\trepositoryformatversion = 0\n",
       )
+      globalSkills.splice(1, 1, skills({
+        path: "skills/bundles",
+        scope: "global",
+        source: custom({ files: [{ content: "Ancestor bundle skill.\n", path: "SKILL.md" }] }),
+      }))
+      Object.assign(agent, { capabilities: globalSkills })
+      harnessObservation.globalSkills = ["bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "review", "trailing\n"]
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
@@ -294,6 +312,8 @@ describe("Agent Box", () => {
       expect(continuedCodexHome).toBe(join(continuedHome, ".codex"))
       await expect(readFile(join(persistentCodexHome, "skills/.git/config"), "utf8"))
         .resolves.toContain("repositoryformatversion")
+      await expect(readFile(join(persistentCodexHome, "skills/bundles/SKILL.md"), "utf8"))
+        .resolves.toBe("Ancestor bundle skill.\n")
       expect(harnessObservation.sessionOptions).toHaveLength(2)
       expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")
       expect(harnessObservation.sessionOptions[1]).toMatchObject({
@@ -311,8 +331,10 @@ describe("Agent Box", () => {
       await chmod(join(externalReview, "SKILL.md"), 0o400)
       await chmod(externalReview, 0o500)
       Reflect.deleteProperty(agent, colocatedSkills)
-      harnessObservation.globalSkills = ["global", "legacy", "local"]
-      harnessObservation.absentGlobalSkills = ["line\nbreak", "review", "trailing\n"]
+      globalSkills.splice(2, 1)
+      Object.assign(agent, { capabilities: globalSkills })
+      harnessObservation.globalSkills = ["bundles", "global", "legacy", "local"]
+      harnessObservation.absentGlobalSkills = ["global-trailing\n", "line\nbreak", "review", "trailing\n"]
       await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
