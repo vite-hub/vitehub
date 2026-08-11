@@ -342,6 +342,7 @@ describe("Agent Box", () => {
       }))
       Object.assign(agent, { capabilities: globalSkills })
       harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "global-trailing\n", "legacy", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      await chmod(join(persistentCodexHome, "skills/bundles/review"), 0o400)
       await chmod(join(persistentCodexHome, "skills"), 0o444)
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
