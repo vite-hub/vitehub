@@ -1038,7 +1038,7 @@ describe("defineAgent workspace option", () => {
       sessionWorkDir: expect.stringMatching(/^tmp\/harness\/codex-home\/skills\.vitehub-global-skills-/),
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("for encoded in 'cG9ueXRhaWw=' 'Y29kZS1yZXZpZXc='"),
+      command: expect.stringContaining("for encoded in 'Y29kZS1yZXZpZXc=' 'cG9ueXRhaWw='"),
     }))
   })
 
