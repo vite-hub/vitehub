@@ -80,8 +80,8 @@ const roots: string[] = []
 const exec = promisify(execFile)
 
 afterEach(async () => {
-  harnessObservation.absentGlobalSkills = []
   harnessSettings.length = 0
+  harnessObservation.absentGlobalSkills = []
   harnessObservation.command = false
   harnessObservation.before = undefined
   harnessObservation.expectPreviousCodexState = false
@@ -163,14 +163,7 @@ describe("Agent Box", () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { createCodexDriver } = await import("../src/harness/codex.ts")
       const { skills } = await import("../src/capabilities.ts")
-      const colocatedSkills = {
-        review: {
-          content: new TextEncoder().encode("# Review\n"),
-          materialize: "build" as const,
-          mount: "",
-          workspacePath: "skills/review/SKILL.md",
-        },
-      }
+      const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
@@ -184,7 +177,10 @@ describe("Agent Box", () => {
             state: {
               ".codex": {
                 key: "agent-box-test/codex",
-                seed: { "auth.json": { contents: '{"token":"box"}\n' } },
+                seed: {
+                  "auth.json": { contents: '{"token":"box"}\n' },
+                  "skills/local/SKILL.md": { contents: "Local skill.\n" },
+                },
               },
             },
           },
@@ -200,9 +196,16 @@ describe("Agent Box", () => {
         ],
         driver: { ...createCodexDriver(), sessionKey: "thread-1" },
       }), {
-        [Symbol.for("vitehub.agent.colocatedSkills")]: colocatedSkills,
+        [colocatedSkills]: {
+          review: {
+            content: new TextEncoder().encode("# Review\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/review/SKILL.md",
+          },
+        },
       })
-      harnessObservation.globalSkills = ["global", "review"]
+      harnessObservation.globalSkills = ["global", "local", "review"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -220,8 +223,8 @@ describe("Agent Box", () => {
       expect(codexHome).toBe(join(reportedHome, ".codex"))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
-      delete (colocatedSkills as Partial<typeof colocatedSkills>).review
-      harnessObservation.globalSkills = ["global"]
+      Reflect.deleteProperty(agent, colocatedSkills)
+      harnessObservation.globalSkills = ["global", "local"]
       harnessObservation.absentGlobalSkills = ["review"]
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
