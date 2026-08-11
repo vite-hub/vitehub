@@ -59,11 +59,11 @@ describe("docs lane navigation", () => {
       hash: "#runtime",
       lane: "server-primitives",
       page: null,
-      path: "/docs",
+      path: "/docs/",
       query: { source: "test" },
     })).toEqual({
       hash: "#runtime",
-      path: "/docs",
+      path: "/docs/",
       query: { source: "test", lane: "server-primitives" },
     });
     expect(getDocsLaneSelectionTarget({

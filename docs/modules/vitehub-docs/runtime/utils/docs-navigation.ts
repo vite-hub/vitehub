@@ -73,7 +73,7 @@ export function getDocsLaneSelectionTarget({
   path,
   query = {},
 }: DocsLaneSelectionInput) {
-  if (path !== "/docs" && (page?.lanes.length ?? 0) <= 1) {
+  if (normalizeDocsPath(path) !== "/docs" && (page?.lanes.length ?? 0) <= 1) {
     return null;
   }
 
