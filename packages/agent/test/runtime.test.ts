@@ -10866,8 +10866,8 @@ describe("agent message protocol", () => {
         payload: {},
         provider: "vercel",
       }, async () => ({
-        _output: null,
-        initialResponseMessages: new Map([["secret", 1]]),
+        _output: new Map([["secret", 1]]),
+        initialResponseMessages: [],
         steps: [],
         text: "portable text",
         totalUsage: {},

@@ -152,11 +152,17 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
   if (jsonResult !== unportableWorkflowValue) return jsonResult
   const agentResultKeys = ["artifacts", "finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
   const providerResultMarkerKeys = ["_output", "content", "output", "provider", "steps", "totalUsage"]
+  const aiSdkTextResultMarkerKeys = ["_output", "steps", "totalUsage"]
   const providerResultKeys = [...providerResultMarkerKeys, "initialResponseMessages"]
   const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
   if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) unsupportedWorkflowResult()
   if (!Object.keys(result).every(key => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
-  if (Object.hasOwn(result, "initialResponseMessages") && jsonWorkflowValue((result as Record<string, unknown>).initialResponseMessages) === unportableWorkflowValue) unsupportedWorkflowResult()
+  if (Object.hasOwn(result, "initialResponseMessages")) {
+    const prototype = Object.getPrototypeOf(result)
+    const aiSdkTextResultGetterKeys = ["content", "finalStep", "text"]
+    if (!aiSdkTextResultMarkerKeys.every(key => Object.hasOwn(result, key)) || !aiSdkTextResultGetterKeys.every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.get === "function")) unsupportedWorkflowResult()
+    if (jsonWorkflowValue((result as Record<string, unknown>).initialResponseMessages) === unportableWorkflowValue) unsupportedWorkflowResult()
+  }
   if (!providerResultMarkerKeys.some(key => key in result) && !normalizedAgentResultKeys.every(key => Object.hasOwn(result, key))) unsupportedWorkflowResult()
   const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(toAgentRunResult(result))
   const jsonProjected = jsonWorkflowValue(projected)
