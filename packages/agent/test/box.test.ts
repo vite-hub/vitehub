@@ -200,6 +200,16 @@ describe("Agent Box", () => {
           scope: "global",
           source: custom({ files: [{ content: "Trailing global skill.\n", path: "SKILL.md" }] }),
         }),
+        skills({
+          path: "skills/ordered/review",
+          scope: "global",
+          source: custom({ files: [{ content: "Ordered review skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/ordered",
+          scope: "global",
+          source: custom({ files: [{ content: "Ordered ancestor skill.\n", path: "SKILL.md" }] }),
+        }),
       ]
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
@@ -264,7 +274,7 @@ describe("Agent Box", () => {
         },
       })
       harnessObservation.detach = true
-      harnessObservation.globalSkills = ["bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "review", "trailing\n"]
+      harnessObservation.globalSkills = ["bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "trailing\n"]
       harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
@@ -288,6 +298,8 @@ describe("Agent Box", () => {
       )
       await expect(readFile(join(persistentCodexHome, "skills/global/SKILL.md"), "utf8"))
         .resolves.toBe("Unmanaged global skill.\n")
+      await expect(readFile(join(persistentCodexHome, "skills/ordered/SKILL.md"), "utf8"))
+        .resolves.toBe("Ordered ancestor skill.\n")
       await mkdir(join(persistentCodexHome, "skills/.git"))
       await writeFile(
         join(persistentCodexHome, "skills/.git/config"),
@@ -299,7 +311,7 @@ describe("Agent Box", () => {
         source: custom({ files: [{ content: "Ancestor bundle skill.\n", path: "SKILL.md" }] }),
       }))
       Object.assign(agent, { capabilities: globalSkills })
-      harnessObservation.globalSkills = ["bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "review", "trailing\n"]
+      harnessObservation.globalSkills = ["bundles", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "trailing\n"]
       const continued = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
@@ -333,7 +345,7 @@ describe("Agent Box", () => {
       Reflect.deleteProperty(agent, colocatedSkills)
       globalSkills.splice(2, 1)
       Object.assign(agent, { capabilities: globalSkills })
-      harnessObservation.globalSkills = ["bundles", "global", "legacy", "local"]
+      harnessObservation.globalSkills = ["bundles", "global", "legacy", "local", "ordered", "ordered/review"]
       harnessObservation.absentGlobalSkills = ["global-trailing\n", "line\nbreak", "review", "trailing\n"]
       await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),

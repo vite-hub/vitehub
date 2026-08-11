@@ -1185,7 +1185,10 @@ async function prepareHarnessGlobalSkills(
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
   }
   if (!resolved) return
-  const encodedSkillDirectories = resolved.paths.map(path => `'${Buffer.from(path).toString("base64")}'`).join(" ")
+  const encodedSkillDirectories = resolved.paths
+    .toSorted((left, right) => left.split("/").length - right.split("/").length || left.localeCompare(right))
+    .map(path => `'${Buffer.from(path).toString("base64")}'`)
+    .join(" ")
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
   const stagingDirectory = `${directory}.vitehub-global-skills-${globalThis.crypto.randomUUID()}`
   const quotedStagingDirectory = `'${stagingDirectory.replace(/'/g, "'\\''")}'`
