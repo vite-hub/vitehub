@@ -70,7 +70,7 @@ The authenticated route or Channel should supply that id. Do not accept an arbit
 
 Keep transcript keys aligned with the product boundary. Use thread keys when each platform thread is independent; include Channel or tenant identity when ids can collide across providers.
 
-History selection and persistence are separate decisions. The Chat Capability can select a bounded window, but the configured store owns durability, ordering, retention, and deletion. Without a persistent store, process-local history disappears with the process.
+History selection and persistence are separate decisions. The Chat Capability can select a bounded window, but the configured store owns durability, ordering, retention, and deletion. Local development can use process-local state, but generated non-Cloudflare production output requires a durable `VITEHUB_AGENT_STATE_URL` or explicit Agent State provider URL before stateful traffic. Cloudflare, Vercel, and Netlify production output reject `file:` URLs because their compute filesystems are ephemeral.
 
 ## Inspect the result
 

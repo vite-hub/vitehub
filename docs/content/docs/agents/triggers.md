@@ -92,11 +92,19 @@ import { defineAgent } from '@vite-hub/agent'
 import { defineChannel } from '@vite-hub/agent/channels'
 
 const ticketing = defineChannel('ticketing', {
+  messages: false,
   triggers: {
     'ticket.opened': {
-      input({ event }) {
+      invoke(context, event: { ticketId: string, summary: string }) {
         return {
-          prompt: `Triage ticket ${event.ticketId}: ${event.summary}`,
+          input: {
+            prompt: `Triage ticket ${event.ticketId}: ${event.summary}`,
+          },
+          run: {
+            channelId: context.trigger.channelId,
+            origin: 'ticketing',
+            runId: event.ticketId,
+          },
         }
       },
     },

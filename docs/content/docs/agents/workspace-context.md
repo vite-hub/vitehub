@@ -36,7 +36,7 @@ Declare a Source and grant a model-backed Driver read-only shell access:
 ```ts [server/agents/docs/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { file } from '@vite-hub/workspace'
+import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -49,7 +49,7 @@ export default defineAgent({
   capabilities: [workspaceShell({ mode: 'read' })],
   workspace: {
     sources: {
-      docs: file({ path: './docs/content' }),
+      docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
     },
   },
 })
@@ -62,11 +62,11 @@ The Source makes files available under the Workspace. `workspaceShell({ mode: 'r
 Use `defineWorkspace()` when several Agents share the same file tree or Source configuration.
 
 ```ts [server/workspaces/product-docs.ts]
-import { defineWorkspace, file } from '@vite-hub/workspace'
+import { defineWorkspace, glob } from '@vite-hub/workspace'
 
 export const productDocs = defineWorkspace({
   sources: {
-    docs: file({ path: './docs/content' }),
+    docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
   },
 })
 ```

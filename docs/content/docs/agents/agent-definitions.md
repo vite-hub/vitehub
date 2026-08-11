@@ -44,7 +44,7 @@ Capabilities decide which runtime abilities the selected Driver receives. Worksp
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { file } from '@vite-hub/workspace'
+import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -54,7 +54,7 @@ export default defineAgent({
   capabilities: [workspaceShell({ mode: 'read' })],
   workspace: {
     sources: {
-      docs: file({ path: './docs/content' }),
+      docs: glob({ cwd: '.', include: ['docs/content/**/*.md'] }),
     },
   },
 })
