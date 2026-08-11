@@ -17,12 +17,13 @@ Authenticate at the application boundary, then pass only validated identity fact
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support'
+import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthenticatedUser(event)
   const { prompt } = await readBody<{ prompt: string }>(event)
 
-  return runAgent(support, { runtime: 'unknown' }, {
+  return runAgent(support, getRuntimeContext(event), {
     prompt,
     context: {
       invoker: {

@@ -15,12 +15,13 @@ Use `runAgent()` when the caller needs the final result.
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support'
+import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const { prompt } = await readBody<{ prompt: string }>(event)
   const user = await requireAuthenticatedUser(event)
 
-  return runAgent(support, { runtime: 'unknown' }, {
+  return runAgent(support, getRuntimeContext(event), {
     prompt,
     context: {
       invoker: {
@@ -35,7 +36,7 @@ export default defineEventHandler(async (event) => {
 
 Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Actor](/docs/agents/actors).
 
-The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. Keeping them separate prevents host resources from becoming user-controlled task data.
+The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. The application-owned `getRuntimeContext()` helper supplies the host's required `runtime`, `memo`, and `waitUntil` values. Keeping them separate prevents host resources from becoming user-controlled task data.
 
 ## Stream an Agent
 
@@ -44,13 +45,14 @@ Use `streamAgent()` when a chat UI or internal consumer should receive increment
 ```ts [server/api/support-stream.post.ts]
 import { streamAgent } from '@vite-hub/agent'
 import support from '../agents/support'
+import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const { prompt } = await readBody<{ prompt: string }>(event)
 
   return streamAgent(
     support,
-    { runtime: 'unknown' },
+    getRuntimeContext(event),
     { prompt },
     { output: 'ui-message-stream' },
   )
@@ -68,6 +70,7 @@ Use `runAgentTrigger()` or `streamAgentTrigger()` when a Capability owns the eve
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from '@vite-hub/agent'
 import support from '../agents/support'
+import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const { text } = await readBody<{ text: string }>(event)
@@ -75,7 +78,7 @@ export default defineEventHandler(async (event) => {
 
   return streamAgentTrigger(
     support,
-    { runtime: 'unknown' },
+    getRuntimeContext(event),
     'chat.message',
     {
       messages: [{

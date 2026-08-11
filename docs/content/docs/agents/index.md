@@ -52,10 +52,11 @@ Use `runAgent()` when the caller needs one final result.
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support/agent'
+import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const { prompt } = await readBody<{ prompt: string }>(event)
-  return runAgent(support, { runtime: 'unknown' }, { prompt })
+  return runAgent(support, getRuntimeContext(event), { prompt })
 })
 ```
 
@@ -66,7 +67,7 @@ curl http://localhost:3000/api/support \
   --data '{"prompt":"How do I add a server primitive?"}'
 ```
 
-The route returns the Agent's final result. Use [`streamAgent()`](/docs/agents/invocations#stream-an-agent) when a UI should receive incremental output.
+The application-owned `getRuntimeContext()` helper supplies the host's required `runtime`, `memo`, and `waitUntil` values. The route returns the Agent's final result. Use [`streamAgent()`](/docs/agents/invocations#stream-an-agent) when a UI should receive incremental output.
 
 ## Connect it
 
