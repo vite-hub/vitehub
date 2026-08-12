@@ -9475,7 +9475,7 @@ describe("server helpers", () => {
       channels: {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
-          messages: { delivery: "manual", timeout: 60_000 },
+          messages: { delivery: "manual", timeout: 20 },
         }),
       },
       driver: { run: async ({ input }) => {
@@ -9488,7 +9488,7 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ provider: "vercel" })
 
     try {
       const response = await Promise.race([
@@ -9504,15 +9504,152 @@ describe("server helpers", () => {
       if (response === "blocked") throw new Error("Durable chat delivery waited for Workflow completion.")
       expect(response.status).toBe(200)
       expect(adapter.postMessage).not.toHaveBeenCalled()
+      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
       release()
       await Promise.all(waitUntilTasks)
       await vi.waitFor(() => {
         expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Durable reply" })
       })
-      expect(observedTimeout).toBe(60_000)
+      expect(observedTimeout).toBeUndefined()
     }
     finally {
       release()
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("activates Cloudflare Workflow delivery for durable discovered Agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let workflowPayload: { input?: { timeout?: number } } | undefined
+    const create = vi.fn(async ({ id, params }: { id: string, params: typeof workflowPayload }) => {
+      workflowPayload = params
+      return { id, status: async () => ({ status: "queued" }) }
+    })
+    const run = vi.fn(() => "internal output")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", durable: true, timeout: 20 },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(chatWebhookRequest(91_106), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: { create, get: vi.fn() },
+          },
+        },
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+
+      expect(response.status).toBe(200)
+      expect(create).toHaveBeenCalledOnce()
+      expect(workflowPayload?.input?.timeout).toBeUndefined()
+      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+      expect(run).not.toHaveBeenCalled()
+      await Promise.all(waitUntilTasks)
+      await expect(handler(chatWebhookRequest(91_107), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: task => waitUntilTasks.push(task),
+      })).rejects.toThrow("Durable Channel delivery requires this Agent invocation to start a Workflow")
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("preserves an explicit Workflow provider opt-out for durable discovered Agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const create = vi.fn()
+    const run = vi.fn(() => "internal output")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", durable: true },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig(false)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_109), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: { create, get: vi.fn() },
+          },
+        },
+      })).rejects.toThrow("Durable Channel delivery requires this Agent invocation to start a Workflow")
+
+      expect(create).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("stops durable typing when the Workflow handoff fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", durable: true, timeout: 60_000 },
+        }),
+      },
+      driver: { run: () => "internal output" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(91_108), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: {
+          env: {
+            [getCloudflareWorkflowBindingName("calories")]: {
+              create: async () => { throw new Error("Workflow handoff failed") },
+              get: vi.fn(),
+            },
+          },
+        },
+        waitUntil: task => waitUntilTasks.push(task),
+      })).rejects.toThrow("Workflow provider operation failed")
+
+      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+      await expect(Promise.race([
+        Promise.all(waitUntilTasks).then(() => "settled"),
+        new Promise(resolve => setTimeout(() => resolve("blocked"), 100)),
+      ])).resolves.toBe("settled")
+    }
+    finally {
       resetWorkflowRuntime()
     }
   })
