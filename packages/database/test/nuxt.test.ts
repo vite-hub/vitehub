@@ -132,6 +132,7 @@ describe("Database Nuxt integration", () => {
 
     expect(nitroConfig).toEqual({
       alias: {
+        "#vitehub/database/definition-defaults": "/tmp/vitehub-db-nuxt/.vitehub/database/definition-defaults.mjs",
         "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs",
       },
       cloudflare: {
@@ -710,6 +711,7 @@ describe("Database Nuxt integration", () => {
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig.alias).toEqual({
+      "#vitehub/database/definition-defaults": join(rootDir, ".vitehub/database/definition-defaults.mjs"),
       "@vite-hub/database/drizzle": join(rootDir, `.vitehub/database/${provider}-runtime.mjs`),
     })
   })
