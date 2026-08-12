@@ -47,7 +47,7 @@ export interface RunViteHubCliOptions {
 }
 
 async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
-  const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
+  const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.cts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
   if (!hasNuxtConfig) return
 
@@ -64,7 +64,9 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly 
     const config = await resolveConfig({
       ...nuxt.options.vite,
       configFile: false,
-      root: nuxt.options.rootDir || rootDir,
+      root: typeof nuxt.options.vite.root === "string"
+        ? resolve(nuxt.options.rootDir || rootDir, nuxt.options.vite.root)
+        : nuxt.options.rootDir || rootDir,
     }, "serve", "development")
     return {
       plugins: config.plugins,
