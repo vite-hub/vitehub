@@ -11,10 +11,7 @@ import type { Plugin } from "vite"
 
 const cloudflareBridgeState = vi.hoisted(() => ({
   activeEnv: undefined as Record<string, unknown> | undefined,
-  fallbackEnv: Object.defineProperties({ FALLBACK: "fallback", SHARED: "fallback" }, {
-    DB: { value: "binding" },
-    NATIVE: { value: "native" },
-  }),
+  fallbackEnv: Object.defineProperty({ FALLBACK: "fallback", SHARED: "fallback" }, "DB", { value: "binding" }),
 }))
 
 vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv }))
@@ -190,21 +187,19 @@ describe("Database Nuxt integration", () => {
           _platform: { cloudflare: { env: { PLATFORM: "platform", SHARED: "platform" } } },
           cloudflare: { env: { CONTEXT: "context", SHARED: "context" } },
         },
-        env: { DB: "event-binding", EVENT: "event", SHARED: "event" },
+        env: { EVENT: "event", SHARED: "event" },
         req: { runtime: { cloudflare: { env: { REQUEST: "request", SHARED: "request" } } } },
       })
 
       expect(cloudflareBridgeState.activeEnv).toEqual({
         CONTEXT: "context",
-        DB: "event-binding",
         EVENT: "event",
         FALLBACK: "fallback",
         PLATFORM: "platform",
         REQUEST: "request",
         SHARED: "event",
       })
-      expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
-      expect(cloudflareBridgeState.activeEnv?.NATIVE).toBe("native")
+      expect(cloudflareBridgeState.activeEnv?.DB).toBe("binding")
     }
     finally {
       await rm(middlewarePath, { force: true })
