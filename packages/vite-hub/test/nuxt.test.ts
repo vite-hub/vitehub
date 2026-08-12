@@ -326,13 +326,13 @@ describe("ViteHub Nuxt integration", () => {
       nitro: {
         typescript: {
           tsConfig: {
-            include: ["../.vitehub/types/**/*.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
+            include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
           },
         },
       },
       typescript: {
         tsConfig: {
-          include: ["../.vitehub/types/**/*.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
+          include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
         },
       },
     })
@@ -345,7 +345,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
-        include: ["../.vitehub/types/**/*.d.ts", "../apps/api/.vitehub/types/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../apps/api/.vitehub/types.d.ts"],
       },
     })
   })
@@ -362,10 +362,23 @@ describe("ViteHub Nuxt integration", () => {
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
         include: [
-          "../.vitehub/types/**/*.d.ts",
-          "../apps/api/.vitehub/types/**/*.d.ts",
-          "../packages/config/.vitehub/types/**/*.d.ts",
+          "../.vitehub/types.d.ts",
+          "../apps/api/.vitehub/types.d.ts",
+          "../packages/config/.vitehub/types.d.ts",
         ],
+      },
+    })
+  })
+
+  it("resolves generated type roots from the effective Vite root", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options.vite, { root: "app" })
+
+    await viteHubNuxtModule({ env: { projectRoot: "packages/config" }, preset: "node" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        include: ["../app/.vitehub/types.d.ts", "../app/packages/config/.vitehub/types.d.ts"],
       },
     })
   })
