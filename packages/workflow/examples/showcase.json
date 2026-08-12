@@ -22,7 +22,7 @@
       "id": "openworkflow",
       "label": "Docker/OpenWorkflow",
       "icon": "i-simple-icons-docker",
-      "configOverride": "  workflow: {\n    provider: 'openworkflow',\n    sqlite: {\n      path: '.data/workflow.sqlite',\n    },\n  },"
+      "configOverride": "  workflow: {\n    provider: 'openworkflow',\n    sqlite: {\n      path: '.vitehub/data/workflow.sqlite',\n    },\n  },"
     }
   ],
   "frameworks": {
