@@ -107,7 +107,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     if (typeof hook === "function") {
       hook("nitro:config", async (config) => {
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
-        if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved) {
+        if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved?.reason === "missing-database-id") {
           throw new TypeError(
             `[vitehub] Cloudflare D1 database ${JSON.stringify(d1.unresolved.database)} requires database.databaseId or provision state. Set database.databaseId or run \`vitehub provision run --provider cloudflare\`.`,
           )

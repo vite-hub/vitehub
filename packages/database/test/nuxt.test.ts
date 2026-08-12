@@ -513,6 +513,23 @@ describe("Database Nuxt integration", () => {
     )
   })
 
+  it("does not report a missing D1 id when only the database name is unresolved", async () => {
+    const { hooks, nuxt } = createNuxt({
+      database: {
+        databaseId: "content-id",
+        driver: "d1",
+      },
+      dev: false,
+      rootDir: "/tmp/vitehub-db-nuxt-missing-name",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).resolves.toBeUndefined()
+    expect(nuxt.options.nitro).toBeUndefined()
+  })
+
   it("uses provisioned D1 ids in Nuxt Cloudflare output", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provisioned-"))
     const definition = join(rootDir, "server/databases/config.ts")
