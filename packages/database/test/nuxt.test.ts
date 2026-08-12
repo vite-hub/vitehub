@@ -21,6 +21,7 @@ vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv })
 vi.mock("@vite-hub/database/runtime/state", () => ({
   setActiveCloudflareEnv: (env: Record<string, unknown>) => {
     cloudflareBridgeState.activeEnv = env
+    ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = env
   },
 }))
 
@@ -186,8 +187,8 @@ describe("Database Nuxt integration", () => {
       await hubDb()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
 
-      const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty({}, "DB", { value: "native-binding" })
+      const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
       middleware({
         context: {
           _platform: { cloudflare: { env: { PLATFORM: "platform", SHARED: "platform" } } },
@@ -208,6 +209,8 @@ describe("Database Nuxt integration", () => {
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
       middleware({})
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
+      expect(cloudflareBridgeState.activeEnv).not.toHaveProperty("EVENT")
+      expect(cloudflareBridgeState.activeEnv).not.toHaveProperty("REQUEST")
     }
     finally {
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = previousEnv
