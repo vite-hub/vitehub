@@ -1,4 +1,4 @@
-import { join, relative } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -35,13 +35,19 @@ type NuxtLike = {
 }
 
 const agentVueComposables = ["useAgent", "useChat"]
+const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
-function addTypeScriptDefaults(options: Record<string, unknown>, include: string, types: string[] = []): void {
+function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[]): void {
   const typescript = (options.typescript ??= {}) as Record<string, unknown>
   const tsConfig = (typescript.tsConfig ??= {}) as Record<string, unknown>
-  const compilerOptions = (tsConfig.compilerOptions ??= {}) as Record<string, unknown>
-  tsConfig.include = [...new Set([...((tsConfig.include as string[] | undefined) ?? []), include])]
-  if (types.length) compilerOptions.types = [...new Set([...((compilerOptions.types as string[] | undefined) ?? []), ...types])]
+  tsConfig.include = [...new Set([...((tsConfig.include as string[] | undefined) ?? []), ...includes])]
+}
+
+function configuredProjectRoots(options: object, rootDir: string): string[] {
+  return Object.values(options as Record<string, unknown>)
+    .filter((value): value is { projectRoot: string } =>
+      Boolean(value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"))
+    .map(value => resolve(rootDir, value.projectRoot))
 }
 
 function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
@@ -208,10 +214,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...nuxt.options.vitehub,
     ...inlineOptions,
   } as Parameters<typeof vitehub>[0]
-  const generatedTypes = relative(nuxt.options.buildDir, join(nuxt.options.rootDir || process.cwd(), ".vitehub/types/**/*.d.ts"))
-  const platformTypes = options.preset === "cloudflare" ? ["@cloudflare/workers-types"] : []
-  addTypeScriptDefaults(nuxt.options, generatedTypes, platformTypes)
-  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, platformTypes)
+  const rootDir = nuxt.options.rootDir || process.cwd()
+  const generatedTypes = [...new Set([rootDir, ...configuredProjectRoots(options, rootDir)])]
+    .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/types/**/*.d.ts")))
+  if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
+  addTypeScriptDefaults(nuxt.options, generatedTypes)
+  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes)
 
   const plugins = flattenPlugins(vitehub(options))
     .filter(plugin => plugin.name !== "vite-hub/deployment-output")

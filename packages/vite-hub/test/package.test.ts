@@ -217,6 +217,8 @@ describe("framework package contract", () => {
 
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(/^#!\/usr\/bin\/env node/)
     expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain('import "@vite-hub/env/vite"')
+    expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain('@cloudflare/workers-types')
+    expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
 
   it("derives deduplicated binary entries from the package manifest", () => {

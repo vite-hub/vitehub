@@ -326,16 +326,46 @@ describe("ViteHub Nuxt integration", () => {
       nitro: {
         typescript: {
           tsConfig: {
-            compilerOptions: { types: ["@cloudflare/workers-types"] },
-            include: ["../.vitehub/types/**/*.d.ts"],
+            include: ["../.vitehub/types/**/*.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
           },
         },
       },
       typescript: {
         tsConfig: {
-          compilerOptions: { types: ["@cloudflare/workers-types"] },
-          include: ["../.vitehub/types/**/*.d.ts"],
+          include: ["../.vitehub/types/**/*.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
         },
+      },
+    })
+  })
+
+  it("includes generated types from a configured Env project root", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ env: { projectRoot: "apps/api" }, preset: "node" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        include: ["../.vitehub/types/**/*.d.ts", "../apps/api/.vitehub/types/**/*.d.ts"],
+      },
+    })
+  })
+
+  it("includes generated types from every configured integration project root", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({
+      channels: { projectRoot: "apps/api" },
+      env: { projectRoot: "packages/config" },
+      preset: "node",
+    }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        include: [
+          "../.vitehub/types/**/*.d.ts",
+          "../apps/api/.vitehub/types/**/*.d.ts",
+          "../packages/config/.vitehub/types/**/*.d.ts",
+        ],
       },
     })
   })
