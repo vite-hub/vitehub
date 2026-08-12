@@ -22,7 +22,6 @@ type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOpt
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
-const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
 const databaseRuntimeDir = fileURLToPath(new URL("./runtime/", import.meta.url))
 
@@ -339,9 +338,6 @@ function mergeNitroDatabaseRuntimeAlias(
 ) {
   if (provider !== "cloudflare" && provider !== "vercel") return
   const alias = ensureRecord(config, "alias")
-  if (!(databaseDefinitionDefaultsImport in alias)) {
-    alias[databaseDefinitionDefaultsImport] = resolve(root, ".vitehub/database/definition-defaults.mjs")
-  }
   if (!(databaseDrizzleImport in alias)) {
     alias[databaseDrizzleImport] = resolve(root, `.vitehub/database/${provider}-runtime.mjs`)
   }
