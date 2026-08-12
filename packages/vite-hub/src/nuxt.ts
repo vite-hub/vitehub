@@ -221,7 +221,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),
     ...configuredProjectRoots(options, viteRoot)
       .filter(root => root !== projectRoot)
-      .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/types/**/*.d.ts"))),
+      .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/**/*.d.ts"))),
   ]
   if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
   addTypeScriptDefaults(nuxt.options, generatedTypes)
