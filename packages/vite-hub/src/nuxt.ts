@@ -1,7 +1,7 @@
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { mergeConfig } from "vite"
@@ -216,8 +216,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   } as Parameters<typeof vitehub>[0]
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
-  const generatedTypes = [...new Set([viteRoot, ...configuredProjectRoots(options, viteRoot)])]
-    .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/types.d.ts")))
+  const projectRoot = resolveViteHubProjectRoot(viteRoot)
+  const generatedTypes = [
+    relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),
+    ...configuredProjectRoots(options, viteRoot)
+      .filter(root => root !== projectRoot)
+      .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/types/**/*.d.ts"))),
+  ]
   if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
   addTypeScriptDefaults(nuxt.options, generatedTypes)
   addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes)

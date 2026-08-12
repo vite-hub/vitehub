@@ -345,7 +345,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
-        include: ["../.vitehub/types.d.ts", "../apps/api/.vitehub/types.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../apps/api/.vitehub/types/**/*.d.ts"],
       },
     })
   })
@@ -363,8 +363,8 @@ describe("ViteHub Nuxt integration", () => {
       tsConfig: {
         include: [
           "../.vitehub/types.d.ts",
-          "../apps/api/.vitehub/types.d.ts",
-          "../packages/config/.vitehub/types.d.ts",
+          "../apps/api/.vitehub/types/**/*.d.ts",
+          "../packages/config/.vitehub/types/**/*.d.ts",
         ],
       },
     })
@@ -378,7 +378,7 @@ describe("ViteHub Nuxt integration", () => {
 
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
       tsConfig: {
-        include: ["../app/.vitehub/types.d.ts", "../app/packages/config/.vitehub/types.d.ts"],
+        include: ["../app/.vitehub/types.d.ts", "../app/packages/config/.vitehub/types/**/*.d.ts"],
       },
     })
   })
