@@ -164,7 +164,7 @@ describe("Database Nuxt integration", () => {
     })
     const middleware = await readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8")
     expect(middleware).toContain("setActiveCloudflareEnv")
-    expect(middleware).toContain("Reflect.get(vitehubEnv as object, property)")
+    expect(middleware).toContain("Object.create(vitehubEnv as object)")
   })
 
   it("merges split Cloudflare bindings with request-local precedence", async () => {
