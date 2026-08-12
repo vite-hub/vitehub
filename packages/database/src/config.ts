@@ -366,7 +366,7 @@ export function resolveDBViteConfig(
     databases,
     definitionCloudflareConfigured,
     definitionDefaults: {
-      ...(options && options.driver === "d1" && !("nuxtHostResource" in options && options.nuxtHostResource === true)
+      ...(options && options.driver === "d1"
         ? { cloudflare: { binding: options.binding } }
         : {}),
       ...(options && options.connection ? { connection: options.connection } : {}),
