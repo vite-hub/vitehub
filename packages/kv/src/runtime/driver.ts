@@ -32,8 +32,8 @@ async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<Driver
       return factory(store)
     }
     case "fs-lite": {
-      const { default: factory } = await import("unstorage/drivers/fs-lite")
-      return factory(store)
+      const { createFsLiteKVRuntimeDriver } = await import("./fs-lite.ts")
+      return createFsLiteKVRuntimeDriver(store)
     }
     case "upstash": {
       const { default: factory } = await import("@vite-hub/kv/runtime/upstash-driver")

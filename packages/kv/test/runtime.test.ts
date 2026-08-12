@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createStorage } from "unstorage"
 import type { Driver } from "unstorage"
 import memoryDriver from "unstorage/drivers/memory"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import type { KVResult } from "../src/types.ts"
 
@@ -330,5 +333,28 @@ describe("kv runtime", () => {
     await driver.dispose?.()
     expect(openKv).toHaveBeenCalledWith(":memory:")
     expect(close).toHaveBeenCalledOnce()
+  })
+})
+
+describe("local kv runtime", () => {
+  it("stores a key alongside keys nested below it", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-kv-prefix-"))
+    const { createFsLiteKVRuntimeDriver } = await vi.importActual<typeof import("../src/runtime/fs-lite.ts")>("../src/runtime/fs-lite.ts")
+    const storage = createStorage({ driver: createFsLiteKVRuntimeDriver({ base, driver: "fs-lite" }) })
+
+    try {
+      await storage.setItem("pull-requests/898/state", { phase: "ready" })
+      await storage.setItem("pull-requests/898", "fingerprint")
+
+      expect(await storage.getItem("pull-requests/898/state")).toEqual({ phase: "ready" })
+      expect(await storage.getItem("pull-requests/898")).toBe("fingerprint")
+      expect(await storage.getKeys()).toEqual(expect.arrayContaining([
+        "pull-requests:898",
+        "pull-requests:898:state",
+      ]))
+    }
+    finally {
+      await rm(base, { force: true, recursive: true })
+    }
   })
 })
