@@ -57,11 +57,11 @@ export interface DatabaseIntegrationOptions {
     generate?: false
     migrate?: false
   }
+  projectRoot?: string
 }
 
 export type DatabaseNuxtIntegrationOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
   connection?: DatabaseConnectionConfig
-  projectRoot?: string
 }
 
 export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {

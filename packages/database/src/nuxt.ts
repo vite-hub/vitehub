@@ -253,6 +253,9 @@ function resolveDatabaseNuxtOptions(
 
 function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions): DBModulePublicOptions | undefined {
   const viteOptions: Exclude<DBModulePublicOptions, false> & { nuxtHostResource?: true } = { nuxtHostResource: true }
+  if (options.projectRoot) {
+    viteOptions.projectRoot = options.projectRoot
+  }
   if ("cli" in options) {
     viteOptions.cli = options.cli
   }
