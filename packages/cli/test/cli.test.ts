@@ -165,6 +165,24 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toContain("create\ttest-resource\tdemo")
   })
 
+  it("collects provision steps installed by Nuxt modules", async () => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({ ids: { cloudflare: { test: { demo: "id" } } } }))
+    const stdout = stream()
+
+    const exitCode = await runViteHubCli({
+      args: ["provision", "run", "--provider", "cloudflare", "--dry-run"],
+      cwd: rootDir,
+      loadConfig: async () => ({ plugins: [], root: rootDir }) as never,
+      loadNuxtVitePlugins: async () => [provisionPlugin(apply)],
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(apply).not.toHaveBeenCalled()
+    expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+  })
+
   it("fails closed when provision credentials are missing", async () => {
     const rootDir = await createTempDir()
     const apply = vi.fn(async () => ({}))
