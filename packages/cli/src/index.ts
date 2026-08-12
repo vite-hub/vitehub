@@ -142,7 +142,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
   const config = await (options.loadConfig || loadViteConfig)(cwd)
-  const nuxtConfig = await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
+  const nuxtConfig = options.loadConfig
+    ? undefined
+    : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
   const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])] as typeof config.plugins
   const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
   const namespaces = [

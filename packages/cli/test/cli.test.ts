@@ -175,7 +175,6 @@ describe("ViteHub CLI", () => {
       args: ["provision", "run", "--provider", "cloudflare"],
       cwd: rootDir,
       env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
-      loadConfig: async () => ({ plugins: [], root: rootDir }) as never,
       loadNuxtViteConfig: async () => ({
         plugins: [{ vitehub: { cli: { namespaces: [], provision: [{ id: "test:cloudflare", provider: "cloudflare", plan }] } } }],
         root: join(rootDir, "app"),
@@ -188,6 +187,20 @@ describe("ViteHub CLI", () => {
     expect(apply).toHaveBeenCalledOnce()
     expect(JSON.parse(await readFile(join(rootDir, "app", ".vitehub", "provision.json"), "utf8")))
       .toEqual({ cloudflare: { test: { demo: "id" } } })
+  })
+
+  it("does not append raw Nuxt plugins to an already resolved config", async () => {
+    const resolvedPlugin = { name: "resolved" }
+    const loadNuxtViteConfig = vi.fn()
+
+    await runViteHubCli({
+      args: ["--help"],
+      loadConfig: async () => ({ plugins: [resolvedPlugin], root: "/repo" }) as never,
+      loadNuxtViteConfig,
+      stdout: stream(),
+    })
+
+    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 
   it("fails closed when provision credentials are missing", async () => {
