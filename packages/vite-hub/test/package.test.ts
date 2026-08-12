@@ -216,6 +216,7 @@ describe("framework package contract", () => {
     }
 
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(/^#!\/usr\/bin\/env node/)
+    expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain('import "@vite-hub/env/vite"')
   })
 
   it("derives deduplicated binary entries from the package manifest", () => {

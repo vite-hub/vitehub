@@ -317,6 +317,29 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("adds generated and Cloudflare types to Nuxt and Nitro", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(nuxt.options).toMatchObject({
+      nitro: {
+        typescript: {
+          tsConfig: {
+            compilerOptions: { types: ["@cloudflare/workers-types"] },
+            include: ["../.vitehub/types/**/*.d.ts"],
+          },
+        },
+      },
+      typescript: {
+        tsConfig: {
+          compilerOptions: { types: ["@cloudflare/workers-types"] },
+          include: ["../.vitehub/types/**/*.d.ts"],
+        },
+      },
+    })
+  })
+
   it("installs the Database Nuxt runtime alias through the framework module", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options.vite, {
@@ -469,10 +492,12 @@ describe("ViteHub Nuxt integration", () => {
 
     const options = nuxt.options as typeof nuxt.options & {
       imports: { imports: Array<{ from: string, name: string }> }
+      nitro: Record<string, unknown>
     }
     expect(options.imports.imports).toHaveLength(5)
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
-    expect(options).not.toHaveProperty("nitro")
+    expect(options.nitro).not.toHaveProperty("alias")
+    expect(options.nitro).not.toHaveProperty("plugins")
   })
 
   it("does not concatenate complete Nitro arrays returned by config hooks", async () => {

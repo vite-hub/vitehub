@@ -1,4 +1,4 @@
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -24,15 +24,25 @@ type NuxtLike = {
     imports?: {
       imports?: Array<{ as?: string, from: string, name: string }>
     }
+    nitro?: Record<string, unknown>
     rootDir?: string
     serverDir?: string
     srcDir?: string
     vite?: UserConfig
     vitehub?: Parameters<typeof vitehub>[0]
+    typescript?: Record<string, unknown>
   }
 }
 
 const agentVueComposables = ["useAgent", "useChat"]
+
+function addTypeScriptDefaults(options: Record<string, unknown>, include: string, types: string[] = []): void {
+  const typescript = (options.typescript ??= {}) as Record<string, unknown>
+  const tsConfig = (typescript.tsConfig ??= {}) as Record<string, unknown>
+  const compilerOptions = (tsConfig.compilerOptions ??= {}) as Record<string, unknown>
+  tsConfig.include = [...new Set([...((tsConfig.include as string[] | undefined) ?? []), include])]
+  if (types.length) compilerOptions.types = [...new Set([...((compilerOptions.types as string[] | undefined) ?? []), ...types])]
+}
 
 function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   nuxt.options.imports ??= {}
@@ -198,6 +208,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...nuxt.options.vitehub,
     ...inlineOptions,
   } as Parameters<typeof vitehub>[0]
+  const generatedTypes = relative(nuxt.options.buildDir, join(nuxt.options.rootDir || process.cwd(), ".vitehub/types/**/*.d.ts"))
+  const platformTypes = options.preset === "cloudflare" ? ["@cloudflare/workers-types"] : []
+  addTypeScriptDefaults(nuxt.options, generatedTypes, platformTypes)
+  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, platformTypes)
 
   const plugins = flattenPlugins(vitehub(options))
     .filter(plugin => plugin.name !== "vite-hub/deployment-output")

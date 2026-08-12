@@ -12,7 +12,7 @@ describe("blob config", () => {
   it("defaults to fs locally", () => {
     expect(normalizeBlobOptions(undefined)).toEqual({
       store: {
-        base: ".data/blob",
+        base: ".vitehub/data/blob",
         driver: "fs",
       },
     })
@@ -254,7 +254,7 @@ describe("blob config", () => {
         store: "default",
       },
       store: {
-        base: ".data/blob",
+        base: ".vitehub/data/blob",
         driver: "fs",
       },
     })
@@ -325,13 +325,13 @@ describe("blob config", () => {
           driver: "fs",
         },
         default: {
-          base: ".data/blob",
+          base: ".vitehub/data/blob",
           driver: "fs",
         },
       },
     })).toEqual({
       store: {
-        base: ".data/blob",
+        base: ".vitehub/data/blob",
         driver: "fs",
       },
       stores: {
@@ -340,7 +340,7 @@ describe("blob config", () => {
           driver: "fs",
         },
         default: {
-          base: ".data/blob",
+          base: ".vitehub/data/blob",
           driver: "fs",
         },
       },
@@ -358,7 +358,7 @@ describe("blob config", () => {
           driver: "fs",
         },
         default: {
-          base: ".data/blob",
+          base: ".vitehub/data/blob",
           driver: "fs",
         },
       },
@@ -368,7 +368,7 @@ describe("blob config", () => {
         store: "assets",
       },
       store: {
-        base: ".data/blob",
+        base: ".vitehub/data/blob",
         driver: "fs",
       },
       stores: {
@@ -377,7 +377,7 @@ describe("blob config", () => {
           driver: "fs",
         },
         default: {
-          base: ".data/blob",
+          base: ".vitehub/data/blob",
           driver: "fs",
         },
       },
@@ -395,7 +395,7 @@ describe("blob config", () => {
           driver: "fs",
         },
         default: {
-          base: ".data/blob",
+          base: ".vitehub/data/blob",
           driver: "fs",
         },
       },
@@ -487,7 +487,7 @@ describe("blob config", () => {
 
     warnVercelBlobFallback({ logger }, {
       store: {
-        base: ".data/blob",
+        base: ".vitehub/data/blob",
         driver: "fs",
       },
     }, "vercel")
@@ -522,7 +522,7 @@ describe("blob config", () => {
   it("does not require a logger for the Vercel fs fallback warning", () => {
     expect(() => warnVercelBlobFallback({}, {
       store: {
-        base: ".data/blob",
+        base: ".vitehub/data/blob",
         driver: "fs",
       },
     }, "vercel")).not.toThrow()

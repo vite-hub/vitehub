@@ -39,7 +39,7 @@ function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
 ): ResolvedFsBlobStoreConfig {
-  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE") }, { base: ".data/blob", driver: "fs" as const })
+  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE") }, { base: ".vitehub/data/blob", driver: "fs" as const })
 }
 
 function resolveCloudflareStore(

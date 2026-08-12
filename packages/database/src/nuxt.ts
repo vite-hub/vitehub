@@ -294,7 +294,7 @@ function resolveDatabaseNuxtD1Options(
     contentDatabase: nuxtOptions.dev
       ? {
           type: "sqlite",
-          filename: options.local?.filename ?? ".data/content.sqlite",
+          filename: options.local?.filename ?? ".vitehub/data/database/content.sqlite",
         }
       : {
           type: "d1",

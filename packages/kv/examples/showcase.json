@@ -26,7 +26,7 @@
       "id": "fs-lite",
       "label": "Docker/Node",
       "icon": "i-simple-icons-docker",
-      "configOverride": "  kv: {\n    driver: 'fs-lite',\n    base: '.data/kv',\n  },"
+      "configOverride": "  kv: {\n    driver: 'fs-lite',\n    base: '.vitehub/data/kv',\n  },"
     }
   ],
   "frameworks": {

@@ -42,7 +42,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   kv: {
     driver: "fs-lite",
-    base: ".data/kv",
+    base: ".vitehub/data/kv",
   },
   plugins: [hubKv()],
 })

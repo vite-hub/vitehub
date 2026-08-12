@@ -101,6 +101,9 @@ export type {
   VercelAiGatewayPricingOptions,
 } from "./cost.ts"
 export {
+  usage,
+} from "./usage.ts"
+export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export type {

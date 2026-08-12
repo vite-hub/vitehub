@@ -24,7 +24,7 @@ export interface KVResolutionInput {
 }
 
 function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}): ResolvedFsLiteKVStoreConfig {
-  return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: ".data/kv" })
+  return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: ".vitehub/data/kv" })
 }
 
 function resolveCloudflareStore(

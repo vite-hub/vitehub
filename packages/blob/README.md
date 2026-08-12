@@ -44,7 +44,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   blob: {
     driver: "fs",
-    base: ".data/blob",
+    base: ".vitehub/data/blob",
   },
   plugins: [hubBlob()],
 })
@@ -55,7 +55,7 @@ export default defineConfig({
 Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
-At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.data/blob`.
+At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
