@@ -513,7 +513,7 @@ describe("Database Nuxt integration", () => {
     )
   })
 
-  it("does not report a missing D1 id when only the database name is unresolved", async () => {
+  it("reports a missing D1 database name separately from a missing id", async () => {
     const { hooks, nuxt } = createNuxt({
       database: {
         databaseId: "content-id",
@@ -526,7 +526,9 @@ describe("Database Nuxt integration", () => {
 
     await hubDb()(undefined, nuxt)
 
-    await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).resolves.toBeUndefined()
+    await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
+      "Cloudflare D1 output requires database.databaseName",
+    )
     expect(nuxt.options.nitro).toBeUndefined()
   })
 
@@ -585,14 +587,18 @@ describe("Database Nuxt integration", () => {
     ].join("\n"))
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
-      cloudflare: { d1: { $nuxt: "provisioned-id", default: "definition-id" } },
+      cloudflare: { d1: { "@vitehub/database/nuxt:content-db": "provisioned-id", default: "definition-id" } },
     }))
 
     try {
       const { hooks, nuxt } = createNuxt({
         database: {
           driver: "d1",
-          databaseName: "content-db",
+          databaseName: {
+            default: "content-db",
+            kind: "env-variable",
+            source: { kind: "env", name: "VITEHUB_TEST_D1_NAME" },
+          },
         },
         dev: false,
         nitro: { preset: "cloudflare_module" },

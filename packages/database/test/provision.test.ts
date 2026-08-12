@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createDatabaseProvisionStep, databaseNuxtProvisionStateKey } from "../src/provision.ts"
+import { createDatabaseProvisionStep, getDatabaseNuxtProvisionStateKey } from "../src/provision.ts"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
@@ -89,12 +89,13 @@ describe("database provision step", () => {
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: "nuxt-content",
       driver: "d1",
+      nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 
     expect(actions).toHaveLength(1)
     expect(actions[0]).toMatchObject({ exists: true, name: "nuxt-content" })
     await expect(actions[0]!.apply()).resolves.toEqual({
-      ids: { cloudflare: { d1: { [databaseNuxtProvisionStateKey]: "uuid-content" } } },
+      ids: { cloudflare: { d1: { [getDatabaseNuxtProvisionStateKey("nuxt-content")]: "uuid-content" } } },
     })
   })
 
@@ -107,11 +108,12 @@ describe("database provision step", () => {
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: "vitehub-playground-db",
       driver: "d1",
+      nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 
     expect(actions).toHaveLength(1)
     await expect(actions[0]!.apply()).resolves.toEqual({
-      ids: { cloudflare: { d1: { [databaseNuxtProvisionStateKey]: "shared-id", primary: "shared-id" } } },
+      ids: { cloudflare: { d1: { [getDatabaseNuxtProvisionStateKey("vitehub-playground-db")]: "shared-id", primary: "shared-id" } } },
     })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
