@@ -346,7 +346,7 @@ describe("Vite db provider outputs", () => {
     runtimeConfig.databaseNames = ["analytics"]
     runtimeConfig.databases.analytics = runtimeConfig.databases.primary!
     delete runtimeConfig.databases.primary
-    runtimeConfig.definitionDefaults = { cloudflare: { binding: undefined } }
+    runtimeConfig.definitionDefaults = { cloudflare: { binding: "  " } }
     runtimeConfig.definitions[0]!.name = "analytics"
     runtimeConfig.generatedSchemaFilesByDatabase.analytics = runtimeConfig.generatedSchemaFilesByDatabase.primary!
 

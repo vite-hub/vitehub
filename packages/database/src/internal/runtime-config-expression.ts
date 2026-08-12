@@ -1,3 +1,5 @@
+import { resolveCloudflareD1BindingName } from "./cloudflare.ts"
+
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 function getDefaultCloudflareBindingName(name: string) {
@@ -23,7 +25,7 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
   const definitionCloudflareDefaults = config.definitionDefaults.cloudflare
     ? {
         ...config.definitionDefaults.cloudflare,
-        binding: config.definitionDefaults.cloudflare.binding ?? "DB",
+        binding: resolveCloudflareD1BindingName("default", config.definitionDefaults.cloudflare.binding),
       }
     : undefined
   const baseHttp = base.cloudflare?.http
