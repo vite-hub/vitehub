@@ -149,7 +149,7 @@ teams({
 
 Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases that should become public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
 
-Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. Overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
+Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. Overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
 
 ## Scope abilities to one Channel
 

@@ -756,10 +756,23 @@ async function runAgentAsWorkflow<
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
-  const { getWorkflowRuntimeConfig, runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
-  const workflowConfig = getWorkflowRuntimeConfig()
-  if ("discoveryDefault" in binding) {
-    if (!workflowConfig) return undefined
+  const workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+  let workflowConfig = workflowRuntimeState.getWorkflowRuntimeConfig()
+  let activateCloudflareWorkflow = false
+  if ("discoveryDefault" in binding && workflowConfig === undefined) {
+    if (input.context?.[requireAgentWorkflowContextKey] !== true || !cloudflareEnv) return undefined
+    workflowConfig = { provider: "cloudflare" }
+    activateCloudflareWorkflow = true
+  }
+  if ("discoveryDefault" in binding && workflowConfig === false) return undefined
+  if (input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare") {
+    if (!cloudflareEnv) return undefined
+    const workflowName = resolveAgentWorkflowName(agent, binding, context)
+    const workflowBindingName = workflowConfig.binding || (await loadAgentWorkflowModule()).getCloudflareWorkflowBindingName(workflowName)
+    if (!cloudflareEnv[workflowBindingName]) return undefined
+  }
+  if (activateCloudflareWorkflow) {
+    workflowRuntimeState.setWorkflowRuntimeConfig(workflowConfig)
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
@@ -777,6 +790,7 @@ async function runAgentAsWorkflow<
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
   delete workflowInput.abortSignal
+  if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
   if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
   if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
@@ -807,7 +821,7 @@ async function runAgentAsWorkflow<
       ? await portableAgentWorkflowRunId(context.run.runId)
       : context.run.runId
     : undefined
-  const run = await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+  const run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
     payload,
     workflowRunId ? { id: workflowRunId } : {},
   ))

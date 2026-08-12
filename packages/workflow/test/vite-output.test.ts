@@ -210,6 +210,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain("agentWithColocatedSkills")
     expect(registry).toContain("agentWithColocatedHome")
+    expect(registry).toContain('agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, "Use flat Agent instructions.\\n")')
     expect(registry).toContain(Buffer.from("[user]\nname = ViteHub\n").toString("base64"))
     expect(registry).toContain("__vitehubAgentSkill:skills/review/SKILL.md")
     expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))

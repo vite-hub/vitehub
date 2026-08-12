@@ -3073,14 +3073,23 @@ async function handleChatSdkMessage(
     )
     const resolvedInvocationInput = invocation.input as AgentRunInput
     if (durableDelivery) {
-      await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({
-        ...resolvedInvocationInput,
-        context: {
-          ...resolvedInvocationInput.context,
-          [finalChannelOutputContextKey]: true,
-          [requireAgentWorkflowContextKey]: true,
-        },
-      }, invoker) as never)
+      const durableTyping = startChatTypingRefresh(thread, context)
+      const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
+      try {
+        await runAgent(agent as never, runContext as never, withResolvedAgentInvokerInput({
+          ...resolvedInvocationInput,
+          context: {
+            ...resolvedInvocationInput.context,
+            [finalChannelOutputContextKey]: true,
+            [requireAgentWorkflowContextKey]: true,
+          },
+        }, invoker) as never)
+      }
+      catch (error) {
+        clearTimeout(durableTypingTimeout)
+        durableTyping.stop()
+        throw error
+      }
       return
     }
     typing = streamsPhasedReplies || manualDelivery ? startChatTypingRefresh(thread, context) : undefined
