@@ -167,13 +167,12 @@ describe("Database Nuxt integration", () => {
     })
     const middleware = await readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8")
     expect(middleware).toContain("setActiveCloudflareEnv")
-    expect(middleware).toContain(".__env__ ?? vitehubEnv")
+    expect(middleware).toContain("Reflect.get(vitehubEnv as object, property)")
   })
 
   it("merges split Cloudflare bindings with request-local precedence", async () => {
     const rootDir = process.cwd()
     const middlewarePath = join(rootDir, ".vitehub/nitro/database/middleware.ts")
-    const previousEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__
     try {
       const { hooks, nuxt } = createNuxt({
         dev: false,
@@ -186,7 +185,6 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
 
       const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
-      ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty({}, "DB", { value: "native-binding" })
       middleware({
         context: {
           _platform: { cloudflare: { env: { PLATFORM: "platform", SHARED: "platform" } } },
@@ -200,16 +198,15 @@ describe("Database Nuxt integration", () => {
         CONTEXT: "context",
         DB: "event-binding",
         EVENT: "event",
+        FALLBACK: "fallback",
         PLATFORM: "platform",
         REQUEST: "request",
         SHARED: "event",
       })
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
-      middleware({})
-      expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
+      expect(cloudflareBridgeState.activeEnv?.NATIVE).toBe("native")
     }
     finally {
-      ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = previousEnv
       await rm(middlewarePath, { force: true })
     }
   })
