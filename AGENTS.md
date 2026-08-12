@@ -22,7 +22,7 @@ Avoid feature creep. Build reusable primitives developers should not recreate: A
 
 ## Fight For The Obvious API
 
-Avoid cleverness that is elegant only inside the implementation. “Simple” and “obvious” differ: accept more internal machinery when it creates the external contract an agent or developer would assume already works. Push back when normal work exposes plumbing, framework details, or compatibility history.
+Build complex things as simply as possible, and reduce complexity while solving problems. “Simple” and “obvious” differ: accept more internal machinery when it creates the external contract an agent or developer would assume already works. Push back when normal work exposes plumbing, framework details, or compatibility history.
 
 ## Agent-First Runtime Design
 
