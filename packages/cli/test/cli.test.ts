@@ -195,7 +195,7 @@ describe("ViteHub CLI", () => {
 
     await runViteHubCli({
       args: ["--help"],
-      loadConfig: async () => ({ plugins: [resolvedPlugin], root: "/repo", vitehubNuxtResolved: true }) as never,
+      loadConfig: async () => ({ plugins: [resolvedPlugin], root: "/repo", vitehubConfigResolved: true }) as never,
       loadNuxtViteConfig,
       stdout: stream(),
     })

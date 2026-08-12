@@ -39,7 +39,7 @@ describe("ViteHub CLI config loading", () => {
     await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [{ name: "nuxt-vitehub" }],
       root,
-      vitehubNuxtResolved: true,
+      vitehubConfigResolved: true,
     })
     expect(resolveViteConfig).toHaveBeenCalledWith(expect.objectContaining({
       configFile: false,
@@ -53,7 +53,11 @@ describe("ViteHub CLI config loading", () => {
     const loadNuxt = vi.fn()
     const resolveViteConfig = vi.fn(async config => ({ plugins: [], root: String(config.root) }))
 
-    await loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })
+    await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
+      plugins: [],
+      root,
+      vitehubConfigResolved: true,
+    })
 
     expect(loadNuxt).not.toHaveBeenCalled()
     expect(resolveViteConfig).toHaveBeenCalledWith({ root }, "serve", "development")
