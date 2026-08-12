@@ -40,7 +40,7 @@ export default defineConfig({
   ],
   kv: {
     driver: 'fs-lite',
-    base: '.data/kv',
+    base: '.vitehub/data/kv',
   },
 })
 ```

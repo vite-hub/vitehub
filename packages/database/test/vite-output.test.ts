@@ -296,6 +296,23 @@ afterAll(async () => {
 })
 
 describe("Vite db provider outputs", () => {
+  it("resolves the hosted application entry from the Vite root", async () => {
+    const appRootDir = await createWorkspaceTempDir("vitehub-db-vite-app-root-")
+    const rootDir = join(appRootDir, "packages", "db")
+    await mkdir(rootDir, { recursive: true })
+    await mkdir(join(appRootDir, "src"), { recursive: true })
+    await writeFile(join(appRootDir, "src", "server.ts"), "export default { fetch: () => new Response('app') }\n")
+
+    const artifacts = await prepareDatabaseProviderOutputs({
+      appRootDir,
+      rootDir,
+      runtimeConfig: createRuntimeConfig(rootDir, {}),
+    })
+
+    await expect(readFile(artifacts.cloudflareWorkerFile, "utf8"))
+      .resolves.toContain("server.ts")
+  })
+
   it("registers D1 HTTP as a supported Vercel database runtime", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-vercel-registry-")
     const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput

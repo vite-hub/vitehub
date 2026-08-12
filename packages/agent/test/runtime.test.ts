@@ -5993,6 +5993,59 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("lets usage() request OpenRouter usage metadata", async () => {
+    const agentSettings: Record<string, unknown>[] = []
+    loadAiSdk.mockResolvedValue({
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        constructor(settings: Record<string, unknown>) {
+          agentSettings.push(settings)
+        }
+
+        async generate() {
+          return {
+            providerMetadata: { openrouter: { usage: { cost: 0.01 } } },
+            text: "ok",
+            usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+          }
+        }
+      },
+      isStepCount: () => () => false,
+    })
+    const { usage } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usage()],
+      driver: {
+        execution: {
+          callSettings: { providerOptions: { openrouter: { transforms: ["middle-out"] } } },
+        },
+        model: {} as never,
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})
+
+    expect(agentSettings[0]).toMatchObject({
+      providerOptions: {
+        openrouter: {
+          transforms: ["middle-out"],
+          usage: { include: true },
+        },
+      },
+    })
+    expect(finish.mock.calls[0]![0].extensions.get("usage")).toMatchObject({
+      cost: { usd: "0.01" },
+      usage: { totalTokens: 12 },
+    })
+  })
+
   it("rejects raw Channel settings under unknown names", async () => {
     const { defineAgent } = await import("../src/index.ts")
     expect(() => defineAgent({

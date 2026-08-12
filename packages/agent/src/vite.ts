@@ -506,7 +506,7 @@ type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["provide
   ephemeralHosting?: "cloudflare" | "netlify" | "vercel"
 }
 
-const defaultLocalAgentStateUrl = "file:.data/vitehub-agent-state.sqlite"
+const defaultLocalAgentStateUrl = "file:.vitehub/data/agent-state.sqlite"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null

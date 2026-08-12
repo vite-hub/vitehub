@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer as createViteServer } from "vite"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import {
   DB_VIRTUAL_DATABASES_ID,
@@ -169,6 +170,22 @@ describe("hubDb", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/migrations")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("dbCredentials")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
+  })
+
+  it("resolves discovery and generated artifacts from projectRoot", async () => {
+    const rootDir = await createTempProject()
+    const projectRoot = join(rootDir, "packages", "db")
+    await writeDefinition(projectRoot, "server/databases/config.ts")
+
+    const plugin = hubDb({ projectRoot: "packages/db" })
+    const configure = plugin.config as (config: unknown, env: unknown) => void
+    configure({ [VITEHUB_SERVER_DIRS]: [join(rootDir, "server")] }, { command: "serve", mode: "test" })
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    await configResolved({ database: undefined, root: rootDir } as never)
+
+    expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
+    await expect(readFile(join(projectRoot, ".vitehub/database/schema/default.ts"), "utf8"))
+      .resolves.toContain("export const notes")
   })
 
   it("writes one Drizzle config per named database migrations directory", async () => {

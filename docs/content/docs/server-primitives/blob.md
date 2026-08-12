@@ -93,7 +93,7 @@ Every Blob Store config is a discriminated union selected by `driver`. Keep cred
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `driver` | `'fs'` | Required | Selects local filesystem storage. |
-| `base` | `string` | `BLOB_FS_BASE` or `.data/blob` | Sets the storage directory. |
+| `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Sets the storage directory. |
 | `defaultUrlExpiresIn` | `number` | Files SDK default | Sets the default generated URL lifetime in seconds. |
 | `urlBaseUrl` | `string` | None | Sets the base URL returned by the filesystem adapter. |
 

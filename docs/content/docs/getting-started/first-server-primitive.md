@@ -30,7 +30,7 @@ pnpm add vite-hub h3 vite
 ## Configure the Vite Integration
 
 Register `vitehub()` and select the file-backed local KV driver. The explicit
-configuration stores values under `.data/kv`.
+configuration stores values under `.vitehub/data/kv`.
 
 ```ts [vite.config.ts]
 import { resolve } from "node:path"
@@ -54,7 +54,7 @@ export default defineConfig({
       preset: "node",
       blob: false,
       env: false,
-      kv: { driver: "fs-lite", base: ".data/kv" },
+      kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
     }),
   ],
 })

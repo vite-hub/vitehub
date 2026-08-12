@@ -185,7 +185,7 @@ describe("kv runtime", () => {
 
     expect(expectKVSuccess(await kv.get("explicit-host"))).toBe("fs-lite")
     expect(mountedDrivers.fsLite).toMatchObject({
-      base: ".data/kv",
+      base: ".vitehub/data/kv",
       driver: "fs-lite",
     })
     expect(openKv).not.toHaveBeenCalled()
@@ -268,7 +268,7 @@ describe("kv runtime", () => {
     const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
     const driver = createLazyKVRuntimeDriver({
       store: {
-        base: ".data/kv",
+        base: ".vitehub/data/kv",
         driver: "fs-lite",
       },
     }) as Driver & Record<string, unknown>

@@ -627,7 +627,7 @@ describe("hubBlob", () => {
     }
 
     const fsOnCloudflare = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
-    config(hubBlob({ base: ".data/blob", driver: "fs" }), fsOnCloudflare)
+    config(hubBlob({ base: ".vitehub/data/blob", driver: "fs" }), fsOnCloudflare)
     expect(fsOnCloudflare).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets")
     expect(fsOnCloudflare).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["nodejs_compat"])
   })

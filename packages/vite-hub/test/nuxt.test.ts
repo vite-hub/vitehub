@@ -317,6 +317,108 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("adds generated and Cloudflare types to Nuxt and Nitro", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(nuxt.options).toMatchObject({
+      nitro: {
+        typescript: {
+          tsConfig: {
+            include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
+          },
+        },
+      },
+      typescript: {
+        tsConfig: {
+          include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
+        },
+      },
+    })
+  })
+
+  it("includes generated types from a configured Env project root", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ env: { projectRoot: "apps/api" }, preset: "node" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        exclude: ["../apps/api/.vitehub/data/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../apps/api/.vitehub/**/*.d.ts"],
+      },
+    })
+  })
+
+  it("includes generated types from every configured integration project root", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({
+      channels: { projectRoot: "apps/api" },
+      env: { projectRoot: "packages/config" },
+      preset: "node",
+    }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        exclude: [
+          "../apps/api/.vitehub/data/**/*.d.ts",
+          "../packages/config/.vitehub/data/**/*.d.ts",
+        ],
+        include: [
+          "../.vitehub/types.d.ts",
+          "../apps/api/.vitehub/**/*.d.ts",
+          "../packages/config/.vitehub/**/*.d.ts",
+        ],
+      },
+    })
+  })
+
+  it("resolves generated type roots from the effective Vite root", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options.vite, { root: "app" })
+
+    await viteHubNuxtModule({ env: { projectRoot: "packages/config" }, preset: "node" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        exclude: ["../app/packages/config/.vitehub/data/**/*.d.ts"],
+        include: ["../app/.vitehub/types.d.ts", "../app/packages/config/.vitehub/**/*.d.ts"],
+      },
+    })
+  })
+
+  it("resolves Database generated types from the Nuxt root", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options.vite, { root: "app" })
+
+    await viteHubNuxtModule({ database: { projectRoot: "packages/db" }, preset: "node" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        exclude: ["../packages/db/.vitehub/data/**/*.d.ts"],
+        include: ["../app/.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
+      },
+    })
+  })
+
+  it("includes the effective top-level Database project root", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, {
+      database: { projectRoot: "packages/db" },
+    })
+
+    await viteHubNuxtModule({ database: true, preset: "node" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        exclude: ["../packages/db/.vitehub/data/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
+      },
+    })
+  })
+
   it("installs the Database Nuxt runtime alias through the framework module", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options.vite, {
@@ -469,10 +571,12 @@ describe("ViteHub Nuxt integration", () => {
 
     const options = nuxt.options as typeof nuxt.options & {
       imports: { imports: Array<{ from: string, name: string }> }
+      nitro: Record<string, unknown>
     }
     expect(options.imports.imports).toHaveLength(5)
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
-    expect(options).not.toHaveProperty("nitro")
+    expect(options.nitro).not.toHaveProperty("alias")
+    expect(options.nitro).not.toHaveProperty("plugins")
   })
 
   it("does not concatenate complete Nitro arrays returned by config hooks", async () => {

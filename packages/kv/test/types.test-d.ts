@@ -9,7 +9,7 @@ import { hubKv } from "../src/vite.ts"
 describe("types", () => {
   it("narrows kv store configs by driver", () => {
     const store = {
-      base: ".data/kv",
+      base: ".vitehub/data/kv",
       driver: "fs-lite",
     } satisfies KVStoreConfig
 

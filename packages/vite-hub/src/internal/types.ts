@@ -21,7 +21,9 @@ async function collectGeneratedTypeFiles(directory: string, root = directory): P
   const files: string[] = []
   for (const entry of entries) {
     const path = join(directory, entry.name)
-    if (entry.isDirectory()) files.push(...await collectGeneratedTypeFiles(path, root))
+    if (entry.isDirectory() && !(directory === root && entry.name === "data")) {
+      files.push(...await collectGeneratedTypeFiles(path, root))
+    }
     else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
       const generatedPath = relative(root, path).replaceAll("\\", "/")
       if (generatedPath !== "types.d.ts") files.push(generatedPath)

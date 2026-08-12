@@ -35,7 +35,7 @@ function isInside(root: string, path: string) {
 }
 
 function resolveRoot(options: ResolvedFsBlobStoreConfig) {
-  return resolve(options.base || ".data/blob")
+  return resolve(options.base)
 }
 
 function resolveBlobPath(root: string, pathname: string) {

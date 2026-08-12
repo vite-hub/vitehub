@@ -9,7 +9,7 @@ import { hubBlob } from "../src/vite.ts"
 describe("types", () => {
   it("narrows Blob store configs by driver", () => {
     const store = {
-      base: ".data/blob",
+      base: ".vitehub/data/blob",
       driver: "fs",
     } satisfies BlobStoreConfig
 

@@ -782,7 +782,7 @@ describe("Vite provider outputs", () => {
     await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
 
     await generateProviderOutputs({
-      blob: { driver: "fs", base: ".data/blob" },
+      blob: { driver: "fs", base: ".vitehub/data/blob" },
       clientOutDir: "dist",
       rootDir,
     })
@@ -794,7 +794,7 @@ describe("Vite provider outputs", () => {
   it("does not register local fs provider runtimes for composed sibling output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-registry-")
     const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
-    const blob = { driver: "fs" as const, base: ".data/blob" }
+    const blob = { driver: "fs" as const, base: ".vitehub/data/blob" }
 
     await prepareProviderOutputs({ blob, providerOutput, rootDir })
     expect(getProviderRuntimeModule(providerOutput, "blob", "cloudflare")).toBeUndefined()

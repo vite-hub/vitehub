@@ -1526,6 +1526,9 @@ importers:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
         version: 0.8.14
+      '@cloudflare/workers-types':
+        specifier: ^4.20260509.1
+        version: 4.20260509.1
       '@google-cloud/storage':
         specifier: catalog:storage
         version: 7.19.0

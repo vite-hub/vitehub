@@ -746,6 +746,49 @@ describe("Database Nuxt integration", () => {
     expect(code).toContain('"binding":"CONTENT_DB"')
   })
 
+  it("keeps Database generation rooted at Nuxt projectRoot when Vite uses another root", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-project-root-"))
+    const projectRoot = join(rootDir, "packages", "db")
+    const definition = join(projectRoot, "server", "databases", "config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
+
+    try {
+      const { hooks, nuxt } = createNuxt({
+        dev: false,
+        rootDir,
+        serverDir: join(rootDir, "server"),
+        vite: { plugins: [], root: "app" },
+      })
+      await hubDb({
+        databaseId: "content-id",
+        databaseName: "content-db",
+        driver: "d1",
+        projectRoot: "packages/db",
+      })(undefined, nuxt)
+
+      const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({
+        database: (nuxt.options.vite as { database: unknown }).database,
+        root: join(rootDir, "app"),
+      })
+
+      expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
+      await expect(readFile(join(projectRoot, ".vitehub/types/database.d.ts"), "utf8"))
+        .resolves.toContain('declare module "#vitehub/database/databases"')
+
+      const nitroConfig = { alias: {}, modules: [], preset: "cloudflare_module" }
+      await callHook(hooks, "nitro:config", nitroConfig)
+      expect(nitroConfig.alias).toEqual({
+        "@vite-hub/database/drizzle": join(projectRoot, ".vitehub/database/cloudflare-runtime.mjs"),
+      })
+      expect(nitroConfig.modules).toHaveLength(1)
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("preserves the local definition runtime for production Node builds", async () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,

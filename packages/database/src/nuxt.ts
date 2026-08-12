@@ -86,13 +86,15 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           : undefined,
       root,
     })
-    const viteOptions = resolveDatabaseViteOptions(resolvedOptions)
+    const viteOptions = resolveDatabaseViteOptions({ ...resolvedOptions, projectRoot: root })
     if (viteOptions) {
       viteConfig.database = { ...(isRecord(viteConfig.database) ? viteConfig.database : {}), ...viteOptions }
     }
     installVitePlugin(viteConfig, { ...resolvedOptions, projectRoot: root })
 
-    const serverDirs = nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined
+    const serverDirs = resolvedOptions.projectRoot
+      ? [resolve(root, "server")]
+      : nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined
     const databaseConfig = resolvedOptions.driver === "d1"
       ? resolveDBViteConfig(resolvedOptions, root, { serverDirs })
       : undefined
@@ -129,7 +131,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           )
         }
         if (!nuxtOptions.dev) {
-          const runtimeRoot = typeof viteConfig.root === "string" ? viteConfig.root : nuxtOptions.srcDir || root
+          const runtimeRoot = resolvedOptions.projectRoot
+            ? root
+            : typeof viteConfig.root === "string" ? viteConfig.root : nuxtOptions.srcDir || root
           mergeNitroDatabaseRuntimeAlias(config, runtimeRoot, provider ?? (d1 ? "cloudflare" : undefined))
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
@@ -253,6 +257,9 @@ function resolveDatabaseNuxtOptions(
 
 function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions): DBModulePublicOptions | undefined {
   const viteOptions: Exclude<DBModulePublicOptions, false> & { nuxtHostResource?: true } = { nuxtHostResource: true }
+  if (options.projectRoot) {
+    viteOptions.projectRoot = options.projectRoot
+  }
   if ("cli" in options) {
     viteOptions.cli = options.cli
   }
@@ -294,7 +301,7 @@ function resolveDatabaseNuxtD1Options(
     contentDatabase: nuxtOptions.dev
       ? {
           type: "sqlite",
-          filename: options.local?.filename ?? ".data/content.sqlite",
+          filename: options.local?.filename ?? ".vitehub/data/database/content.sqlite",
         }
       : {
           type: "d1",

@@ -10,7 +10,7 @@ describe("normalizeKVOptions", () => {
       hosting: "",
     })).toEqual({
       store: {
-        base: ".data/kv",
+        base: ".vitehub/data/kv",
         driver: "fs-lite",
       },
     })
@@ -163,7 +163,7 @@ describe("normalizeKVOptions", () => {
           driver: "fs-lite",
         },
         default: {
-          base: ".data/kv",
+          base: ".vitehub/data/kv",
           driver: "fs-lite",
         },
       },
@@ -172,7 +172,7 @@ describe("normalizeKVOptions", () => {
       hosting: "",
     })).toEqual({
       store: {
-        base: ".data/kv",
+        base: ".vitehub/data/kv",
         driver: "fs-lite",
       },
       stores: {
@@ -181,7 +181,7 @@ describe("normalizeKVOptions", () => {
           driver: "fs-lite",
         },
         default: {
-          base: ".data/kv",
+          base: ".vitehub/data/kv",
           driver: "fs-lite",
         },
       },

@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -104,13 +106,25 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     return resolved?.database ?? options
   }
 
+  function databaseRoot() {
+    const database = resolvedOptions()
+    return resolve(resolved?.root ?? process.cwd(), database && "projectRoot" in database ? database.projectRoot ?? "." : ".")
+  }
+
+  function databaseServerDirs() {
+    const database = resolvedOptions()
+    return database && "projectRoot" in database && database.projectRoot !== undefined
+      ? [resolve(databaseRoot(), "server")]
+      : serverDirs
+  }
+
   async function refreshRuntimeConfig() {
     if (!resolved) return
-    runtimeConfig = resolveDBViteConfig(resolvedOptions(), resolved.root, { serverDirs })
+    runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), { serverDirs: databaseServerDirs() })
     if (runtimeConfig) {
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
     } else {
-      await removeGeneratedDatabaseTypes(resolved.root)
+      await removeGeneratedDatabaseTypes(databaseRoot())
     }
     return runtimeConfig
   }
@@ -126,7 +140,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const db = resolvedOptions()
         if (db === false) return
         const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
-        const provision = [createDatabaseProvisionStep(() => resolved?.root ?? process.cwd(), db)]
+        const provision = [createDatabaseProvisionStep(databaseRoot, db)]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
     },
@@ -171,8 +185,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
       providerArtifacts = await prepareProviderOutputs({
+        appRootDir: resolved.root,
         providerOutput,
-        rootDir: resolved.root,
+        rootDir: databaseRoot(),
         runtimeConfig,
       })
     },

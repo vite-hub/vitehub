@@ -135,6 +135,8 @@ ignoreDependencies = [
   "@asciidev/box-sdk",
   "@cloudflare/computer",
   "@cloudflare/sandbox",
+  # Injected into generated Cloudflare Nuxt TypeScript configuration.
+  "@cloudflare/workers-types",
   "@google-cloud/storage",
   "@googleapis/drive",
   "@microsoft/microsoft-graph-client",

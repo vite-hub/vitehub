@@ -1,16 +1,20 @@
-import { join } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
 
+import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
+type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database"> & {
+  database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
+}
 
 type NuxtLike = {
   hook?: (name: "nitro:config", callback: (config: Record<string, unknown>) => Promise<void>) => void
@@ -20,19 +24,41 @@ type NuxtLike = {
       baseURL?: string
     }
     buildDir: string
+    database?: DatabaseNuxtIntegrationOptions
     dev?: boolean
     imports?: {
       imports?: Array<{ as?: string, from: string, name: string }>
     }
+    nitro?: Record<string, unknown>
     rootDir?: string
     serverDir?: string
     srcDir?: string
     vite?: UserConfig
-    vitehub?: Parameters<typeof vitehub>[0]
+    vitehub?: ViteHubNuxtOptions
+    typescript?: Record<string, unknown>
   }
 }
 
 const agentVueComposables = ["useAgent", "useChat"]
+const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
+
+function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[]): void {
+  const typescript = (options.typescript ??= {}) as Record<string, unknown>
+  const tsConfig = (typescript.tsConfig ??= {}) as Record<string, unknown>
+  tsConfig.include = [...new Set([...((tsConfig.include as string[] | undefined) ?? []), ...includes])]
+  if (excludes.length > 0) {
+    tsConfig.exclude = [...new Set([...((tsConfig.exclude as string[] | undefined) ?? []), ...excludes])]
+  }
+}
+
+function configuredProjectRoots(options: object, rootDir: string, viteRoot: string): string[] {
+  return Object.entries(options as Record<string, unknown>)
+    .filter((entry): entry is [string, { projectRoot: string }] => {
+      const value = entry[1]
+      return Boolean(value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string")
+    })
+    .map(([name, value]) => resolve(name === "database" ? rootDir : viteRoot, value.projectRoot))
+}
 
 function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   nuxt.options.imports ??= {}
@@ -184,7 +210,7 @@ async function applyNitroConfig(plugins: Plugin[], nitroConfig: Record<string, u
 }
 
 type ViteHubNuxtModule = {
-  (inlineOptions: Parameters<typeof vitehub>[0] | undefined, nuxt?: NuxtLike): Promise<void>
+  (inlineOptions: ViteHubNuxtOptions | undefined, nuxt?: NuxtLike): Promise<void>
   getMeta: () => {
     configKey: "vitehub"
     name: "vite-hub/nuxt"
@@ -197,10 +223,42 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const options = {
     ...nuxt.options.vitehub,
     ...inlineOptions,
-  } as Parameters<typeof vitehub>[0]
+  } as ViteHubNuxtOptions
+  const rootDir = nuxt.options.rootDir || process.cwd()
+  const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
+  const projectRoot = resolveViteHubProjectRoot(viteRoot)
+  const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
+    ? {
+        ...options,
+        database: {
+          ...nuxt.options.database,
+          ...(options.database === true ? {} : options.database),
+        },
+      }
+    : options
+  const secondaryProjectRoots = configuredProjectRoots(configuredOptions, rootDir, viteRoot)
+    .filter(root => root !== projectRoot)
+  const generatedTypes = [
+    relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),
+    ...secondaryProjectRoots
+      .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/**/*.d.ts"))),
+  ]
+  const generatedData = secondaryProjectRoots
+    .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
+  if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
+  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
+  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
+  if (options.database) {
+    const databaseOptions = options.database === true ? {} : options.database
+    await hubDatabaseNuxt({
+      ...(options.preset === "cloudflare" ? { driver: "d1" as const } : {}),
+      ...databaseOptions,
+    })(undefined, nuxt)
+  }
 
-  const plugins = flattenPlugins(vitehub(options))
+  const plugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => plugin.name !== "vite-hub/deployment-output")
+    .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
   )
@@ -259,7 +317,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.database) {
     const nuxtAlias = (nuxt.options.alias ??= {})
     nuxtAlias["@vite-hub/database/runtime/state"] ??= databaseRuntimeState
-    await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
     if (!nuxt.options.dev) {
       nuxt.hook?.("nitro:config", async (config) => {
         const alias = (config.alias ??= {}) as Record<string, string>

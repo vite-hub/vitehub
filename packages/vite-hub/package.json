@@ -142,6 +142,7 @@
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@cloudflare/sandbox": "catalog:sandbox",
+    "@cloudflare/workers-types": "^4.20260509.1",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@microsoft/microsoft-graph-client": "catalog:storage",

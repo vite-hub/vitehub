@@ -19,7 +19,7 @@ export default defineConfig({
       preset: "node",
       blob: false,
       env: false,
-      kv: { driver: "fs-lite", base: ".data/kv" },
+      kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
     }),
   ],
 })
