@@ -139,6 +139,8 @@ function createRuntimeConfig(rootDir: string, database: Record<string, unknown>)
         ...database,
       },
     },
+    definitionCloudflareConfigured: { primary: Boolean(database.cloudflare) },
+    definitionDefaults: {},
     definitions: [{
       handler: join(rootDir, "server", "databases", "primary", "config.ts"),
       name: "primary",
@@ -317,6 +319,19 @@ describe("Vite db provider outputs", () => {
     expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")).toContain("definition-defaults.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toContain("vercel-runtime.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
+  })
+
+  it("applies integration D1 defaults to generated definition runtimes", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-db-vite-definition-defaults-")
+    const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
+    const runtimeConfig = createRuntimeConfig(rootDir, {})
+    runtimeConfig.definitionDefaults = { cloudflare: { binding: "DB" } }
+
+    await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
+
+    const cloudflareRuntime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
+    expect(cloudflareRuntime).toContain('cloudflare: definition_0.cloudflare ?')
+    expect(cloudflareRuntime).toContain(': {"binding":"DB"}')
   })
 
   it("composes direct Blob and Database provider output in either plugin order", async () => {
