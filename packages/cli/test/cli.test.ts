@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -196,6 +196,22 @@ describe("ViteHub CLI", () => {
     await runViteHubCli({
       args: ["--help"],
       loadConfig: async () => ({ plugins: [resolvedPlugin], root: "/repo", vitehubConfigResolved: true }) as never,
+      loadNuxtViteConfig,
+      stdout: stream(),
+    })
+
+    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
+  })
+
+  it("keeps explicit Vite config ownership in the standalone loader", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "vite.config.ts"), "export default {}\n")
+    await writeFile(join(rootDir, "nuxt.config.ts"), "export default {}\n")
+    const loadNuxtViteConfig = vi.fn()
+
+    await runViteHubCli({
+      args: ["--help"],
+      cwd: rootDir,
       loadNuxtViteConfig,
       stdout: stream(),
     })
