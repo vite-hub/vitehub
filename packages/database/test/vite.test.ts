@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer as createViteServer } from "vite"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import {
   DB_VIRTUAL_DATABASES_ID,
@@ -177,6 +178,8 @@ describe("hubDb", () => {
     await writeDefinition(projectRoot, "server/databases/config.ts")
 
     const plugin = hubDb({ projectRoot: "packages/db" })
+    const configure = plugin.config as (config: unknown, env: unknown) => void
+    configure({ [VITEHUB_SERVER_DIRS]: [join(rootDir, "server")] }, { command: "serve", mode: "test" })
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     await configResolved({ database: undefined, root: rootDir } as never)
 

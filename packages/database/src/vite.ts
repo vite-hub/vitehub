@@ -111,9 +111,16 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     return resolve(resolved?.root ?? process.cwd(), database && "projectRoot" in database ? database.projectRoot ?? "." : ".")
   }
 
+  function databaseServerDirs() {
+    const database = resolvedOptions()
+    return database && "projectRoot" in database && database.projectRoot !== undefined
+      ? [resolve(databaseRoot(), "server")]
+      : serverDirs
+  }
+
   async function refreshRuntimeConfig() {
     if (!resolved) return
-    runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), { serverDirs })
+    runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), { serverDirs: databaseServerDirs() })
     if (runtimeConfig) {
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
     } else {
@@ -178,6 +185,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
       providerArtifacts = await prepareProviderOutputs({
+        appRootDir: resolved.root,
         providerOutput,
         rootDir: databaseRoot(),
         runtimeConfig,

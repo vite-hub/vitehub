@@ -36,6 +36,7 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
 ]
 
 interface GenerateProviderOutputsOptions {
+  appRootDir?: string
   artifacts?: GeneratedDBArtifacts
   clientOutDir: string
   providerOutput?: ComposedProviderOutput
@@ -103,11 +104,11 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, userApp
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig): Promise<GeneratedDBArtifacts> {
+async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir): Promise<GeneratedDBArtifacts> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
-  const userAppEntry = resolveUserAppEntry(rootDir, {
+  const userAppEntry = resolveUserAppEntry(appRootDir, {
     names: ["server.db.ts", "server.db.mts", "server.db.js", "server.db.mjs", "server.ts", "server.mts", "server.js", "server.mjs"],
   })
   const entryFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
@@ -319,8 +320,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   return artifacts
 }
 
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "providerOutput" | "rootDir" | "runtimeConfig">): Promise<GeneratedDBArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "appRootDir" | "providerOutput" | "rootDir" | "runtimeConfig">): Promise<GeneratedDBArtifacts> {
+  const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig, options.appRootDir)
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir))
   return artifacts
 }
