@@ -22,6 +22,7 @@ type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOpt
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
+const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
 const databaseRuntimeDir = fileURLToPath(new URL("./runtime/", import.meta.url))
 
@@ -345,6 +346,9 @@ function mergeNitroDatabaseRuntimeAlias(
 ) {
   if (provider !== "cloudflare" && provider !== "vercel") return
   const alias = ensureRecord(config, "alias")
+  if (!(databaseDefinitionDefaultsImport in alias)) {
+    alias[databaseDefinitionDefaultsImport] = resolve(root, ".vitehub/database/definition-defaults.mjs")
+  }
   if (!(databaseDrizzleImport in alias)) {
     alias[databaseDrizzleImport] = resolve(root, `.vitehub/database/${provider}-runtime.mjs`)
   }
@@ -374,7 +378,9 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
     "",
     "export default (event: unknown) => {",
     "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
-    "  setActiveCloudflareEnv({ ...(vitehubEnv as unknown as Record<string, unknown>), ...target.req?.runtime?.cloudflare?.env, ...target.context?._platform?.cloudflare?.env, ...target.context?.cloudflare?.env, ...target.env })",
+    "  const nativeEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ ?? vitehubEnv",
+    "  const mergedEnv = Object.assign({}, nativeEnv, target.req?.runtime?.cloudflare?.env, target.context?._platform?.cloudflare?.env, target.context?.cloudflare?.env, target.env)",
+    "  setActiveCloudflareEnv(new Proxy(mergedEnv, { get: (target, property, receiver) => Reflect.has(target, property) ? Reflect.get(target, property, receiver) : Reflect.get(nativeEnv as object, property) }))",
     "}",
     "",
   ].join("\n"))
