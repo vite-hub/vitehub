@@ -37,10 +37,13 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useChat"]
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
-function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[]): void {
+function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[]): void {
   const typescript = (options.typescript ??= {}) as Record<string, unknown>
   const tsConfig = (typescript.tsConfig ??= {}) as Record<string, unknown>
   tsConfig.include = [...new Set([...((tsConfig.include as string[] | undefined) ?? []), ...includes])]
+  if (excludes.length > 0) {
+    tsConfig.exclude = [...new Set([...((tsConfig.exclude as string[] | undefined) ?? []), ...excludes])]
+  }
 }
 
 function configuredProjectRoots(options: object, rootDir: string): string[] {
@@ -217,15 +220,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
+  const secondaryProjectRoots = configuredProjectRoots(options, viteRoot)
+    .filter(root => root !== projectRoot)
   const generatedTypes = [
     relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),
-    ...configuredProjectRoots(options, viteRoot)
-      .filter(root => root !== projectRoot)
+    ...secondaryProjectRoots
       .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/**/*.d.ts"))),
   ]
+  const generatedData = secondaryProjectRoots
+    .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
   if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
-  addTypeScriptDefaults(nuxt.options, generatedTypes)
-  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes)
+  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
+  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
 
   const plugins = flattenPlugins(vitehub(options))
     .filter(plugin => plugin.name !== "vite-hub/deployment-output")
