@@ -17,6 +17,7 @@ async function createNestedProject() {
   await Promise.all([
     mkdir(join(root, "frontend"), { recursive: true }),
     mkdir(join(root, ".vitehub/env"), { recursive: true }),
+    mkdir(join(root, ".vitehub/data/blob"), { recursive: true }),
     mkdir(join(root, ".vitehub/sandbox/runtime"), { recursive: true }),
     mkdir(join(root, ".vitehub/types"), { recursive: true }),
     writeFile(join(root, "package.json"), JSON.stringify({ name: "generated-types-test" })),
@@ -51,6 +52,7 @@ describe("framework generated types", () => {
     await Promise.all([
       writeFile(join(root, ".vitehub/types/templates.d.ts"), "declare module \"#vitehub/templates\" {}\n"),
       writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n"),
+      writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
       writeFile(join(root, ".vitehub/sandbox/runtime/sandbox.d.ts"), "declare module \"#vitehub/sandbox\" {}\n"),
       writeFile(join(root, ".vitehub/types.d.ts"), "stale self reference\n"),
     ])
