@@ -530,6 +530,35 @@ describe("Database Nuxt integration", () => {
     expect(nuxt.options.nitro).toBeUndefined()
   })
 
+  it("accepts a complete matching D1 binding from Nitro Wrangler config", async () => {
+    const { hooks, nuxt } = createNuxt({
+      database: {
+        driver: "d1",
+        databaseName: "content-db",
+      },
+      dev: false,
+      rootDir: "/tmp/vitehub-db-nuxt-existing-binding",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+    const nitroConfig = {
+      cloudflare: {
+        wrangler: {
+          d1_databases: [{
+            binding: "DB",
+            database_id: "content-id",
+            database_name: "content-db",
+          }],
+        },
+      },
+      preset: "cloudflare_module",
+    }
+
+    await expect(callHook(hooks, "nitro:config", nitroConfig)).resolves.toBeUndefined()
+    expect(nitroConfig.cloudflare.wrangler.d1_databases).toHaveLength(1)
+  })
+
   it("uses provisioned D1 ids in Nuxt Cloudflare output", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provisioned-"))
     const definition = join(rootDir, "server/databases/config.ts")

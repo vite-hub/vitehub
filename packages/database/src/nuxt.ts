@@ -107,7 +107,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     if (typeof hook === "function") {
       hook("nitro:config", async (config) => {
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
-        if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved?.reason === "missing-database-id") {
+        if (
+          !nuxtOptions.dev
+          && provider === "cloudflare"
+          && d1?.unresolved?.reason === "missing-database-id"
+          && !hasCompleteNitroConfigD1Binding(config, d1.bindingName)
+        ) {
           throw new TypeError(
             `[vitehub] Cloudflare D1 database ${JSON.stringify(d1.unresolved.database)} requires database.databaseId or provision state. Set database.databaseId or run \`vitehub provision run --provider cloudflare\`.`,
           )
@@ -405,6 +410,18 @@ function mergeNitroConfigCloudflareConfig(config: Record<string, unknown>, d1: R
   const cloudflare = ensureRecord(config, "cloudflare")
   const wrangler = ensureRecord(cloudflare, "wrangler")
   wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, [d1.d1Database])
+}
+
+function hasCompleteNitroConfigD1Binding(config: Record<string, unknown>, bindingName: string) {
+  const cloudflare = isRecord(config.cloudflare) ? config.cloudflare : undefined
+  const wrangler = cloudflare && isRecord(cloudflare.wrangler) ? cloudflare.wrangler : undefined
+  const bindings = wrangler?.d1_databases
+  return Array.isArray(bindings) && bindings.some(binding => isRecord(binding)
+    && binding.binding === bindingName
+    && typeof binding.database_id === "string"
+    && Boolean(binding.database_id.trim())
+    && typeof binding.database_name === "string"
+    && Boolean(binding.database_name.trim()))
 }
 
 function hasNuxtContentModule(modules: unknown[] | undefined) {
