@@ -92,7 +92,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     }
     installVitePlugin(viteConfig, { ...resolvedOptions, projectRoot: root })
 
-    const serverDirs = nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined
+    const serverDirs = resolvedOptions.projectRoot
+      ? [resolve(root, "server")]
+      : nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined
     const databaseConfig = resolvedOptions.driver === "d1"
       ? resolveDBViteConfig(resolvedOptions, root, { serverDirs })
       : undefined
@@ -129,7 +131,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           )
         }
         if (!nuxtOptions.dev) {
-          const runtimeRoot = typeof viteConfig.root === "string" ? viteConfig.root : nuxtOptions.srcDir || root
+          const runtimeRoot = resolvedOptions.projectRoot
+            ? root
+            : typeof viteConfig.root === "string" ? viteConfig.root : nuxtOptions.srcDir || root
           mergeNitroDatabaseRuntimeAlias(config, runtimeRoot, provider ?? (d1 ? "cloudflare" : undefined))
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
