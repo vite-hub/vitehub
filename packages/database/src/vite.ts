@@ -210,7 +210,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         artifacts: providerArtifacts,
         clientOutDir: resolved.build.outDir,
         providerOutput,
-        rootDir: databaseRoot(),
+        rootDir: resolved.root,
         runtimeConfig,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "database"),
       })

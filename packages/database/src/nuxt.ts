@@ -86,7 +86,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           : undefined,
       root,
     })
-    const viteOptions = resolveDatabaseViteOptions(resolvedOptions)
+    const viteOptions = resolveDatabaseViteOptions({ ...resolvedOptions, projectRoot: root })
     if (viteOptions) {
       viteConfig.database = { ...(isRecord(viteConfig.database) ? viteConfig.database : {}), ...viteOptions }
     }

@@ -746,6 +746,35 @@ describe("Database Nuxt integration", () => {
     expect(code).toContain('"binding":"CONTENT_DB"')
   })
 
+  it("keeps Database generation rooted at Nuxt projectRoot when Vite uses another root", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-project-root-"))
+    const projectRoot = join(rootDir, "packages", "db")
+    const definition = join(projectRoot, "server", "databases", "config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, "export default { schema: {} }\n")
+
+    try {
+      const { nuxt } = createNuxt({
+        rootDir,
+        vite: { plugins: [], root: "app" },
+      })
+      await hubDb({ projectRoot: "packages/db" })(undefined, nuxt)
+
+      const plugin = (nuxt.options.vite as { plugins: Plugin[] }).plugins[0]!
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({
+        database: (nuxt.options.vite as { database: unknown }).database,
+        root: join(rootDir, "app"),
+      })
+
+      expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
+      await expect(readFile(join(projectRoot, ".vitehub/types/database.d.ts"), "utf8"))
+        .resolves.toContain('declare module "#vitehub/database/databases"')
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("preserves the local definition runtime for production Node builds", async () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
