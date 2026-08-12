@@ -7,7 +7,7 @@ import { Readable } from "node:stream"
 import type { ExecutionAuthority } from "@vite-hub/runtime"
 
 import type {
-  BoxPlan,
+  BoxRuntimePlan,
   BoxRuntime,
   BoxRuntimeInput,
   ResolvedBoxCheckout,
@@ -109,13 +109,26 @@ export function createCrabboxRuntime(options: CrabboxOptions = {}): BoxRuntime {
         cache: { state: "disposable" },
         environment: { env: {} },
         executionAuthority: crabboxExecutionAuthority,
+        home: options.stateRoot
+          ? {
+              state: input.plan.state.map(state => ({
+                identity: createHash("sha256").update(JSON.stringify([
+                  options.profile ?? null,
+                  posix.normalize(options.stateRoot!),
+                  state.key,
+                  state.path,
+                ])).digest("hex"),
+                path: state.path,
+              })),
+            }
+          : undefined,
         identity: input.identity,
         requirements: boxRequirementPlan(input.requirements),
         runtime: "crabbox",
         workspace: workspace
           ? { path: workspace, state: "authoritative" as const, workDir: "workspace" as const }
           : { state: "disposable" as const, workDir: "workspace" as const },
-      } satisfies BoxPlan
+      } satisfies BoxRuntimePlan
     },
     async open(input, openOptions) {
       const { workspace } = await resolveCrabboxInput(input, options)

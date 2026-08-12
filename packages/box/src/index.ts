@@ -108,7 +108,7 @@ export type BoxRuntimeDefinition = BuiltInBoxRuntime | BoxRuntime;
 export interface BoxRuntime {
   readonly name: string;
   open(input: BoxRuntimeInput, options: BoxRuntimeOpenOptions): Promise<BoxSession>;
-  prepare(input: BoxRuntimeInput): Promise<BoxPlan>;
+  prepare(input: BoxRuntimeInput): Promise<BoxRuntimePlan>;
 }
 
 export interface BoxOpenOptions {
@@ -256,6 +256,12 @@ export interface BoxPlan {
   };
   readonly environment: BoxEnvironment;
   readonly executionAuthority: ExecutionAuthority;
+  readonly home: {
+    readonly state: readonly {
+      readonly identity: string;
+      readonly path: string;
+    }[];
+  };
   readonly identity: string;
   readonly requirements: readonly BoxResolvedRequirement[];
   readonly runtime: string;
@@ -265,6 +271,10 @@ export interface BoxPlan {
     readonly workDir?: "." | "workspace";
   };
 }
+
+export type BoxRuntimePlan = Omit<BoxPlan, "home"> & {
+  readonly home?: BoxPlan["home"];
+};
 
 export interface Box {
   readonly plan: BoxPlan;
@@ -406,7 +416,22 @@ export async function resolveBox<Context>(
       `[vitehub] Box runtime ${runtime.name} must declare executionAuthority.`,
     );
   }
-  const boxPlan = Object.freeze({ ...prepared, executionAuthority });
+  const homeState = plan.state.map((state) => {
+    const preparedState = prepared.home?.state.find(target => target.path === state.path);
+    if (typeof preparedState?.identity !== "string" || !preparedState.identity) {
+      throw new TypeError(
+        `[vitehub] Box runtime ${runtime.name} must declare an opaque Home state identity for ${state.path}.`,
+      );
+    }
+    return Object.freeze({ identity: preparedState.identity, path: state.path });
+  });
+  const boxPlan = Object.freeze({
+    ...prepared,
+    executionAuthority,
+    home: Object.freeze({
+      state: Object.freeze(homeState),
+    }),
+  });
   return Object.freeze({
     async open(options?: BoxOpenOptions) {
       options?.signal?.throwIfAborted();

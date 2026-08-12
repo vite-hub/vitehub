@@ -149,6 +149,10 @@ interface HarnessSessionIdentity {
   workDir?: string
 }
 
+function persistedCodexBoxState(box: AgentAdapterRunContext["box"]) {
+  return box?.plan.home?.state.find(state => state.path === ".codex")
+}
+
 function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
 }
@@ -1103,7 +1107,25 @@ async function prepareHarnessColocatedSkills(
   workingDirectory = destination,
   stagingDirectoryName = ".vitehub-agent-skills",
 ): Promise<boolean> {
-  if (!workspace) return false
+  // Unmarked legacy manifests cannot prove ownership, so preserve them as
+  // foreign profile state instead of migrating or deleting them.
+  const colocatedManifest = target === "." ? "../skills.vitehub-colocated-v2" : `${target}.vitehub-colocated-v2`
+  const colocatedManifestMarker = "vitehub-colocated-skills-v2"
+  const cleanupCommand = refresh
+    ? `if [ -L ${target} ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi; manifestBase=${colocatedManifest}; manifest=; unreadableManifest=; for candidate in "$manifestBase" "$manifestBase".[0-9]*; do if [ -f "$candidate" ]; then if [ ! -r "$candidate" ]; then unreadableManifest=1; continue; fi; candidateMarker=$(sed -n '1p' "$candidate") || exit $?; if [ "$candidateMarker" = '${colocatedManifestMarker}' ]; then manifest="$candidate"; break; fi; fi; done; if [ -z "$manifest" ] && [ -n "$unreadableManifest" ]; then printf '%s\\n' 'Persisted Skill ownership manifest cannot be read.' >&2; exit 1; fi; if [ -z "$manifest" ]; then manifest="$manifestBase"; manifestIndex=0; while [ -e "$manifest" ]; do manifestIndex=$((manifestIndex + 1)); manifest="$manifestBase.$manifestIndex"; done; fi; if [ -f "$manifest" ]; then tail -n +2 "$manifest" | while IFS= read -r encoded || [ -n "$encoded" ]; do case "$encoded" in parent:*) continue ;; esac; managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|*/*|.. ) exit 1 ;; esac; if [ ! -L ${target}/"$managed" ]; then chmod -R u+rwX -- ${target}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${target}/"$managed" || exit $?; done || exit $?; fi && rm -f -- "$manifest" || exit $?`
+    : undefined
+  if (!workspace) {
+    if (!cleanupCommand) return false
+    const result = await (session as HarnessGlobalSkillsSandbox).run({
+      abortSignal,
+      command: cleanupCommand,
+      workingDirectory,
+    })
+    if (result.exitCode !== 0) {
+      throw new Error(`[vitehub] Failed to refresh colocated Agent Skills: ${result.stderr || "sandbox command failed"}`)
+    }
+    return false
+  }
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
   const stagingDirectory = `${destination.replace(/\/+$/, "")}/${stagingDirectoryName}`
   let prepared: Awaited<ReturnType<typeof prepareHarnessWorkspaceSession>> | undefined
@@ -1114,12 +1136,15 @@ async function prepareHarnessColocatedSkills(
       session: session as never,
       sessionWorkDir: stagingDirectory,
     })
-    const refreshCommand = refresh
-      ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; rm -rf -- ${target}/"$managed"; done < "$manifest"; fi && : > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; >> "$manifest" && `
+    const refreshCommand = cleanupCommand
+      ? `${cleanupCommand} && printf '%s\\n' '${colocatedManifestMarker}' > "$manifest" && find ${stagingDirectoryName}/skills -mindepth 1 -maxdepth 1 -type d -exec sh -c 'for source do managed=\${source##*/}; if [ ! -e ${target}/"$managed" ] && [ ! -L ${target}/"$managed" ]; then encoded=$(printf "%s" "$managed" | base64) || exit $?; encoded=$(printf "%s" "$encoded" | tr -d "\\n") || exit $?; printf "%s\\n" "$encoded" || exit $?; fi; done' sh {} + >> "$manifest" && `
       : ""
+    const installCommand = cleanupCommand
+      ? `tail -n +2 "$manifest" | while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; cp -R -- ${stagingDirectoryName}/skills/"$managed" ${target} || exit $?; done || exit $?`
+      : `cp -Rn ${stagingDirectoryName}/skills/. ${target}`
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
-      command: `find ${stagingDirectoryName}/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}cp -Rn ${stagingDirectoryName}/skills/. ${target} && rm -rf ${stagingDirectoryName}`,
+      command: `find ${stagingDirectoryName}/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}${installCommand} && rm -rf ${stagingDirectoryName}`,
       workingDirectory,
     })
     if (result.exitCode !== 0) throw new Error(result.stderr || "sandbox command failed")
@@ -1152,17 +1177,21 @@ async function prepareHarnessGlobalSkills(
   }
   const quotedDirectory = `'${directory.replace(/'/g, "'\\''")}'`
   const managedManifest = `${directory}.vitehub-managed`
+  const managedManifestMarker = "vitehub-managed-skills-v2"
   const quotedManagedManifest = `'${managedManifest.replace(/'/g, "'\\''")}'`
   const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
     ...(workingDirectory ? { workingDirectory } : {}),
-    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; rm -rf -- ${quotedDirectory}/"$managed"; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
+    command: `if [ -L ${quotedDirectory} ]; then printf '%s\\n' 'Global Skill directory cannot be a symlink.' >&2; exit 1; fi && mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do case "$encoded" in ${managedManifestMarker}|parent:*) continue ;; esac; managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; remainder=$managed; current=${quotedDirectory}; while [ "$remainder" != "\${remainder#*/}" ]; do component=\${remainder%%/*}; current="$current/$component"; if [ -L "$current" ]; then printf '%s\\n' 'ViteHub-managed Skill path cannot traverse a symlink.' >&2; exit 1; fi; remainder=\${remainder#*/}; done; if [ ! -L ${quotedDirectory}/"$managed" ]; then chmod -R u+rwX -- ${quotedDirectory}/"$managed" 2>/dev/null || true; fi; rm -rf -- ${quotedDirectory}/"$managed" || exit $?; done < ${quotedManagedManifest}; fi && if [ -f ${quotedManagedManifest} ]; then sed -n 's/^parent://p' ${quotedManagedManifest} | awk '{ line[NR]=$0 } END { for (i=NR;i>0;i--) print line[i] }' | while IFS= read -r encoded || [ -n "$encoded" ]; do parent=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; parent=\${parent%.}; case "$parent" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill parent path.' >&2; exit 1 ;; esac; remainder=$parent; current=${quotedDirectory}; while [ -n "$remainder" ]; do component=\${remainder%%/*}; current="$current/$component"; if [ -L "$current" ]; then printf '%s\\n' 'ViteHub-managed Skill parent cannot traverse a symlink.' >&2; exit 1; fi; if [ "$remainder" = "\${remainder#*/}" ]; then break; fi; remainder=\${remainder#*/}; done; rmdir -- ${quotedDirectory}/"$parent" 2>/dev/null || true; done || exit $?; fi && rm -f -- ${quotedManagedManifest}`,
   })
   if (ensure.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
   }
   if (!resolved) return
-  const skillDirectories = resolved.paths.map(path => `'${`${directory}/${path}`.replace(/'/g, "'\\''")}'`).join(" ")
+  const encodedSkillDirectories = resolved.paths
+    .toSorted((left, right) => left.split("/").length - right.split("/").length || left.localeCompare(right))
+    .map(path => `'${Buffer.from(path).toString("base64")}'`)
+    .join(" ")
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
   const stagingDirectory = `${directory}.vitehub-global-skills-${globalThis.crypto.randomUUID()}`
   const quotedStagingDirectory = `'${stagingDirectory.replace(/'/g, "'\\''")}'`
@@ -1175,7 +1204,7 @@ async function prepareHarnessGlobalSkills(
   const install = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
     ...(workingDirectory ? { workingDirectory } : {}),
-    command: `cp -R ${quotedStagingDirectory}/. ${quotedDirectory} && rm -rf -- ${quotedStagingDirectory} && find ${skillDirectories} -type f -path "*/scripts/*" -exec chmod +x {} + && printf '%s\\n' ${resolved.paths.map(path => `'${Buffer.from(path).toString("base64")}'`).join(" ")} > ${quotedManagedManifest}`,
+    command: `rm -rf -- ${quotedStagingDirectory}/.git && find ${quotedStagingDirectory} -type f -path "*/scripts/*" -exec chmod +x {} + && printf '%s\\n' '${managedManifestMarker}' > ${quotedManagedManifest} && for encoded in ${encodedSkillDirectories}; do managed=$(printf '%s' "$encoded" | base64 -d && printf .) || exit 1; managed=\${managed%.}; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; remainder=$managed; current=${quotedDirectory}; relative=; while [ "$remainder" != "\${remainder#*/}" ]; do component=\${remainder%%/*}; relative=\${relative:+$relative/}$component; current="$current/$component"; if [ -L "$current" ]; then printf '%s\\n' 'ViteHub-managed Skill path cannot traverse a symlink.' >&2; exit 1; fi; if [ ! -e "$current" ]; then encodedParent=$(printf '%s' "$relative" | base64) || exit $?; encodedParent=$(printf '%s' "$encodedParent" | tr -d '\\n') || exit $?; printf 'parent:%s\\n' "$encodedParent" >> ${quotedManagedManifest} || exit $?; fi; remainder=\${remainder#*/}; done; if [ ! -e ${quotedDirectory}/"$managed" ] && [ ! -L ${quotedDirectory}/"$managed" ]; then parent=\${managed%/*}; if [ "$parent" != "$managed" ]; then mkdir -p -- ${quotedDirectory}/"$parent" || exit $?; fi; printf '%s\\n' "$encoded" >> ${quotedManagedManifest} || exit $?; cp -R -- ${quotedStagingDirectory}/"$managed" ${quotedDirectory}/"$managed" || exit $?; fi; done && rm -rf -- ${quotedStagingDirectory}`,
   })
   if (install.exitCode !== 0) {
     const error = new Error(`[vitehub] Failed to refresh global Skills: ${install.stderr || "sandbox command failed"}`)
@@ -1446,14 +1475,17 @@ export function createHarnessAgentAdapter<
     agentIdentity: Omit<HarnessSessionIdentity, "box">,
     disableResume: boolean,
   ) {
+    const codexState = persistedCodexBoxState(context.box)
     const identity: HarnessSessionIdentity = {
       ...agentIdentity,
       ...(context.box
         ? {
             box: {
-              identity: context.box.plan.identity,
+              identity: codexState?.identity ?? context.box.plan.identity,
               runtime: context.box.plan.runtime,
-              workspace: context.box.plan.workspace.path,
+              ...(!codexState && context.box.plan.workspace.path
+                ? { workspace: context.box.plan.workspace.path }
+                : {}),
             },
           }
         : {}),
@@ -1523,7 +1555,7 @@ export function createHarnessAgentAdapter<
     const colocatedGlobalSkills = await resolveHarnessColocatedSkills(context, `__vitehub_agent_global_skills_${harnessInvocationId}`)
     const invocation = {
       id: harnessInvocationId,
-      isolateBoxHome: Boolean(context.box && colocatedGlobalSkills),
+      isolateBoxHome: Boolean(context.box && colocatedGlobalSkills && !persistedCodexBoxState(context.box)),
     }
     const resolved = await createHarnessAgent(options, context, invocation, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
       preparedSandbox = {
@@ -1569,6 +1601,26 @@ export function createHarnessAgentAdapter<
           if (profile && typeof profile === "object" && typeof (profile as { close?: unknown }).close === "function") {
             harnessProfileSession = profile as { close: (error?: unknown) => MaybePromise<void> }
           }
+        }
+        if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
+          const destination = globalSkillsDestination || globalSkillsDirectory
+          const ensureDestination = await (session as HarnessGlobalSkillsSandbox).run({
+            abortSignal,
+            command: `if [ -L '${destination.replace(/'/g, "'\\''")}' ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi && mkdir -p -- '${destination.replace(/'/g, "'\\''")}' && chmod u+rwx -- '${destination.replace(/'/g, "'\\''")}'`,
+          })
+          if (ensureDestination.exitCode !== 0) {
+            throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensureDestination.stderr || "sandbox command failed"}`)
+          }
+          await prepareHarnessColocatedSkills(
+            undefined,
+            session,
+            destination,
+            ".",
+            abortSignal,
+            true,
+            destination,
+            skillsStagingDirectory,
+          )
         }
         globalSkillsSession = await prepareHarnessGlobalSkills(
           globalSkillsWorkspace,

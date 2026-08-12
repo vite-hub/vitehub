@@ -134,6 +134,7 @@ function plan() {
     cache: { state: "disposable" as const },
     environment: { env: {} },
     executionAuthority: unknownExecutionAuthority,
+    home: { state: [] },
     identity: "fixture",
     requirements: [],
     runtime: "fixture",

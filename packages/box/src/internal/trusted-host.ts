@@ -29,7 +29,7 @@ import type { ExecutionAuthority } from "@vite-hub/runtime";
 
 import type {
   BoxFileEntry,
-  BoxPlan,
+  BoxRuntimePlan,
   BoxRuntime,
   ResolvedBoxFile,
   BoxRuntimeInput,
@@ -109,14 +109,24 @@ const trustedHostExecutionAuthority = {
 } as const satisfies ExecutionAuthority;
 
 export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxRuntime {
+  const preparedInputs = new WeakMap<BoxRuntimeInput, Awaited<ReturnType<typeof resolveTrustedHostInput>>>();
   return markBuiltInBoxRuntime({
     name: "trusted-host",
     async prepare(input) {
-      const { cwd } = await resolveTrustedHostInput(input, options);
+      const { cwd, stateRoot } = await resolveTrustedHostInput(input, options);
+      preparedInputs.set(input, { cwd, stateRoot });
       return {
         cache: { state: "disposable" },
         environment: { env: {} },
         executionAuthority: trustedHostExecutionAuthority,
+        home: stateRoot
+          ? {
+              state: input.plan.state.map(state => ({
+                identity: createHash("sha256").update(JSON.stringify([stateRoot, state.key, state.path])).digest("hex"),
+                path: state.path,
+              })),
+            }
+          : undefined,
         identity: input.identity,
         requirements: boxRequirementPlan(input.requirements),
         runtime: "trusted-host",
@@ -125,10 +135,10 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
           : input.checkout
             ? { state: "disposable" as const, workDir: "." as const }
             : { state: "disposable" as const, workDir: "." as const },
-      } satisfies BoxPlan;
+      } satisfies BoxRuntimePlan;
     },
     async open(input, openOptions) {
-      const resolved = await resolveTrustedHostInput(input, options);
+      const resolved = preparedInputs.get(input) ?? await resolveTrustedHostInput(input, options);
       let initializedSession: ReturnType<typeof createBoxSession> | undefined;
       const runtimeSession = await createSession(
         { ...input, ...(resolved.cwd ? { cwd: resolved.cwd } : {}) },
@@ -160,8 +170,9 @@ export function createTrustedHostRuntime(options: TrustedHostOptions = {}): BoxR
 }
 
 async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedHostOptions) {
-  const cwd = input.cwd ? resolve(input.cwd) : undefined;
-  if (cwd) await assertDirectory(cwd, "workspace");
+  const requestedCwd = input.cwd ? resolve(input.cwd) : undefined;
+  if (requestedCwd) await assertDirectory(requestedCwd, "workspace");
+  const cwd = requestedCwd ? await realpath(requestedCwd) : undefined;
   const configuredStateRoot = options.stateRoot;
   if (input.plan.state.length && (!configuredStateRoot || !isAbsolute(configuredStateRoot))) {
     throw new Error(
@@ -175,8 +186,7 @@ async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedH
     throw new Error("[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.");
   }
   if (cwd && input.plan.state.length && stateRoot) {
-    const workspace = await realpath(cwd);
-    if (pathsOverlap(workspace, stateRoot))
+    if (pathsOverlap(cwd, stateRoot))
       throw new Error("[vitehub] Box stateRoot must be outside the authoritative workspace.");
   }
   return { cwd, stateRoot };

@@ -1,9 +1,9 @@
 import type {
   Box,
   BoxOpenOptions,
-  BoxPlan,
   BoxRuntime,
   BoxRuntimeInput,
+  BoxRuntimePlan,
   BoxSession,
   ResolvedBoxRequirementInput,
 } from "../index.ts";
@@ -51,6 +51,9 @@ export async function resolveRemoteBoxRuntime(
   const plan = Object.freeze({
     ...prepared,
     executionAuthority: normalizeExecutionAuthority(prepared.executionAuthority),
+    home: Object.freeze({
+      state: Object.freeze(prepared.home?.state || []),
+    }),
   });
 
   return Object.freeze({
@@ -68,7 +71,7 @@ export async function resolveRemoteBoxRuntime(
 export function remoteBoxPlan(
   input: BoxRuntimeInput,
   options: RemoteRuntimeOptions,
-): BoxPlan {
+): BoxRuntimePlan {
   assertRemoteInput(input, options.runtime);
   return {
     cache: { state: "disposable" },

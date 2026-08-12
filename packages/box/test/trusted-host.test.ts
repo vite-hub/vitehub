@@ -157,6 +157,9 @@ describe("createTrustedHostRuntime", () => {
         network: "unrestricted",
         processes: "arbitrary",
       },
+      home: {
+        state: [{ identity: expect.any(String), path: ".codex" }],
+      },
       requirements: [{ command: "gh", name: "gh auth status" }],
       runtime: "trusted-host",
       workspace: { path: workspace, state: "authoritative" },
@@ -164,6 +167,35 @@ describe("createTrustedHostRuntime", () => {
     expect(box.open).toBeTypeOf("function");
     expect(JSON.stringify(box)).not.toContain("declared");
     expect(JSON.stringify(box)).not.toContain("sandbox");
+    const otherStateBox = await resolveBox(
+      {
+        home: { state: { ".codex": { key: "portable-box-test/codex" } } },
+        runtime: createTrustedHostRuntime({ stateRoot: join(root, "other-state") }),
+      },
+      {},
+    );
+    expect(otherStateBox.plan.home.state[0]?.identity)
+      .not.toBe(box.plan.home.state[0]?.identity);
+    const unidentifiedRuntime = createTrustedHostRuntime({ stateRoot });
+    const prepare = unidentifiedRuntime.prepare.bind(unidentifiedRuntime);
+    unidentifiedRuntime.prepare = async input => ({
+      ...await prepare(input),
+      home: undefined,
+    });
+    await expect(resolveBox({
+      home: { state: { ".codex": { key: "portable-box-test/codex" } } },
+      runtime: unidentifiedRuntime,
+    }, {})).rejects.toThrow("must declare an opaque Home state identity");
+    for (const identity of [1, {}]) {
+      unidentifiedRuntime.prepare = async input => ({
+        ...await prepare(input),
+        home: { state: [{ identity, path: ".codex" }] },
+      }) as never;
+      await expect(resolveBox({
+        home: { state: { ".codex": { key: "portable-box-test/codex" } } },
+        runtime: unidentifiedRuntime,
+      }, {})).rejects.toThrow("must declare an opaque Home state identity");
+    }
 
     const session = (await withEnvironment(
       { PATH: bin },
@@ -813,6 +845,27 @@ describe("createTrustedHostRuntime", () => {
         {},
       ),
     ).rejects.toThrow("outside the authoritative workspace");
+  });
+
+  it("pins a canonical state root from prepare through open", async () => {
+    const root = await temporaryRoot();
+    const first = join(root, "first");
+    const second = join(root, "second");
+    const linked = join(root, "linked");
+    await Promise.all([mkdir(first), mkdir(second)]);
+    await symlink(first, linked);
+    const box = await resolveBox({
+      home: { state: { ".acme": { key: "portable-box-test/pinned-root", seed: { marker: { contents: "first" } } } } },
+      runtime: createTrustedHostRuntime({ stateRoot: join(linked, "state") }),
+    }, {});
+
+    await rm(linked);
+    await symlink(second, linked);
+    const session = await box.open();
+    await expect(session.exec("sh", ["-c", 'cat "$HOME/.acme/marker"'])).resolves.toMatchObject({ stdout: "first" });
+    await session.close();
+    await expect(stat(join(first, "state"))).resolves.toBeDefined();
+    await expect(stat(join(second, "state"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("requires a durable root for writable state", async () => {

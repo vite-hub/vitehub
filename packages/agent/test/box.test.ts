@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto"
 import { execFile } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -9,8 +10,11 @@ import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
 const harnessObservation = vi.hoisted(() => ({
+  absentGlobalSkills: [] as string[],
   before: undefined as string | undefined,
   command: false,
+  detach: false,
+  expectPreviousCodexState: false,
   exitCode: undefined as number | undefined,
   firstGenerateBlock: undefined as Promise<void> | undefined,
   firstGenerateStarted: undefined as (() => void) | undefined,
@@ -35,11 +39,25 @@ vi.mock("@ai-sdk/harness/agent", () => ({
       const sessionWorkDir = this.settings.sandboxConfig.workDir
         ? join(session.defaultWorkingDirectory, this.settings.sandboxConfig.workDir)
         : session.defaultWorkingDirectory
-      await this.settings.sandboxConfig.onSession({
-        session,
-        sessionWorkDir,
-      })
+      try {
+        await this.settings.sandboxConfig.onSession({
+          session,
+          sessionWorkDir,
+        })
+      }
+      catch (error) {
+        await session.destroy().catch(() => {})
+        throw error
+      }
       return {
+        ...(harnessObservation.detach
+          ? {
+              detach: async () => {
+                await session.destroy()
+                return { token: "resume" }
+              },
+            }
+          : {}),
         destroy: () => session.destroy(),
         host: session,
         sessionWorkDir,
@@ -65,7 +83,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
         return { text: live }
       }
       const result = await session.host.run({
-        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; ${harnessObservation.globalSkills.map(skill => `test -f "$codex_home/skills/${skill}/SKILL.md"; `).join("")}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
+        command: `codex_home="\${CODEX_HOME:-$HOME/.codex}"; pwd; printf '%s\\n' "$HOME" "$codex_home"; test -f AGENTS.md; ${harnessObservation.globalSkills.map(skill => `test -f "$codex_home/skills/${skill}/SKILL.md"; `).join("")}${harnessObservation.absentGlobalSkills.map(skill => `test ! -e "$codex_home/skills/${skill}"; `).join("")}${harnessObservation.expectPreviousCodexState && harnessObservation.generateCount > 1 ? `test -f "$codex_home/session-state-${harnessObservation.generateCount - 1}"; ` : ""}grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf durable > "$codex_home/${codexState}"; printf changed > changed.txt`,
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -79,8 +97,11 @@ const exec = promisify(execFile)
 
 afterEach(async () => {
   harnessSettings.length = 0
+  harnessObservation.absentGlobalSkills = []
   harnessObservation.command = false
+  harnessObservation.detach = false
   harnessObservation.before = undefined
+  harnessObservation.expectPreviousCodexState = false
   harnessObservation.exitCode = undefined
   harnessObservation.firstGenerateBlock = undefined
   harnessObservation.firstGenerateStarted = undefined
@@ -136,14 +157,20 @@ describe("Agent Box", () => {
   it("runs Codex in the authoritative trusted-host workspace with the selected Home", async () => {
     const root = await temporaryRoot()
     const worktree = join(root, "worktree")
+    const continuedWorktree = join(root, "continued-worktree")
+    const removedSkillWorktree = join(root, "removed-skill-worktree")
     const stateRoot = join(root, "state")
     const bin = join(root, "bin")
     await Promise.all([
       mkdir(worktree),
+      mkdir(continuedWorktree),
+      mkdir(removedSkillWorktree),
       mkdir(bin),
     ])
     await Promise.all([
       writeFile(join(worktree, "AGENTS.md"), "Repository instructions.\n"),
+      writeFile(join(continuedWorktree, "AGENTS.md"), "Repository instructions.\n"),
+      writeFile(join(removedSkillWorktree, "AGENTS.md"), "Repository instructions.\n"),
       executable(bin, "codex", "exit 0"),
       executable(bin, "gh", "exit 0"),
       executable(bin, "pnpm", "exit 0"),
@@ -156,6 +183,44 @@ describe("Agent Box", () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { createCodexDriver } = await import("../src/harness/codex.ts")
       const { skills } = await import("../src/capabilities.ts")
+      const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
+      const globalSkills = [
+        skills({
+          path: "skills/global",
+          scope: "global",
+          source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/bundles/review",
+          scope: "global",
+          source: custom({ files: [{ content: "Nested review skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/global-trailing\n",
+          scope: "global",
+          source: custom({ files: [{ content: "Trailing global skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/ordered/review",
+          scope: "global",
+          source: custom({ files: [{ content: "Ordered review skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/ordered",
+          scope: "global",
+          source: custom({ files: [{ content: "Ordered ancestor skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/siblings/review",
+          scope: "global",
+          source: custom({ files: [{ content: "Sibling review skill.\n", path: "SKILL.md" }] }),
+        }),
+        skills({
+          path: "skills/.vitehub-colocated-v2",
+          scope: "global",
+          source: custom({ files: [{ content: "Formerly colliding skill.\n", path: "SKILL.md" }] }),
+        }),
+      ]
       const agent = Object.assign(defineAgent<any, { worktreePath: string }>({
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
@@ -169,32 +234,59 @@ describe("Agent Box", () => {
             state: {
               ".codex": {
                 key: "agent-box-test/codex",
-                seed: { "auth.json": { contents: '{"token":"box"}\n' } },
+                seed: {
+                  "auth.json": { contents: '{"token":"box"}\n' },
+                  "skills/global/SKILL.md": { contents: "Unmanaged global skill.\n" },
+                  "skills/.vitehub-colocated": { contents: "legacy\nlocal\n" },
+                  "skills/legacy/SKILL.md": { contents: "Legacy managed skill.\n" },
+                  "skills/local/SKILL.md": { contents: "Local skill.\n" },
+                  "skills.vitehub-colocated-v2": { contents: "foreign state\n" },
+                },
               },
             },
           },
           requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
           runtime: { kind: "trusted-host", stateRoot },
         },
-        capabilities: [
-          skills({
-            path: "skills/global",
-            scope: "global",
-            source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
-          }),
-        ],
+        capabilities: globalSkills,
         driver: { ...createCodexDriver(), sessionKey: "thread-1" },
       }), {
-        [Symbol.for("vitehub.agent.colocatedSkills")]: {
+        [colocatedSkills]: {
+          local: {
+            content: new TextEncoder().encode("Colocated local skill.\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/local/SKILL.md",
+          },
+          localExtra: {
+            content: new TextEncoder().encode("Must not merge.\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/local/colocated-only.md",
+          },
+          newline: {
+            content: new TextEncoder().encode("# Newline\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/line\nbreak/SKILL.md",
+          },
           review: {
             content: new TextEncoder().encode("# Review\n"),
             materialize: "build",
             mount: "",
             workspacePath: "skills/review/SKILL.md",
           },
+          trailingNewline: {
+            content: new TextEncoder().encode("# Trailing newline\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/trailing\n/SKILL.md",
+          },
         },
       })
-      harnessObservation.globalSkills = ["global", "review"]
+      harnessObservation.detach = true
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles/review", "global", "global-trailing\n", "legacy", "line\nbreak", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      harnessObservation.expectPreviousCodexState = true
 
       const result = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -208,11 +300,185 @@ describe("Agent Box", () => {
 
       expect(reportedWorktree).toBe(await realpath(worktree))
       expect(reportedHome).toMatch(/\/vitehub-box-[^/]+\/home$/)
-      expect(codexHome).toMatch(new RegExp(`^${reportedHome}/\\.vitehub/codex-home-[^/]+$`))
+      expect(codexHome).toBe(join(reportedHome, ".codex"))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
-      await expect(stat(codexHome)).rejects.toMatchObject({ code: "ENOENT" })
-      expect(harnessObservation.sessionOptions).toEqual([undefined])
+      const persistentCodexHome = join(
+        stateRoot,
+        createHash("sha256").update("agent-box-test/codex").digest("hex"),
+      )
+      await expect(readFile(join(persistentCodexHome, "skills/global/SKILL.md"), "utf8"))
+        .resolves.toBe("Unmanaged global skill.\n")
+      await expect(readFile(join(persistentCodexHome, "skills/ordered/SKILL.md"), "utf8"))
+        .resolves.toBe("Ordered ancestor skill.\n")
+      await expect(readFile(join(persistentCodexHome, "skills.vitehub-colocated-v2"), "utf8"))
+        .resolves.toBe("foreign state\n")
+      await expect(readFile(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), "utf8"))
+        .resolves.toMatch(/^vitehub-colocated-skills-v2\n/)
+      await expect(readFile(join(persistentCodexHome, "skills.vitehub-managed"), "utf8"))
+        .resolves.toMatch(/^vitehub-managed-skills-v2\n/)
+      await chmod(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), 0o000)
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: continuedWorktree },
+        prompt: "Reject unreadable Skill ownership.",
+      })).rejects.toThrow("Persisted Skill ownership manifest cannot be read")
+      await chmod(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), 0o600)
+      await rm(join(persistentCodexHome, "skills.vitehub-colocated-v2"))
+      Reflect.deleteProperty(Reflect.get(agent, colocatedSkills) as object, "newline")
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles/review", "global", "global-trailing\n", "legacy", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      harnessObservation.absentGlobalSkills = ["line\nbreak"]
+      await writeFile(join(persistentCodexHome, "skills/siblings/custom"), "Unmanaged sibling.\n")
+      await mkdir(join(persistentCodexHome, "skills/.git"))
+      await writeFile(
+        join(persistentCodexHome, "skills/.git/config"),
+        "[core]\n\trepositoryformatversion = 0\n",
+      )
+      globalSkills.splice(1, 1, skills({
+        path: "skills/bundles",
+        scope: "global",
+        source: custom({ files: [{ content: "Ancestor bundle skill.\n", path: "SKILL.md" }] }),
+      }))
+      Object.assign(agent, { capabilities: globalSkills })
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "global-trailing\n", "legacy", "local", "ordered", "ordered/review", "review", "siblings/review", "trailing\n"]
+      await chmod(join(persistentCodexHome, "skills/bundles/review"), 0o400)
+      await chmod(join(persistentCodexHome, "skills"), 0o444)
+      const continued = await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: continuedWorktree },
+        prompt: "Continue repairing the project.",
+      }) as { text: string }
+      const [, continuedHome, continuedCodexHome] = continued.text.trim().split("\n")
+      expect(continuedCodexHome).toBe(join(continuedHome, ".codex"))
+      await expect(readFile(join(persistentCodexHome, "skills/.git/config"), "utf8"))
+        .resolves.toContain("repositoryformatversion")
+      await expect(readFile(join(persistentCodexHome, "skills/bundles/SKILL.md"), "utf8"))
+        .resolves.toBe("Ancestor bundle skill.\n")
+      await expect(readFile(join(persistentCodexHome, "skills/siblings/custom"), "utf8"))
+        .resolves.toBe("Unmanaged sibling.\n")
+      await expect(stat(join(persistentCodexHome, "skills/line\nbreak")))
+        .rejects.toMatchObject({ code: "ENOENT" })
+      expect((await stat(join(persistentCodexHome, "skills"))).mode & 0o300).toBe(0o300)
+      expect(harnessObservation.sessionOptions).toHaveLength(3)
+      expect(harnessObservation.sessionOptions[0]).not.toHaveProperty("resumeFrom")
+      expect(harnessObservation.sessionOptions[1]).toMatchObject({
+        resumeFrom: { token: "resume" },
+        sessionId: harnessObservation.sessionOptions[0]?.sessionId,
+      })
+      expect(harnessObservation.sessionOptions[2]).toMatchObject({
+        resumeFrom: { token: "resume" },
+        sessionId: harnessObservation.sessionOptions[0]?.sessionId,
+      })
+
+      await expect(readFile(join(persistentCodexHome, "skills/local/colocated-only.md"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" })
+      const externalReview = join(root, "external-review")
+      await mkdir(externalReview)
+      await writeFile(join(externalReview, "SKILL.md"), "External review skill.\n")
+      await rm(join(persistentCodexHome, "skills/review"), { recursive: true })
+      await symlink(externalReview, join(persistentCodexHome, "skills/review"))
+      await chmod(join(externalReview, "SKILL.md"), 0o400)
+      await chmod(externalReview, 0o500)
+      Reflect.deleteProperty(agent, colocatedSkills)
+      globalSkills.splice(2, 1)
+      Object.assign(agent, { capabilities: globalSkills })
+      harnessObservation.globalSkills = [".vitehub-colocated-v2", "bundles", "global", "legacy", "local", "ordered", "ordered/review", "siblings/review"]
+      harnessObservation.absentGlobalSkills = ["global-trailing\n", "line\nbreak", "review", "trailing\n"]
+      await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Continue without the removed Skill.",
+      })
+      expect(harnessObservation.sessionOptions).toHaveLength(4)
+      expect(harnessObservation.sessionOptions[3]).toMatchObject({
+        resumeFrom: { token: "resume" },
+        sessionId: harnessObservation.sessionOptions[0]?.sessionId,
+      })
+      await expect(readFile(join(persistentCodexHome, "skills/local/SKILL.md"), "utf8"))
+        .resolves.toBe("Local skill.\n")
+      expect((await stat(externalReview)).mode & 0o777).toBe(0o500)
+      expect((await stat(join(externalReview, "SKILL.md"))).mode & 0o777).toBe(0o400)
+      await chmod(externalReview, 0o700)
+      await chmod(join(externalReview, "SKILL.md"), 0o600)
+      const legacyParent = join(persistentCodexHome, "skills/legacy-parent")
+      await mkdir(join(legacyParent, "managed"), { recursive: true })
+      await chmod(legacyParent, 0o711)
+      await writeFile(join(legacyParent, "managed/SKILL.md"), "Legacy managed Skill.\n")
+      await writeFile(
+        join(persistentCodexHome, "skills.vitehub-managed"),
+        `${Buffer.from("legacy-parent/managed").toString("base64")}\n`,
+      )
+      await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Preserve the legacy Skill parent.",
+      })
+      expect((await stat(legacyParent)).mode & 0o777).toBe(0o711)
+      await expect(stat(join(legacyParent, "managed"))).rejects.toMatchObject({ code: "ENOENT" })
+      const externalSkills = join(root, "external-skills")
+      await mkdir(join(externalSkills, "managed"), { recursive: true })
+      await writeFile(join(externalSkills, "untouched"), "external\n")
+      await writeFile(join(externalSkills, "managed/owned"), "managed\n")
+      await rm(join(persistentCodexHome, "skills"), { recursive: true })
+      await mkdir(join(persistentCodexHome, "skills"))
+      await writeFile(
+        join(persistentCodexHome, "skills.vitehub-managed"),
+        `${Buffer.from("bundles/managed").toString("base64")}\n`,
+      )
+      await symlink(externalSkills, join(persistentCodexHome, "skills/bundles"))
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Do not follow managed Skill parents.",
+      })).rejects.toThrow("ViteHub-managed Skill path cannot traverse a symlink")
+      await expect(stat(`${persistentCodexHome}.lock`)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(join(externalSkills, "untouched"), "utf8")).resolves.toBe("external\n")
+      await expect(readFile(join(externalSkills, "managed/owned"), "utf8")).resolves.toBe("managed\n")
+      await mkdir(join(externalSkills, "generated"))
+      await rm(join(persistentCodexHome, "skills"), { recursive: true })
+      await mkdir(join(persistentCodexHome, "skills"))
+      await rm(join(persistentCodexHome, "skills.vitehub-managed"))
+      await symlink(externalSkills, join(persistentCodexHome, "skills/bundles"))
+      await writeFile(
+        join(persistentCodexHome, "skills.vitehub-managed"),
+        `parent:${Buffer.from("bundles/generated").toString("base64")}\n`,
+      )
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Do not follow generated Skill parents.",
+      })).rejects.toThrow("ViteHub-managed Skill parent cannot traverse a symlink")
+      await expect(stat(join(externalSkills, "generated"))).resolves.toBeDefined()
+      await writeFile(join(externalSkills, ".vitehub-colocated-v2"), `${Buffer.from("managed").toString("base64")}\n`)
+      await rm(join(persistentCodexHome, "skills"), { recursive: true })
+      await symlink(externalSkills, join(persistentCodexHome, "skills"))
+      await expect(runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Do not follow the replaced Skills root.",
+      })).rejects.toThrow("Persisted Skill directory cannot be a symlink")
+      await expect(readFile(join(externalSkills, "managed/owned"), "utf8")).resolves.toBe("managed\n")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig.workDir).toBeUndefined()
     }
