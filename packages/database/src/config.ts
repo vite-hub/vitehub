@@ -367,7 +367,7 @@ export function resolveDBViteConfig(
     definitionCloudflareConfigured,
     definitionDefaults: {
       ...(options && options.driver === "d1"
-        ? { cloudflare: { binding: options.binding } }
+        ? { cloudflare: { binding: options.binding || "DB" } }
         : {}),
       ...(options && options.connection ? { connection: options.connection } : {}),
     },

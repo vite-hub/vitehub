@@ -188,7 +188,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
         return `export default ${JSON.stringify({
-          ...(options && options.driver === "d1" ? { cloudflare: { binding: options.binding } } : {}),
+          ...(options && options.driver === "d1" ? { cloudflare: { binding: options.binding || "DB" } } : {}),
           ...(options && options.connection ? { connection: options.connection } : {}),
         })}\n`
       }

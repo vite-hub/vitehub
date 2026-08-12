@@ -715,10 +715,9 @@ describe("Database Nuxt integration", () => {
     expect(nitroConfig.exportConditions).toEqual(["vitehub-hosted", "deno"])
   })
 
-  it("propagates the Nuxt D1 binding to direct definition defaults", async () => {
+  it("defaults the Nuxt D1 binding for direct definitions", async () => {
     const { nuxt } = createNuxt({
       database: {
-        binding: "CONTENT_DB",
         driver: "d1",
       },
       rootDir: "/tmp/vitehub-db-nuxt-binding",
@@ -737,7 +736,7 @@ describe("Database Nuxt integration", () => {
     )
     const code = await (plugin.load as (id: string) => string | undefined | Promise<string | undefined>)(id!)
 
-    expect(code).toContain('"binding":"CONTENT_DB"')
+    expect(code).toContain('"binding":"DB"')
   })
 
   it("preserves the local definition runtime for production Node builds", async () => {
