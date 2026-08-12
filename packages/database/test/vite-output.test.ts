@@ -352,6 +352,8 @@ describe("Vite db provider outputs", () => {
 
     await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
 
+    await expect(readFile(join(rootDir, ".vitehub/database/definition-defaults.mjs"), "utf8"))
+      .resolves.toBe('export default {"cloudflare":{"binding":"DB"}}\n')
     const expression = renderDatabaseConfigExpression("analytics", runtimeConfig, "definition")
     const config = Function("definition", `return (${expression})`)({ connection: undefined, drizzle: {}, schema: {} })
     expect(config.cloudflare).toEqual({ binding: "DB" })
