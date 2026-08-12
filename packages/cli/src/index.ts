@@ -40,13 +40,13 @@ export interface RunViteHubCliOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
-  loadNuxtViteConfig?: (rootDir: string) => Promise<{ plugins: unknown[], root?: string } | undefined>
+  loadNuxtViteConfig?: (rootDir: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
 }
 
-async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: unknown[], root?: string } | undefined> {
+async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
   const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
   if (!hasNuxtConfig) return
@@ -60,9 +60,15 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: unknown[]
   }
   const nuxt = await loadNuxt({ cwd: rootDir, dev: false })
   try {
+    const { resolveConfig } = await import("vite")
+    const config = await resolveConfig({
+      ...nuxt.options.vite,
+      configFile: false,
+      root: nuxt.options.rootDir || rootDir,
+    }, "serve", "development")
     return {
-      plugins: Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : [],
-      root: typeof nuxt.options.vite.root === "string" ? resolve(rootDir, nuxt.options.vite.root) : undefined,
+      plugins: config.plugins,
+      root: config.root,
     }
   }
   finally {
