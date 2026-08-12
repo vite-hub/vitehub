@@ -110,8 +110,9 @@ async function resolveMcpClient<
 >(
   server: McpServerConfig<TRuntimeConfig, Name>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-): Promise<{ client: McpClient, metadata: unknown }> {
-  const resolved = typeof server === "function" ? await server(context) : server
+): Promise<{ client: McpClient, metadata: unknown, owned: boolean }> {
+  const owned = typeof server === "function"
+  const resolved = owned ? await server(context) : server
   if (isMcpClient(resolved)) {
     return {
       client: resolved,
@@ -119,12 +120,14 @@ async function resolveMcpClient<
         client: true,
         serverInfo: sanitizeMcpMetadata(resolved.serverInfo),
       },
+      owned,
     }
   }
   if (isMcpClientConfig(resolved)) {
     return {
       client: await createMcpClient(resolved),
       metadata: sanitizeMcpMetadata(resolved),
+      owned: true,
     }
   }
   throw new TypeError("[vitehub] mcp({ servers }) entries must resolve to an MCP client or MCP client config.")
@@ -147,8 +150,8 @@ export function mcp<
       const clients: McpClient[] = []
       clientsByContext.set(context, clients)
       for (const [serverName, server] of Object.entries(options.servers)) {
-        const { client, metadata } = await resolveMcpClient(server, context)
-        clients.push(client)
+        const { client, metadata, owned } = await resolveMcpClient(server, context)
+        if (owned) clients.push(client)
         const serverTools = await client.tools()
         if (options.integrity && Object.hasOwn(options.integrity, serverName)) {
           await assertMcpToolIntegrity(serverName, serverTools, options.integrity[serverName])
