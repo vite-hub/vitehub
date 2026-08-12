@@ -238,9 +238,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
+  if (options.database) {
+    const databaseOptions = options.database === true ? {} : options.database
+    await hubDatabaseNuxt({
+      ...(options.preset === "cloudflare" ? { driver: "d1" as const } : {}),
+      ...databaseOptions,
+    })(undefined, nuxt)
+  }
 
   const plugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
     .filter(plugin => plugin.name !== "vite-hub/deployment-output")
+    .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
   )
@@ -299,7 +307,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.database) {
     const nuxtAlias = (nuxt.options.alias ??= {})
     nuxtAlias["@vite-hub/database/runtime/state"] ??= databaseRuntimeState
-    await hubDatabaseNuxt(options.database === true ? {} : options.database)(undefined, nuxt)
     if (!nuxt.options.dev) {
       nuxt.hook?.("nitro:config", async (config) => {
         const alias = (config.alias ??= {}) as Record<string, string>
