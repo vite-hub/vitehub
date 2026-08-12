@@ -418,7 +418,7 @@ export async function resolveBox<Context>(
   }
   const homeState = plan.state.map((state) => {
     const preparedState = prepared.home?.state.find(target => target.path === state.path);
-    if (!preparedState?.identity) {
+    if (typeof preparedState?.identity !== "string" || !preparedState.identity) {
       throw new TypeError(
         `[vitehub] Box runtime ${runtime.name} must declare an opaque Home state identity for ${state.path}.`,
       );

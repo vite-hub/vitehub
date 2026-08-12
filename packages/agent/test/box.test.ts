@@ -335,6 +335,11 @@ describe("Agent Box", () => {
         join(persistentCodexHome, "skills/.git/config"),
         "[core]\n\trepositoryformatversion = 0\n",
       )
+      const managedSkills = await readFile(join(persistentCodexHome, "skills.vitehub-managed"), "utf8")
+      await writeFile(
+        join(persistentCodexHome, "skills.vitehub-managed"),
+        managedSkills.split("\n").filter(record => record && !record.startsWith("parent:")).join("\n") + "\n",
+      )
       globalSkills.splice(1, 1, skills({
         path: "skills/bundles",
         scope: "global",
