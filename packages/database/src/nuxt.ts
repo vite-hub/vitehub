@@ -9,6 +9,7 @@ import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
+import { databaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
@@ -101,7 +102,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       resolvedOptions,
       nuxtOptions,
       sourceMigrationsDir ? generatedNitroMigrationsDir : undefined,
-      readProvisionStateSync(root),
+      resolveDatabaseNuxtProvisionState(readProvisionStateSync(root)),
     )
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
@@ -156,6 +157,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
   module.getModuleDependencies = nuxt => resolveNuxtContentModuleDependencies(options, nuxt)
 
   return module
+}
+
+function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof readProvisionStateSync>) {
+  const d1 = provisionState.cloudflare?.d1
+  const databaseId = d1?.[databaseNuxtProvisionStateKey] ?? d1?.default
+  return databaseId ? { cloudflare: { d1: { default: databaseId } } } : undefined
 }
 
 const nuxtModule: DatabaseNuxtModule = hubDb()

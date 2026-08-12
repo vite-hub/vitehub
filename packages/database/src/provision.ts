@@ -16,18 +16,23 @@ interface PlannedDatabase {
   databaseName: string
 }
 
+export const databaseNuxtProvisionStateKey = "$nuxt"
+
 // Resolves discovered Cloudflare D1 databases keyed by Database Definition name.
 function planDatabases(rootDir: string, options: DBModulePublicOptions | undefined): PlannedDatabase[] {
   const config = resolveDBViteConfig(options, rootDir)
-  if (!config) return []
-  return config.databaseNames.flatMap((definition) => {
+  const planned = config?.databaseNames.flatMap((definition) => {
     const cloudflare = config.databases[definition]?.cloudflare
     const databaseName = resolveConfigValue(cloudflare?.databaseName)
-      ?? (definition === "default" && options && options.driver === "d1"
-        ? resolveConfigValue(options.databaseName)
-        : undefined)
     return databaseName ? [{ definition, databaseName }] : []
-  })
+  }) ?? []
+  const integrationDatabaseName = options && options.driver === "d1"
+    ? resolveConfigValue(options.databaseName)
+    : undefined
+  if (integrationDatabaseName && !planned.some(database => database.definition === "default" && database.databaseName === integrationDatabaseName)) {
+    planned.push({ databaseName: integrationDatabaseName, definition: databaseNuxtProvisionStateKey })
+  }
+  return planned
 }
 
 export function createDatabaseProvisionStep(resolveRootDir: () => string, options?: DBModulePublicOptions): ProvisionStep {

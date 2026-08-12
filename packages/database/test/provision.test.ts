@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createDatabaseProvisionStep } from "../src/provision.ts"
+import { createDatabaseProvisionStep, databaseNuxtProvisionStateKey } from "../src/provision.ts"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
@@ -34,13 +34,6 @@ async function createApp() {
 async function createDefaultApp() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-provision-default-"))
   directories.push(rootDir)
-  const dir = join(rootDir, "server", "databases")
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, "config.ts"), [
-    "import { defineDatabase } from '@vite-hub/database'",
-    "export default defineDatabase({ schema: {} })",
-    "",
-  ].join("\n"), "utf8")
   return rootDir
 }
 
@@ -101,7 +94,7 @@ describe("database provision step", () => {
     expect(actions).toHaveLength(1)
     expect(actions[0]).toMatchObject({ exists: true, name: "nuxt-content" })
     await expect(actions[0]!.apply()).resolves.toEqual({
-      ids: { cloudflare: { d1: { default: "uuid-content" } } },
+      ids: { cloudflare: { d1: { [databaseNuxtProvisionStateKey]: "uuid-content" } } },
     })
   })
 })
