@@ -367,7 +367,7 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
     "",
     "export default (event: unknown) => {",
     "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
-    "  setActiveCloudflareEnv({ ...(vitehubEnv as unknown as Record<string, unknown>), ...target.req?.runtime?.cloudflare?.env, ...target.context?._platform?.cloudflare?.env, ...target.context?.cloudflare?.env, ...target.env })",
+    "  setActiveCloudflareEnv(Object.assign(Object.create(vitehubEnv as object), vitehubEnv as object, target.req?.runtime?.cloudflare?.env, target.context?._platform?.cloudflare?.env, target.context?.cloudflare?.env, target.env))",
     "}",
     "",
   ].join("\n"))
