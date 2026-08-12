@@ -488,7 +488,7 @@ describe("Database Nuxt integration", () => {
   })
 
   it("does not emit an invalid Wrangler D1 binding when the resource is incomplete", async () => {
-    const { nuxt } = createNuxt({
+    const { hooks, nuxt } = createNuxt({
       database: {
         driver: "d1",
         databaseName: "content-db",
@@ -508,6 +508,51 @@ describe("Database Nuxt integration", () => {
       },
     })
     expect(nuxt.options.nitro).toBeUndefined()
+    await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
+      "Cloudflare D1 database \"default\" requires database.databaseId or provision state",
+    )
+  })
+
+  it("uses provisioned D1 ids in Nuxt Cloudflare output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provisioned-"))
+    const definition = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, [
+      'import { defineDatabase } from "@vite-hub/database"',
+      "export default defineDatabase({ schema: {} })",
+      "",
+    ].join("\n"))
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
+      cloudflare: { d1: { default: "provisioned-id" } },
+    }))
+
+    try {
+      const { hooks, nuxt } = createNuxt({
+        database: {
+          driver: "d1",
+          databaseName: "content-db",
+        },
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+
+      await hubDb()(undefined, nuxt)
+      const nitroConfig = {}
+      await callHook(hooks, "nitro:config", nitroConfig)
+
+      expect(nitroConfig).toHaveProperty("cloudflare.wrangler.d1_databases.0", {
+        binding: "DB",
+        database_id: "provisioned-id",
+        database_name: "content-db",
+        migrations_dir: ".vitehub/database/migrations",
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("keeps an existing database Vite plugin", async () => {
