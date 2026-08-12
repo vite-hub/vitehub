@@ -337,11 +337,6 @@ describe("Agent Box", () => {
         join(persistentCodexHome, "skills/.git/config"),
         "[core]\n\trepositoryformatversion = 0\n",
       )
-      const managedSkills = await readFile(join(persistentCodexHome, "skills.vitehub-managed"), "utf8")
-      await writeFile(
-        join(persistentCodexHome, "skills.vitehub-managed"),
-        managedSkills.split("\n").filter(record => record && record !== "vitehub-managed-skills-v2" && !record.startsWith("parent:")).join("\n") + "\n",
-      )
       globalSkills.splice(1, 1, skills({
         path: "skills/bundles",
         scope: "global",
@@ -414,6 +409,24 @@ describe("Agent Box", () => {
       expect((await stat(join(externalReview, "SKILL.md"))).mode & 0o777).toBe(0o400)
       await chmod(externalReview, 0o700)
       await chmod(join(externalReview, "SKILL.md"), 0o600)
+      const legacyParent = join(persistentCodexHome, "skills/legacy-parent")
+      await mkdir(join(legacyParent, "managed"), { recursive: true })
+      await chmod(legacyParent, 0o711)
+      await writeFile(join(legacyParent, "managed/SKILL.md"), "Legacy managed Skill.\n")
+      await writeFile(
+        join(persistentCodexHome, "skills.vitehub-managed"),
+        `${Buffer.from("legacy-parent/managed").toString("base64")}\n`,
+      )
+      await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {
+        options: { worktreePath: removedSkillWorktree },
+        prompt: "Preserve the legacy Skill parent.",
+      })
+      expect((await stat(legacyParent)).mode & 0o777).toBe(0o711)
+      await expect(stat(join(legacyParent, "managed"))).rejects.toMatchObject({ code: "ENOENT" })
       const externalSkills = join(root, "external-skills")
       await mkdir(join(externalSkills, "managed"), { recursive: true })
       await writeFile(join(externalSkills, "untouched"), "external\n")
