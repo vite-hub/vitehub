@@ -58,7 +58,7 @@ function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | und
   return provisionState?.cloudflare?.d1?.[name]
 }
 
-function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
+export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
   const trimmed = typeof binding === "string" ? binding.trim() : ""
   if (trimmed) return trimmed
   if (database === "default") return "DB"

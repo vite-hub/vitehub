@@ -10,6 +10,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 
 import { prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
+import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
@@ -139,6 +140,8 @@ function createRuntimeConfig(rootDir: string, database: Record<string, unknown>)
         ...database,
       },
     },
+    definitionCloudflareConfigured: { primary: Boolean(database.cloudflare) },
+    definitionDefaults: {},
     definitions: [{
       handler: join(rootDir, "server", "databases", "primary", "config.ts"),
       name: "primary",
@@ -334,6 +337,26 @@ describe("Vite db provider outputs", () => {
     expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare-definition-defaults")).toContain("definition-defaults.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toContain("vercel-runtime.mjs")
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
+  })
+
+  it("applies the effective Nuxt D1 binding to named definition runtimes", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-db-vite-definition-defaults-")
+    const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
+    const runtimeConfig = createRuntimeConfig(rootDir, {})
+    runtimeConfig.databaseNames = ["analytics"]
+    runtimeConfig.databases.analytics = runtimeConfig.databases.primary!
+    delete runtimeConfig.databases.primary
+    runtimeConfig.definitionDefaults = { cloudflare: { binding: "  " } }
+    runtimeConfig.definitions[0]!.name = "analytics"
+    runtimeConfig.generatedSchemaFilesByDatabase.analytics = runtimeConfig.generatedSchemaFilesByDatabase.primary!
+
+    await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
+
+    await expect(readFile(join(rootDir, ".vitehub/database/definition-defaults.mjs"), "utf8"))
+      .resolves.toBe('export default {"cloudflare":{"binding":"DB"}}\n')
+    const expression = renderDatabaseConfigExpression("analytics", runtimeConfig, "definition")
+    const config = Function("definition", `return (${expression})`)({ connection: undefined, drizzle: {}, schema: {} })
+    expect(config.cloudflare).toEqual({ binding: "DB" })
   })
 
   it("composes direct Blob and Database provider output in either plugin order", async () => {

@@ -8,7 +8,7 @@ import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/pr
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
-import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
+import { resolveCloudflareD1BindingName, resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
 import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
 
@@ -51,6 +51,17 @@ interface GeneratedDBArtifacts {
   generatedDir: string
   runtimeModuleFiles: Record<DBProvider, string>
   vercelServerFile: string
+}
+
+function normalizeDefinitionDefaults(defaults: ResolvedDBViteConfig["definitionDefaults"]): ResolvedDBViteConfig["definitionDefaults"] {
+  if (!defaults.cloudflare) return defaults
+  return {
+    ...defaults,
+    cloudflare: {
+      ...defaults.cloudflare,
+      binding: resolveCloudflareD1BindingName("default", defaults.cloudflare.binding),
+    },
+  }
 }
 
 interface CloudflareDBConfig {
@@ -105,6 +116,8 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, userApp
 }
 
 async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir): Promise<GeneratedDBArtifacts> {
+  const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
+  const normalizedRuntimeConfig = { ...runtimeConfig, definitionDefaults }
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
@@ -117,7 +130,7 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
 
   await Promise.all([writeFile(
     definitionDefaultsFile,
-    `export default ${JSON.stringify(runtimeConfig.definitionDefaults)}\n`,
+    `export default ${JSON.stringify(definitionDefaults)}\n`,
     "utf8",
   ), ...providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
@@ -126,7 +139,7 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
     runtimeModuleFiles[spec.name] = runtimeModuleFile
     await Promise.all([
       writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry), "utf8"),
-      writeFile(runtimeModuleFile, renderRuntimeModule(runtimeModuleFile, runtimeConfig), "utf8"),
+      writeFile(runtimeModuleFile, renderRuntimeModule(runtimeModuleFile, normalizedRuntimeConfig), "utf8"),
     ])
   })])
 
