@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
 
@@ -61,5 +62,24 @@ describe("ViteHub CLI config loading", () => {
 
     expect(loadNuxt).not.toHaveBeenCalled()
     expect(resolveViteConfig).toHaveBeenCalledWith({ root }, "serve", "development")
+  })
+
+  it("preserves explicit Vite ownership across CLI discovery", async () => {
+    const root = await createProject("vite")
+    await writeFile(join(root, "nuxt.config.ts"), "export default {}\n", "utf8")
+    const loadNuxt = vi.fn()
+    const loadNuxtViteConfig = vi.fn()
+    const resolveViteConfig = vi.fn(async config => ({ plugins: [], root: String(config.root) }))
+
+    await runViteHubCli({
+      args: ["--help"],
+      cwd: root,
+      loadConfig: directory => loadViteHubCliConfig(directory, { loadNuxt, resolveViteConfig }),
+      loadNuxtViteConfig,
+      stdout: { write: () => true },
+    })
+
+    expect(loadNuxt).not.toHaveBeenCalled()
+    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 })
