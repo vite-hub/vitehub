@@ -315,6 +315,8 @@ describe("Agent Box", () => {
         .resolves.toBe("foreign state\n")
       await expect(readFile(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), "utf8"))
         .resolves.toMatch(/^vitehub-colocated-skills-v2\n/)
+      await expect(readFile(join(persistentCodexHome, "skills.vitehub-managed"), "utf8"))
+        .resolves.toMatch(/^vitehub-managed-skills-v2\n/)
       await chmod(join(persistentCodexHome, "skills.vitehub-colocated-v2.1"), 0o000)
       await expect(runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
@@ -338,7 +340,7 @@ describe("Agent Box", () => {
       const managedSkills = await readFile(join(persistentCodexHome, "skills.vitehub-managed"), "utf8")
       await writeFile(
         join(persistentCodexHome, "skills.vitehub-managed"),
-        managedSkills.split("\n").filter(record => record && !record.startsWith("parent:")).join("\n") + "\n",
+        managedSkills.split("\n").filter(record => record && record !== "vitehub-managed-skills-v2" && !record.startsWith("parent:")).join("\n") + "\n",
       )
       globalSkills.splice(1, 1, skills({
         path: "skills/bundles",
