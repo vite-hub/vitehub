@@ -10,6 +10,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 
 import { prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
+import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
@@ -338,17 +339,22 @@ describe("Vite db provider outputs", () => {
     expect(getProviderRuntimeModule(providerOutput, "database", "vercel-definition-defaults")).toContain("definition-defaults.mjs")
   })
 
-  it("applies integration D1 defaults to generated definition runtimes", async () => {
+  it("applies the effective Nuxt D1 binding to named definition runtimes", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-definition-defaults-")
     const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
     const runtimeConfig = createRuntimeConfig(rootDir, {})
-    runtimeConfig.definitionDefaults = { cloudflare: { binding: "DB" } }
+    runtimeConfig.databaseNames = ["analytics"]
+    runtimeConfig.databases.analytics = runtimeConfig.databases.primary!
+    delete runtimeConfig.databases.primary
+    runtimeConfig.definitionDefaults = { cloudflare: { binding: undefined } }
+    runtimeConfig.definitions[0]!.name = "analytics"
+    runtimeConfig.generatedSchemaFilesByDatabase.analytics = runtimeConfig.generatedSchemaFilesByDatabase.primary!
 
     await prepareDatabaseProviderOutputs({ providerOutput, rootDir, runtimeConfig })
 
-    const cloudflareRuntime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
-    expect(cloudflareRuntime).toContain('cloudflare: definition_0.cloudflare ?')
-    expect(cloudflareRuntime).toContain(': {"binding":"DB"}')
+    const expression = renderDatabaseConfigExpression("analytics", runtimeConfig, "definition")
+    const config = Function("definition", `return (${expression})`)({ connection: undefined, drizzle: {}, schema: {} })
+    expect(config.cloudflare).toEqual({ binding: "DB" })
   })
 
   it("composes direct Blob and Database provider output in either plugin order", async () => {

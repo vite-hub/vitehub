@@ -23,7 +23,7 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
   const definitionCloudflareDefaults = config.definitionDefaults.cloudflare
     ? {
         ...config.definitionDefaults.cloudflare,
-        binding: config.definitionDefaults.cloudflare.binding ?? base.cloudflare?.binding ?? getDefaultCloudflareBindingName(name),
+        binding: config.definitionDefaults.cloudflare.binding ?? "DB",
       }
     : undefined
   const baseHttp = base.cloudflare?.http
