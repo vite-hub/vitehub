@@ -11,10 +11,7 @@ import type { Plugin } from "vite"
 
 const cloudflareBridgeState = vi.hoisted(() => ({
   activeEnv: undefined as Record<string, unknown> | undefined,
-  fallbackEnv: Object.defineProperties({ FALLBACK: "fallback", SHARED: "fallback" }, {
-    DB: { value: "binding" },
-    NATIVE: { value: "native" },
-  }),
+  fallbackEnv: { FALLBACK: "fallback", SHARED: "fallback" },
 }))
 
 vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv }))
@@ -132,7 +129,6 @@ describe("Database Nuxt integration", () => {
 
     expect(nitroConfig).toEqual({
       alias: {
-        "#vitehub/database/definition-defaults": "/tmp/vitehub-db-nuxt/.vitehub/database/definition-defaults.mjs",
         "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs",
       },
       cloudflare: {
@@ -168,13 +164,12 @@ describe("Database Nuxt integration", () => {
     })
     const middleware = await readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8")
     expect(middleware).toContain("setActiveCloudflareEnv")
-    expect(middleware).toContain(".__env__ ?? vitehubEnv")
+    expect(middleware).toContain("vitehubEnv as unknown as Record<string, unknown>")
   })
 
   it("merges split Cloudflare bindings with request-local precedence", async () => {
     const rootDir = process.cwd()
     const middlewarePath = join(rootDir, ".vitehub/nitro/database/middleware.ts")
-    const previousEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__
     try {
       const { hooks, nuxt } = createNuxt({
         dev: false,
@@ -187,30 +182,25 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
 
       const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
-      ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty({}, "DB", { value: "native-binding" })
       middleware({
         context: {
           _platform: { cloudflare: { env: { PLATFORM: "platform", SHARED: "platform" } } },
           cloudflare: { env: { CONTEXT: "context", SHARED: "context" } },
         },
-        env: { DB: "event-binding", EVENT: "event", SHARED: "event" },
+        env: { EVENT: "event", SHARED: "event" },
         req: { runtime: { cloudflare: { env: { REQUEST: "request", SHARED: "request" } } } },
       })
 
       expect(cloudflareBridgeState.activeEnv).toEqual({
         CONTEXT: "context",
-        DB: "event-binding",
         EVENT: "event",
+        FALLBACK: "fallback",
         PLATFORM: "platform",
         REQUEST: "request",
         SHARED: "event",
       })
-      expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
-      middleware({})
-      expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
     }
     finally {
-      ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = previousEnv
       await rm(middlewarePath, { force: true })
     }
   })
@@ -711,7 +701,6 @@ describe("Database Nuxt integration", () => {
     await callHook(hooks, "nitro:config", nitroConfig)
 
     expect(nitroConfig.alias).toEqual({
-      "#vitehub/database/definition-defaults": join(rootDir, ".vitehub/database/definition-defaults.mjs"),
       "@vite-hub/database/drizzle": join(rootDir, `.vitehub/database/${provider}-runtime.mjs`),
     })
   })
