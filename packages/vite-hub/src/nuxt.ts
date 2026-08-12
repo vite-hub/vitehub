@@ -24,6 +24,7 @@ type NuxtLike = {
       baseURL?: string
     }
     buildDir: string
+    database?: DatabaseNuxtIntegrationOptions
     dev?: boolean
     imports?: {
       imports?: Array<{ as?: string, from: string, name: string }>
@@ -226,7 +227,16 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
-  const secondaryProjectRoots = configuredProjectRoots(options, rootDir, viteRoot)
+  const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
+    ? {
+        ...options,
+        database: {
+          ...nuxt.options.database,
+          ...(options.database === true ? {} : options.database),
+        },
+      }
+    : options
+  const secondaryProjectRoots = configuredProjectRoots(configuredOptions, rootDir, viteRoot)
     .filter(root => root !== projectRoot)
   const generatedTypes = [
     relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),

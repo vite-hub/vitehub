@@ -403,6 +403,22 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it("includes the effective top-level Database project root", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, {
+      database: { projectRoot: "packages/db" },
+    })
+
+    await viteHubNuxtModule({ database: true, preset: "node" }, nuxt)
+
+    expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
+      tsConfig: {
+        exclude: ["../packages/db/.vitehub/data/**/*.d.ts"],
+        include: ["../.vitehub/types.d.ts", "../packages/db/.vitehub/**/*.d.ts"],
+      },
+    })
+  })
+
   it("installs the Database Nuxt runtime alias through the framework module", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options.vite, {
