@@ -95,7 +95,7 @@ describe("database provision step", () => {
     expect(actions).toHaveLength(1)
     expect(actions[0]).toMatchObject({ exists: true, name: "nuxt-content" })
     await expect(actions[0]!.apply()).resolves.toEqual({
-      ids: { cloudflare: { d1: { [getDatabaseNuxtProvisionStateKey("nuxt-content")]: "uuid-content" } } },
+      ids: { cloudflare: { d1Nuxt: { [getDatabaseNuxtProvisionStateKey("nuxt-content")]: "uuid-content" } } },
     })
   })
 
@@ -113,7 +113,10 @@ describe("database provision step", () => {
 
     expect(actions).toHaveLength(1)
     await expect(actions[0]!.apply()).resolves.toEqual({
-      ids: { cloudflare: { d1: { [getDatabaseNuxtProvisionStateKey("vitehub-playground-db")]: "shared-id", primary: "shared-id" } } },
+      ids: { cloudflare: {
+        d1: { primary: "shared-id" },
+        d1Nuxt: { [getDatabaseNuxtProvisionStateKey("vitehub-playground-db")]: "shared-id" },
+      } },
     })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })

@@ -587,7 +587,7 @@ describe("Database Nuxt integration", () => {
     ].join("\n"))
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
-      cloudflare: { d1: { "@vitehub/database/nuxt:content-db": "provisioned-id", default: "definition-id" } },
+      cloudflare: { d1: { default: "definition-id" }, d1Nuxt: { "content-db": "provisioned-id" } },
     }))
 
     try {

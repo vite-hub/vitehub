@@ -104,7 +104,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       nuxtOptions,
       sourceMigrationsDir ? generatedNitroMigrationsDir : undefined,
       resolveDatabaseNuxtProvisionState(
-        readProvisionStateSync(resolve(nuxtOptions.rootDir || process.cwd())),
+        readProvisionStateSync(resolve(nuxtOptions.rootDir || process.cwd(), typeof viteConfig.root === "string" ? viteConfig.root : ".")),
         resolvedOptions.databaseName,
       ),
     )
@@ -162,7 +162,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
 function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof readProvisionStateSync>, databaseName: unknown) {
   const resolvedDatabaseName = resolveConfigValue(databaseName as Parameters<typeof resolveConfigValue>[0])?.trim()
   if (!resolvedDatabaseName) return
-  const databaseId = provisionState.cloudflare?.d1?.[getDatabaseNuxtProvisionStateKey(resolvedDatabaseName)]
+  const databaseId = provisionState.cloudflare?.d1Nuxt?.[getDatabaseNuxtProvisionStateKey(resolvedDatabaseName)]
   return databaseId ? { cloudflare: { d1: { default: databaseId } } } : undefined
 }
 
