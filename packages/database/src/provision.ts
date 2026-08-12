@@ -23,6 +23,9 @@ function planDatabases(rootDir: string, options: DBModulePublicOptions | undefin
   return config.databaseNames.flatMap((definition) => {
     const cloudflare = config.databases[definition]?.cloudflare
     const databaseName = resolveConfigValue(cloudflare?.databaseName)
+      ?? (definition === "default" && options && options.driver === "d1"
+        ? resolveConfigValue(options.databaseName)
+        : undefined)
     return databaseName ? [{ definition, databaseName }] : []
   })
 }

@@ -31,6 +31,19 @@ async function createApp() {
   return rootDir
 }
 
+async function createDefaultApp() {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-provision-default-"))
+  directories.push(rootDir)
+  const dir = join(rootDir, "server", "databases")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, "config.ts"), [
+    "import { defineDatabase } from '@vite-hub/database'",
+    "export default defineDatabase({ schema: {} })",
+    "",
+  ].join("\n"), "utf8")
+  return rootDir
+}
+
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
 }
@@ -71,5 +84,24 @@ describe("database provision step", () => {
     expect(actions[0]!.exists).toBe(false)
     const result = await actions[0]!.apply()
     expect(result.ids).toEqual({ cloudflare: { d1: { primary: "uuid-new" } } })
+  })
+
+  it("provisions the default database from integration-level Nuxt D1 options", async () => {
+    const rootDir = await createDefaultApp()
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      success: true,
+      result: [{ name: "nuxt-content", uuid: "uuid-content" }],
+    })) as unknown as typeof globalThis.fetch
+
+    const actions = await createDatabaseProvisionStep(() => rootDir, {
+      databaseName: "nuxt-content",
+      driver: "d1",
+    }).plan(provisionContext(fetchImpl))
+
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toMatchObject({ exists: true, name: "nuxt-content" })
+    await expect(actions[0]!.apply()).resolves.toEqual({
+      ids: { cloudflare: { d1: { default: "uuid-content" } } },
+    })
   })
 })
