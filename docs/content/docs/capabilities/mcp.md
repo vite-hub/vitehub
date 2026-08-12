@@ -25,7 +25,7 @@ An optional approved fingerprint map can block added or changed tool definitions
 ## Configuration
 
 Pass a server map.
-Each entry can resolve to an MCP client or MCP client configuration owned by the application.
+Each entry can be a static direct MCP client borrowed from the application, or a client config or resolver whose resolved client is owned by the Agent Invocation.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
