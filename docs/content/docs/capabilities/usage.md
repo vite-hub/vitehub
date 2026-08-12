@@ -16,7 +16,7 @@ import { defineAgent } from '@vite-hub/agent'
 import { usage } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model: 'openrouter:anthropic/claude-sonnet-4.5' },
+  driver: { model: 'anthropic/claude-sonnet-4.5' },
   capabilities: [usage()],
 })
 ```
@@ -32,7 +32,7 @@ import { defineAgent } from '@vite-hub/agent'
 import { usage } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model: 'openrouter:anthropic/claude-sonnet-4.5' },
+  driver: { model: 'anthropic/claude-sonnet-4.5' },
   capabilities: [usage()],
   hooks: {
     'agent:finish'(event) {
