@@ -150,7 +150,7 @@ interface HarnessSessionIdentity {
 }
 
 function persistedCodexBoxState(box: AgentAdapterRunContext["box"]) {
-  return box?.plan.home.state.find(state => state.path === ".codex")
+  return box?.plan.home?.state.find(state => state.path === ".codex")
 }
 
 function hasEntries(value: unknown): value is Record<string, unknown> {
