@@ -17,14 +17,15 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 ## What it adds
 
-The Capability normalizes MCP tool names with the server name, attaches sanitized MCP metadata, and closes MCP clients after the invocation.
+The Capability normalizes MCP tool names with the server name, attaches sanitized MCP metadata, and closes MCP clients created from configs or resolvers after the invocation.
+Static direct clients stay application-owned so they can be reused across invocations.
 Tool names, descriptions, and schemas stay with the MCP tool contract. Put broader guidance about when to use an MCP server in Agent Driver Instructions.
 An optional approved fingerprint map can block added or changed tool definitions before they reach an Agent Driver.
 
 ## Configuration
 
 Pass a server map.
-Each entry can resolve to an MCP client or MCP client configuration owned by the application.
+Each entry can be a static direct MCP client borrowed from the application, or a client config or resolver whose resolved client is owned by the Agent Invocation.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -47,6 +48,7 @@ export default defineAgent({
 
 During resolution, `mcp()` connects to each configured MCP Server and asks for its tool set.
 ViteHub prefixes normalized tool names with `mcp_<server>_` and rejects duplicate normalized names.
+Pass a resolver or client config for an invocation-owned connection, or a static direct client when the application owns its lifetime.
 
 The Capability redacts secret-shaped metadata keys before exposing MCP metadata.
 

@@ -38,7 +38,7 @@ async function fingerprintTools(tools: Record<string, unknown>) {
 }
 
 describe("mcp capability", () => {
-  it("loads direct client tools with namespaced metadata and closes clients", async () => {
+  it("loads direct client tools with namespaced metadata without closing the borrowed client", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
     const client = createClient({
@@ -69,7 +69,33 @@ describe("mcp capability", () => {
     })
 
     await resolved.close()
-    expect(client.close).toHaveBeenCalledTimes(1)
+    expect(client.close).not.toHaveBeenCalled()
+  })
+
+  it("keeps a static direct client usable across invocations", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    let closed = false
+    const execute = vi.fn(async () => {
+      if (closed) throw new Error("Attempted to send a request from a closed client")
+      return "ok"
+    })
+    const client = createClient({ lookup: { execute } })
+    client.close.mockImplementation(async () => {
+      closed = true
+      return undefined
+    })
+    const capability = mcp({ servers: { portal: client } })
+
+    const first = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {})
+    await expect(first.tools!.mcp_portal_lookup!.execute!({})).resolves.toBe("ok")
+    await first.close()
+    const second = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {})
+    await expect(second.tools!.mcp_portal_lookup!.execute!({})).resolves.toBe("ok")
+    await second.close()
+
+    expect(client.close).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledTimes(2)
   })
 
   it("creates clients from config entries and redacts secret metadata", async () => {
@@ -158,8 +184,8 @@ describe("mcp capability", () => {
     await expect(resolveAgentCapabilities({
       capabilities: [mcp({
         servers: {
-          "same!": first,
-          "same_": second,
+          "same!": () => first,
+          "same_": () => second,
         },
       })],
     }, runtime(), {})).rejects.toThrow("Duplicate MCP tool name")
@@ -179,7 +205,7 @@ describe("mcp capability", () => {
         integrity: {
           docs: await fingerprintTools(tools),
         },
-        servers: { docs: client },
+        servers: { docs: () => client },
       })],
     }, runtime(), {})
 
@@ -201,7 +227,7 @@ describe("mcp capability", () => {
           integrity: {
             docs: await fingerprintTools(approved),
           },
-          servers: { docs: client },
+          servers: { docs: () => client },
         })],
       }, runtime(), {})
     }
@@ -243,7 +269,7 @@ describe("mcp capability", () => {
     const client = createClient(await createTools(tools))
 
     await expect(resolveAgentCapabilities({
-      capabilities: [mcp({ integrity: { docs: {} }, servers: { docs: client } })],
+      capabilities: [mcp({ integrity: { docs: {} }, servers: { docs: () => client } })],
     }, runtime(), {})).rejects.toMatchObject({
       code: "MCP_TOOL_DEFINITION_DRIFT",
       details: { added: expect.arrayContaining([expect.any(String)]), server: "docs" },

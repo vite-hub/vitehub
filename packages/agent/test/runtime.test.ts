@@ -5,7 +5,7 @@ import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, unknownExecutionAuthority } from "@vite-hub/runtime"
-import { chat, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
+import { chat, mcp, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
@@ -8809,6 +8809,56 @@ describe("agent message protocol", () => {
 
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
     await expect(response.text()).resolves.toContain('"type":"data-progress-summary"')
+  })
+
+  it("keeps borrowed MCP tools callable across Harness chat invocations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let closed = false
+    const execute = vi.fn(async () => {
+      if (closed) throw new Error("Attempted to send a request from a closed client")
+      return { segment: "Critical Overstock" }
+    })
+    const client = {
+      close: vi.fn(async () => { closed = true }),
+      tools: vi.fn(async () => ({ inventory_health: { execute } })),
+    }
+    harnessCreateSession.mockResolvedValue({ destroy: vi.fn() })
+    harnessStream.mockImplementation(function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      const tool = this.settings.tools.mcp_portal_inventory_health!
+      return {
+        fullStream: (async function* () {
+          yield { input: {}, toolCallId: "inventory-1", toolName: "mcp_portal_inventory_health", type: "tool-input-available" }
+          const output = await tool.execute({})
+          yield { output, toolCallId: "inventory-1", type: "tool-output-available" }
+          yield { id: "final-1", type: "text-start" }
+          yield { delta: "Critical Overstock is largest.", id: "final-1", type: "text-delta" }
+          yield { id: "final-1", type: "text-end" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+      }
+    })
+    const agent = defineAgent({
+      capabilities: [mcp({ servers: { portal: client } })],
+      channels: { portal: webChat },
+      driver: { harness: { provider: "codex" } },
+    })
+    const handler = createChannelChatRouteHandler(agent as never)
+    const request = (id: string) => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id,
+        messages: [{ id: `user-${id}`, parts: [{ text: "Which segment is largest?", type: "text" }], role: "user" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    await expect((await handler(request("first"), { agentName: "support" })).text()).resolves.toContain("Critical Overstock is largest.")
+    await expect((await handler(request("second"), { agentName: "support" })).text()).resolves.toContain("Critical Overstock is largest.")
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(client.close).not.toHaveBeenCalled()
   })
 
   it("propagates the invocation Box sandbox to title and progress Harness drivers", async () => {
