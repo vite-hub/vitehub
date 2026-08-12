@@ -39,7 +39,7 @@ export interface RunViteHubCliOptions {
   args?: string[]
   cwd?: string
   env?: NodeJS.ProcessEnv
-  loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
+  loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubNuxtResolved?: true }>
   loadNuxtViteConfig?: (rootDir: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
@@ -149,8 +149,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const env = options.env || process.env
   const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
-  const config = await (options.loadConfig || loadViteConfig)(cwd)
-  const nuxtConfig = options.loadConfig
+  const config: Pick<ResolvedConfig, "plugins" | "root"> & { vitehubNuxtResolved?: true }
+    = await (options.loadConfig || loadViteConfig)(cwd)
+  const nuxtConfig = config.vitehubNuxtResolved
     ? undefined
     : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
   const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])] as typeof config.plugins

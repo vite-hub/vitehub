@@ -39,6 +39,7 @@ describe("ViteHub CLI config loading", () => {
     await expect(loadViteHubCliConfig(root, { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [{ name: "nuxt-vitehub" }],
       root,
+      vitehubNuxtResolved: true,
     })
     expect(resolveViteConfig).toHaveBeenCalledWith(expect.objectContaining({
       configFile: false,
