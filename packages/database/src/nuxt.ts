@@ -160,8 +160,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
 }
 
 function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof readProvisionStateSync>) {
-  const d1 = provisionState.cloudflare?.d1
-  const databaseId = d1?.[databaseNuxtProvisionStateKey] ?? d1?.default
+  const databaseId = provisionState.cloudflare?.d1?.[databaseNuxtProvisionStateKey]
   return databaseId ? { cloudflare: { d1: { default: databaseId } } } : undefined
 }
 

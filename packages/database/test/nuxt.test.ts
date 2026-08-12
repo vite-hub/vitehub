@@ -616,6 +616,30 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it("does not consume default Definition provision state for the Nuxt resource", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-definition-state-"))
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
+      cloudflare: { d1: { default: "definition-id" } },
+    }))
+    try {
+      const { hooks, nuxt } = createNuxt({
+        database: { driver: "d1", databaseName: "content-db" },
+        dev: false,
+        rootDir,
+        vite: {},
+      })
+      await hubDb()(undefined, nuxt)
+
+      await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
+        "requires database.databaseId or provision state",
+      )
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps an existing database Vite plugin", async () => {
     const existingPlugin = { name: "@vite-hub/database/vite" }
     const { nuxt } = createNuxt({
