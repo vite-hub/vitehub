@@ -99,6 +99,24 @@ describe("database provision step", () => {
     })
   })
 
+  it("normalizes the Nuxt D1 provision-state identity", async () => {
+    const rootDir = await createDefaultApp()
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      success: true,
+      result: [{ name: " content-db ", uuid: "uuid-content" }],
+    })) as unknown as typeof globalThis.fetch
+
+    const actions = await createDatabaseProvisionStep(() => rootDir, {
+      databaseName: " content-db ",
+      driver: "d1",
+      nuxtHostResource: true,
+    }).plan(provisionContext(fetchImpl))
+
+    await expect(actions[0]!.apply()).resolves.toEqual({
+      ids: { cloudflare: { d1Nuxt: { [getDatabaseNuxtProvisionStateKey("content-db")]: "uuid-content" } } },
+    })
+  })
+
   it("coalesces Definition and Nuxt state keys for the same D1 database", async () => {
     const rootDir = await createApp()
     const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => jsonResponse({

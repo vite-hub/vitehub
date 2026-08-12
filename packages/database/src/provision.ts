@@ -20,7 +20,7 @@ interface PlannedDatabase {
 }
 
 export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
-  return encodeURIComponent(databaseName)
+  return encodeURIComponent(databaseName.trim())
 }
 
 // Resolves discovered Cloudflare D1 databases keyed by Database Definition name.
