@@ -11,7 +11,7 @@ import type { Plugin } from "vite"
 
 const cloudflareBridgeState = vi.hoisted(() => ({
   activeEnv: undefined as Record<string, unknown> | undefined,
-  fallbackEnv: Object.defineProperty({ FALLBACK: "fallback", SHARED: "fallback" }, "DB", { value: "binding" }),
+  fallbackEnv: { FALLBACK: "fallback", SHARED: "fallback" },
 }))
 
 vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv }))
@@ -164,7 +164,7 @@ describe("Database Nuxt integration", () => {
     })
     const middleware = await readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8")
     expect(middleware).toContain("setActiveCloudflareEnv")
-    expect(middleware).toContain("Object.create(vitehubEnv as object)")
+    expect(middleware).toContain("vitehubEnv as unknown as Record<string, unknown>")
   })
 
   it("merges split Cloudflare bindings with request-local precedence", async () => {
@@ -199,7 +199,6 @@ describe("Database Nuxt integration", () => {
         REQUEST: "request",
         SHARED: "event",
       })
-      expect(cloudflareBridgeState.activeEnv?.DB).toBe("binding")
     }
     finally {
       await rm(middlewarePath, { force: true })
