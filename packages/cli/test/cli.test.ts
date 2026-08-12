@@ -168,19 +168,26 @@ describe("ViteHub CLI", () => {
   it("collects provision steps installed by Nuxt modules", async () => {
     const rootDir = await createTempDir()
     const apply = vi.fn(async () => ({ ids: { cloudflare: { test: { demo: "id" } } } }))
+    const plan = vi.fn(async () => [{ kind: "test-resource", name: "demo", exists: false, apply }])
     const stdout = stream()
 
     const exitCode = await runViteHubCli({
-      args: ["provision", "run", "--provider", "cloudflare", "--dry-run"],
+      args: ["provision", "run", "--provider", "cloudflare"],
       cwd: rootDir,
+      env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
       loadConfig: async () => ({ plugins: [], root: rootDir }) as never,
-      loadNuxtVitePlugins: async () => [provisionPlugin(apply)],
+      loadNuxtViteConfig: async () => ({
+        plugins: [{ vitehub: { cli: { namespaces: [], provision: [{ id: "test:cloudflare", provider: "cloudflare", plan }] } } }],
+        root: join(rootDir, "app"),
+      }),
       stdout,
     })
 
     expect(exitCode).toBe(0)
-    expect(apply).not.toHaveBeenCalled()
-    expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+    expect(plan).toHaveBeenCalledOnce()
+    expect(apply).toHaveBeenCalledOnce()
+    expect(JSON.parse(await readFile(join(rootDir, "app", ".vitehub", "provision.json"), "utf8")))
+      .toEqual({ cloudflare: { test: { demo: "id" } } })
   })
 
   it("fails closed when provision credentials are missing", async () => {

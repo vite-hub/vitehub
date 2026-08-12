@@ -40,16 +40,16 @@ export interface RunViteHubCliOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
-  loadNuxtVitePlugins?: (rootDir: string) => Promise<unknown[]>
+  loadNuxtViteConfig?: (rootDir: string) => Promise<{ plugins: unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
 }
 
-async function loadNuxtVitePlugins(rootDir: string): Promise<unknown[]> {
+async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: unknown[], root?: string } | undefined> {
   const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
-  if (!hasNuxtConfig) return []
+  if (!hasNuxtConfig) return
 
   let loadNuxt: typeof import("nuxt/kit")["loadNuxt"]
   try {
@@ -58,9 +58,12 @@ async function loadNuxtVitePlugins(rootDir: string): Promise<unknown[]> {
   catch {
     throw new TypeError("[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery.")
   }
-  const nuxt = await loadNuxt({ cwd: rootDir, dev: false, ready: false })
+  const nuxt = await loadNuxt({ cwd: rootDir, dev: false })
   try {
-    return Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []
+    return {
+      plugins: Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : [],
+      root: typeof nuxt.options.vite.root === "string" ? resolve(rootDir, nuxt.options.vite.root) : undefined,
+    }
   }
   finally {
     await nuxt.close()
@@ -139,9 +142,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
   const config = await (options.loadConfig || loadViteConfig)(cwd)
-  const nuxtPlugins = await (options.loadNuxtVitePlugins || loadNuxtVitePlugins)(cwd)
-  const plugins = [...config.plugins, ...nuxtPlugins] as typeof config.plugins
-  const rootDir = resolve(config.root || cwd)
+  const nuxtConfig = await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
+  const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])] as typeof config.plugins
+  const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
   const namespaces = [
     ...await collectViteHubCliNamespaces(plugins),
     createProvisionNamespace(plugins),
