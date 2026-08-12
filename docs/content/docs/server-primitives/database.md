@@ -77,6 +77,7 @@ The Vite config key is `database`.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `database` | `boolean` or `DBModulePublicOptions` | disabled | Enables database discovery and generated runtime surfaces through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
+| `database.projectRoot` | `string` | effective application root | Sets the root used for Database Definition discovery, generated artifacts, and provisioning. Relative paths resolve from the Vite root in a Vite app and from the Nuxt `rootDir` in a Nuxt app. |
 | `database.cli.generate` | `false` | enabled | Disables package-owned schema generation CLI contribution. |
 | `database.cli.migrate` | `false` | enabled | Disables package-owned migration CLI contribution. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Supplies a hosted libSQL connection for Database Definitions that do not declare one. Definition connection values override matching integration values. |
