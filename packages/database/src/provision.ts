@@ -6,28 +6,47 @@ import { resolveDBViteConfig } from "./config.ts"
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { DBModulePublicOptions } from "./types.ts"
 
+type DatabaseProvisionOptions = DBModulePublicOptions | (Exclude<DBModulePublicOptions, false> & { nuxtHostResource: true })
+
 interface CloudflareD1Database {
   uuid?: string
   name?: string
 }
 
 interface PlannedDatabase {
-  definition: string
   databaseName: string
+  definitions: string[]
+  nuxt: boolean
+}
+
+export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
+  return encodeURIComponent(databaseName.trim())
 }
 
 // Resolves discovered Cloudflare D1 databases keyed by Database Definition name.
-function planDatabases(rootDir: string, options: DBModulePublicOptions | undefined): PlannedDatabase[] {
+function planDatabases(rootDir: string, options: DatabaseProvisionOptions | undefined): PlannedDatabase[] {
   const config = resolveDBViteConfig(options, rootDir)
-  if (!config) return []
-  return config.databaseNames.flatMap((definition) => {
-    const cloudflare = config.databases[definition]?.cloudflare
+  const plannedByName = new Map<string, PlannedDatabase>()
+  for (const definition of config?.databaseNames ?? []) {
+    const cloudflare = config?.databases[definition]?.cloudflare
     const databaseName = resolveConfigValue(cloudflare?.databaseName)
-    return databaseName ? [{ definition, databaseName }] : []
-  })
+    if (!databaseName) continue
+    const matching = plannedByName.get(databaseName)
+    if (matching) matching.definitions.push(definition)
+    else plannedByName.set(databaseName, { databaseName, definitions: [definition], nuxt: false })
+  }
+  const integrationDatabaseName = options && options.driver === "d1" && "nuxtHostResource" in options && options.nuxtHostResource === true
+    ? resolveConfigValue(options.databaseName)
+    : undefined
+  if (integrationDatabaseName) {
+    const matching = plannedByName.get(integrationDatabaseName)
+    if (matching) matching.nuxt = true
+    else plannedByName.set(integrationDatabaseName, { databaseName: integrationDatabaseName, definitions: [], nuxt: true })
+  }
+  return [...plannedByName.values()]
 }
 
-export function createDatabaseProvisionStep(resolveRootDir: () => string, options?: DBModulePublicOptions): ProvisionStep {
+export function createDatabaseProvisionStep(resolveRootDir: () => string, options?: DatabaseProvisionOptions): ProvisionStep {
   return {
     id: "database:cloudflare-d1",
     provider: "cloudflare",
@@ -47,7 +66,7 @@ export function createDatabaseProvisionStep(resolveRootDir: () => string, option
         .filter((database): database is { name: string, uuid: string } => Boolean(database.name && database.uuid))
         .map(database => [database.name, database.uuid]))
 
-      return planned.map(({ definition, databaseName }): ProvisionAction => {
+      return planned.map(({ databaseName, definitions, nuxt }): ProvisionAction => {
         const existingId = idByName.get(databaseName)
         return {
           kind: "cloudflare-d1",
@@ -59,7 +78,12 @@ export function createDatabaseProvisionStep(resolveRootDir: () => string, option
               const created = await request<CloudflareD1Database>("/d1/database", { method: "POST", body: { name: databaseName } })
               id = created.result?.uuid
             }
-            return id ? { ids: { cloudflare: { d1: { [definition]: id } } } } : {}
+            if (!id) return {}
+            const definitionIds = Object.fromEntries(definitions.map(definition => [definition, id]))
+            return { ids: { cloudflare: {
+              ...(Object.keys(definitionIds).length ? { d1: definitionIds } : {}),
+              ...(nuxt ? { d1Nuxt: { [getDatabaseNuxtProvisionStateKey(databaseName)]: id } } : {}),
+            } } }
           },
         }
       })

@@ -488,7 +488,7 @@ describe("Database Nuxt integration", () => {
   })
 
   it("does not emit an invalid Wrangler D1 binding when the resource is incomplete", async () => {
-    const { nuxt } = createNuxt({
+    const { hooks, nuxt } = createNuxt({
       database: {
         driver: "d1",
         databaseName: "content-db",
@@ -508,6 +508,142 @@ describe("Database Nuxt integration", () => {
       },
     })
     expect(nuxt.options.nitro).toBeUndefined()
+    await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
+      "Cloudflare D1 database \"default\" requires database.databaseId or provision state",
+    )
+  })
+
+  it("reports a missing D1 database name separately from a missing id", async () => {
+    const { hooks, nuxt } = createNuxt({
+      database: {
+        databaseId: "content-id",
+        driver: "d1",
+      },
+      dev: false,
+      rootDir: "/tmp/vitehub-db-nuxt-missing-name",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+
+    await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
+      "Cloudflare D1 output requires database.databaseName",
+    )
+    expect(nuxt.options.nitro).toBeUndefined()
+  })
+
+  it("accepts a complete matching D1 binding from Nitro Wrangler config", async () => {
+    const { hooks, nuxt } = createNuxt({
+      database: {
+        driver: "d1",
+        databaseName: "content-db",
+      },
+      dev: false,
+      rootDir: "/tmp/vitehub-db-nuxt-existing-binding",
+      vite: {},
+    })
+
+    await hubDb()(undefined, nuxt)
+    const nitroConfig = {
+      cloudflare: {
+        wrangler: {
+          d1_databases: [{
+            binding: "DB",
+            database_id: "content-id",
+            database_name: "content-db",
+          }],
+        },
+      },
+      preset: "cloudflare_module",
+    }
+
+    await expect(callHook(hooks, "nitro:config", nitroConfig)).resolves.toBeUndefined()
+    expect(nitroConfig.cloudflare.wrangler.d1_databases).toHaveLength(1)
+  })
+
+  it("rejects a matching binding name for a different D1 database", async () => {
+    const { hooks, nuxt } = createNuxt({
+      database: { driver: "d1", databaseName: "content-db" },
+      dev: false,
+      rootDir: "/tmp/vitehub-db-nuxt-wrong-existing-binding",
+      vite: {},
+    })
+    await hubDb()(undefined, nuxt)
+
+    await expect(callHook(hooks, "nitro:config", {
+      cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "other-id", database_name: "other-db" }] } },
+      preset: "cloudflare_module",
+    })).rejects.toThrow("requires database.databaseId or provision state")
+  })
+
+  it("uses provisioned D1 ids in Nuxt Cloudflare output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provisioned-"))
+    const definition = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, [
+      'import { defineDatabase } from "@vite-hub/database"',
+      "export default defineDatabase({ schema: {} })",
+      "",
+    ].join("\n"))
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
+      cloudflare: { d1: { default: "definition-id" }, d1Nuxt: { "content-db": "provisioned-id" } },
+    }))
+
+    try {
+      const { hooks, nuxt } = createNuxt({
+        database: {
+          driver: "d1",
+          databaseName: {
+            default: "content-db",
+            kind: "env-variable",
+            source: { kind: "env", name: "VITEHUB_TEST_D1_NAME" },
+          },
+        },
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+
+      await hubDb()(undefined, nuxt)
+      const nitroConfig = {}
+      await callHook(hooks, "nitro:config", nitroConfig)
+
+      expect(nitroConfig).toHaveProperty("cloudflare.wrangler.d1_databases.0", {
+        binding: "DB",
+        database_id: "provisioned-id",
+        database_name: "content-db",
+        migrations_dir: ".vitehub/database/migrations",
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("does not consume default Definition provision state for the Nuxt resource", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-definition-state-"))
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
+      cloudflare: { d1: { default: "definition-id" } },
+    }))
+    try {
+      const { hooks, nuxt } = createNuxt({
+        database: { driver: "d1", databaseName: "content-db" },
+        dev: false,
+        rootDir,
+        vite: {},
+      })
+      await hubDb()(undefined, nuxt)
+
+      await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow(
+        "requires database.databaseId or provision state",
+      )
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("keeps an existing database Vite plugin", async () => {

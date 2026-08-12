@@ -897,6 +897,9 @@ importers:
 
   packages/cli:
     dependencies:
+      nuxt:
+        specifier: catalog:nuxt
+        version: 4.4.8(6e15825a4a86ab759e989ef3cfee4b84)
       pathe:
         specifier: catalog:unjs
         version: 2.0.3

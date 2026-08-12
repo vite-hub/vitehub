@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createDatabaseProvisionStep } from "../src/provision.ts"
+import { createDatabaseProvisionStep, getDatabaseNuxtProvisionStateKey } from "../src/provision.ts"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
@@ -28,6 +28,12 @@ async function createApp() {
     "})",
     "",
   ].join("\n"), "utf8")
+  return rootDir
+}
+
+async function createDefaultApp() {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-provision-default-"))
+  directories.push(rootDir)
   return rootDir
 }
 
@@ -71,5 +77,91 @@ describe("database provision step", () => {
     expect(actions[0]!.exists).toBe(false)
     const result = await actions[0]!.apply()
     expect(result.ids).toEqual({ cloudflare: { d1: { primary: "uuid-new" } } })
+  })
+
+  it("provisions the default database from integration-level Nuxt D1 options", async () => {
+    const rootDir = await createDefaultApp()
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      success: true,
+      result: [{ name: "nuxt-content", uuid: "uuid-content" }],
+    })) as unknown as typeof globalThis.fetch
+
+    const actions = await createDatabaseProvisionStep(() => rootDir, {
+      databaseName: "nuxt-content",
+      driver: "d1",
+      nuxtHostResource: true,
+    }).plan(provisionContext(fetchImpl))
+
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toMatchObject({ exists: true, name: "nuxt-content" })
+    await expect(actions[0]!.apply()).resolves.toEqual({
+      ids: { cloudflare: { d1Nuxt: { [getDatabaseNuxtProvisionStateKey("nuxt-content")]: "uuid-content" } } },
+    })
+  })
+
+  it("normalizes the Nuxt D1 provision-state identity", async () => {
+    const rootDir = await createDefaultApp()
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      success: true,
+      result: [{ name: " content-db ", uuid: "uuid-content" }],
+    })) as unknown as typeof globalThis.fetch
+
+    const actions = await createDatabaseProvisionStep(() => rootDir, {
+      databaseName: " content-db ",
+      driver: "d1",
+      nuxtHostResource: true,
+    }).plan(provisionContext(fetchImpl))
+
+    await expect(actions[0]!.apply()).resolves.toEqual({
+      ids: { cloudflare: { d1Nuxt: { [getDatabaseNuxtProvisionStateKey("content-db")]: "uuid-content" } } },
+    })
+  })
+
+  it("coalesces Definition and Nuxt state keys for the same D1 database", async () => {
+    const rootDir = await createApp()
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => jsonResponse({
+      success: true,
+      result: init?.method === "POST" ? { uuid: "shared-id" } : [],
+    })) as unknown as typeof globalThis.fetch
+    const actions = await createDatabaseProvisionStep(() => rootDir, {
+      databaseName: "vitehub-playground-db",
+      driver: "d1",
+      nuxtHostResource: true,
+    }).plan(provisionContext(fetchImpl))
+
+    expect(actions).toHaveLength(1)
+    await expect(actions[0]!.apply()).resolves.toEqual({
+      ids: { cloudflare: {
+        d1: { primary: "shared-id" },
+        d1Nuxt: { [getDatabaseNuxtProvisionStateKey("vitehub-playground-db")]: "shared-id" },
+      } },
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it("coalesces multiple Definition keys for the same D1 database", async () => {
+    const rootDir = await createApp()
+    const secondaryDir = join(rootDir, "server", "databases", "secondary")
+    await mkdir(secondaryDir, { recursive: true })
+    await writeFile(join(secondaryDir, "config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({",
+      "  name: 'secondary',",
+      "  cloudflare: { databaseName: 'vitehub-playground-db' },",
+      "  schema: {},",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      success: true,
+      result: [{ name: "vitehub-playground-db", uuid: "shared-id" }],
+    })) as unknown as typeof globalThis.fetch
+
+    const actions = await createDatabaseProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+
+    expect(actions).toHaveLength(1)
+    await expect(actions[0]!.apply()).resolves.toEqual({
+      ids: { cloudflare: { d1: { primary: "shared-id", secondary: "shared-id" } } },
+    })
   })
 })

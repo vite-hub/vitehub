@@ -49,9 +49,15 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "nuxt": "catalog:nuxt",
     "vite": "catalog:vite-compat"
   },
   "engines": {
     "node": ">=24.0.0"
+  },
+  "peerDependenciesMeta": {
+    "nuxt": {
+      "optional": true
+    }
   }
 }

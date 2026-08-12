@@ -50,20 +50,26 @@ export async function loadViteHubCliConfig(
     loadNuxt?: LoadNuxt
     resolveViteConfig?: ResolveViteConfig
   } = {},
-): Promise<Pick<ResolvedConfig, "plugins" | "root">> {
+): Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved: true }> {
   const resolveViteConfig = dependencies.resolveViteConfig ?? defaultResolveViteConfig
   if (hasConfig(rootDir, "vite") || !hasConfig(rootDir, "nuxt")) {
-    return await resolveViteConfig({ root: rootDir }, "serve", "development")
+    return {
+      ...await resolveViteConfig({ root: rootDir }, "serve", "development"),
+      vitehubConfigResolved: true,
+    }
   }
 
   const loadNuxt = dependencies.loadNuxt ?? await resolveNuxtLoader(rootDir)
   const nuxt = await loadNuxt({ cwd: rootDir, dev: false, ready: true })
   try {
-    return await resolveViteConfig({
+    return {
+      ...await resolveViteConfig({
       ...nuxt.options.vite,
       configFile: false,
       root: nuxt.options.rootDir || rootDir,
-    }, "serve", "development")
+      }, "serve", "development"),
+      vitehubConfigResolved: true,
+    }
   }
   finally {
     await nuxt.close?.()

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
-import { realpathSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
@@ -39,10 +39,43 @@ export interface RunViteHubCliOptions {
   args?: string[]
   cwd?: string
   env?: NodeJS.ProcessEnv
-  loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
+  loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved?: true }>
+  loadNuxtViteConfig?: (rootDir: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
+}
+
+async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
+  const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.cts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
+    .some(file => existsSync(resolve(rootDir, file)))
+  if (!hasNuxtConfig) return
+
+  let loadNuxt: typeof import("nuxt/kit")["loadNuxt"]
+  try {
+    ({ loadNuxt } = await import("nuxt/kit"))
+  }
+  catch {
+    throw new TypeError("[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery.")
+  }
+  const nuxt = await loadNuxt({ cwd: rootDir, dev: false })
+  try {
+    const { resolveConfig } = await import("vite")
+    const config = await resolveConfig({
+      ...nuxt.options.vite,
+      configFile: false,
+      root: typeof nuxt.options.vite.root === "string"
+        ? resolve(nuxt.options.rootDir || rootDir, nuxt.options.vite.root)
+        : nuxt.options.rootDir || rootDir,
+    }, "serve", "development")
+    return {
+      plugins: config.plugins,
+      root: config.root,
+    }
+  }
+  finally {
+    await nuxt.close()
+  }
 }
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {
@@ -66,6 +99,11 @@ async function loadViteConfig(rootDir: string): Promise<Pick<ResolvedConfig, "pl
   const { resolveConfig } = await import("vite")
   const inlineConfig: InlineConfig = { root: rootDir }
   return await resolveConfig(inlineConfig, "serve", "development")
+}
+
+function hasViteConfig(rootDir: string) {
+  return ["vite.config.ts", "vite.config.mts", "vite.config.cts", "vite.config.js", "vite.config.mjs", "vite.config.cjs"]
+    .some(file => existsSync(resolve(rootDir, file)))
 }
 
 // Built-in namespace that orchestrates package-contributed Provision Steps.
@@ -116,11 +154,16 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const env = options.env || process.env
   const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
-  const config = await (options.loadConfig || loadViteConfig)(cwd)
-  const rootDir = resolve(config.root || cwd)
+  const config: Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved?: true }
+    = await (options.loadConfig || loadViteConfig)(cwd)
+  const nuxtConfig = config.vitehubConfigResolved || (!options.loadConfig && hasViteConfig(cwd))
+    ? undefined
+    : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
+  const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])] as typeof config.plugins
+  const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
   const namespaces = [
-    ...await collectViteHubCliNamespaces(config.plugins),
-    createProvisionNamespace(config.plugins),
+    ...await collectViteHubCliNamespaces(plugins),
+    createProvisionNamespace(plugins),
   ]
 
   const context: ViteHubCliContext = {

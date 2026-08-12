@@ -82,7 +82,7 @@ The Vite config key is `database`.
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Supplies a hosted libSQL connection for Database Definitions that do not declare one. Definition connection values override matching integration values. |
 | `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | Selects Cloudflare D1 runtime output when configured at integration level. Value: `d1`. |
 | `database.binding` | `string` | `DB` or `DB_<NAME>` | Cloudflare D1 binding for integration-level runtime output. |
-| `database.databaseId` | `DatabaseConfigValue` | none | Cloudflare D1 database id. |
+| `database.databaseId` | `DatabaseConfigValue` | Provision State | Cloudflare D1 database id. |
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
@@ -255,6 +255,18 @@ The Database Package discovers Database Definitions, generates the Drizzle Runti
 Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources belong in Database configuration or host setup. Route code should keep using the generated Drizzle Runtime Surface.
 
 Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated Wrangler config, so `.output/server` can apply migrations without the source checkout.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/database/nuxt'],
+  database: {
+    driver: 'd1',
+    databaseName: 'app-content',
+  },
+})
+```
+
+Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vitehub/provision.json`. Cloudflare production builds fail before deployment when provision state, `database.databaseId`, and an existing complete matching Nitro Wrangler binding all fail to supply the id.
 
 ::note
 `@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource, mainly to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface.

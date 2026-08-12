@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -163,6 +163,60 @@ describe("ViteHub CLI", () => {
     expect(exitCode).toBe(0)
     expect(apply).not.toHaveBeenCalled()
     expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+  })
+
+  it("collects provision steps installed by Nuxt modules", async () => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({ ids: { cloudflare: { test: { demo: "id" } } } }))
+    const plan = vi.fn(async () => [{ kind: "test-resource", name: "demo", exists: false, apply }])
+    const stdout = stream()
+
+    const exitCode = await runViteHubCli({
+      args: ["provision", "run", "--provider", "cloudflare"],
+      cwd: rootDir,
+      env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
+      loadNuxtViteConfig: async () => ({
+        plugins: [{ vitehub: { cli: { namespaces: [], provision: [{ id: "test:cloudflare", provider: "cloudflare", plan }] } } }],
+        root: join(rootDir, "app"),
+      }),
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(plan).toHaveBeenCalledOnce()
+    expect(apply).toHaveBeenCalledOnce()
+    expect(JSON.parse(await readFile(join(rootDir, "app", ".vitehub", "provision.json"), "utf8")))
+      .toEqual({ cloudflare: { test: { demo: "id" } } })
+  })
+
+  it("does not append raw Nuxt plugins to an already resolved config", async () => {
+    const resolvedPlugin = { name: "resolved" }
+    const loadNuxtViteConfig = vi.fn()
+
+    await runViteHubCli({
+      args: ["--help"],
+      loadConfig: async () => ({ plugins: [resolvedPlugin], root: "/repo", vitehubConfigResolved: true }) as never,
+      loadNuxtViteConfig,
+      stdout: stream(),
+    })
+
+    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
+  })
+
+  it("keeps explicit Vite config ownership in the standalone loader", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "vite.config.ts"), "export default {}\n")
+    await writeFile(join(rootDir, "nuxt.config.ts"), "export default {}\n")
+    const loadNuxtViteConfig = vi.fn()
+
+    await runViteHubCli({
+      args: ["--help"],
+      cwd: rootDir,
+      loadNuxtViteConfig,
+      stdout: stream(),
+    })
+
+    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 
   it("fails closed when provision credentials are missing", async () => {
