@@ -47,9 +47,15 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
   await nitroConfigHook(nitroConfig)
 
   expect(nitroConfig).toMatchObject({
-    handlers: [{
-      handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
-      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
-    }],
+    handlers: [
+      {
+        handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
+        route: "/api/_vitehub/agents/:agent/chat",
+      },
+      {
+        handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
+        route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+      },
+    ],
   })
 })
