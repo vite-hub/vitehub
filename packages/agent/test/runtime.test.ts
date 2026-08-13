@@ -4804,6 +4804,7 @@ describe("agent message protocol", () => {
   it("does not fail invocations when delivery effects or hook observers fail", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const agent = defineAgent({
       capabilities: [
@@ -4843,9 +4844,19 @@ describe("agent message protocol", () => {
 
     try {
       await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+      expect(error).toHaveBeenCalledWith(JSON.stringify({
+        scope: "vitehub.channel.delivery",
+        event: "outbound.failed",
+        channelId: "portal",
+        effect: "reaction",
+        intent: "started",
+        runId: "portal-run",
+        error: "reaction failed",
+      }))
       expect(warn).toHaveBeenCalled()
     }
     finally {
+      error.mockRestore()
       warn.mockRestore()
     }
   })

@@ -1000,6 +1000,15 @@ async function applyChannelDeliveryEffectIntents<
       }
       catch (error) {
         delivered = false
+        console.error(JSON.stringify({
+          scope: "vitehub.channel.delivery",
+          event: "outbound.failed",
+          channelId: active.channelId,
+          effect: intent.kind,
+          intent: intent.intent,
+          runId: context.run?.runId,
+          error: agentErrorMessage(error).slice(0, 2_000),
+        }))
         await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
