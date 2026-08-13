@@ -123,7 +123,7 @@ export async function validateAgentOutput<TOutput>(
   return validation.value
 }
 
-function supportsJsonSchema(schema: StandardSchemaV1): schema is StandardSchemaV1 & StandardJSONSchemaV1 {
+export function supportsJsonSchema(schema: StandardSchemaV1): schema is StandardSchemaV1 & StandardJSONSchemaV1 {
   return typeof (schema["~standard"] as { jsonSchema?: unknown }).jsonSchema === "object"
     && typeof (schema["~standard"] as { jsonSchema?: { input?: unknown } }).jsonSchema?.input === "function"
 }

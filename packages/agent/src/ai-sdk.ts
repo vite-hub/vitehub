@@ -11,7 +11,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
+import { agentOutputInstructions, supportsJsonSchema } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
@@ -1115,7 +1115,9 @@ async function createAgent(
       ...withRuntimeContext(withViteHubTelemetry(settings, context), context),
       instructions,
       model: instrumentedModel as never,
-      ...(context.output ? { output: aiSdk.Output.object({ schema: context.output.schema }) } : {}),
+      ...(context.output && supportsJsonSchema(context.output.schema)
+        ? { output: aiSdk.Output.object({ schema: context.output.schema }) }
+        : {}),
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),

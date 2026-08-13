@@ -1648,6 +1648,24 @@ describe("agent message protocol", () => {
     expect(agentSettings.at(-1)?.instructions).toContain("Return only one valid JSON value")
     expect(agentSettings.at(-1)?.instructions).toContain('"title"')
     expect(agentSettings.at(-1)?.output).toBe(nativeOutput)
+
+    const validationOnlyAgent = defineAgent({
+      driver: {
+        model: {} as never,
+        output: {
+          schema: {
+            "~standard": {
+              validate: (value: unknown) => ({ value: value as { title: string } }),
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          },
+        },
+      },
+      runtime: false,
+    })
+    await expect(runAgent(validationOnlyAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
+    expect(agentSettings.at(-1)).not.toHaveProperty("output")
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
