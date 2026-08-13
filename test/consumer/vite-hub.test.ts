@@ -567,9 +567,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             "vite-hub": specs["vite-hub"],
           },
           devDependencies: {
+            libsql: "0.5.29",
             typescript: "6.0.3",
             "vite-plus": "0.1.24",
             "vue-tsc": "3.3.7",
+          },
+          optionalDependencies: {
+            "@libsql/linux-x64-gnu": "0.5.29",
           },
           packageManager: "pnpm@10.33.0",
           private: true,
