@@ -38,12 +38,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   agent: AgentClient,
   options: MaybeRefOrGetter<AgentChatInit<UI_MESSAGE>> = {},
 ): AgentChatHelpers<UI_MESSAGE> {
+  const currentOptions = shallowRef(toValue(options))
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
   watch(() => toValue(options).id, () => {
+    currentOptions.value = toValue(options)
     streamedParts.value = []
   })
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api, onData, transport, ...init } = toValue(options)
+    const { api, onData, transport, ...init } = currentOptions.value
     return {
       ...init,
       onData(part) {

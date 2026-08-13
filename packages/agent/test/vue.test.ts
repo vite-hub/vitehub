@@ -1,4 +1,4 @@
-import { effectScope } from "vue"
+import { effectScope, nextTick, ref } from "vue"
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -39,6 +39,38 @@ describe("Agent Vue clients", () => {
       role: "assistant",
     })
 
+    scope.stop()
+  })
+
+  it("keeps a reactive external message list stable while sending", async () => {
+    let finish!: () => void
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        async execute() {
+          await finished
+        },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const messages = ref<UIMessage[]>([])
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), () => ({
+      id: "chat-1",
+      messages: messages.value,
+    })))!
+
+    const request = chat.sendMessage({ text: "Hello" })
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    messages.value = [...chat.messages.value]
+    await nextTick()
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(chat.status.value).toBe("submitted")
+    finish()
+    await request
     scope.stop()
   })
 
