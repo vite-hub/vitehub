@@ -888,9 +888,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }), { waitUntil: task => tasks.push(task) })
         const body = await response.text()
         await Promise.all(tasks)
-        process.stdout.write(JSON.stringify({ body, status: response.status }))
+        process.stdout.write("VITEHUB_CONSUMER_RESULT:" + JSON.stringify({ body, status: response.status }))
       `], appDir)
-      const netlifyResponse = JSON.parse(netlifyInvocation.stdout) as { body: string, status: number }
+      const netlifyResponse = JSON.parse(netlifyInvocation.stdout.split("VITEHUB_CONSUMER_RESULT:").at(-1)!) as { body: string, status: number }
       expect(netlifyResponse.status).toBe(200)
       expect(netlifyResponse.body).toContain("VITE_HUB_SERVER_ONLY:/workspace")
 
