@@ -5,6 +5,7 @@ import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
@@ -215,39 +216,6 @@ async function resultText(result: unknown): Promise<string | undefined> {
   return text || toAgentRunResult(result).text
 }
 
-function quietExpectedHarnessCancellation(harness: object): object {
-  const bind = (target: object, property: PropertyKey) => {
-    const value = Reflect.get(target, property, target)
-    return typeof value === "function" ? value.bind(target) : value
-  }
-  const wrapSession = (session: object) => new Proxy(session, {
-    get(target, property) {
-      const value = bind(target, property)
-      if (property !== "doPromptTurn" || typeof value !== "function") return value
-      return async (...args: unknown[]) => {
-        const control = await value(...args) as { done: PromiseLike<void> }
-        const abortSignal = (args[0] as { abortSignal?: AbortSignal } | undefined)?.abortSignal
-        const done = Promise.resolve(control.done).catch((error) => {
-          if (!abortSignal?.aborted || (error !== abortSignal.reason && (error as { name?: unknown })?.name !== "AbortError")) throw error
-        })
-        return new Proxy(control, {
-          get(target, property) {
-            return property === "done" ? done : bind(target, property)
-          },
-        })
-      }
-    },
-  })
-  const doStart = bind(harness, "doStart")
-  if (typeof doStart !== "function") return harness
-  return new Proxy(harness, {
-    get(target, property) {
-      if (property !== "doStart") return bind(target, property)
-      return async (...args: unknown[]) => wrapSession(await doStart(...args) as object)
-    },
-  })
-}
-
 async function generateWithDriver(
   context: AgentCapabilityRuntimeContext,
   options: ProgressSummaryOptions,
@@ -266,7 +234,7 @@ async function generateWithDriver(
     const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
     return await resultText(await createHarnessAgentAdapter({
       ...resolvedDriver,
-      harness: quietExpectedHarnessCancellation(resolvedDriver.harness as object),
+      harness: quietExpectedAuxiliaryHarnessCancellation(resolvedDriver.harness as object),
       instructions,
     } as never).generate(runContext as never))
   }

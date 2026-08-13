@@ -13,6 +13,7 @@ import {
 import { getMessageText } from "../messages.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
 import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
 
@@ -330,7 +331,10 @@ async function generateTitleWithDriver(
   if (driver.kind === "harness") {
     const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
     const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
-    return await titleResultText(await createHarnessAgentAdapter(resolvedDriver as never).generate(runContext as never))
+    return await titleResultText(await createHarnessAgentAdapter({
+      ...resolvedDriver,
+      harness: quietExpectedAuxiliaryHarnessCancellation(resolvedDriver.harness as object),
+    } as never).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   return await titleResultText(await createAiSdkAdapter({
