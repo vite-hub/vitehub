@@ -1612,9 +1612,11 @@ describe("agent message protocol", () => {
 
   it("guides model Drivers with configured structured output", async () => {
     const agentSettings: Record<string, unknown>[] = []
+    const nativeOutput = { name: "object" }
     loadAiSdk.mockResolvedValue({
       isStepCount: () => () => false,
       jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(() => nativeOutput) },
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -1645,6 +1647,7 @@ describe("agent message protocol", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
     expect(agentSettings.at(-1)?.instructions).toContain("Return only one valid JSON value")
     expect(agentSettings.at(-1)?.instructions).toContain('"title"')
+    expect(agentSettings.at(-1)?.output).toBe(nativeOutput)
   })
 
   it("rejects malformed JSON from structured harness results", async () => {

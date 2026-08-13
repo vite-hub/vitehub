@@ -1046,7 +1046,8 @@ async function createAgent(
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
 ) {
-  const { ToolLoopAgent, isStepCount, jsonSchema } = await loadAiSdk()
+  const aiSdk = await loadAiSdk()
+  const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
   const execution = options.execution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
@@ -1114,6 +1115,7 @@ async function createAgent(
       ...withRuntimeContext(withViteHubTelemetry(settings, context), context),
       instructions,
       model: instrumentedModel as never,
+      ...(context.output ? { output: aiSdk.Output.object({ schema: context.output.schema }) } : {}),
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),

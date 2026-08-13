@@ -63,6 +63,7 @@ vi.mock("ai", () => ({
   generateText,
   jsonSchema,
   isStepCount: vi.fn(count => ({ count })),
+  Output: { object: vi.fn(({ schema }) => ({ schema })) },
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
       agentSettings.push(settings)

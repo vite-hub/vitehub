@@ -45,9 +45,9 @@ const outputSchema = {
 }
 
 function createModel() {
-  const doGenerateCalls: Array<{ prompt: Array<{ content: string, role: string }> }> = []
+  const doGenerateCalls: Array<{ prompt: Array<{ content: string, role: string }>, responseFormat?: unknown }> = []
   return {
-    doGenerate: async (options: { prompt: Array<{ content: string, role: string }> }) => {
+    doGenerate: async (options: { prompt: Array<{ content: string, role: string }>, responseFormat?: unknown }) => {
       doGenerateCalls.push(options)
       return generateResult
     },
@@ -256,6 +256,13 @@ describe("Channel instructions", () => {
       telegramInstructions,
       outputInstructions,
     ])
+    expect(modelCall.responseFormat).toEqual({
+      schema: {
+        ...outputSchema["~standard"].jsonSchema.input(),
+        additionalProperties: false,
+      },
+      type: "json",
+    })
     expect(modelCall.prompt.map(message => message.role)).toEqual(["system", "user", "assistant", "user"])
   })
 
