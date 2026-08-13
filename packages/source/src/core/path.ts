@@ -1,6 +1,3 @@
-import picomatch from "picomatch"
-import { isAbsolute } from "pathe"
-
 import { sourcePathError } from "./errors.ts"
 
 import type { ReadSourceOptions, ReadSourceResult, SourceContent } from "./types.ts"
@@ -20,17 +17,14 @@ export function normalizeSafeSourcePath(path = "", options: SafeSourcePathOption
   const parts = normalized.split("/").filter(Boolean)
 
   if (!options.allowEmpty && !normalized) throw sourcePathError(path)
-  if (isAbsolute(raw) || parts.some(part => part === "." || part === "..")) throw sourcePathError(path)
+  if (
+    raw.startsWith("/")
+    || /^[a-z]:\//i.test(raw)
+    || parts.some(part => part === "." || part === "..")
+  ) throw sourcePathError(path)
   if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw sourcePathError(path)
 
   return normalized
-}
-
-export function matchesAny(path: string, patterns?: string | string[]): boolean {
-  if (!patterns) return true
-  const list = Array.isArray(patterns) ? patterns : [patterns]
-  const normalizedPath = normalizeSourcePath(path)
-  return picomatch.isMatch(normalizedPath, list.map(pattern => normalizeSourcePath(pattern)), { dot: true })
 }
 
 export function decodeSourceContent<TOptions extends ReadSourceOptions | undefined>(

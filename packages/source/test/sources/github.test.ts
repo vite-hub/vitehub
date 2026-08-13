@@ -1,7 +1,8 @@
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { clearSources, github, registerSources, useSource } from "../../src/index.ts"
+import { github } from "../../src/github.ts"
+import { clearSources, registerSources, useSource } from "../../src/index.ts"
 import { createTarGz, jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
 
 const loadGitArchiveFiles = vi.hoisted(() => vi.fn())

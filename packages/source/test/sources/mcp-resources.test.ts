@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { mcpResources } from "../../src/index.ts"
+import { mcpResources } from "../../src/mcp.ts"
 
-import type { McpResourcesClient } from "../../src/index.ts"
+import type { McpResourcesClient } from "../../src/mcp.ts"
 
 function createClient(): McpResourcesClient {
   return {
@@ -42,14 +42,16 @@ function createClient(): McpResourcesClient {
 }
 
 describe("mcpResources", () => {
-  it("publishes MCP SDK types as an installed dependency", async () => {
+  it("owns the MCP SDK as a private build dependency", async () => {
     const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
       dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
       peerDependencies?: Record<string, string>
       peerDependenciesMeta?: Record<string, unknown>
     }
 
-    expect(pkg.dependencies?.["@modelcontextprotocol/sdk"]).toBe("catalog:ai")
+    expect(pkg.dependencies?.["@modelcontextprotocol/sdk"]).toBeUndefined()
+    expect(pkg.devDependencies?.["@modelcontextprotocol/sdk"]).toBe("catalog:ai")
     expect(pkg.peerDependencies?.["@modelcontextprotocol/sdk"]).toBeUndefined()
     expect(pkg.peerDependenciesMeta?.["@modelcontextprotocol/sdk"]).toBeUndefined()
   })

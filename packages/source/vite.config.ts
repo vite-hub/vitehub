@@ -4,9 +4,24 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/],
+      alwaysBundle: [
+        /^@modelcontextprotocol\/sdk(?:\/|$)/,
+        /^@vite-hub\/internal/,
+        "effect",
+        "mrmime",
+        "ocache",
+        "picomatch",
+        "tinyglobby",
+      ],
     },
-    entry: ["src/index.ts"],
+    entry: [
+      "src/index.ts",
+      "src/file.ts",
+      "src/github.ts",
+      "src/glob.ts",
+      "src/markdown.ts",
+      "src/mcp.ts",
+    ],
     exports: {
       customExports(exports) {
         return Object.fromEntries(

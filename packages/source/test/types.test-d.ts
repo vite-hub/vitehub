@@ -1,12 +1,11 @@
 import { describe, expectTypeOf, it } from "vitest"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 
 import {
   custom,
   defineSource,
   defineSources,
-  file,
-  github,
-  mcpResources,
   registerSources,
   type Source,
   type SourceData,
@@ -14,6 +13,9 @@ import {
   type SourceMetadata,
   useSource,
 } from "../src/index.ts"
+import { file } from "../src/file.ts"
+import { github } from "../src/github.ts"
+import { mcpResources, type McpResourcesClient, type McpResourcesTransport } from "../src/mcp.ts"
 
 interface Meal {
   analysis: {
@@ -46,6 +48,16 @@ declare global {
 }
 
 describe("@vite-hub/source types", () => {
+  it("accepts SDK clients and transports without exposing SDK types", () => {
+    const client = new Client({ name: "test", version: "1.0.0" })
+    const transport = new StreamableHTTPClientTransport(new URL("https://example.com/mcp"))
+
+    expectTypeOf(client).toMatchTypeOf<McpResourcesClient>()
+    expectTypeOf(transport).toMatchTypeOf<McpResourcesTransport>()
+    expectTypeOf(mcpResources({ server: client })).toMatchTypeOf<Source>()
+    expectTypeOf(mcpResources({ server: { transport } })).toMatchTypeOf<Source>()
+  })
+
   it("types registered source names and keys", async () => {
     const staticSource = file({ content: "# Docs\n", workspacePath: "README.md" })
     expectTypeOf(file({ content: "# Docs\n", workspacePath: "README.md" })).toMatchTypeOf<Source<"README.md">>()

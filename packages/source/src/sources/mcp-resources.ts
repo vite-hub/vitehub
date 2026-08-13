@@ -2,34 +2,105 @@ import { createEffectBoundary } from "@vite-hub/internal/effect"
 import { Effect } from "effect"
 
 import { sourceError } from "../core/errors.ts"
-import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
+import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
+import { matchesAny } from "./path.ts"
 
 import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
-import type { Client as SdkMcpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
 import type { StreamableHTTPClientTransportOptions } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
-import type { BlobResourceContents, Resource, TextResourceContents } from "@modelcontextprotocol/sdk/types.js"
 
-export type McpResourcesRequestOptions = RequestOptions
+export interface McpResourcesRequestOptions {
+  maxTotalTimeout?: number
+  onprogress?: (progress: { message?: string, progress: number, total?: number }) => void
+  onresumptiontoken?: (token: string) => void
+  relatedRequestId?: number | string
+  relatedTask?: { taskId: string }
+  resetTimeoutOnProgress?: boolean
+  resumptionToken?: string
+  signal?: AbortSignal
+  task?: { pollInterval?: number, ttl?: number }
+  timeout?: number
+}
 
-export type McpResourceDescriptor = Resource
+export interface McpResourceDescriptor {
+  _meta?: Record<string, unknown>
+  annotations?: {
+    audience?: Array<"assistant" | "user">
+    lastModified?: string
+    priority?: number
+  }
+  description?: string
+  icons?: Array<{
+    mimeType?: string
+    sizes?: string[]
+    src: string
+    theme?: "dark" | "light"
+  }>
+  mimeType?: string
+  name: string
+  size?: number
+  title?: string
+  uri: string
+}
 
-export type McpResourceContent = TextResourceContents | BlobResourceContents
+export type McpResourceContent =
+  | { _meta?: Record<string, unknown>, blob: string, mimeType?: string, uri: string }
+  | { _meta?: Record<string, unknown>, mimeType?: string, text: string, uri: string }
+
+export type McpResourcesMessage =
+  | { id: number | string, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
+  | { id?: never, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
+  | { id: number | string, jsonrpc: "2.0", method?: never, result: { [key: string]: unknown, _meta?: Record<string, unknown> } }
+  | { error: { code: number, data?: unknown, message: string }, id: number | string, jsonrpc: "2.0", method?: never }
+
+export interface McpResourcesTransport {
+  close(): Promise<void>
+  onclose?: () => void
+  onerror?: (error: Error) => void
+  onmessage?: (message: McpResourcesMessage) => void
+  send(message: McpResourcesMessage): Promise<void>
+  start(): Promise<void>
+}
 
 export interface McpResourcesClient {
   close?: () => void | Promise<void>
-  getServerVersion?: SdkMcpClient["getServerVersion"]
-  listResources: SdkMcpClient["listResources"]
-  readResource: SdkMcpClient["readResource"]
+  getServerVersion?: () => { name: string, version: string } | undefined
+  listResources: (
+    params?: { cursor?: string },
+    options?: McpResourcesRequestOptions,
+  ) => Promise<{ nextCursor?: string, resources: McpResourceDescriptor[] }>
+  readResource: (
+    params: { uri: string },
+    options?: McpResourcesRequestOptions,
+  ) => Promise<{ contents: McpResourceContent[] }>
   serverInfo?: unknown
 }
 
 export type McpResourcesTransportConfig =
-  | Transport
-  | ({ type?: "http", url: string | URL } & StreamableHTTPClientTransportOptions)
-  | ({ type: "sse", url: string | URL } & SSEClientTransportOptions)
+  | McpResourcesTransport
+  | {
+    authProvider?: unknown
+    fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>
+    reconnectionOptions?: {
+      initialReconnectionDelay: number
+      maxReconnectionDelay: number
+      maxRetries: number
+      reconnectionDelayGrowFactor: number
+    }
+    requestInit?: RequestInit
+    sessionId?: string
+    type?: "http"
+    url: string | URL
+  }
+  | {
+    authProvider?: unknown
+    eventSourceInit?: unknown
+    fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>
+    requestInit?: RequestInit
+    type: "sse"
+    url: string | URL
+  }
 
 export interface McpResourcesClientConfig {
   transport: McpResourcesTransportConfig
@@ -73,7 +144,7 @@ function isMcpResourcesClientConfig(value: unknown): value is McpResourcesClient
     && "transport" in value
 }
 
-function isMcpTransport(value: unknown): value is Transport {
+function isMcpTransport(value: unknown): value is McpResourcesTransport {
   return typeof value === "object"
     && value !== null
     && typeof (value as { close?: unknown }).close === "function"
@@ -82,14 +153,14 @@ function isMcpTransport(value: unknown): value is Transport {
 }
 
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
-  if (isMcpTransport(config)) return config
+  if (isMcpTransport(config)) return config as unknown as Transport
   const { type = "http", url, ...options } = config
   if (type === "sse") {
     const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js")
-    return new SSEClientTransport(new URL(url), options)
+    return new SSEClientTransport(new URL(url), options as SSEClientTransportOptions)
   }
   const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js")
-  return new StreamableHTTPClientTransport(new URL(url), options)
+  return new StreamableHTTPClientTransport(new URL(url), options as StreamableHTTPClientTransportOptions)
 }
 
 async function createMcpClient(config: McpResourcesClientConfig) {
@@ -138,7 +209,7 @@ async function withMcpClient<T>(
           signal => client.connect(transport, { signal }),
         ).pipe(
           Effect.andThen(mcpEffectBoundary.tryPromise(
-            signal => callback(client, withRequestSignal(request, signal)),
+            signal => callback(client as unknown as McpResourcesClient, withRequestSignal(request, signal)),
           )),
         ),
         ({ client }) => mcpEffectBoundary.tryPromise(() => client.close?.()),

@@ -16,13 +16,14 @@ Source does not own Workspace placement, Source Sync, Workspace rules, snapshots
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/source
+pnpm add vite-hub
 ```
 
 ### Configure
 
 ```ts [server/sources.ts]
-import { defineSources, file, registerSources } from '@vite-hub/source'
+import { defineSources, registerSources } from 'vite-hub/source'
+import { file } from 'vite-hub/source/file'
 
 export const sources = defineSources({
   readme: file('README.md'),
@@ -35,7 +36,7 @@ registerSources(sources)
 
 ```ts [server/api/readme.get.ts]
 import '../sources'
-import { useSource } from '@vite-hub/source'
+import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(() => {
   return useSource('readme').read('README.md')
@@ -48,20 +49,21 @@ export default defineEventHandler(() => {
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources` from `@vite-hub/source` | Type and return one Source or a named Source map. |
-| `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource` from `@vite-hub/source` | Manage the process-local Source registry. |
-| `useSource` from `@vite-hub/source` | Read from a registered Source at runtime. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `custom` from `@vite-hub/source` | Create built-in Source loaders. |
+| `defineSource`, `defineSources`, `custom` from `vite-hub/source` | Define Sources and custom loaders without selecting an implementation. |
+| `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
-Source, Source Reader, Source Item, loader option, cache, search, and error types are exported from `@vite-hub/source`.
+Source, Source Reader, Source Item, cache, search, and error types are exported from `vite-hub/source`. Loader option types live beside their implementation subpath. Libraries can use the equivalent `@vite-hub/source` owner-package paths directly.
 
 ## Register Sources
 
-Use `@vite-hub/source` when you want a direct retrieval registry.
+Use `vite-hub/source` when you want a direct retrieval registry.
 
 ```ts [server/sources.ts]
-import { defineSources, file, github, registerSources } from '@vite-hub/source'
+import { defineSources, registerSources } from 'vite-hub/source'
+import { file } from 'vite-hub/source/file'
+import { github } from 'vite-hub/source/github'
 
 export const sources = defineSources({
   readme: file('README.md'),
@@ -156,7 +158,7 @@ Read a Source by name with `useSource()`.
 
 ```ts [server/api/readme.get.ts]
 import '../sources'
-import { useSource } from '@vite-hub/source'
+import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(async () => {
   const readme = useSource('readme')
@@ -180,7 +182,7 @@ export default defineEventHandler(async () => {
 
 ```ts [server/api/docs.get.ts]
 import '../sources'
-import { useSource } from '@vite-hub/source'
+import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(async () => {
   const docs = useSource('docs')
@@ -212,11 +214,11 @@ export default defineWorkspace({
 })
 ```
 
-`glob()` and the other shared loader names intentionally exist in both packages. Import them from `@vite-hub/source` for direct retrieval through `useSource()`; import them from `@vite-hub/workspace` when retrieved items should become Workspace Source Bindings governed by mount placement, materialization, sync, validation, resolution, views, fetches, and Workspace-scoped registries.
+`glob()` and the other shared loader names intentionally exist in both packages. Import them from the matching `vite-hub/source/*` subpath for direct retrieval through `useSource()`; import them from `vite-hub/workspace` when retrieved items should become Workspace Source Bindings governed by mount placement, materialization, sync, validation, resolution, views, fetches, and Workspace-scoped registries.
 
 ## Provider output
 
-`@vite-hub/source` is a retrieval primitive, not a Vite Integration. It does not generate host output, provider config, or discovered Definitions by itself.
+Source is a retrieval primitive, not a Vite Integration. It does not generate host output, provider config, or discovered Definitions by itself.
 
 Workspace and other consuming packages can wrap Sources in discovered Definitions, runtime registries, generated metadata, or Provider Output when they need placement, persistence, or deployment wiring.
 

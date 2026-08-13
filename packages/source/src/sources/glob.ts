@@ -1,7 +1,8 @@
 import { glob as tinyglobby } from "tinyglobby"
 
 import { sourceError } from "../core/errors.ts"
-import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
+import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
+import { matchesAny } from "./path.ts"
 
 import type { Source, SourceContext, SourceItem } from "../core/types.ts"
 

@@ -114,7 +114,8 @@ export default defineConfig({
       },
       "test:consumer": {
         cache: false,
-        command: "VITEHUB_CONSUMER_CONTRACT=1 vp test test/consumer/vite-hub.test.ts",
+        command:
+          "VITEHUB_CONSUMER_CONTRACT=1 vp test test/consumer/vite-hub.test.ts test/consumer/source-closures.test.ts",
         dependsOn: ["build"],
       },
       "test:output": {
