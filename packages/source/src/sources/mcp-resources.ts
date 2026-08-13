@@ -48,7 +48,7 @@ export type McpResourceContent =
   | { _meta?: Record<string, unknown>, blob: string, mimeType?: string, uri: string }
   | { _meta?: Record<string, unknown>, mimeType?: string, text: string, uri: string }
 
-export type McpResourcesMessage =
+type McpResourcesMessage =
   | { id: number | string, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
   | { id?: never, jsonrpc: "2.0", method: string, params?: { [key: string]: unknown, _meta?: Record<string, unknown> } }
   | { id: number | string, jsonrpc: "2.0", method?: never, result: { [key: string]: unknown, _meta?: Record<string, unknown> } }
