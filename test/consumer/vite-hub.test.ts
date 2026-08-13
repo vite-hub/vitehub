@@ -1,6 +1,8 @@
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
+import { once } from "node:events"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -60,6 +62,54 @@ async function run(command: string, args: string[], cwd: string, env: NodeJS.Pro
     const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
     const output = `${failed.stdout || ""}${failed.stderr || ""}`
     throw new Error(`${command} ${args.join(" ")} failed${output ? `\n${output}` : ""}`, { cause: error })
+  }
+}
+
+async function availablePort() {
+  const server = createServer()
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  const address = server.address()
+  const port = typeof address === "object" && address ? address.port : undefined
+  server.close()
+  await once(server, "close")
+  if (!port) throw new Error("Failed to reserve a consumer test port.")
+  return port
+}
+
+async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: string) => Promise<T>) {
+  const port = await availablePort()
+  const child = spawn(process.execPath, [entry], {
+    cwd,
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(port) },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  let stdout = ""
+  let stderr = ""
+  child.stdout.on("data", chunk => { stdout += String(chunk) })
+  child.stderr.on("data", chunk => { stderr += String(chunk) })
+  const origin = `http://127.0.0.1:${port}`
+
+  try {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (child.exitCode !== null) throw new Error(`Consumer server exited early.\n${stdout}${stderr}`)
+      let ready = false
+      try {
+        await fetch(origin)
+        ready = true
+      }
+      catch {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      if (ready) return { logs: () => ({ stderr, stdout }), value: await callback(origin) }
+    }
+    throw new Error(`Consumer server did not start.\n${stdout}${stderr}`)
+  }
+  finally {
+    if (child.exitCode === null) {
+      child.kill("SIGTERM")
+      await once(child, "exit")
+    }
   }
 }
 
@@ -392,6 +442,211 @@ async function assertVercelRuntimeImportsResolveInside(
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("preserves Agent chat data through a packed Nuxt route", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-agent-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        mkdir(join(appDir, "app"), { recursive: true }),
+        mkdir(join(appDir, "server/agents"), { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "app/app.vue"), `
+          <script setup lang="ts">
+          const chat = useChat(useAgent("contract"))
+          const title = computed(() => chat.data.value.get("title", "title"))
+          </script>
+          <template><main>{{ title }}</main></template>
+        `, "utf8"),
+        writeFile(join(appDir, "nuxt.config.ts"), `
+          export default {
+            modules: ["vite-hub/nuxt"],
+            nitro: { preset: "node-server" },
+            vitehub: { agent: true, preset: "node" },
+          }
+        `, "utf8"),
+        writeFile(join(appDir, "server/agents/disabled.ts"), `
+          import { defineAgent } from "vite-hub/agent"
+          import { webChat } from "vite-hub/agent/channels"
+
+          export default defineAgent({
+            channels: { web: webChat({ route: false }) },
+            driver: { run: () => "DISABLED_OUTPUT" },
+          })
+        `, "utf8"),
+        writeFile(join(appDir, "server/agents/contract.ts"), `
+          import { defineAgent } from "vite-hub/agent"
+          import { progressSummary, title } from "vite-hub/agent/capabilities"
+          import { webChat } from "vite-hub/agent/channels"
+
+          const lifecycle = (type: "continue-turn" | "resume-session") => ({
+            data: {},
+            harnessId: "quiet-progress",
+            specificationVersion: "harness-v1" as const,
+            type,
+          })
+          const harness = {
+            builtinTools: {},
+            harnessId: "quiet-progress",
+            specificationVersion: "harness-v1" as const,
+            async doStart(options: any) {
+              return {
+                isResume: false,
+                sessionId: options.sessionId,
+                async doCompact() {},
+                async doContinueTurn() { throw new Error("Unexpected continuation") },
+                async doDestroy() {},
+                async doDetach() { return lifecycle("resume-session") },
+                async doPromptTurn(turn: any) {
+                  return {
+                    done: new Promise((_resolve, reject) => {
+                      turn.abortSignal?.addEventListener("abort", () => {
+                        console.log("HARNESS_PROGRESS_CANCELLED")
+                        reject(turn.abortSignal.reason)
+                      }, { once: true })
+                    }),
+                    async submitToolResult() {},
+                  }
+                },
+                async doStop() { return lifecycle("resume-session") },
+                async doSuspendTurn() { return lifecycle("continue-turn") },
+              }
+            },
+          }
+
+          class HybridResult {
+            async *[Symbol.asyncIterator]() {
+              yield { text: "GENERIC_OUTPUT", type: "text-delta" }
+              yield { type: "finish" }
+            }
+
+            toUIMessageStream() {
+              return new ReadableStream({
+                async start(controller) {
+                  controller.enqueue({ messageId: "assistant-1", type: "start" })
+                  await new Promise(resolve => setTimeout(resolve, 1_000))
+                  controller.enqueue({ id: "text-1", type: "text-start" })
+                  controller.enqueue({ delta: "NATIVE_OUTPUT", id: "text-1", type: "text-delta" })
+                  controller.enqueue({ id: "text-1", type: "text-end" })
+                  await new Promise(resolve => setTimeout(resolve, 30))
+                  controller.enqueue({ finishReason: "stop", type: "finish" })
+                  controller.close()
+                },
+              })
+            }
+          }
+
+          export default defineAgent({
+            capabilities: [
+              title({ execute: async () => {
+                await new Promise(resolve => setTimeout(resolve, 30))
+                return "Generated inventory title"
+              } }),
+              progressSummary({ execute: () => {
+                console.log("PROGRESS_TICK")
+                return "Checking inventory"
+              }, intervalMs: 50 }),
+              progressSummary({ driver: { harness }, id: "quiet-progress", intervalMs: 50 }),
+            ],
+            channels: { web: webChat() },
+            driver: { run: () => new HybridResult() },
+          })
+        `, "utf8"),
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            h3: "2.0.1-rc.26",
+            nitro: "3.0.260610-beta",
+            nuxt: "npm:nuxt-nightly@5.0.0-29774482.33d37e65",
+            rolldown: "1.1.5",
+            unplugin: "3.3.0",
+            vite: "8.0.8",
+            "vite-hub": specs["vite-hub"],
+          },
+          devDependencies: {
+            typescript: "6.0.3",
+            "vue-tsc": "3.3.7",
+          },
+          packageManager: "pnpm@10.33.0",
+          private: true,
+          scripts: { build: "nuxt build", typecheck: "nuxt typecheck" },
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n', "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
+          "oxc-parser": "0.140.0",
+          "nitro>h3": "2.0.1-rc.26",
+          rolldown: "1.1.5",
+          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
+        }), "utf8"),
+      ])
+
+      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await assertOnlyViteHubDependencies(appDir, ["vite-hub"])
+      expect(existsSync(join(appDir, "node_modules/@vite-hub")), "owner packages must not be visible at the consumer root").toBe(false)
+      await run("pnpm", ["run", "typecheck"], appDir)
+      await run("pnpm", ["run", "build"], appDir)
+
+      const server = await withNodeServer(join(appDir, ".output/server/index.mjs"), appDir, async (origin) => {
+        const request = {
+          body: JSON.stringify({
+            id: "packed-contract",
+            messages: [{ id: "user-1", parts: [{ text: "Explain inventory health", type: "text" }], role: "user" }],
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        } as const
+        const response = await fetch(`${origin}/api/_vitehub/agents/contract/chat`, request)
+        const body = await response.text()
+        const disabledResponse = await fetch(`${origin}/api/_vitehub/agents/disabled/chat`, request)
+        const disabledBody = await disabledResponse.text()
+        await new Promise(resolve => setTimeout(resolve, 50))
+        return {
+          body,
+          disabledBody,
+          disabledStatus: disabledResponse.status,
+          headers: Object.fromEntries(response.headers),
+          status: response.status,
+        }
+      })
+      const events = server.value.body
+        .split(/\r?\n/)
+        .filter(line => line.startsWith("data: ") && line !== "data: [DONE]")
+        .map(line => JSON.parse(line.slice(6)) as { data?: { summary?: string, title?: string }, delta?: string, id?: string, type: string })
+      const titles = events.filter(event => event.type === "data-title")
+      const finishIndex = events.findIndex(event => event.type === "finish")
+      const progressIndex = events.findIndex(event => event.type === "data-progress-summary")
+      const titleIndexes = events.flatMap((event, index) => event.type === "data-title" ? [index] : [])
+      const logs = `${server.logs().stdout}\n${server.logs().stderr}`
+
+      expect(server.value.status, `${server.value.body}\n${server.logs().stdout}\n${server.logs().stderr}`).toBe(200)
+      expect(server.value.headers["x-vercel-ai-ui-message-stream"]).toBe("v1")
+      expect(events[0]?.type).toBe("start")
+      expect(titles).toEqual([
+        expect.objectContaining({ data: expect.objectContaining({ title: "Explain inventory health" }), id: "title" }),
+        expect.objectContaining({ data: expect.objectContaining({ title: "Generated inventory title" }), id: "title" }),
+      ])
+      expect(titleIndexes.every(index => index > 0 && index < finishIndex)).toBe(true)
+      expect(progressIndex).toBeGreaterThan(0)
+      expect(progressIndex).toBeLessThan(finishIndex)
+      expect(events, `${server.logs().stdout}\n${server.logs().stderr}`).toContainEqual(expect.objectContaining({ data: expect.objectContaining({ summary: "Checking inventory" }), type: "data-progress-summary" }))
+      expect(events).toContainEqual(expect.objectContaining({ delta: "NATIVE_OUTPUT", type: "text-delta" }))
+      expect(server.value.body).not.toContain("GENERIC_OUTPUT")
+      expect(server.value.disabledStatus).toBe(404)
+      expect(server.value.disabledBody).not.toContain("DISABLED_OUTPUT")
+      expect(events.at(-1)?.type).toBe("finish")
+      expect(logs.match(/PROGRESS_TICK/g)?.length).toBeGreaterThan(1)
+      expect(logs).toContain("HARNESS_PROGRESS_CANCELLED")
+      expect(logs).not.toMatch(/AbortError|progressSummary\(\) generation failed|unhandledRejection/i)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 600_000)
+
   it("builds Nuxt database middleware without exposing owner packages", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-consumer-"))
     const appDir = join(root, "app")

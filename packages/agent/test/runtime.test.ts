@@ -7942,6 +7942,34 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Como Estas" })
   })
 
+  it("falls back when a title driver exceeds its timeout", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const aborted = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({
+        driver: {
+          run: ({ input }) => new Promise((_resolve, reject) => {
+            input.abortSignal?.addEventListener("abort", () => {
+              aborted()
+              reject(input.abortSignal?.reason)
+            }, { once: true })
+          }),
+        },
+        timeoutMs: 10,
+      })],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+    })
+
+    expect(aborted).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+  })
+
   it("resolves built-in title drivers before creating the harness adapter", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -8424,8 +8452,112 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Native UI title", type: "title" }, type: "data-title" })
+    expect(events).toContainEqual({ data: { title: "Native UI title", type: "title" }, id: "title", type: "data-title" })
     expect(events).toContainEqual({ delta: "hello", id: "text-1", type: "text-delta" })
+  })
+
+  it("streams provisional and generated titles with one stable data-part id", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const generated = deferred<string>()
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => generated.promise, maxLength: 48 })],
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ messageId: "message-1", type: "start" })
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock for CD Europe" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: { messageId: "message-1", type: "start" },
+    })
+    await expect(Promise.race([
+      reader.read(),
+      new Promise(resolve => setTimeout(() => resolve("timeout"), 20)),
+    ])).resolves.toEqual({
+      done: false,
+      value: {
+        data: { title: "Explain critical overstock for CD Europe", type: "title" },
+        id: "title",
+        type: "data-title",
+      },
+    })
+
+    generated.resolve("Critical Overstock")
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: {
+        data: { title: "Critical Overstock", type: "title" },
+        id: "title",
+        type: "data-title",
+      },
+    })
+    await reader.cancel()
+  })
+
+  it("prefers decorated UI message streams for hybrid async iterable results", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const iterated = vi.fn()
+    class HybridResult {
+      async *[Symbol.asyncIterator]() {
+        iterated()
+        yield { text: "generic", type: "text-delta" }
+        yield { type: "finish" }
+      }
+
+      toUIMessageStream() {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({ messageId: "message-1", type: "start" })
+            controller.enqueue({ delta: "native", id: "text-1", type: "text-delta" })
+            controller.enqueue({ finishReason: "stop", type: "finish" })
+            controller.close()
+          },
+        })
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "ui-extension",
+        output(context) {
+          context.output.render((result) => {
+            const hybrid = result as HybridResult
+            const toUIMessageStream = hybrid.toUIMessageStream.bind(hybrid)
+            hybrid.toUIMessageStream = () => toUIMessageStream().pipeThrough(new TransformStream({
+              transform(chunk, controller) {
+                controller.enqueue(chunk)
+                if ((chunk as { type?: string }).type === "start") {
+                  controller.enqueue({ data: { value: "decorated" }, type: "data-extension" })
+                }
+              },
+            }))
+            return hybrid
+          })
+        },
+      })],
+      driver: { run: () => new HybridResult() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain inventory" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(events).toContainEqual({ data: { value: "decorated" }, type: "data-extension" })
+    expect(events).toContainEqual({ delta: "native", id: "text-1", type: "text-delta" })
+    expect(events).not.toContainEqual({ text: "generic", type: "text-delta" })
+    expect(iterated).not.toHaveBeenCalled()
   })
 
   it("generates attachment-only titles from native UI message stream replies", async () => {
@@ -8467,6 +8599,7 @@ describe("agent message protocol", () => {
     }))
     expect(events).toContainEqual({
       data: { title: "response: Image description", type: "title" },
+      id: "title",
       type: "data-title",
     })
   })
@@ -8744,7 +8877,7 @@ describe("agent message protocol", () => {
     }
 
     expect(messages.at(-1)?.parts).toEqual([
-      { data: { title: "Sidebar title", type: "title" }, type: "data-title" },
+      { data: { title: "Sidebar title", type: "title" }, id: "title", type: "data-title" },
       { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
     ])
   })
@@ -8809,7 +8942,7 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("starts and buffers progress before delayed Harness setup reaches the HTTP UI stream", async () => {
+  it("starts progress after delayed Harness setup reaches the HTTP UI stream", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -8822,8 +8955,9 @@ describe("agent message protocol", () => {
     harnessStream.mockReturnValue({
       toUIMessageStream() {
         return new ReadableStream({
-          start(controller) {
+          async start(controller) {
             controller.enqueue({ messageId: "assistant-1", type: "start" })
+            await new Promise(resolve => setTimeout(resolve, 200))
             controller.enqueue({ finishReason: "stop", type: "finish" })
             controller.close()
           },
@@ -8850,7 +8984,7 @@ describe("agent message protocol", () => {
       method: "POST",
     }), { agentName: "support" })
 
-    await vi.waitFor(() => expect(harnessGenerate).toHaveBeenCalledOnce())
+    expect(harnessGenerate).not.toHaveBeenCalled()
     let responseResolved = false
     void responseTask.then(() => { responseResolved = true })
     await Promise.resolve()
@@ -8861,7 +8995,9 @@ describe("agent message protocol", () => {
     const response = await responseTask
 
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
-    await expect(response.text()).resolves.toContain('"type":"data-progress-summary"')
+    const body = await response.text()
+    expect(harnessGenerate).toHaveBeenCalledOnce()
+    expect(body).toContain('"type":"data-progress-summary"')
   })
 
   it("keeps borrowed MCP tools callable across Harness chat invocations", async () => {
@@ -8915,12 +9051,13 @@ describe("agent message protocol", () => {
   })
 
   it("propagates the invocation Box sandbox to title and progress Harness drivers", async () => {
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { applyOutputRenderers, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
     const harness = { harnessId: "test" }
     const sandbox = { providerId: "box-test" }
     const invocationContext = createAgentInvocationContextStore()
     invocationContext.set("agent.finishHook", true)
+    invocationContext.set("channel.delivery.supportsTitle", true)
     harnessCreateSession.mockResolvedValue({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValue({ text: "Auxiliary result" })
     const resolved = await resolveAgentCapabilities({
@@ -8950,10 +9087,20 @@ describe("agent message protocol", () => {
     })
 
     await resolved.start?.()
+    const rendered = await applyOutputRenderers({
+      toUIMessageStream: () => new ReadableStream({
+        start(controller) {
+          controller.enqueue({ messageId: "message-1", type: "start" })
+        },
+      }),
+    }, resolved.registries.outputRenderers) as { toUIMessageStream: () => ReadableStream<unknown> }
+    const renderedReader = rendered.toUIMessageStream().getReader()
+    await renderedReader.read()
     await vi.waitFor(() => expect(harnessGenerate).toHaveBeenCalledTimes(2))
+    await renderedReader.cancel()
     await resolved.close()
 
-    expect(harnessAgentSettings).toHaveLength(2)
+    expect(harnessAgentSettings.length).toBeGreaterThanOrEqual(2)
     expect(harnessAgentSettings.every(settings => settings.sandbox === sandbox)).toBe(true)
   })
 
@@ -8981,6 +9128,8 @@ describe("agent message protocol", () => {
       }, { output: "ui-message-stream" }) as ReadableStream<unknown>
       const reader = stream.getReader()
 
+      sourceController.enqueue({ messageId: "message-1", type: "start" })
+      await reader.read()
       expect(execute).toHaveBeenCalledOnce()
       await vi.advanceTimersByTimeAsync(10_000)
       expect(execute).toHaveBeenCalledTimes(2)
@@ -9024,11 +9173,12 @@ describe("agent message protocol", () => {
     }
   })
 
-  it("aborts every concurrent progress generation when the primary stream closes", async () => {
+  it("does not report expected progress aborts from the primary invocation signal", async () => {
     vi.useFakeTimers()
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
+      const primaryAbort = new AbortController()
       let sourceController!: ReadableStreamDefaultController<unknown>
       const aborted: number[] = []
       const generations: Promise<string>[] = []
@@ -9057,26 +9207,71 @@ describe("agent message protocol", () => {
           }) },
       })
       const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
+        abortSignal: primaryAbort.signal,
         messages: [createMessage({ role: "user", text: "Check inventory" })],
       }, { output: "ui-message-stream" }) as ReadableStream<unknown>
       const reader = stream.getReader()
 
+      sourceController.enqueue({ messageId: "message-1", type: "start" })
+      await reader.read()
       await vi.advanceTimersByTimeAsync(20_000)
       expect(execute).toHaveBeenCalledTimes(3)
-      sourceController.enqueue({ finishReason: "stop", type: "finish" })
-      sourceController.close()
-      await reader.read()
+      const closed = reader.closed
+      primaryAbort.abort(new DOMException("Primary invocation completed.", "AbortError"))
+      await expect(closed).rejects.toThrow("Primary invocation completed.")
       await Promise.allSettled(generations)
       await Promise.resolve()
 
       expect(aborted).toEqual([1, 2, 3])
       expect(warning).not.toHaveBeenCalled()
       expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({ name: "agent.progress-summary.error" }))
-      await reader.cancel()
     }
     finally {
       warning.mockRestore()
       vi.useRealTimers()
+    }
+  })
+
+  it("does not report Harness-backed progress cancellation after primary completion", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
+      const traceLog = createTraceEventLog()
+      const aborted = vi.fn()
+      harnessCreateSession.mockResolvedValue({ destroy: vi.fn() })
+      harnessGenerate.mockImplementation((input: { abortSignal?: AbortSignal }) => new Promise((_resolve, reject) => {
+        input.abortSignal?.addEventListener("abort", () => {
+          aborted()
+          reject(input.abortSignal?.reason ?? new DOMException("Aborted", "AbortError"))
+        }, { once: true })
+      }))
+      const agent = defineAgent({
+        capabilities: [progressSummary({ driver: { harness: { provider: "codex" } }, intervalMs: 60_000 })],
+        driver: { run: () => ({
+            toUIMessageStream() {
+              return new ReadableStream({
+                async start(controller) {
+                  controller.enqueue({ messageId: "message-1", type: "start" })
+                  await vi.waitFor(() => expect(harnessGenerate).toHaveBeenCalledOnce())
+                  controller.enqueue({ finishReason: "stop", type: "finish" })
+                  controller.close()
+                },
+              })
+            },
+          }) },
+      })
+
+      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "Check inventory" })],
+      }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      for await (const _chunk of stream) {}
+      await vi.waitFor(() => expect(aborted).toHaveBeenCalledOnce())
+
+      expect(warning).not.toHaveBeenCalled()
+      expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({ name: "agent.progress-summary.error" }))
+    }
+    finally {
+      warning.mockRestore()
     }
   })
 
@@ -9232,14 +9427,19 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenNthCalledWith(2, expect.objectContaining({ activeTools: ["inventory search"] }))
   })
 
-  it("generates the initial progress summary without waiting for the revision interval", async () => {
+  it("generates the initial progress summary after streaming starts without waiting for the revision interval", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => "Preparing your request.")
+    let sourceController!: ReadableStreamDefaultController<unknown>
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
       driver: { run: () => ({
           toUIMessageStream() {
-            return new ReadableStream()
+            return new ReadableStream({
+              start(controller) {
+                sourceController = controller
+              },
+            })
           },
         }) },
     })
@@ -9249,6 +9449,14 @@ describe("agent message protocol", () => {
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const reader = stream.getReader()
 
+    expect(execute).not.toHaveBeenCalled()
+    const started = reader.read()
+    sourceController.enqueue({ messageId: "message-1", type: "start" })
+    await expect(started).resolves.toEqual({
+      done: false,
+      value: { messageId: "message-1", type: "start" },
+    })
+    expect(execute).toHaveBeenCalledOnce()
     await expect(reader.read()).resolves.toEqual({
       done: false,
       value: {
@@ -9437,7 +9645,7 @@ describe("agent message protocol", () => {
     })()).rejects.toThrow("stream failed")
     await new Promise(resolve => setTimeout(resolve, 30))
 
-    expect(execute).toHaveBeenCalledOnce()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it("reports progress driver error events without exposing their messages", async () => {

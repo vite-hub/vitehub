@@ -3728,9 +3728,9 @@ async function executeAgentInvocationWithCapacityLease<
           capacityRendered = uiMessageSource.stream
         }
       }
-      const enrichedRendered = isAsyncIterable(capacityRendered)
-        ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
-        : withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
+      const enrichedRendered = isUIMessageStreamResult(capacityRendered)
+        ? withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
+        : withEagerStreamUsageExtensions(capacityRendered as AsyncIterable<unknown>, invocation, rendered)
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
         const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -3839,9 +3839,10 @@ async function executeAgentInvocationWithCapacityLease<
           const projection = typeof definition?.uiMessageStream === "function"
             ? await definition.uiMessageStream(invocation)
             : definition?.uiMessageStream
-          const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions({
+          const renderedResponseStream = await applyOutputRenderers({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
-          }, invocation)
+          }, invocation.outputRenderers, [], outputExtensions)
+          const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
           const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
               await lifecycle.finish({

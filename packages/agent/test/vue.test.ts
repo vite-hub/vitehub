@@ -42,6 +42,29 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("derives reactive data from persistent and transient data parts", async () => {
+    const onData = vi.fn()
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ data: { title: "Provisional" }, id: "title", type: "data-title" })
+          writer.write({ data: { summary: "Checking inventory" }, transient: true, type: "data-progress-summary" })
+          writer.write({ data: { title: "Inventory health" }, id: "title", type: "data-title" })
+        },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { onData }))!
+
+    await chat.sendMessage({ text: "Check inventory" })
+
+    expect(chat.data.value.get("title", "title")).toBe("Inventory health")
+    expect(chat.data.value.get("progress-summary")).toEqual({ summary: "Checking inventory" })
+    expect(onData).toHaveBeenCalledTimes(3)
+    scope.stop()
+  })
+
   it("prefers an explicit transport over the API option", async () => {
     const sendMessages = vi.fn(async () => new ReadableStream({
       start(controller) {
@@ -64,18 +87,17 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
-  it("derives the API from the configured generated chat route", async () => {
-    vi.stubGlobal("__VITEHUB_AGENT_CHAT_ROUTE__", "chat/[agent]")
+  it("uses an explicit API instead of the conventional generated route", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({ execute() {} }),
     }))
     vi.stubGlobal("fetch", fetch)
     const scope = effectScope()
-    const chat = scope.run(() => useChat(useAgent("team/review")))!
+    const chat = scope.run(() => useChat(useAgent("team/review"), { api: "/chat/team-review" }))!
 
     await chat.sendMessage({ text: "Hello" })
 
-    expect(fetch).toHaveBeenCalledWith("/chat/team%2Freview", expect.anything())
+    expect(fetch).toHaveBeenCalledWith("/chat/team-review", expect.anything())
     scope.stop()
   })
 
@@ -91,17 +113,6 @@ describe("Agent Vue clients", () => {
     await chat.sendMessage({ text: "Hello" })
 
     expect(fetch).toHaveBeenCalledWith("/portal/api/_vitehub/agents/support/chat", expect.anything())
-    scope.stop()
-  })
-
-  it("rejects an implicit API when the generated chat route is disabled", () => {
-    vi.stubGlobal("__VITEHUB_AGENT_CHAT_ROUTE__", false)
-    const scope = effectScope()
-
-    expect(() => scope.run(() => useChat(useAgent("support")))).toThrow(
-      "useChat() requires an Agent chat route. Enable routes.chat or pass api or transport explicitly.",
-    )
-    expect(() => scope.run(() => useChat(useAgent("support"), { api: "/chat/support" }))).not.toThrow()
     scope.stop()
   })
 

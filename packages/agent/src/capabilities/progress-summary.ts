@@ -215,6 +215,39 @@ async function resultText(result: unknown): Promise<string | undefined> {
   return text || toAgentRunResult(result).text
 }
 
+function quietExpectedHarnessCancellation(harness: object): object {
+  const bind = (target: object, property: PropertyKey) => {
+    const value = Reflect.get(target, property, target)
+    return typeof value === "function" ? value.bind(target) : value
+  }
+  const wrapSession = (session: object) => new Proxy(session, {
+    get(target, property) {
+      const value = bind(target, property)
+      if (property !== "doPromptTurn" || typeof value !== "function") return value
+      return async (...args: unknown[]) => {
+        const control = await value(...args) as { done: PromiseLike<void> }
+        const abortSignal = (args[0] as { abortSignal?: AbortSignal } | undefined)?.abortSignal
+        const done = Promise.resolve(control.done).catch((error) => {
+          if (!abortSignal?.aborted || (error !== abortSignal.reason && (error as { name?: unknown })?.name !== "AbortError")) throw error
+        })
+        return new Proxy(control, {
+          get(target, property) {
+            return property === "done" ? done : bind(target, property)
+          },
+        })
+      }
+    },
+  })
+  const doStart = bind(harness, "doStart")
+  if (typeof doStart !== "function") return harness
+  return new Proxy(harness, {
+    get(target, property) {
+      if (property !== "doStart") return bind(target, property)
+      return async (...args: unknown[]) => wrapSession(await doStart(...args) as object)
+    },
+  })
+}
+
 async function generateWithDriver(
   context: AgentCapabilityRuntimeContext,
   options: ProgressSummaryOptions,
@@ -231,7 +264,11 @@ async function generateWithDriver(
   if (driver.kind === "harness") {
     const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
     const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
-    return await resultText(await createHarnessAgentAdapter({ ...resolvedDriver, instructions } as never).generate(runContext as never))
+    return await resultText(await createHarnessAgentAdapter({
+      ...resolvedDriver,
+      harness: quietExpectedHarnessCancellation(resolvedDriver.harness as object),
+      instructions,
+    } as never).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   return await resultText(await createAiSdkAdapter({
@@ -364,6 +401,7 @@ function createProgressSummaryState(
   let running = false
   let closed = false
   let scheduled = false
+  let streamStarted = false
   let latest: ReturnType<typeof progressData> | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   const abortSignal = context.abortSignal ?? context.input.get().abortSignal
@@ -377,7 +415,8 @@ function createProgressSummaryState(
     scheduled = false
     abortSignal?.removeEventListener("abort", close)
   }
-  abortSignal?.addEventListener("abort", close, { once: true })
+  if (abortSignal?.aborted) close()
+  else abortSignal?.addEventListener("abort", close, { once: true })
 
   const reportError = (error: unknown) => {
     console.warn("[vitehub] progressSummary() generation failed.")
@@ -415,8 +454,8 @@ function createProgressSummaryState(
       elapsedMs: Date.now() - startedAt,
       input: {
         ...inputValue,
-        abortSignal: inputValue.abortSignal
-          ? AbortSignal.any([inputValue.abortSignal, generationAbort.signal])
+        abortSignal: abortSignal
+          ? AbortSignal.any([abortSignal, generationAbort.signal])
           : generationAbort.signal,
       },
       messages,
@@ -431,7 +470,9 @@ function createProgressSummaryState(
         if (summary === previous) return
         previous = summary
         latest = progressData(summary, currentRevision)
-        for (const controller of controllers) controller.enqueue(latest)
+        if (intervalMs === 0 || streamStarted) {
+          for (const controller of controllers) controller.enqueue(latest)
+        }
       })
       .catch((error) => {
         if (!closed && !generationAbort.signal.aborted) reportError(error)
@@ -454,6 +495,13 @@ function createProgressSummaryState(
   }
 
   const observe = (chunk: unknown) => {
+    if (!streamStarted) {
+      streamStarted = true
+      if (intervalMs !== 0) {
+        startGeneration()
+        timer = setInterval(startGeneration, intervalMs)
+      }
+    }
     const event = normalizeUiMessageStreamChunk(chunk)
     const type = eventType(event)
     if (type === "finish") {
@@ -495,10 +543,6 @@ function createProgressSummaryState(
   }
 
   if (intervalMs === 0) scheduleEventDriven()
-  else {
-    startGeneration()
-    timer = setInterval(startGeneration, intervalMs)
-  }
 
   return {
     attach(controller) {
