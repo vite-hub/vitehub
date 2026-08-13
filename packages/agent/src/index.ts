@@ -8,6 +8,7 @@ import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
+import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import {
   createBackedAgentInvocationController,
   startLiveAgentInvocation,
@@ -216,6 +217,12 @@ export type {
   AgentCapabilitiesList,
   AgentCapabilitiesResolver,
   AgentCapabilitiesResolverContext,
+  AgentChannelDelivery,
+  AgentChannelDeliveryEvent,
+  AgentChannelDeliveryEventInput,
+  AgentChannelDeliveryEventType,
+  AgentChannelDeliveryInspection,
+  AgentChannelDeliveryStatus,
   AgentCallSettingsInstrumentation,
   AgentCallSettingsInstrumentationContext,
   BuiltInAgentDriver,
@@ -925,6 +932,7 @@ async function applyChannelDeliveryEffectIntents<
 ): Promise<void> {
   if (!intents.length) return
   const active = activeAgentChannel(context.channels, context.context, context.run)
+  const delivery = agentChannelDeliveryTracker(context.runtimeContext)
 
   for (const intent of intents) {
     const handlers = active ? channelDeliveryEffectHandlers(active.channel, intent) : []
@@ -972,6 +980,7 @@ async function applyChannelDeliveryEffectIntents<
     let delivered = true
     for (const handler of handlers) {
       try {
+        await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
         await runObservedAgentHook(context.hooks, {
           ids: { channelId: active.channelId, runId: context.run?.runId },
           metadata,
@@ -997,6 +1006,7 @@ async function applyChannelDeliveryEffectIntents<
           })
           await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
         })
+        await delivery?.event({ type: "outbound.completed", runId: context.run?.runId })
       }
       catch (error) {
         delivered = false

@@ -3772,6 +3772,65 @@ describe("server helpers", () => {
     }))
   })
 
+  it("persists an inspectable custody timeline for adapter Channel deliveries", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-delivery-"))
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const adapter = createTestChatAdapter()
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => adapter as never },
+        stream: false,
+        webhooks: { telegram: {} },
+      })],
+      driver: { run: () => "agent answer" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const body = JSON.stringify({
+      update_id: 42,
+      message: {
+        chat: { id: 456, type: "private" },
+        date: 1781092800,
+        from: { first_name: "Maxi", id: 123, username: "maxi" },
+        message_id: 7,
+        text: "hello",
+      },
+    })
+    const options = { agentName: "support", state: () => state }
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" }), "telegram", options)
+      expect(response.status).toBe(200)
+      await response.json()
+      const deliveries = await handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" }), "telegram", options)
+      const delivery = deliveries.find(item => item.sourceId === "42")
+
+      expect(delivery).toMatchObject({
+        agentName: "support",
+        provider: "telegram",
+        sourceId: "42",
+        status: "completed",
+      })
+      expect(delivery?.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "received" }),
+        expect.objectContaining({ type: "accepted" }),
+        expect.objectContaining({ type: "invocation.started" }),
+        expect.objectContaining({ messageId: "sent-1", type: "outbound.completed" }),
+        expect.objectContaining({ type: "invocation.completed" }),
+        expect.objectContaining({ type: "completed" }),
+      ]))
+    }
+    finally {
+      info.mockRestore()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("filters adapter messages before Agent invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

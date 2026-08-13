@@ -6,6 +6,7 @@ export interface ChannelConnectorResult {
 export interface ChannelSendResult extends ChannelConnectorResult {
   channel: string
   connector: string
+  deliveryId: string
 }
 
 export interface ChannelConnector<TOptions = Record<string, unknown>, TResult extends ChannelConnectorResult = ChannelConnectorResult> {

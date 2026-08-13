@@ -123,6 +123,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   private readonly driver: SqliteAgentStateDriver
   private nextCleanupAt = 0
   private readonly tables: StateTables
+  private transactionTail: Promise<void> = Promise.resolve()
 
   constructor(options: SqliteAgentStateOptions) {
     if (!options.driver) {
@@ -477,7 +478,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void> {
     await this.cleanupExpiredStateIfDue()
     const expiresAt = ttlMs ? Date.now() + ttlMs : null
-    await retrySqliteBusy(async () => await execute(this.driver, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt]))
+    await retrySqliteBusy(async () => await this.transaction(async tx => await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])))
   }
 
   async setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean> {
@@ -618,19 +619,28 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   private async transaction<T>(run: (executor: SqliteAgentStateExecutor) => MaybePromise<T>): Promise<T> {
-    this.ensureConnected()
-    if (this.driver.transaction) {
-      return await this.driver.transaction(run)
-    }
-    await execute(this.driver, "BEGIN IMMEDIATE")
+    const previous = this.transactionTail
+    let release!: () => void
+    this.transactionTail = new Promise(resolve => release = resolve)
+    await previous
     try {
-      const result = await run(this.driver)
-      await execute(this.driver, "COMMIT")
-      return result
+      this.ensureConnected()
+      if (this.driver.transaction) {
+        return await this.driver.transaction(run)
+      }
+      await execute(this.driver, "BEGIN IMMEDIATE")
+      try {
+        const result = await run(this.driver)
+        await execute(this.driver, "COMMIT")
+        return result
+      }
+      catch (error) {
+        await execute(this.driver, "ROLLBACK").catch(() => undefined)
+        throw error
+      }
     }
-    catch (error) {
-      await execute(this.driver, "ROLLBACK").catch(() => undefined)
-      throw error
+    finally {
+      release()
     }
   }
 }

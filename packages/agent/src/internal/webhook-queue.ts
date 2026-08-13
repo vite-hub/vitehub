@@ -4,6 +4,7 @@ export interface AgentWebhookQueueDelivery {
   concurrencyGroup: string
   concurrencyKey?: string
   concurrencyLimit: number
+  channelDeliveryId?: string
   deliveryId: string
   enqueuedAt: number
   invocation?: {

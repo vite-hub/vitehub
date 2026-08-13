@@ -27,6 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
+import { agentChannelDeliveryTracker, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -34,6 +35,7 @@ import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
   AgentChannelDefinition,
+  AgentChannelDeliveryInspection,
   AgentChatErrorHookArgs,
   AgentChatFinishExtension,
   AgentChatMessage,
@@ -61,6 +63,7 @@ import type { AttachmentPart, MessagePart } from "../messages.ts"
 import type { Adapter, AdapterPostableMessage, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
 import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
+import type { AgentChannelDeliveryTracker } from "../internal/channel-delivery.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -88,6 +91,7 @@ export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOption
 
 export interface AgentChannelWebhookRouteHandler {
   (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions): Promise<Response>
+  deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
   resume(options?: AgentChannelWebhookRouteOptions): () => Promise<void>
 }
 
@@ -572,6 +576,97 @@ function requestHeaders(request: Request): Record<string, string> {
   return Object.fromEntries(request.headers.entries())
 }
 
+function deliverySourceValue(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
+}
+
+async function webhookDeliverySourceId(request: Request): Promise<string> {
+  const header = request.headers.get("x-github-delivery") || request.headers.get("x-vitehub-delivery-id") || request.headers.get("idempotency-key")
+  if (header) return header
+  const payload = parseWebhookPayload(await request.clone().text())
+  if (isRecord(payload)) {
+    const source = deliverySourceValue(payload.event_id)
+      || deliverySourceValue(payload.update_id)
+      || deliverySourceValue(payload.id)
+      || (isRecord(payload.activity) ? deliverySourceValue(payload.activity.id) : undefined)
+      || (isRecord(payload.event) ? deliverySourceValue(payload.event.id) : undefined)
+    if (source) return source
+  }
+  return randomToken()
+}
+
+function channelDeliveryError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 2_000)
+}
+
+function logChannelListener(event: string, provider: string, listenerId: string, extra: Record<string, unknown> = {}): void {
+  console.info(JSON.stringify({ scope: "vitehub.channel.listener", event, provider, listenerId, ...extra }))
+}
+
+function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker): Thread {
+  return new Proxy(thread, {
+    get(target, property) {
+      if (property === "post") {
+        return async (...args: Parameters<Thread["post"]>) => {
+          await delivery.event({ type: "outbound.started" })
+          try {
+            const message = await target.post(...args)
+            await delivery.event({ messageId: deliverySourceValue((message as { id?: unknown }).id), type: "outbound.completed" })
+            return message
+          }
+          catch (error) {
+            await delivery.event({ error: channelDeliveryError(error), type: "outbound.failed" })
+            throw error
+          }
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+}
+
+function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Response {
+  if (!response.body) {
+    void delivery.event({ type: "invocation.completed", runId }).then(() => delivery.event({ type: "completed", runId }))
+    return response
+  }
+  const reader = response.body.getReader()
+  let finished = false
+  const complete = async () => {
+    if (finished) return
+    finished = true
+    await delivery.event({ type: "invocation.completed", runId })
+    await delivery.event({ type: "completed", runId })
+  }
+  const fail = async (error: unknown) => {
+    if (finished) return
+    finished = true
+    await delivery.event({ error: channelDeliveryError(error), type: "invocation.failed", runId })
+    await delivery.event({ error: channelDeliveryError(error), type: "failed", runId })
+  }
+  return new Response(new ReadableStream({
+    async pull(controller) {
+      try {
+        const next = await reader.read()
+        if (next.done) {
+          await complete()
+          controller.close()
+        }
+        else controller.enqueue(next.value)
+      }
+      catch (error) {
+        await fail(error)
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
+      await fail(reason || new Error("Channel response stream was cancelled."))
+    },
+  }), response)
+}
+
 function githubInstallationId(payload: unknown): number | undefined {
   if (!payload || typeof payload !== "object") return
   const installation = (payload as { installation?: unknown }).installation
@@ -682,6 +777,7 @@ function positiveWebhookConcurrencyLimit(value: number | undefined): number | un
 
 function persistedWebhookRequest(
   deliveryId: string,
+  channelDeliveryId: string,
   request: Request,
   body: string,
   webhookId: string,
@@ -694,6 +790,7 @@ function persistedWebhookRequest(
   const enqueuedAt = Date.now()
   const concurrencyGroup = `${encodeURIComponent(agentName)}:${encodeURIComponent(ownership.concurrencyGroup?.trim() || "default")}`
   return {
+    channelDeliveryId,
     concurrencyGroup,
     ...(ownership.concurrencyKey ? { concurrencyKey: `${concurrencyGroup}:${encodeURIComponent(ownership.concurrencyKey)}` } : {}),
     concurrencyLimit: ownership.concurrencyLimit,
@@ -1002,7 +1099,7 @@ async function executeQueuedWebhookDelivery(
   let rejectActiveCompletion: ((reason?: unknown) => void) | undefined
   const request = requestFromPersistedWebhook(delivery)
   const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
-  const context = createRuntimeContext(
+  let context = createRuntimeContext(
     request,
     undefined,
     waitUntil,
@@ -1011,6 +1108,14 @@ async function executeQueuedWebhookDelivery(
     handlerOptions.capabilities,
     routeAgentIdentity(handlerOptions),
   )
+  const channelDelivery = delivery.channelDeliveryId
+    ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId)
+    : undefined
+  if (channelDelivery) {
+    context = withAgentChannelDelivery(context, channelDelivery)
+    if (delivery.attempts > 0) await channelDelivery.event({ attempt: delivery.attempts + 1, type: "retrying", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+    await channelDelivery.event({ attempt: delivery.attempts + 1, type: "invocation.started", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+  }
   const ownershipAbort = new AbortController()
   const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
     ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
@@ -1056,7 +1161,7 @@ async function executeQueuedWebhookDelivery(
       }
     }
     if (invocation) {
-      const runContext = createRuntimeContext(
+      const baseRunContext = createRuntimeContext(
         request,
         invocation.run,
         waitUntil,
@@ -1065,6 +1170,7 @@ async function executeQueuedWebhookDelivery(
         handlerOptions.capabilities,
         routeAgentIdentity(handlerOptions),
       )
+      const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
       await runWithRuntimeCloudflareEnv(runContext, async () => {
         const controller = await startAgentInvocation(agent as never, runContext as never, {
           ...invocation.input,
@@ -1100,6 +1206,8 @@ async function executeQueuedWebhookDelivery(
     if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
       throw new Error("[vitehub] Webhook queue completion lost its lease.")
     }
+    await channelDelivery?.event({ attempt: delivery.attempts + 1, type: "invocation.completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+    await channelDelivery?.event({ type: "completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
     resolveActiveCompletion?.()
   }
   catch (error) {
@@ -1110,7 +1218,15 @@ async function executeQueuedWebhookDelivery(
     const retryAt = Date.now() + retryDelay
     if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt)) {
       if (lifecycleSignal.aborted) return retryAt
-      console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed and will be retried.`, error)
+      console.error(JSON.stringify({
+        scope: "vitehub.channel.delivery",
+        event: "retry.scheduled",
+        deliveryId: delivery.channelDeliveryId,
+        providerDeliveryId: delivery.deliveryId,
+        attempt: delivery.attempts + 1,
+        error: channelDeliveryError(error),
+        retryAt: new Date(retryAt).toISOString(),
+      }))
       return retryAt
     }
   }
@@ -3020,6 +3136,15 @@ async function handleChatSdkMessage(
   maximumInvocationDeadline?: number,
   historyThroughCurrent = false,
 ): Promise<void> {
+  const delivery = agentChannelDeliveryTracker(context) || await openAgentChannelDelivery(state.state, {
+    agentName: context.agentIdentity?.name || "agent",
+    channelId: registration.channelId,
+    provider: chatRegistrationOrigin(registration),
+    scope: `${state.keyPrefix}${thread.id}`,
+    sourceId: deliverySourceValue(message.id) || randomToken(),
+  })
+  context = withAgentChannelDelivery(context, delivery)
+  thread = observeChatThread(thread, delivery)
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
@@ -3027,6 +3152,8 @@ async function handleChatSdkMessage(
   const manualDeliveryState: ManualChatDeliveryState = {}
   const toolResults: AgentToolStepItem[] = []
   const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
+  let invocationStarted = false
+  let invocationFailed = false
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
     if (typeof options?.timeout === "number" && Number.isFinite(options.timeout) && options.timeout > 0) {
@@ -3034,13 +3161,19 @@ async function handleChatSdkMessage(
     }
     const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
-    if (!invoker) return
+    if (!invoker) {
+      await delivery.event({ type: "rejected" })
+      return
+    }
 
     const messages = await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
       : messages.at(-1)
-    if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
+    if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
+      await delivery.event({ type: "rejected" })
+      return
+    }
     const filter = options?.filter
     if (filter) {
       const [current] = uiMessagesToAgentMessages([currentMessage])
@@ -3052,16 +3185,26 @@ async function handleChatSdkMessage(
         thread: {
           post: async postedMessage => await postChatMessage(thread, postedMessage),
         },
-      })) return
+      })) {
+        await delivery.event({ type: "rejected" })
+        return
+      }
     }
     input = { ...input, messages }
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
-    if (isResolvedAgentTriggerHandledInvocation(invocation)) return
+    if (isResolvedAgentTriggerHandledInvocation(invocation)) {
+      await delivery.event({ type: "accepted" })
+      await delivery.event({ type: "completed" })
+      return
+    }
 
     assertChatDeliveryOptions(options || {})
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     run = invocation.run
+    await delivery.event({ type: "accepted", runId: run?.runId })
+    await delivery.event({ type: "invocation.started", runId: run?.runId })
+    invocationStarted = true
     const runContext = {
       ...context,
       ...(invocation.run ? { run: invocation.run } : {}),
@@ -3243,6 +3386,9 @@ async function handleChatSdkMessage(
     }
   }
   catch (error) {
+    invocationFailed = true
+    if (invocationStarted) await delivery.event({ error: channelDeliveryError(error), type: "invocation.failed", runId: run?.runId })
+    await delivery.event({ error: channelDeliveryError(error), type: "failed", runId: run?.runId })
     typing?.stop()
     await progress?.finish()
     await postChatErrorFallback(error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline)
@@ -3250,6 +3396,10 @@ async function handleChatSdkMessage(
   }
   finally {
     typing?.stop()
+    if (invocationStarted && !invocationFailed) {
+      await delivery.event({ type: "invocation.completed", runId: run?.runId })
+      await delivery.event({ type: "completed", runId: run?.runId })
+    }
   }
 }
 
@@ -3355,8 +3505,9 @@ async function createChannelChat(
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
   maximumInvocationDeadline?: number,
+  providedState?: { state: StateAdapter, titleKeyPrefix: string },
 ): Promise<Chat> {
-  const resolvedState = await resolveChatState(options, context, registration, handlerOptions)
+  const resolvedState = providedState || await resolveChatState(options, context, registration, handlerOptions)
   const lockTracker = createChatLockTracker(resolvedState.state)
   const chat = new Chat(createChatSdkConfig(
     adapterName,
@@ -3390,8 +3541,9 @@ async function createChatWebhookHandler(
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
   maximumInvocationDeadline?: number,
+  state?: { state: StateAdapter, titleKeyPrefix: string },
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
-  const chat = await createChannelChat(agent, context, registration, adapterName, adapter, options, handlerOptions, maximumInvocationDeadline)
+  const chat = await createChannelChat(agent, context, registration, adapterName, adapter, options, handlerOptions, maximumInvocationDeadline, state)
   const handler = chat.webhooks[adapterName]
   if (!handler) {
     throw new Error(`[vitehub] Chat adapter "${adapterName}" did not expose a webhook handler.`)
@@ -3855,6 +4007,7 @@ export function createChannelChatRouteHandler(
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
     }
 
+    let delivery: AgentChannelDeliveryTracker | undefined
     try {
       const parsed = await parseAgentChannelChatRouteBody(request)
       const agentIdentity = routeAgentIdentity(handlerOptions)
@@ -3862,7 +4015,7 @@ export function createChannelChatRouteHandler(
       const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, event: handlerOptions.event, rawBody: parsed.rawBody, request })
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
-      const context = createRuntimeContext(
+      let context = createRuntimeContext(
         createRuntimeRequest(request, parsed.rawBody),
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
@@ -3908,6 +4061,14 @@ export function createChannelChatRouteHandler(
       }
       const { state } = await resolveChatState(chatOptions, context, registration, handlerOptions)
       await state.connect()
+      delivery = await openAgentChannelDelivery(state, {
+        agentName,
+        channelId: registration.channelId,
+        provider: registration.provider,
+        scope: `chat:${agentName}:${registration.provider}:${sessionId || "default"}`,
+        sourceId: deliverySourceValue(body.messageId) || deliverySourceValue(triggerInput.run?.messageId) || randomToken(),
+      })
+      context = withAgentChannelDelivery(context, delivery)
       const sessionOptions = chatOptions.sessions
       let approvalTtlMs = agentChatApprovalTtlMs
       const manualSessions = sessionOptions === true
@@ -3947,13 +4108,19 @@ export function createChannelChatRouteHandler(
           messages: authorized.messages,
         }
       }
+      await delivery.event({ type: "accepted", runId: triggerInput.run?.runId })
+      await delivery.event({ type: "invocation.started", runId: triggerInput.run?.runId })
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
       if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
-      return await toAgentChatFetchResponse(result)
+      return observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
     }
     catch (error) {
+      if (delivery) {
+        await delivery.event({ error: channelDeliveryError(error), type: "invocation.failed" })
+        await delivery.event({ error: channelDeliveryError(error), type: "failed" })
+      }
       return agentChatFetchErrorResponse(error)
     }
   }
@@ -4074,7 +4241,7 @@ export function createChannelWebhookRouteHandler(
     }
 
     const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
-    const context = createRuntimeContext(
+    let context = createRuntimeContext(
       request,
       undefined,
       waitUntil,
@@ -4103,11 +4270,30 @@ export function createChannelWebhookRouteHandler(
           status: 204,
         })
       }
+      const webhookDeliveryState = await resolveAgentWebhookState(context, registration, handlerOptions)
+      const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
+      const chatDeliveryState = webhookDeliveryState
+        ? undefined
+        : await resolveChatState(chatOptions, context, registration, handlerOptions)
+      const deliveryState = webhookDeliveryState || (chatDeliveryState
+        ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state }
+        : undefined)
+      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
+      await deliveryState.state.connect()
+      const channelDelivery = await openAgentChannelDelivery(deliveryState.state, {
+        agentName: context.agentIdentity?.name || "agent",
+        channelId: registration.channelId,
+        provider: registration.provider,
+        scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
+        sourceId: await webhookDeliverySourceId(request),
+      })
+      context = withAgentChannelDelivery(context, channelDelivery)
       if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
         try {
           await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
         }
         catch (error) {
+          await channelDelivery.event({ error: channelDeliveryError(error), type: "rejected" })
           const response = toHttpErrorResponse(error)
           if (response) return response
           throw error
@@ -4119,7 +4305,9 @@ export function createChannelWebhookRouteHandler(
           const input = await createAgentWebhookTriggerInput(request, registration)
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
+            await channelDelivery.event({ type: "accepted" })
             await context.flushWaitUntil?.()
+            await channelDelivery.event({ type: "completed" })
             return invocation.response
           }
           if (invocation.webhook?.busy === "steer" && (invocation.webhook.concurrencyKey === undefined || invocation.webhook.concurrencyLimit === undefined)) {
@@ -4128,9 +4316,7 @@ export function createChannelWebhookRouteHandler(
           if ((invocation.webhook?.concurrencyKey !== undefined || invocation.webhook?.concurrencyLimit !== undefined) && await hasActiveWorkflowRuntime(agent, context)) {
             return createJsonErrorResponse(503, "Webhook concurrency ownership requires inline Agent execution.")
           }
-          const webhookState = invocation.webhook
-            ? await resolveAgentWebhookState(context, registration, handlerOptions)
-            : undefined
+          const webhookState = invocation.webhook ? webhookDeliveryState : undefined
           if (invocation.webhook && !webhookState) {
             return createJsonErrorResponse(503, "Durable Agent state is required for webhook delivery ownership.")
           }
@@ -4153,6 +4339,7 @@ export function createChannelWebhookRouteHandler(
             const persistedInvocation = persistedWebhookInvocation(invocation as unknown as { input: Record<string, unknown>, run?: unknown })
             const delivery = persistedWebhookRequest(
               deliveryId,
+              channelDelivery.delivery.id,
               request,
               await request.clone().text(),
               webhookId,
@@ -4171,11 +4358,13 @@ export function createChannelWebhookRouteHandler(
               })
               if (outcome) {
                 if (outcome.queued) registerQueue(backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
+                await channelDelivery.event({ type: outcome.queued ? "queued" : outcome.response.ok ? "completed" : "rejected", runId: invocation.run?.runId })
                 return outcome.response
               }
             }
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             await registerQueue(backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
+            await channelDelivery.event({ type: queued ? "queued" : "duplicate", runId: invocation.run?.runId })
             return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
@@ -4192,6 +4381,7 @@ export function createChannelWebhookRouteHandler(
             concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
             deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
             if (await webhookState.state.get(deliveryClaimKey) === true) {
+              await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
               return Response.json({ accepted: false, duplicate: true, ok: true })
             }
             if (concurrencyKey !== undefined) {
@@ -4216,10 +4406,11 @@ export function createChannelWebhookRouteHandler(
             }
             if (!claimed) {
               if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
               return Response.json({ accepted: false, duplicate: true, ok: true })
             }
           }
-          const runContext = createRuntimeContext(
+          const runContext = withAgentChannelDelivery(createRuntimeContext(
             request,
             invocation.run,
             waitUntil,
@@ -4227,7 +4418,9 @@ export function createChannelWebhookRouteHandler(
             handlerOptions.runtime,
             handlerOptions.capabilities,
             routeAgentIdentity(handlerOptions),
-          )
+          ), channelDelivery)
+          await channelDelivery.event({ type: "accepted", runId: invocation.run?.runId })
+          await channelDelivery.event({ type: "invocation.started", runId: invocation.run?.runId })
           const ownershipAbort = webhookLock ? new AbortController() : undefined
           let stopHeartbeat: (() => void) | undefined
           if (webhookLock && webhookState && ownershipAbort) {
@@ -4241,7 +4434,8 @@ export function createChannelWebhookRouteHandler(
           })
           const task = dispatchGate.then(async (accepted) => {
             if (!accepted) return
-            await runWithRuntimeCloudflareEnv(runContext, async () => {
+            try {
+              await runWithRuntimeCloudflareEnv(runContext, async () => {
               try {
                 const result = await runAgent(agent as never, runContext as never, {
                   ...invocation.input,
@@ -4263,7 +4457,15 @@ export function createChannelWebhookRouteHandler(
                   await webhookState.state.releaseLock(webhookLock)
                 }
               }
-            })
+              })
+              await channelDelivery.event({ type: "invocation.completed", runId: invocation.run?.runId })
+              await channelDelivery.event({ type: "completed", runId: invocation.run?.runId })
+            }
+            catch (error) {
+              await channelDelivery.event({ error: channelDeliveryError(error), type: "invocation.failed", runId: invocation.run?.runId })
+              await channelDelivery.event({ error: channelDeliveryError(error), type: "failed", runId: invocation.run?.runId })
+              throw error
+            }
           })
           try {
             context.waitUntil(task)
@@ -4279,6 +4481,7 @@ export function createChannelWebhookRouteHandler(
           return Response.json({ accepted: true, ok: true })
         }
         catch (error) {
+          await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           const response = toHttpErrorResponse(error)
           if (response) return response
           throw error
@@ -4298,7 +4501,7 @@ export function createChannelWebhookRouteHandler(
 
         try {
           const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
-          const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline)
+          const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline, chatDeliveryState)
           webhookDeadlineAbort?.signal.throwIfAborted()
           const response = await handler(request, { waitUntil: context.waitUntil })
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
@@ -4307,6 +4510,7 @@ export function createChannelWebhookRouteHandler(
           return response
         }
         catch (error) {
+          await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           const response = toHttpErrorResponse(error)
           if (response) return response
           throw error
@@ -4318,6 +4522,33 @@ export function createChannelWebhookRouteHandler(
         webhookDeadlineAbort,
       )
     })
+  }
+  handler.deliveries = async (request, webhook, handlerOptions = {}) => {
+    const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
+    if (webhookId === undefined) return []
+    const context = createRuntimeContext(
+      request,
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
+    if (!match) return []
+    const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+    const chatState = webhookState ? undefined : await resolveChatState(
+      getChannelChatOptions(agent, match.registration.channelId, getAgentChatOptions(agent)),
+      context,
+      match.registration,
+      handlerOptions,
+    )
+    const state = webhookState?.state || chatState?.state
+    if (!state) return []
+    await state.connect()
+    const scopePrefix = webhookState?.keyPrefix || chatState?.titleKeyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(match.registration)}`
+    return await readAgentChannelDeliveries(state, handlerOptions.limit, scopePrefix)
   }
   handler.resume = (handlerOptions = {}) => {
     let stopped = false
@@ -4469,27 +4700,35 @@ export function createTelegramPollingRouteHandler(
         let chat = chats!.get(channelId)
         if (!chat) {
           chat = (async () => {
-            const adapter = await resolveMaybe(channel.adapter, context)
-            if (!adapter) {
-              throw new Error(`[vitehub] Telegram polling Channel "${channelId}" did not resolve a chat adapter.`)
+            logChannelListener("started", "telegram", channelId)
+            try {
+              const adapter = await resolveMaybe(channel.adapter, context)
+              if (!adapter) {
+                throw new Error(`[vitehub] Telegram polling Channel "${channelId}" did not resolve a chat adapter.`)
+              }
+              const registration = {
+                adapter: channelId,
+                channelId,
+                id: channelId,
+                provider: "telegram",
+              }
+              const instance = await createChannelChat(
+                agent,
+                context,
+                registration,
+                channelId,
+                adapter as Adapter,
+                getChannelChatOptions(agent, channelId, chatOptions),
+                handlerOptions,
+              )
+              await startChannelChat(instance)
+              logChannelListener("completed", "telegram", channelId)
+              return instance
             }
-            const registration = {
-              adapter: channelId,
-              channelId,
-              id: channelId,
-              provider: "telegram",
+            catch (error) {
+              logChannelListener("failed", "telegram", channelId, { error: channelDeliveryError(error) })
+              throw error
             }
-            const instance = await createChannelChat(
-              agent,
-              context,
-              registration,
-              channelId,
-              adapter as Adapter,
-              getChannelChatOptions(agent, channelId, chatOptions),
-              handlerOptions,
-            )
-            await startChannelChat(instance)
-            return instance
           })()
           chats!.set(channelId, chat)
           chat.catch(() => chats!.delete(channelId))
@@ -4564,13 +4803,20 @@ export function createDiscordGatewayRouteHandler(
             ? handlerOptions.webhookUrl(webhookId)
             : handlerOptions.webhookUrl
 
+          logChannelListener("started", "discord", adapterName)
           responsePromises.push(startGatewayListener.call(
             adapter,
             { waitUntil: context.waitUntil },
             handlerOptions.durationMs,
             handlerOptions.abortSignal,
             webhookUrl,
-          ))
+          ).then((response) => {
+            logChannelListener(response.ok ? "completed" : "failed", "discord", adapterName, { status: response.status })
+            return response
+          }).catch((error) => {
+            logChannelListener("failed", "discord", adapterName, { error: channelDeliveryError(error) })
+            throw error
+          }))
         }
 
         const responses = await Promise.all(responsePromises)
