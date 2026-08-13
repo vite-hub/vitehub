@@ -568,11 +568,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           },
           devDependencies: {
             typescript: "6.0.3",
+            "vite-plus": "0.1.24",
             "vue-tsc": "3.3.7",
-          },
-          optionalDependencies: {
-            // The Vite Plus core override expects its platform package to provide the native binding.
-            "@voidzero-dev/vite-plus-linux-x64-gnu": "0.1.24",
           },
           packageManager: "pnpm@10.33.0",
           private: true,
