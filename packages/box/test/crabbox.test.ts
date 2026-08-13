@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resolveBox } from "../src/index.ts"
 import { createCrabboxRuntime, pruneWorkspaceForArchive, rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
@@ -145,6 +145,43 @@ describe("createCrabboxRuntime", () => {
       await session.close()
 
       await expect(stat(sessionRoot)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  }, 30_000)
+
+  it.skipIf(process.platform !== "linux")("reclaims only reparented processes owned by the disposable root", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
+      const session = await boxProvider(box).createSession()
+      const spawnOrphan = async (argument: string) => {
+        const result = await session.run({
+          command: `node -e 'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { detached: true, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${argument}'`,
+        })
+        expect(result.exitCode).toBe(0)
+        return Number(result.stdout.trim())
+      }
+      const ownedPid = await spawnOrphan(`${session.root}/owned`)
+      const unrelatedPid = await spawnOrphan(`${session.root}.other/keep`)
+
+      try {
+        await vi.waitFor(async () => {
+          await expect(readFile(`/proc/${ownedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${unrelatedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+        })
+        await session.destroy()
+        await expect(stat(session.root)).rejects.toMatchObject({ code: "ENOENT" })
+        await vi.waitFor(() => expect(() => process.kill(ownedPid, 0)).toThrow())
+        expect(() => process.kill(unrelatedPid, 0)).not.toThrow()
+      }
+      finally {
+        try { process.kill(unrelatedPid, "SIGKILL") } catch {}
+        try { process.kill(ownedPid, "SIGKILL") } catch {}
+      }
     })
   }, 30_000)
 

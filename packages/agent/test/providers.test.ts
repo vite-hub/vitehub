@@ -7136,6 +7136,75 @@ describe("server helpers", () => {
     }
   })
 
+  it("terminally completes a queued webhook delivery after three failed attempts", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-terminal-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
+    const run = vi.fn(async () => { throw new Error("persistent failure") })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "fail" },
+                webhook: {
+                  concurrencyLimit: 1,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-terminal",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    let stop: () => void | Promise<void> = () => undefined
+
+    try {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"))
+      stop = handler.resume({ agentName: "review", webhookState: state })
+      await handler(request(), "github", { agentName: "review", webhookState: state })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1))
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.advanceTimersByTimeAsync(2_000)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
+      await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
+      await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
+
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(run).toHaveBeenCalledTimes(3)
+      const duplicate = await handler(request(), "github", { agentName: "review", webhookState: state })
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
+    }
+    finally {
+      await stop()
+      consoleError.mockRestore()
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("retries a failed queued webhook delivery without the startup pump", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")

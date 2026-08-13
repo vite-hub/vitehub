@@ -94,7 +94,7 @@ describe("SQLite Agent State Provider", () => {
   })
 
   it("leases webhook deliveries under global and per-key concurrency", async () => {
-    const { state } = await createState()
+    const { state, url } = await createState()
     await state.connect()
     const queue = state as ViteHubSqliteAgentStateAdapter
 
@@ -113,6 +113,12 @@ describe("SQLite Agent State Provider", () => {
 
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
+    const client = createClient({ url })
+    await expect(client.execute({
+      args: [first!.scope, first!.deliveryId],
+      sql: "SELECT status, value FROM test_agent_state_webhook_queue WHERE scope = ? AND delivery_id = ?",
+    })).resolves.toMatchObject({ rows: [{ status: "completed", value: "{}" }] })
+    client.close()
     const third = await queue.claimWebhookDelivery("webhook:review:github:")
     expect(third?.deliveryId).toBe("delivery-2")
 

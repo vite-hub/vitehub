@@ -671,6 +671,7 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
 }
 
 const defaultWebhookQueueRetryMs = 1_000
+const maxWebhookQueueAttempts = 3
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -1104,6 +1105,12 @@ async function executeQueuedWebhookDelivery(
   }
   catch (error) {
     rejectActiveCompletion?.(error)
+    if (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts) {
+      if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+        console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed after ${maxWebhookQueueAttempts} attempts and will not be retried.`, error)
+      }
+      return
+    }
     const retryDelay = lifecycleSignal.aborted
       ? 0
       : Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
