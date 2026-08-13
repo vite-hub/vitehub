@@ -570,6 +570,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             typescript: "6.0.3",
             "vue-tsc": "3.3.7",
           },
+          optionalDependencies: {
+            // Vite Plus bundles Rolldown's loader without declaring its Linux binding at runtime.
+            "@rolldown/binding-linux-x64-gnu": "1.0.3",
+          },
           packageManager: "pnpm@10.33.0",
           private: true,
           scripts: { build: "nuxt build", typecheck: "nuxt typecheck" },
