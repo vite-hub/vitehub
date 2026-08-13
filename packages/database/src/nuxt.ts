@@ -132,10 +132,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           )
         }
         if (!nuxtOptions.dev) {
-          const runtimeRoot = resolvedOptions.projectRoot
-            ? root
-            : typeof viteConfig.root === "string" ? viteConfig.root : nuxtOptions.srcDir || root
-          mergeNitroDatabaseRuntimeAlias(config, runtimeRoot, provider ?? (d1 ? "cloudflare" : undefined))
+          mergeNitroDatabaseRuntimeAlias(config, root, provider ?? (d1 ? "cloudflare" : undefined))
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)

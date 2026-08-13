@@ -218,7 +218,7 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  it("aliases the hosted runtime from the Nuxt source directory", async () => {
+  it("aliases the hosted runtime from the ViteHub project root", async () => {
     const { hooks, nuxt } = createNuxt({
       database: {
         driver: "d1",
@@ -241,12 +241,12 @@ describe("Database Nuxt integration", () => {
 
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/app/.vitehub/database/cloudflare-runtime.mjs",
+        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/cloudflare-runtime.mjs",
       },
     })
   })
 
-  it("aliases the hosted runtime from a custom Vite root", async () => {
+  it("keeps the hosted runtime at the ViteHub project root with a custom Vite root", async () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
       nitro: { preset: "vercel" },
@@ -262,7 +262,7 @@ describe("Database Nuxt integration", () => {
 
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/custom-vite-root/.vitehub/database/vercel-runtime.mjs",
+        "@vite-hub/database/drizzle": "/tmp/vitehub-db-nuxt/.vitehub/database/vercel-runtime.mjs",
       },
     })
   })
