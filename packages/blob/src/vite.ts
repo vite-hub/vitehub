@@ -164,7 +164,7 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
 
 function renderNitroBlobMiddleware(importBase = blobPackageName): string {
   return [
-    "// @ts-expect-error Cloudflare provides this virtual module at runtime.",
+    "// @ts-ignore Cloudflare provides this virtual module at runtime.",
     "import { env as vitehubEnv } from 'cloudflare:workers'",
     "import { defineMiddleware } from 'nitro'",
     `import { setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
