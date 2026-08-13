@@ -37,7 +37,7 @@ When no spec exists, skip the Spec reviewer and report that boundary. Never inve
 
 ### 3. Collect engineering evidence
 
-Find repository instructions and coding standards such as `AGENTS.md`, `CONTRIBUTING.md`, or `CODING_STANDARDS.md`. Read [references/simplicity.md](references/simplicity.md) and give it to the Engineering reviewer. Treat automated formatting and lint rules as tooling concerns rather than review findings.
+Find repository instructions and coding standards such as `AGENTS.md`, `CONTRIBUTING.md`, or `CODING_STANDARDS.md`. Read [references/simplicity.md](references/simplicity.md) and give it to the Engineering reviewer. When the diff crosses configuration forms, generated/runtime/consumer representations, providers, frameworks, output modes, or resource lifecycles, also read and provide [references/contract-coverage.md](references/contract-coverage.md). Treat automated formatting and lint rules as tooling concerns rather than review findings.
 
 ### 4. Review in parallel
 
@@ -45,7 +45,7 @@ Send one parallel dispatch containing both prompts. Give each reviewer the diff 
 
 **Engineering reviewer** — also provide the repository standards, the spec as a scope boundary, and the simplicity lens:
 
-> Inspect only the diff. Report every actionable P0–P3 correctness, security, data-loss, concurrency, compatibility, standards, maintainability, or justified simplicity finding. For each finding, cite the tightest file and line, explain the concrete failure mechanism and consequence, and give the smallest safe fix. Repository rules, correctness, and explicit requirements override heuristics. Omit praise, tooling-enforced style, and concerns without a concrete failure path. Stay under 500 words.
+> Inspect only the diff. Report every actionable P0–P3 correctness, security, data-loss, concurrency, compatibility, standards, maintainability, contract-coverage, or justified simplicity finding. For each finding, cite the tightest file and line, explain the concrete failure mechanism and consequence, and give the smallest safe fix. Repository rules, correctness, and explicit requirements override heuristics. Omit praise, tooling-enforced style, and concerns without a concrete failure path. Stay under 500 words.
 
 **Spec reviewer** — also provide the spec:
 
