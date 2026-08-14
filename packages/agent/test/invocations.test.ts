@@ -35,7 +35,7 @@ describe("Agent Invocations", () => {
       "secret key": "omitted",
     }), {})).resolves.toBe("done")
 
-    const record = await invocations.get("run-1")
+    const record = await invocations.getByRunId("run-1")
     expect(record).toMatchObject({
       annotations: {
         "github.pull_request.number": 42,
@@ -74,14 +74,14 @@ describe("Agent Invocations", () => {
       runtime: false,
     })
     const first = runAgent(agent, runtime("run-1"), {})
-    await vi.waitFor(async () => expect((await invocations.get("run-1"))?.status).toBe("running"))
+    await vi.waitFor(async () => expect((await invocations.getByRunId("run-1"))?.status).toBe("running"))
     const abort = new AbortController()
     const second = runAgent(agent, runtime("run-2"), { abortSignal: abort.signal })
-    await vi.waitFor(async () => expect((await invocations.get("run-2"))?.status).toBe("pending"))
+    await vi.waitFor(async () => expect((await invocations.getByRunId("run-2"))?.status).toBe("pending"))
 
     abort.abort(new DOMException("stop", "AbortError"))
     await expect(second).rejects.toMatchObject({ name: "AbortError" })
-    expect(await invocations.get("run-2")).toMatchObject({ status: "cancelled" })
+    expect(await invocations.getByRunId("run-2")).toMatchObject({ status: "cancelled" })
     release()
     await expect(first).resolves.toBe("done")
   })
@@ -101,7 +101,7 @@ describe("Agent Invocations", () => {
     })
 
     await expect(runAgentInline(agent, runtime("run-1"), {})).rejects.toThrow("prepare failed")
-    expect(await invocations.get("run-1")).toMatchObject({ status: "failed" })
+    expect(await invocations.getByRunId("run-1")).toMatchObject({ status: "failed" })
   })
 
   it("never lets journal storage failures change invocation behavior", async () => {
@@ -143,9 +143,9 @@ describe("Agent Invocations", () => {
     const failed = defineAgent({ driver: { run: () => { throw new Error("retry failed") } }, invocations, runtime: false })
 
     await runAgent(completed, runtime("delivery-1"), {})
-    const original = await invocations.get("delivery-1")
+    const original = await invocations.getByRunId("delivery-1")
     await expect(runAgent(failed, runtime("delivery-1"), {})).rejects.toThrow("retry failed")
-    expect(await invocations.get("delivery-1")).toEqual(original)
+    expect(await invocations.getByRunId("delivery-1")).toEqual(original)
   })
 
   it("bounds dynamic summary metadata without truncating invocation identity", async () => {
@@ -158,7 +158,7 @@ describe("Agent Invocations", () => {
     }
 
     await expect(runAgent(agent, context, {})).rejects.toThrow(oversized)
-    const record = await invocations.get(oversized)
+    const record = await invocations.getByRunId(oversized)
     expect(record?.id).toMatch(/^sha256_[\da-f]{64}$/)
     expect(record?.channelId).toHaveLength(512)
     expect(record?.origin).toHaveLength(512)
@@ -180,6 +180,8 @@ describe("Agent Invocations", () => {
     expect(new Set(listed.invocations.map(invocation => invocation.id)).size).toBe(2)
     await expect(Promise.all(listed.invocations.map(invocation => invocations.get(invocation.id))))
       .resolves.toEqual(expect.arrayContaining(listed.invocations.map(invocation => expect.objectContaining({ id: invocation.id }))))
+    await expect(invocations.getByRunId(oversized)).resolves.toMatchObject({ id: listed.invocations[1]!.id })
+    await expect(invocations.getByRunId(oversizedDigest)).resolves.toMatchObject({ id: listed.invocations[0]!.id })
   })
 
   it("persists records through the libSQL SQLite adapter", async () => {
@@ -201,11 +203,11 @@ describe("Agent Invocations", () => {
       const restored = defineAgentInvocations({
         store: createLibsqlAgentInvocationStore({ client: readerClient }),
       })
-      expect(await restored.get("durable-run")).toMatchObject({
+      expect(await restored.getByRunId("durable-run")).toMatchObject({
         id: expect.stringMatching(/^sha256_[\da-f]{64}$/),
         status: "completed",
       })
-      expect((await restored.get("durable-run"))?.observations.map(event => event.name)).toEqual([
+      expect((await restored.getByRunId("durable-run"))?.observations.map(event => event.name)).toEqual([
         "agent.invocation.start",
         "agent.invocation.finish",
       ])
@@ -241,8 +243,8 @@ describe("Agent Invocations", () => {
       store: createLibsqlAgentInvocationStore({ client: flakyClient }),
     })
     try {
-      await expect(invocations.get("run-1")).rejects.toThrow("temporarily unavailable")
-      await expect(invocations.get("run-1")).resolves.toBeUndefined()
+      await expect(invocations.getByRunId("run-1")).rejects.toThrow("temporarily unavailable")
+      await expect(invocations.getByRunId("run-1")).resolves.toBeUndefined()
     }
     finally {
       client.close()

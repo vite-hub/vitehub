@@ -76,6 +76,7 @@ export interface AgentInvocationsOptions {
 export interface AgentInvocations {
   readonly [agentInvocationsBrand]: true
   get(id: string): Promise<AgentInvocationRecord | undefined>
+  getByRunId(runId: string): Promise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
 }
 
@@ -332,7 +333,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id) {
       assertInvocationId(id)
-      return await store.get(id) || await store.get(await boundedIdentity(id))
+      return await store.get(id)
+    },
+    async getByRunId(runId) {
+      assertInvocationId(runId)
+      return await store.get(await boundedIdentity(runId))
     },
     async list(options = {}) {
       return await store.list({ ...options, limit: normalizeLimit(options.limit) })
