@@ -10800,7 +10800,7 @@ describe("server helpers", () => {
       },
       driver: {
         run: async ({ input }) => {
-          invocationTimeout = input.timeout
+          invocationTimeout = input.timeout ?? 0
           expect(invocationTimeout).toBeGreaterThan(0)
           expect(invocationTimeout).toBeLessThanOrEqual(18_000)
           invocationAbortSignal = input.abortSignal
