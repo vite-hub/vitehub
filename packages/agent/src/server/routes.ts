@@ -2423,7 +2423,7 @@ async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rej
       continue
     }
     if (!isAttachmentPart(part)) continue
-    const { fetchData: _fetchData, ...attachment } = part
+    const { data: _data, fetchData: _fetchData, ...attachment } = part
     replyParts.push({ data: { attachment }, id: `reply-${part.id || index + 1}`, type: "data-chat-reply-attachment" })
   }
   return [

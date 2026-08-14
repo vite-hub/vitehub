@@ -3805,7 +3805,6 @@ describe("server helpers", () => {
           expect.objectContaining({
             data: {
               attachment: expect.objectContaining({
-                data: expect.any(Blob),
                 mediaType: "image/png",
                 name: "reply.png",
                 size: 5,
