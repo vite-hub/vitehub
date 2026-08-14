@@ -20,7 +20,7 @@ import {
 } from "./delivery-effects.ts"
 import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
+import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   bindMessageChannelInstructions,
@@ -3075,8 +3075,10 @@ async function materializeAgentStructuredOutput(
   for await (const event of events) {
     onEvent?.(event)
     if (event.type === "error") {
-      if (output && text && event.error.startsWith("No object generated:")) await validateAgentOutput(output, text)
-      throw new Error(event.error)
+      const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
+      const rejectedText = typeof streamError?.text === "string" ? streamError.text : text
+      if (output && rejectedText && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
+      throw streamError ?? new Error(event.error)
     }
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
