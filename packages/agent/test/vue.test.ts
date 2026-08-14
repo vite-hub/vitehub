@@ -539,9 +539,11 @@ describe("Agent Vue clients", () => {
     const scope = effectScope()
     const chat = scope.run(() => useChat(useAgent("support"), options))!
     await vi.waitFor(() => expect(oldFetch).toHaveBeenCalledOnce())
+    chat.messages.value = [{ id: "user-1", parts: [{ text: "Keep me", type: "text" }], role: "user" }]
 
     options.value = { ...options.value, fetch: newFetch, headers: { authorization: "Bearer new" } }
     await nextTick()
+    expect(chat.messages.value).toEqual([{ id: "user-1", parts: [{ text: "Keep me", type: "text" }], role: "user" }])
     await chat.stop()
 
     expect(newFetch).toHaveBeenCalledOnce()

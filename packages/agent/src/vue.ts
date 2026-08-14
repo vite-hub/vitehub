@@ -72,14 +72,6 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }
   validateOptions(currentOptions.value)
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
-  watch([
-    () => toValue(options).api,
-    () => toValue(options).credentials,
-    () => toValue(options).fetch,
-    () => toValue(options).headers,
-  ], ([api, credentials, fetch, headers]) => {
-    currentOptions.value = { ...currentOptions.value, api, credentials, fetch, headers }
-  })
   watch([() => toValue(options).id, () => toValue(options).resume], ([, resume]) => {
     const value = toValue(options)
     validateOptions(value)
@@ -192,6 +184,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       },
       transport: transport ?? defaultTransport,
     }
+  })
+  watch([
+    () => toValue(options).api,
+    () => toValue(options).credentials,
+    () => toValue(options).fetch,
+    () => toValue(options).headers,
+  ], ([api, credentials, fetch, headers]) => {
+    currentOptions.value = { ...currentOptions.value, api, credentials, fetch, headers, messages: chat.messages.value }
   })
   prepareReplay = (messageId) => {
     if (!messageId) return
