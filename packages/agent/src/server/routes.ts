@@ -4540,6 +4540,13 @@ export function createChannelChatRouteHandler(
           throw createRouteError(429, "Resumable web chat has too many active runs. Try again later.")
         }
         if (resumableRuns.size >= resumableChatMaxTotalRuns) {
+          for (const retainedRun of resumableRuns.values()) {
+            if (!retainedRun.done) continue
+            releaseResumableChatRun(retainedRun)
+            break
+          }
+        }
+        if (resumableRuns.size >= resumableChatMaxTotalRuns) {
           throw createRouteError(429, "Resumable web chat has reached its process capacity. Try again later.")
         }
         const resumableInvocationKey = invocationKey

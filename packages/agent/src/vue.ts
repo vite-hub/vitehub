@@ -24,7 +24,9 @@ export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = AgentChatI
   | { id?: string, resume?: false, transport?: ChatInit<UI_MESSAGE>["transport"] }
 )
 
-export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
+export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = DistributiveOmit<
   AgentChatInit<UI_MESSAGE>,
   "dataPartSchemas" | "generateId" | "messageMetadataSchema"
 > & {

@@ -23,6 +23,11 @@ describe("Agent Vue client types", () => {
     expectTypeOf(useChat).toBeCallableWith(agent, (() => init) satisfies MaybeRefOrGetter<AgentChatReactiveInit>)
     expectTypeOf<AgentChatInit>().not.toMatchTypeOf<{ resume: true, transport: ChatTransport<UIMessage> }>()
 
+    // @ts-expect-error Reactive resumable options require a stable id.
+    useChat(agent, () => ({ resume: true }))
+    // @ts-expect-error Reactive resumable options cannot use a custom transport.
+    useChat(agent, () => ({ id: "support", resume: true, transport }))
+
     // @ts-expect-error AI SDK constructor-only options cannot update without resetting an active chat.
     useChat(agent, () => ({ generateId: () => "message-id" }))
 
