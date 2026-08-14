@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { useAgent, useChat, type AgentChatInit, type AgentClient } from "../src/vue.ts"
+import { useAgent, useChat, type AgentChatInit, type AgentChatReactiveInit, type AgentClient } from "../src/vue.ts"
 
 import type { ChatTransport, UIMessage } from "ai"
 import type { ComputedRef, MaybeRefOrGetter, ShallowRef } from "vue"
@@ -20,6 +20,9 @@ describe("Agent Vue client types", () => {
     expectTypeOf(chat.data).toEqualTypeOf<ComputedRef<import("../src/messages.ts").AgentChatData>>()
     expectTypeOf(chat.status.value).toEqualTypeOf<"submitted" | "streaming" | "ready" | "error">()
     expectTypeOf(chat.sendMessage).toBeFunction()
-    expectTypeOf(useChat).toBeCallableWith(agent, (() => init) satisfies MaybeRefOrGetter<AgentChatInit>)
+    expectTypeOf(useChat).toBeCallableWith(agent, (() => init) satisfies MaybeRefOrGetter<AgentChatReactiveInit>)
+
+    // @ts-expect-error AI SDK constructor-only options cannot update without resetting an active chat.
+    useChat(agent, () => ({ generateId: () => "message-id" }))
   })
 })

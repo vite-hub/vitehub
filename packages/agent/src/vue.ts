@@ -20,6 +20,11 @@ export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<U
   api?: string
 }
 
+export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
+  AgentChatInit<UI_MESSAGE>,
+  "dataPartSchemas" | "generateId" | "messageMetadataSchema"
+>
+
 export interface AgentChatHelpers<UI_MESSAGE extends UIMessage> extends UseChatHelpers<UI_MESSAGE> {
   readonly data: ComputedRef<AgentChatData>
 }
@@ -36,7 +41,15 @@ function agentChatRoute(name: string): string {
 
 export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   agent: AgentClient,
-  options: MaybeRefOrGetter<AgentChatInit<UI_MESSAGE>> = {},
+  options?: AgentChatInit<UI_MESSAGE>,
+): AgentChatHelpers<UI_MESSAGE>
+export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
+  agent: AgentClient,
+  options: MaybeRefOrGetter<AgentChatReactiveInit<UI_MESSAGE>>,
+): AgentChatHelpers<UI_MESSAGE>
+export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
+  agent: AgentClient,
+  options: AgentChatInit<UI_MESSAGE> | MaybeRefOrGetter<AgentChatReactiveInit<UI_MESSAGE>> = {},
 ): AgentChatHelpers<UI_MESSAGE> {
   const initialOptions = toValue(options)
   const currentOptions = shallowRef(initialOptions)
