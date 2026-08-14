@@ -23,7 +23,11 @@ export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<U
 export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
   AgentChatInit<UI_MESSAGE>,
   "dataPartSchemas" | "generateId" | "messageMetadataSchema"
->
+> & {
+  dataPartSchemas?: never
+  generateId?: never
+  messageMetadataSchema?: never
+}
 
 export interface AgentChatHelpers<UI_MESSAGE extends UIMessage> extends UseChatHelpers<UI_MESSAGE> {
   readonly data: ComputedRef<AgentChatData>

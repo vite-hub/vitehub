@@ -24,5 +24,10 @@ describe("Agent Vue client types", () => {
 
     // @ts-expect-error AI SDK constructor-only options cannot update without resetting an active chat.
     useChat(agent, () => ({ generateId: () => "message-id" }))
+
+    const staticInit: AgentChatInit = { generateId: () => "message-id", id: "support" }
+    useChat(agent, staticInit)
+    // @ts-expect-error Pretyped constructor-only options are also excluded from reactive getters.
+    useChat(agent, () => staticInit)
   })
 })
