@@ -56,7 +56,7 @@ With manual chat delivery, ViteHub edits the current placeholder as summaries ar
 
 The Capability starts its initial summary before the primary Driver finishes setup. If the summary completes before the UI stream is available, ViteHub buffers the latest transient part and emits it when the stream attaches.
 
-Positive intervals use a fixed cadence from invocation start, so a slow generation does not postpone the next tick. Generations can overlap; each receives a higher revision, and a stale completion cannot replace a newer completed revision. Set `intervalMs: 0` to generate from reasoning and tool activity through the event-driven microtask behavior instead. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
+Positive intervals begin when the first primary stream chunk arrives and use a fixed cadence from that point, so auxiliary generation never delays primary Driver startup and a slow generation does not postpone the next tick. Generations can overlap; each receives a higher revision, and a stale completion cannot replace a newer completed revision. Set `intervalMs: 0` to generate from reasoning and tool activity through the event-driven microtask behavior instead. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
 
 The default prompt uses only reasoning presence, sanitized tool names, and the previous summary. It does not include user message text, code, commands, paths, traces, hidden instructions, credentials, raw tool details, or trusted `<context>` payloads.
 

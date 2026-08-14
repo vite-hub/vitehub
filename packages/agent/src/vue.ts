@@ -40,21 +40,48 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
 ): AgentChatHelpers<UI_MESSAGE> {
   const currentOptions = shallowRef(toValue(options))
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
-  watch(() => toValue(options).id, () => {
-    currentOptions.value = toValue(options)
-    streamedParts.value = []
-  })
   const chat = useAiChat<UI_MESSAGE>(() => {
     const { api, onData, transport, ...init } = currentOptions.value
     return {
       ...init,
       onData(part) {
-        if (part.type.startsWith("data-")) streamedParts.value = [...streamedParts.value, part]
+        if (part.type.startsWith("data-") && (part as { transient?: boolean }).transient === true) {
+          streamedParts.value = [...streamedParts.value, part]
+        }
         onData?.(part)
       },
       transport: transport ?? new DefaultChatTransport<UI_MESSAGE>({
         api: api ?? agentChatRoute(agent.name),
       }),
+    }
+  })
+  watch(() => toValue(options), (next, previous) => {
+    if (next.id !== previous.id) {
+      currentOptions.value = next
+      streamedParts.value = []
+      return
+    }
+
+    const { messages: nextMessages, ...nextConfig } = next
+    const { messages: _currentMessages, ...currentConfig } = currentOptions.value
+    const configChanged = Object.keys({ ...currentConfig, ...nextConfig }).some(key => (
+      currentConfig[key as keyof typeof currentConfig] !== nextConfig[key as keyof typeof nextConfig]
+    ))
+    let replacementMessages: UI_MESSAGE[] | undefined
+    if (nextMessages && nextMessages !== _currentMessages) {
+      const currentMessages = chat.messages.value
+      const mirrored = nextMessages.length === currentMessages.length
+        && nextMessages.every((message, index) => message === currentMessages[index])
+      if (!mirrored) {
+        replacementMessages = nextMessages
+        streamedParts.value = []
+      }
+    }
+    if (configChanged || replacementMessages) {
+      currentOptions.value = {
+        ...nextConfig,
+        messages: replacementMessages ?? _currentMessages,
+      } as AgentChatInit<UI_MESSAGE>
     }
   })
   onScopeDispose(chat.stop, true)

@@ -356,41 +356,73 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   }
 
   if (!shouldRunForTrigger(options.trigger, templateInput.trigger)) return skippedTitleGeneration
-  if (options.when && !await options.when(templateInput)) return skippedTitleGeneration
+
+  const parentSignal = input.input.abortSignal
+  const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 10_000)
+  const abortSignal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
+  const timedInput = { ...input, input: { ...input.input, abortSignal } }
+  const raceTimeout = async <T>(promise: Promise<T>): Promise<T> => {
+    if (abortSignal.aborted) throw abortSignal.reason
+    let onAbort!: () => void
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(abortSignal.reason)
+      abortSignal.addEventListener("abort", onAbort, { once: true })
+    })
+    try {
+      return await Promise.race([promise, aborted])
+    }
+    finally {
+      abortSignal.removeEventListener("abort", onAbort)
+    }
+  }
+  const recoverGeneration = (error: unknown, fallbackOnError = false): string => {
+    if (parentSignal?.aborted) throw error
+    if (timeoutSignal.aborted || fallbackOnError) return heuristicTitle(templateInput.text, maxLength, fallback)
+    throw error
+  }
+
+  if (options.when) {
+    try {
+      if (!await raceTimeout(Promise.resolve(options.when(templateInput)))) return skippedTitleGeneration
+    }
+    catch (error) {
+      return recoverGeneration(error)
+    }
+  }
 
   if (options.execute) {
-    const result = await options.execute(input)
-    return cleanGeneratedTitle(typeof result === "string" ? result : result.title, maxLength, fallback)
+    try {
+      const result = await raceTimeout(Promise.resolve(options.execute(timedInput)))
+      return cleanGeneratedTitle(typeof result === "string" ? result : result.title, maxLength, fallback)
+    }
+    catch (error) {
+      return recoverGeneration(error)
+    }
   }
 
   if (options.driver) {
     try {
-      const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 10_000)
-      const timedInput = {
-        ...input,
-        input: {
-          ...input.input,
-          abortSignal: input.input.abortSignal
-            ? AbortSignal.any([input.input.abortSignal, timeoutSignal])
-            : timeoutSignal,
-        },
-      }
-      const prompt = await renderTitleTemplate(options, templateInput)
-      return cleanGeneratedTitle(await generateTitleWithDriver(context, options, timedInput, prompt), maxLength, fallback)
+      const prompt = await raceTimeout(renderTitleTemplate(options, templateInput))
+      return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt)), maxLength, fallback)
     }
-    catch {
-      return heuristicTitle(templateInput.text, maxLength, fallback)
+    catch (error) {
+      return recoverGeneration(error, true)
     }
   }
 
-  const model = await resolveTitleModel(context, options)
-  if (model) {
-    const prompt = await renderTitleTemplate(options, templateInput)
-    const { generateText } = await loadAiSdk()
-    const result = await generateText(options.instructions
-      ? { instructions: options.instructions, model: model as never, prompt }
-      : { model: model as never, prompt })
-    return cleanGeneratedTitle(result.text, maxLength, fallback)
+  try {
+    const model = await raceTimeout(resolveTitleModel(context, options))
+    if (model) {
+      const prompt = await raceTimeout(renderTitleTemplate(options, templateInput))
+      const { generateText } = await loadAiSdk()
+      const result = await raceTimeout(generateText(options.instructions
+        ? { abortSignal, instructions: options.instructions, model: model as never, prompt }
+        : { abortSignal, model: model as never, prompt }))
+      return cleanGeneratedTitle(result.text, maxLength, fallback)
+    }
+  }
+  catch (error) {
+    return recoverGeneration(error)
   }
 
   return heuristicTitle(templateInput.text, maxLength, fallback)
@@ -587,6 +619,10 @@ function withTitleReadableStreamParallel<T>(
               initialTitlePending = Boolean(options.initialTitle)
             }
             text += getText(next.value.value)
+            if (initialTitlePending && isTerminal(next.value.value)) {
+              initialTitlePending = false
+              controller.enqueue(renderTitle(options.initialTitle!))
+            }
             if (!deferredTitle && titlePending && titleNext && isTerminal(next.value.value)) {
               const resolvedTitle = await titleNext
               titlePending = false
@@ -861,7 +897,6 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         }
         if (!shouldProvideTitleFinishExtension(context)) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
-        if (!supportsTitleDelivery(context)) return
         const resolvedTitle = await getTitle()
         if (!resolvedTitle || !supportsTitleDelivery(context)) {
           await releaseChannelDeliveryAttempt()

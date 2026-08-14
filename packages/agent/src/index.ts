@@ -3740,7 +3740,9 @@ async function executeAgentInvocationWithCapacityLease<
       }
       const enrichedRendered = isUIMessageStreamResult(capacityRendered)
         ? withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
-        : withEagerStreamUsageExtensions(capacityRendered as AsyncIterable<unknown>, invocation, rendered)
+        : isAsyncIterable(capacityRendered)
+          ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
+          : capacityRendered
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
         const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -3851,7 +3853,7 @@ async function executeAgentInvocationWithCapacityLease<
             : definition?.uiMessageStream
           const renderedResponseStream = await applyOutputRenderers({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
-          }, invocation.outputRenderers, [], outputExtensions)
+          }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
           const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
           const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {

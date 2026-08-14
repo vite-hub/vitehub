@@ -74,6 +74,30 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("applies same-id reactive configuration and message replacements", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({ execute() {} }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const api = ref("/chat/first")
+    const messages = ref<UIMessage[]>([])
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), () => ({
+      api: api.value,
+      id: "chat-1",
+      messages: messages.value,
+    })))!
+
+    messages.value = [{ id: "replacement", parts: [{ text: "Restored", type: "text" }], role: "user" }]
+    api.value = "/chat/second"
+    await nextTick()
+    expect(chat.messages.value).toEqual(messages.value)
+
+    await chat.sendMessage({ text: "Continue" })
+    expect(fetch).toHaveBeenCalledWith("/chat/second", expect.anything())
+    scope.stop()
+  })
+
   it("derives reactive data from persistent and transient data parts", async () => {
     const onData = vi.fn()
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
@@ -94,6 +118,10 @@ describe("Agent Vue clients", () => {
     expect(chat.data.value.get("title", "title")).toBe("Inventory health")
     expect(chat.data.value.get("progress-summary")).toEqual({ summary: "Checking inventory" })
     expect(onData).toHaveBeenCalledTimes(3)
+
+    chat.messages.value = []
+    expect(chat.data.value.get("title")).toBeUndefined()
+    expect(chat.data.value.get("progress-summary")).toEqual({ summary: "Checking inventory" })
     scope.stop()
   })
 

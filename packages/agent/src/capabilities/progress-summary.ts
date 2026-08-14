@@ -463,6 +463,7 @@ function createProgressSummaryState(
   }
 
   const observe = (chunk: unknown) => {
+    if (closed) return
     if (!streamStarted) {
       streamStarted = true
       if (intervalMs !== 0) {

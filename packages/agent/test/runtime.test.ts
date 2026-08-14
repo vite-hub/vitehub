@@ -7915,6 +7915,7 @@ describe("agent message protocol", () => {
       })
 
       expect(generateText).toHaveBeenCalledWith({
+        abortSignal: expect.any(AbortSignal),
         model: expect.objectContaining({ modelId: "agent-title-model" }),
         prompt: [
           "Label the source text’s topic in its language with 2–4 neutral words, preserving key names, numbers, and identifiers.",
@@ -8016,10 +8017,9 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({
         driver: {
-          run: ({ input }) => new Promise((_resolve, reject) => {
+          run: ({ input }) => new Promise(() => {
             input.abortSignal?.addEventListener("abort", () => {
               aborted()
-              reject(input.abortSignal?.reason)
             }, { once: true })
           }),
         },
@@ -8034,6 +8034,26 @@ describe("agent message protocol", () => {
     })
 
     expect(aborted).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+  })
+
+  it("falls back when a title condition exceeds its timeout", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({
+        execute: () => "unreachable",
+        timeoutMs: 10,
+        when: () => new Promise(() => {}),
+      })],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+    })
+
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
   })
 
@@ -8141,6 +8161,7 @@ describe("agent message protocol", () => {
       await runAgentTrigger(agent, runtime, "portal.message", { text: "Need help with forecast" })
 
       expect(generateText).toHaveBeenCalledWith({
+        abortSignal: expect.any(AbortSignal),
         model: expect.objectContaining({ modelId: "title-model" }),
         prompt: "portal.message support: Need help with forecast",
       })
