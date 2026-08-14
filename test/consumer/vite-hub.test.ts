@@ -601,7 +601,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             id: "packed-contract",
             messages: [{ id: "user-1", parts: [{ text: "Explain inventory health", type: "text" }], role: "user" }],
           }),
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "x-vitehub-resumable": "true" },
           method: "POST",
         } as const
         const response = await fetch(`${origin}/api/_vitehub/agents/contract/chat`, request)
