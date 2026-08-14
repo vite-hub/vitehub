@@ -114,7 +114,8 @@ describe("Agent Vue clients", () => {
       stream: createUIMessageStream({
         execute({ writer }) {
           writer.write({ data: { title: "Provisional" }, id: "title", transient: true, type: "data-title" })
-          writer.write({ data: { summary: "Checking inventory" }, transient: true, type: "data-progress-summary" })
+          writer.write({ data: { revision: 1, summary: "Checking inventory" }, transient: true, type: "data-progress-summary" })
+          writer.write({ data: { revision: 2, summary: "Inventory checked" }, transient: true, type: "data-progress-summary" })
           writer.write({ data: { title: "Inventory health" }, id: "title", type: "data-title" })
         },
       }),
@@ -126,12 +127,13 @@ describe("Agent Vue clients", () => {
     await chat.sendMessage({ text: "Check inventory" })
 
     expect(chat.data.value.get("title", "title")).toBe("Inventory health")
-    expect(chat.data.value.get("progress-summary")).toEqual({ summary: "Checking inventory" })
-    expect(onData).toHaveBeenCalledTimes(3)
+    expect(chat.data.value.get("progress-summary")).toEqual({ revision: 2, summary: "Inventory checked" })
+    expect(chat.data.value.entries()).toHaveLength(2)
+    expect(onData).toHaveBeenCalledTimes(4)
 
     chat.messages.value = []
     expect(chat.data.value.get("title")).toBeUndefined()
-    expect(chat.data.value.get("progress-summary")).toEqual({ summary: "Checking inventory" })
+    expect(chat.data.value.get("progress-summary")).toEqual({ revision: 2, summary: "Inventory checked" })
     scope.stop()
   })
 

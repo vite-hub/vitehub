@@ -76,7 +76,10 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       ...init,
       onData(part) {
         if (part.type.startsWith("data-") && (part as { transient?: boolean }).transient === true) {
-          streamedParts.value = [...streamedParts.value, part]
+          streamedParts.value = [
+            ...streamedParts.value.filter(streamed => streamed.type !== part.type),
+            part,
+          ]
         }
         else if (part.type.startsWith("data-")) {
           streamedParts.value = streamedParts.value.filter(streamed => streamed.type !== part.type)
