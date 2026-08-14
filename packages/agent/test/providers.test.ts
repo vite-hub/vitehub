@@ -9196,17 +9196,25 @@ describe("server helpers", () => {
       },
       driver: { run },
     }) as never)
+    const serialRequest = async (messageId: number, text: string) => {
+      const request = chatWebhookRequest(messageId, 456, text)
+      const payload = await request.json() as Record<string, unknown>
+      return new Request(request.url, {
+        body: JSON.stringify({ ...payload, update_id: messageId + 1_000 }),
+        method: "POST",
+      })
+    }
 
     try {
       vi.useFakeTimers()
       await state.connect()
-      const firstResponse = handler(chatWebhookRequest(91_010, 456, "A"), "telegram", { agentName: "support" })
+      const firstResponse = handler(await serialRequest(91_010, "A"), "telegram", { agentName: "support" })
       await firstStartedPromise
-      await expect(handler(chatWebhookRequest(91_011, 456, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       await vi.advanceTimersByTimeAsync(31_000)
       expect(extendLock).toHaveBeenCalled()
-      await expect(handler(chatWebhookRequest(91_012, 456, "C"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
-      await expect(handler(chatWebhookRequest(91_013, 456, "D"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(await serialRequest(91_012, "C"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(await serialRequest(91_013, "D"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       expect(order).toEqual(["A"])
 
       releaseFirst()
@@ -9214,6 +9222,10 @@ describe("server helpers", () => {
       expect(order).toEqual(["A", "B", "C", "D"])
       expect(run).toHaveBeenCalledTimes(4)
       expect(histories).toEqual([["A"], ["B"], ["C"], ["D"]])
+      const deliveries = await handler.deliveries(await serialRequest(91_013, "D"), "telegram", { agentName: "support" })
+      expect(deliveries).toHaveLength(4)
+      expect(deliveries.map(delivery => delivery.sourceId).sort()).toEqual(["92010", "92011", "92012", "92013"])
+      expect(deliveries.every(delivery => delivery.status === "completed" || delivery.status === "failed")).toBe(true)
     }
     finally {
       releaseFirst()

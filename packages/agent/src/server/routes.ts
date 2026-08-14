@@ -3534,11 +3534,6 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const messages = serial ? [...messageContext?.skipped ?? [], message] : [message]
-  const currentDelivery = agentChannelDeliveryTracker(context)
-  const currentMessageId = deliverySourceValue(message.id)
-  if (currentDelivery && currentMessageId) {
-    await bindAgentChannelDeliveryMessage(state.state, currentDelivery, chatRegistrationOrigin(registration), message.threadId, currentMessageId)
-  }
   const stopRefreshingLock = serial
     ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options))
     : () => undefined
@@ -3554,15 +3549,15 @@ async function handleChatSdkMessages(
           : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
         const queuedMessageId = deliverySourceValue(queuedMessage.id)
-        const queuedDelivery = serial && queuedMessage !== message && queuedMessageId
+        const queuedDelivery = serial && queuedMessageId
           ? await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)
-            || await openAgentChannelDelivery(state.state, {
+            || (queuedMessage !== message ? await openAgentChannelDelivery(state.state, {
               agentName: context.agentIdentity?.name || "agent",
               channelId: registration.channelId,
               provider: chatRegistrationOrigin(registration),
               scope: `${state.keyPrefix}${queuedThread.id}`,
               sourceId: queuedMessageId,
-            })
+            }) : undefined)
           : undefined
         const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
         await handleChatSdkMessage(
