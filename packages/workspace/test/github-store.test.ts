@@ -206,6 +206,27 @@ describe("GitHub workspace store", () => {
     expect(requests.filter(request => request.path.startsWith("/onmax/repo/base-sha/"))).toHaveLength(0);
   });
 
+  it("coalesces concurrent first materializations of one revision archive", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+
+    const results = await Promise.all([
+      materializer.materializeRevision(),
+      materializer.materializeRevision(),
+      materializer.materializeRevision(),
+    ]);
+
+    expect(results).toHaveLength(3);
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ archive: archiveBytes, revision: "base-sha" }),
+    ]));
+    expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(1);
+  });
+
   it("retries transient pinned archive reads within a bounded attempt count", async () => {
     archiveFailures = 2;
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");

@@ -439,6 +439,46 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("rolls back staged Session changes when provider publication fails", async () => {
+    const docs = workspace()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    let revision = "0123456789012345678901234567890123456789"
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return revision
+      },
+      async materializeRevision() {
+        return { files: 1, revision, root: "" }
+      },
+    }
+
+    try {
+      await docs.writeFile("README.md", "authoritative")
+      await docs.snapshot({ name: "baseline" })
+      const session = await docs.startSession({ host: localHost(), paths: ["README.md"], target: join(targetParent, "workspace") })
+      const snapshot = docs.snapshot.bind(docs)
+      const rebase = vi.fn(async (options?: { takeRemote?: string[] }) => {
+        expect(options).toEqual({ takeRemote: ["README.md"] })
+        await docs.writeFile("README.md", "authoritative")
+        revision = (await snapshot({ name: "provider-rollback" })).id
+      })
+      docs.snapshot = async () => {
+        revision = "remote-advanced"
+        throw new Error("provider conflict after staging")
+      }
+      docs.rebase = rebase
+
+      await session.writeFile("README.md", "failed invocation")
+      await expect(session.commit({ message: "conflict" })).rejects.toThrow("provider conflict after staging")
+      await expect(docs.readFile("README.md")).resolves.toBe("authoritative")
+      expect(rebase).toHaveBeenCalledOnce()
+      await session.close()
+    }
+    finally {
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
   it("keeps the provider revision after a no-op publication", async () => {
     const docs = workspace()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))

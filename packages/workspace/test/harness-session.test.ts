@@ -133,6 +133,32 @@ describe("Harness Workspace Session", () => {
     }
   })
 
+  it("restores a failed invocation after its operation signal aborts", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    const sandbox = localSandbox()
+    const root = await sandbox.root
+    const target = join(root, "workspace")
+    const controller = new AbortController()
+
+    try {
+      const session = await prepareHarnessWorkspaceSession(facade(docs) as never, {
+        abortSignal: controller.signal,
+        session: sandbox.session,
+        sessionWorkDir: target,
+      })
+      await writeFile(join(target, "README.md"), "invocation")
+      controller.abort(new Error("invocation canceled"))
+
+      await expect(session.close(new Error("invocation canceled"))).resolves.toBeUndefined()
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("keeps an explicitly empty Session scope empty", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "hidden")

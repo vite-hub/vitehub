@@ -129,18 +129,25 @@ function parseHostEntries(stdout: string): WorkspaceSessionHostFileEntry[] {
   })
 }
 
-function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): WorkspaceSessionHost {
+function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): {
+  detachAbortSignal: () => void
+  host: WorkspaceSessionHost
+} {
   const sandbox = options.session
   if (sandbox.workspaceHost) {
     return {
-      executionAuthority: options.executionAuthority || sandbox.workspaceHost.executionAuthority,
-      files: sandbox.workspaceHost.files,
-      exec: (command, args, execOptions) => sandbox.workspaceHost!.exec(command, args, execOptions),
+      detachAbortSignal() {},
+      host: {
+        executionAuthority: options.executionAuthority || sandbox.workspaceHost.executionAuthority,
+        files: sandbox.workspaceHost.files,
+        exec: (command, args, execOptions) => sandbox.workspaceHost!.exec(command, args, execOptions),
+      },
     }
   }
+  let abortSignal = options.abortSignal
   const run = async (command: string, args: readonly string[] = [], runOptions: { cwd?: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal } = {}) => {
     const result = await sandbox.run({
-      abortSignal: runOptions.signal || options.abortSignal,
+      abortSignal: runOptions.signal || abortSignal,
       command: [command, ...args].map(shellQuote).join(" "),
       ...(runOptions.cwd ? { workingDirectory: runOptions.cwd } : {}),
       ...(runOptions.env ? { env: { ...runOptions.env } } : {}),
@@ -148,7 +155,7 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): W
     return { code: result.exitCode, stderr: result.stderr || "", stdout: result.stdout || "" }
   }
 
-  return {
+  const host: WorkspaceSessionHost = {
     executionAuthority: options.executionAuthority || unknownExecutionAuthority,
     files: {
       async exists(path) {
@@ -167,7 +174,7 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): W
       },
       async read(path) {
         if (!sandbox.readBinaryFile) throw new Error("[vitehub] Harness Workspace Session requires sandbox.readBinaryFile.")
-        return await sandbox.readBinaryFile({ abortSignal: options.abortSignal, path })
+        return await sandbox.readBinaryFile({ abortSignal, path })
       },
       async remove(path, removeOptions) {
         const result = removeOptions?.recursive
@@ -176,10 +183,16 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): W
         if (result.code !== 0) throw new Error(`[vitehub] Failed to remove Harness Workspace path: ${result.stderr || "remove failed"}`)
       },
       async write(path, content) {
-        await sandbox.writeBinaryFile({ abortSignal: options.abortSignal, content, path })
+        await sandbox.writeBinaryFile({ abortSignal, content, path })
       },
     },
     exec: run,
+  }
+  return {
+    detachAbortSignal() {
+      abortSignal = undefined
+    },
+    host,
   }
 }
 
@@ -206,13 +219,14 @@ export async function prepareHarnessWorkspaceSession(
     ...(options.onMaterializeProgress ? { onProgress: options.onMaterializeProgress } : {}),
   }))
 
+  const sessionHost = harnessWorkspaceHost(options)
   const session = await withPrepareProgress(options.onProgress, {
     data: { paths: paths ?? null },
     id: "workspace.prepare.start-session",
     label: "Starting workspace session",
   }, async () => await workspaceSessionStarter(workspace)({
     abortSignal: options.abortSignal,
-    host: harnessWorkspaceHost(options),
+    host: sessionHost.host,
     onProgress: options.onProgress,
     paths,
     target: options.sessionWorkDir,
@@ -239,6 +253,7 @@ export async function prepareHarnessWorkspaceSession(
         await options.onWriteBack?.(diff)
       }
       finally {
+        sessionHost.detachAbortSignal()
         await session.close()
       }
     },

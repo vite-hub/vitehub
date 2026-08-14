@@ -732,7 +732,20 @@ export async function createHostedWorkspaceSession(
         if (baseRevision && await revisionMaterializer?.currentRevision({ abortSignal: options.abortSignal }) !== baseRevision) {
           throw workspaceConflict(`[vitehub] Workspace revision changed after this Session materialized: ${baseRevision}.`)
         }
-        await commitHostChanges(host, root, workspace, diff, mediaTypes, commitOptions?.message)
+        try {
+          await commitHostChanges(host, root, workspace, diff, mediaTypes, commitOptions?.message)
+        }
+        catch (error) {
+          if (baseRevision) {
+            try {
+              await workspace.rebase({ takeRemote: diff.entries.map(entry => entry.path) })
+            }
+            catch (rollbackError) {
+              throw new AggregateError([error, rollbackError], "[vitehub] Workspace publication and rollback failed.")
+            }
+          }
+          throw error
+        }
         if (baseRevision) {
           baseRevision = await revisionMaterializer!.currentRevision({
             abortSignal: options.abortSignal,

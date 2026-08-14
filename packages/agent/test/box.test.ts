@@ -518,7 +518,15 @@ describe("Agent Box", () => {
             write: vi.fn(async () => {}),
           },
           id: globalThis.crypto.randomUUID(),
-          async exec(_command: string, args?: readonly string[]) {
+          async exec(command: string, args?: readonly string[]) {
+            if (command === "test") {
+              return {
+                code: args?.[0] === "-d" ? 0 : 1,
+                ok: args?.[0] === "-d",
+                stderr: "",
+                stdout: "",
+              }
+            }
             const script = args?.[1] || ""
             const codexHome = script.match(/export CODEX_HOME="\$HOME\/([^"]+)"/)?.[1]
             if (codexHome) codexHomes.add(codexHome)

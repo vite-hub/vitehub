@@ -132,9 +132,20 @@ function gitSymlinkTargetFromBytes(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes).replace(/\0/g, "");
 }
 
+async function waitForGitHubArchive(read: Promise<Uint8Array>, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (!signal) return await read;
+  return await new Promise<Uint8Array>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    void read.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
 class GitHubWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined;
   #archive: { bytes: Uint8Array; revision: string } | undefined;
+  #archiveReads = new Map<string, Promise<Uint8Array>>();
   #baselineRefSha: string | undefined;
   #baselineTreeSha: string | undefined;
   #branch: string;
@@ -179,13 +190,20 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         !isReservedWorkspacePath(path) && (!paths || paths.some(root => path === root || path.startsWith(`${root}/`))),
       ).length;
       if (!this.#dirty && paths === undefined && this.#archive?.revision !== revision) {
-        this.#archive = {
-          bytes: await readGitHubArchive({
+        let read = this.#archiveReads.get(revision);
+        if (!read) {
+          read = readGitHubArchive({
             ref: revision,
             repository: this.#repository,
-            signal: options?.abortSignal,
             token: this.#token,
-          }),
+          });
+          this.#archiveReads.set(revision, read);
+          void read.finally(() => {
+            if (this.#archiveReads.get(revision) === read) this.#archiveReads.delete(revision);
+          }).catch(() => {});
+        }
+        this.#archive = {
+          bytes: await waitForGitHubArchive(read, options?.abortSignal),
           revision,
         };
       }
