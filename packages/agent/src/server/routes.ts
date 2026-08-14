@@ -3536,6 +3536,8 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const messages = serial ? [...messageContext?.skipped ?? [], message] : [message]
+  const requestDelivery = agentChannelDeliveryTracker(context)
+  if (requestDelivery) requestDelivery.claimed = true
   const stopRefreshingLock = serial
     ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options))
     : () => undefined
