@@ -10979,6 +10979,10 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const run = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 30_000))
+      return { text: "" }
+    })
     const agent = defineAgent({
       channels: {
         telegram: telegram({
@@ -10991,12 +10995,7 @@ describe("server helpers", () => {
           webhooks: { secretToken: false },
         }),
       },
-      driver: {
-        run: async () => {
-          await new Promise(resolve => setTimeout(resolve, 30_000))
-          return { text: "" }
-        },
-      },
+      driver: { run },
       hooks: {
         "agent:finish": async (event) => {
           const chat = event.extensions.get("chat") as { sendMessage?: (message: string) => Promise<void> } | undefined
@@ -11011,7 +11010,7 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0), { interval: 0 })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
       await vi.advanceTimersByTimeAsync(28_000)
 
       await expect(responseError).resolves.toMatchObject({
