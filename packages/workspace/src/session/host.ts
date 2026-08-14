@@ -609,6 +609,7 @@ async function materializeWorkspace(
 }
 
 async function commitHostChanges(
+  root: string,
   workspace: Workspace,
   diff: WorkspaceDiff,
   contents: ReadonlyMap<string, Uint8Array | string>,
@@ -632,9 +633,13 @@ async function commitHostChanges(
       : undefined
     const content = contents.get(entry.path)
     if (content !== undefined) {
+      const metadata = entry.after.metadata?.gitMode === "120000"
+        && !isSafeHostSymlink(root, entry.path, String(content))
+          ? undefined
+          : entry.after.metadata
       await workspace.writeFile(entry.path, content, {
         mediaType: mediaTypes.get(entry.path) || before?.mediaType,
-        metadata: entry.after.metadata,
+        metadata,
       })
     }
   }
@@ -820,7 +825,7 @@ export async function createHostedWorkspaceSession(
           commitOptions?.message || "host-commit",
         )
         try {
-          await commitHostChanges(workspace, diff, capturedState.contents, mediaTypes, commitOptions?.message)
+          await commitHostChanges(root, workspace, diff, capturedState.contents, mediaTypes, commitOptions?.message)
         }
         catch (error) {
           if (baseRevision) {
