@@ -163,6 +163,11 @@ function boundedString(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
 }
 
+function normalizedTimestamp(value: Date | string): string {
+  const timestamp = value instanceof Date ? value : new Date(value)
+  return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
+}
+
 function boundedObservationValue(value: unknown, depth = 0): unknown {
   if (typeof value === "string") return boundedString(value)
   if (value === null || typeof value === "boolean" || typeof value === "number") return value
@@ -186,6 +191,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
   return {
     ...observation,
     name: boundedString(observation.name)!,
+    timestamp: normalizedTimestamp(observation.timestamp),
     ...(attributes ? { attributes } : {}),
     ...(observation.trace
       ? { trace: {
@@ -322,11 +328,13 @@ function journalTraceLog(
   traceLog: TraceEventLog,
   observe: (entry: TraceEventLogEntry) => Promise<void>,
 ): TraceEventLog {
-  const safeObservations = createTraceEventLog()
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
-      const safeEntry = await safeObservations.append(entry)
+      const safeEntry = {
+        ...await createTraceEventLog().append(entry),
+        sequence: entry.sequence,
+      }
       await observe(safeEntry)
       return entry
     },
@@ -419,12 +427,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const observe = (observation: TraceEventLogEntry) => write(async () => {
         if (observationCount >= MAX_OBSERVATIONS || !await renew()) return
+        const timestamp = normalizedTimestamp(observation.timestamp)
         const updated = await store.update(recordId, {
           observation: {
             ...observation,
+            timestamp,
             ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
           },
-          timestamp: observation.timestamp,
+          timestamp,
         }, claimId)
         if (updated) observationCount = updated.observations.length
       })
@@ -461,8 +471,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               })
               await finishOnce()
             }
+            if (!finished) {
+              stopHeartbeat()
+              if (ownsRecord) await write(() => store.release(recordId, claimId))
+              ownsRecord = false
+            }
           })()
           context.waitUntil(terminalRetry)
+          if (context.run?.origin?.startsWith("workflow:")) await terminalRetry
         },
         async running() {
           if (finished) return

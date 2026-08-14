@@ -79,6 +79,11 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ store })
     const agent = defineAgent({
       driver: { async run(context) {
+        await context.traceLog?.append({
+          name: "invalid-timestamp",
+          timestamp: "x".repeat(10_000),
+          type: "run",
+        })
         for (let index = 0; index < 300; index++) {
           await context.traceLog?.append({ name: `event-${index}`, type: "run" })
         }
@@ -96,6 +101,8 @@ describe("Agent Invocations", () => {
     const record = await invocations.getByRunId("bounded-observations")
     expect(record).toMatchObject({ status: "completed" })
     expect(record?.observations).toHaveLength(256)
+    expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(updates).toBeLessThanOrEqual(259)
   })
 
