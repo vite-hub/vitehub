@@ -976,6 +976,26 @@ describe("workspace host sessions", () => {
     await expect(docs.readFile("result.txt")).resolves.toBe("committed")
   })
 
+  it("restores excluded host state when attached rollback fails", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.mkdir("/workspace/.agent-runs", { recursive: true })
+    await host.files.write("/workspace/.agent-runs/trace.json", new TextEncoder().encode("before"))
+    await host.files.write("/workspace/live.txt", new TextEncoder().encode("before"))
+
+    const session = await docs.startSession({ attach: true, host })
+    await session.writeFile(".agent-runs/trace.json", "invocation")
+    await session.writeFile("live.txt", "invocation")
+    const remove = host.files.remove.bind(host.files)
+    host.files.remove = async (path, options) => {
+      if (path === "/workspace/live.txt") throw new Error("attached rollback unavailable")
+      await remove(path, options)
+    }
+
+    await expect(session.close()).rejects.toThrow("attached rollback unavailable")
+    expect(host.readText("/workspace/.agent-runs/trace.json")).toBe("before")
+  })
+
   it("restores excluded state that existed before non-attached materialization", async () => {
     const docs = workspace()
     const host = memoryHost()

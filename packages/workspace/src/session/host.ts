@@ -819,8 +819,23 @@ export async function createHostedWorkspaceSession(
       let diff: WorkspaceDiff | undefined
       if (options.attach && attachedState) {
         const attachedDiff = filterSessionDiff(diffSnapshots(baseline, await snapshotHost(host, root)), sessionPaths)
-        await restoreAttachedHost(host, root, attachedDiff, attachedState)
-        await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
+        let attachedRestoreError: unknown
+        try {
+          await restoreAttachedHost(host, root, attachedDiff, attachedState)
+        }
+        catch (error) {
+          attachedRestoreError = error
+        }
+        try {
+          await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
+        }
+        catch (excludedError) {
+          if (attachedRestoreError) {
+            throw new AggregateError([attachedRestoreError, excludedError], "[vitehub] Attached Workspace Session restoration and excluded-state restoration failed.")
+          }
+          throw excludedError
+        }
+        if (attachedRestoreError) throw attachedRestoreError
       }
       else {
         diff = await currentDiff()
