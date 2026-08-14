@@ -1245,6 +1245,8 @@ describe("workspace host sessions", () => {
 
     await expect(docs.readFile("escape")).resolves.toBe("../../outside")
     await expect(docs.stat("escape")).resolves.toMatchObject({ metadata: undefined })
+    await expect(session.diff()).resolves.toMatchObject({ entries: [] })
+    await expect(session.commit({ message: "no-op" })).resolves.toBeUndefined()
     await session.close()
     expect(host.readText("/workspace/escape")).toBe("../../outside")
     await expect(session.commit({ message: "too late" })).rejects.toThrow("already closed")

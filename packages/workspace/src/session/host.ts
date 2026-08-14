@@ -811,6 +811,8 @@ export async function createHostedWorkspaceSession(
           return { ...entry, after: { ...entry.after, metadata: undefined } }
         }),
       }
+      const sanitizedPaths = publicationDiff.entries.filter((entry, index) =>
+        entry.after?.metadata?.gitMode !== diff.entries[index]?.after?.metadata?.gitMode)
       const revisionMaterializer = resolveWorkspaceRevisionMaterializer(workspace)
       await withWorkspacePublication(revisionMaterializer || workspace, options.abortSignal, async () => {
         if (baseRevision && await revisionMaterializer?.currentRevision({ abortSignal: options.abortSignal }) !== baseRevision) {
@@ -829,6 +831,13 @@ export async function createHostedWorkspaceSession(
               .map(entry => ({ path: entry.path, ...entry.after! }))),
           commitOptions?.message || "host-commit",
         )
+        for (const entry of sanitizedPaths) {
+          const content = capturedState.contents.get(entry.path)
+          if (content === undefined) continue
+          const target = toHostPath(root, entry.path)
+          await removeHostPath(host, root, target, false)
+          await host.files.write(target, contentToBytes(content))
+        }
         try {
           await commitHostChanges(workspace, publicationDiff, capturedState.contents, mediaTypes, commitOptions?.message)
         }
