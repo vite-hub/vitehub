@@ -647,6 +647,7 @@ interface AgentWorkflowRun<TOutput = unknown> {
 type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
+  invocationJournal?: AgentInvocationJournal
   run: AgentWorkflowRun<TOutput>
 }
 interface ScheduleRunContextLike {
@@ -837,13 +838,13 @@ async function runAgentAsWorkflow<
     payload,
     workflowRunId ? { id: workflowRunId } : {},
   ))
-  if (run.status === "queued" && hasAgentDefinition(agent)) {
-    await bindAgentInvocations(agent.invocations, {
+  const invocationJournal = run.status === "queued" && hasAgentDefinition(agent)
+    ? await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: run.id },
     })
-  }
-  return { handle, run }
+    : undefined
+  return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
 }
 
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
@@ -4094,9 +4095,13 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
-  const { handle, run } = started
+  const { handle, invocationJournal, run } = started
   return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
-    cancel: async () => agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>),
+    cancel: async () => {
+      const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
+      if (snapshot?.status === "cancelled") await invocationJournal?.finish("cancelled")
+      return snapshot
+    },
     errorOutcome: workflowOperationOutcome,
     id: run.id,
     inspect: async () => agentInvocationSnapshotFromWorkflow(await handle.getRun(run.id) as AgentWorkflowRun<TOutput>),

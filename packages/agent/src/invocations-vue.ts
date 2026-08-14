@@ -192,6 +192,7 @@ export function useAgentInvocations(
   const baseURL = options.baseURL ?? defaultBaseURL;
   let loadMoreController: AbortController | undefined;
   let revision = 0;
+  let stopped = false;
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
@@ -220,6 +221,7 @@ export function useAgentInvocations(
   });
 
   async function loadMore(): Promise<AgentInvocationListResult | undefined> {
+    if (stopped) return;
     const nextCursor = cursor.value;
     if (!nextCursor) return;
     loadMoreController?.abort();
@@ -254,6 +256,8 @@ export function useAgentInvocations(
   }
 
   function stop() {
+    if (stopped) return;
+    stopped = true;
     revision++;
     loadMoreController?.abort();
     loadMoreController = undefined;

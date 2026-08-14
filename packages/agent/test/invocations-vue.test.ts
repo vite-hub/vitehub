@@ -122,6 +122,7 @@ describe("Agent Invocation Vue composables", () => {
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
     const requestMock = vi.fn(async () => ({
+      cursor: "next",
       invocations: [record("inv-1")],
     }) as AgentInvocationListResult);
     const request = requestMock as unknown as AgentInvocationRequester;
@@ -135,6 +136,7 @@ describe("Agent Invocation Vue composables", () => {
     expect(requestMock).toHaveBeenCalledTimes(2);
 
     resource.stop();
+    await expect(resource.loadMore()).resolves.toBeUndefined();
     await vi.advanceTimersByTimeAsync(500);
     expect(requestMock).toHaveBeenCalledTimes(2);
     await expect(resource.refresh()).resolves.toBeUndefined();
