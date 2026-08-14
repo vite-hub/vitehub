@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -638,9 +638,10 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
 }
 
 async function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
+  const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
   if (!response.body) {
     await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
-    await recordChannelDeliveryEvidence(delivery, { type: "completed", runId })
+    await recordChannelDeliveryEvidence(delivery, { type: terminalType, runId })
     return response
   }
   const reader = response.body.getReader()
@@ -649,7 +650,7 @@ async function observeChannelDeliveryResponse(response: Response, delivery: Agen
     if (finished) return
     finished = true
     await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
-    await recordChannelDeliveryEvidence(delivery, { type: "completed", runId })
+    await recordChannelDeliveryEvidence(delivery, { type: terminalType, runId })
   }
   const fail = async (error: unknown) => {
     if (finished) return
@@ -3317,6 +3318,7 @@ async function handleChatSdkMessage(
         }, invoker) as never)
         durableHandoff = true
         await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
+        detachAgentChannelDelivery(delivery)
       }
       catch (error) {
         clearTimeout(durableTypingTimeout)

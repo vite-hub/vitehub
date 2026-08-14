@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload } from "../src/internal/channel-delivery.ts"
 
 import type { StateAdapter } from "chat"
 
@@ -202,6 +202,21 @@ describe("Agent Channel delivery journal", () => {
 
     expect(duplicate.duplicate).toBe(true)
     expect(activeAgentChannelDelivery(first.delivery.id)).toBeUndefined()
+    info.mockRestore()
+  })
+
+  it("detaches process-local custody after durable handoff", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const delivery = await openAgentChannelDelivery(stateAdapter(), {
+      agentName: "support",
+      provider: "telegram",
+      scope: "channel:support:telegram",
+      sourceId: "update-handoff",
+    })
+
+    detachAgentChannelDelivery(delivery)
+
+    expect(activeAgentChannelDelivery(delivery.delivery.id)).toBeUndefined()
     info.mockRestore()
   })
 

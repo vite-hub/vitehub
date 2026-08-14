@@ -161,6 +161,10 @@ export function activeAgentChannelDelivery(deliveryId: string): AgentChannelDeli
   return activeDeliveries.get(deliveryId)
 }
 
+export function detachAgentChannelDelivery(delivery: AgentChannelDeliveryTracker): void {
+  if (activeDeliveries.get(delivery.delivery.id) === delivery) activeDeliveries.delete(delivery.delivery.id)
+}
+
 export function setAgentChannelDeliveryWorkflowResolver(resolver: AgentChannelDeliveryWorkflowResolver): void {
   workflowResolver = resolver
 }
