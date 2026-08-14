@@ -282,17 +282,28 @@ function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function matchesRollupExternal(value: unknown, source: string, args: unknown[]): boolean {
+  if (typeof value === "string") return value === source
+  if (value instanceof RegExp) {
+    value.lastIndex = 0
+    return value.test(source)
+  }
+  if (typeof value === "function") return Boolean(value(source, ...args))
+  if (Array.isArray(value)) return value.some(entry => matchesRollupExternal(entry, source, args))
+  return false
+}
+
 function configureCloudflarePrerender(config: Record<string, unknown>): void {
   const rollupConfig = cloneRecord(config.rollupConfig)
   const external = rollupConfig.external
-  if (Array.isArray(external)) rollupConfig.external = external.filter(value => value !== "cloudflare:workers")
-  else if (external === "cloudflare:workers") delete rollupConfig.external
-  else if (typeof external === "function") {
+  const prerenderImports = new Set(["cloudflare:email", "cloudflare:workers"])
+  if (typeof external !== "undefined") {
     rollupConfig.external = (source: string, ...args: unknown[]) =>
-      source === "cloudflare:workers" ? false : external(source, ...args)
+      prerenderImports.has(source) ? false : matchesRollupExternal(external, source, args)
   }
   config.alias = {
     ...cloneRecord(config.alias),
+    "cloudflare:email": fileURLToPath(new URL("./cloudflare-prerender.mjs", import.meta.url)),
     "cloudflare:workers": fileURLToPath(new URL("./cloudflare-prerender.mjs", import.meta.url)),
   }
   config.rollupConfig = rollupConfig
