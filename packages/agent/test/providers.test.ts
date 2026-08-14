@@ -3704,6 +3704,9 @@ describe("server helpers", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const staleReplyFetch = vi.fn(() => {
+      throw new Error("stale reply attachment")
+    })
     const replyTo = new Message({
       attachments: [{
         data: new Blob(["image"], { type: "image/png" }),
@@ -3716,6 +3719,11 @@ describe("server helpers", () => {
         name: "oversized-reply.log",
         size: 8 * 1024 * 1024 + 1,
         type: "file",
+      }, {
+        fetchData: staleReplyFetch,
+        mimeType: "image/png",
+        name: "stale-reply.png",
+        type: "image",
       }],
       author: {
         fullName: "Previous author",
@@ -3756,12 +3764,13 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(ignoredReplyCommand).not.toHaveBeenCalled()
+    expect(staleReplyFetch).not.toHaveBeenCalled()
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       messages: [expect.objectContaining({
         metadata: expect.objectContaining({
           chat: expect.objectContaining({
             replyTo: {
-              attachmentCount: 2,
+              attachmentCount: 3,
               author: {
                 fullName: "Previous author",
                 isBot: true,
@@ -3778,7 +3787,7 @@ describe("server helpers", () => {
         parts: [
           expect.objectContaining({
             data: expect.objectContaining({
-              attachmentCount: 2,
+              attachmentCount: 3,
               author: expect.objectContaining({ userId: "previous-author" }),
               dateSent: "2026-06-10T11:30:00.000Z",
               kind: "reply_to_message",
