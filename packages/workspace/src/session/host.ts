@@ -813,12 +813,22 @@ export async function createHostedWorkspaceSession(
       }
       const sanitizedPaths = publicationDiff.entries.filter((entry, index) =>
         entry.after?.metadata?.gitMode !== diff.entries[index]?.after?.metadata?.gitMode)
+      const sanitizedPathNames = new Set(sanitizedPaths.map(entry => entry.path))
+      const sanitizedCapturedSnapshot = sanitizedPaths.length
+        ? await createSnapshotFromEntries(Object.entries(capturedState.snapshot.entries).map(([path, entry]) => ({
+            path,
+            ...entry,
+            ...(sanitizedPathNames.has(path) ? { metadata: undefined } : {}),
+          })), commitOptions?.message || "host-commit")
+        : capturedState.snapshot
       const revisionMaterializer = resolveWorkspaceRevisionMaterializer(workspace)
       await withWorkspacePublication(revisionMaterializer || workspace, options.abortSignal, async () => {
         if (baseRevision && await revisionMaterializer?.currentRevision({ abortSignal: options.abortSignal }) !== baseRevision) {
           throw workspaceConflict(`[vitehub] Workspace revision changed after this Session materialized: ${baseRevision}.`)
         }
-        const nextAttachedState = options.attach ? capturedState : undefined
+        const nextAttachedState = options.attach
+          ? { ...capturedState, snapshot: sanitizedCapturedSnapshot }
+          : undefined
         const nextBaseline = nextAttachedState?.snapshot || await createSnapshotFromEntries(
           Object.entries(baseline.entries)
             .filter(([path]) => !publicationDiff.entries.some(entry => entry.path === path && !entry.after))

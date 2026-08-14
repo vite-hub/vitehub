@@ -1252,6 +1252,23 @@ describe("workspace host sessions", () => {
     await expect(session.commit({ message: "too late" })).rejects.toThrow("already closed")
   })
 
+  it("keeps an attached escaping host symlink inert after publication and close", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.mkdir("/workspace", { recursive: true })
+    const session = await docs.startSession({ attach: true, host })
+
+    await expect(session.exec("ln", ["-s", "../../outside", "escape"])).resolves.toMatchObject({ exitCode: 0 })
+    await session.commit({ message: "capture unsafe attached link" })
+
+    await expect(docs.readFile("escape")).resolves.toBe("../../outside")
+    await expect(docs.stat("escape")).resolves.toMatchObject({ metadata: undefined })
+    await expect(session.diff()).resolves.toMatchObject({ entries: [] })
+    await session.close()
+    expect(host.readText("/workspace/escape")).toBe("../../outside")
+    await expect(session.exec("test", ["-L", "escape"])).rejects.toThrow("already closed")
+  })
+
   it("preserves executable mode through materialization and commit", async () => {
     const docs = workspace()
     const host = memoryHost()
