@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { activeAgentChannelDeliveries, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -619,7 +619,7 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
     get(target, property) {
       if (property === "post") {
         return async (...args: Parameters<Thread["post"]>) => {
-          await delivery.event({ type: "outbound.started" })
+          await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
           try {
             const message = await target.post(...args)
             await recordChannelDeliveryEvidence(delivery, { messageId: deliverySourceValue((message as { id?: unknown }).id), type: "outbound.completed" })
@@ -639,7 +639,8 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
 
 function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Response {
   if (!response.body) {
-    void delivery.event({ type: "invocation.completed", runId }).then(() => delivery.event({ type: "completed", runId }))
+    void recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
+      .then(() => recordChannelDeliveryEvidence(delivery, { type: "completed", runId }))
     return response
   }
   const reader = response.body.getReader()
@@ -647,14 +648,14 @@ function observeChannelDeliveryResponse(response: Response, delivery: AgentChann
   const complete = async () => {
     if (finished) return
     finished = true
-    await delivery.event({ type: "invocation.completed", runId })
-    await delivery.event({ type: "completed", runId })
+    await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
+    await recordChannelDeliveryEvidence(delivery, { type: "completed", runId })
   }
   const fail = async (error: unknown) => {
     if (finished) return
     finished = true
-    await delivery.event({ error: channelDeliveryError(error), type: "invocation.failed", runId })
-    await delivery.event({ error: channelDeliveryError(error), type: "failed", runId })
+    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "invocation.failed", runId })
+    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed", runId })
   }
   return new Response(new ReadableStream({
     async pull(controller) {
@@ -1232,6 +1233,11 @@ async function executeQueuedWebhookDelivery(
         attempt: delivery.attempts + 1,
         error: channelDeliveryError(error),
         type: "invocation.failed",
+        runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+      })
+      if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, {
+        attempt: delivery.attempts + 1,
+        type: "retrying",
         runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
       })
       if (lifecycleSignal.aborted) return retryAt
@@ -3524,12 +3530,6 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const messages = serial ? [...messageContext?.skipped ?? [], message] : [message]
-  const currentDelivery = agentChannelDeliveryTracker(context)
-  const skippedDeliveries = serial
-    ? activeAgentChannelDeliveries(registration.provider, registration.channelId)
-        .filter(delivery => delivery !== currentDelivery)
-        .slice(-(messageContext?.skipped.length ?? 0))
-    : []
   const stopRefreshingLock = serial
     ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options))
     : () => undefined
@@ -3544,9 +3544,16 @@ async function handleChatSdkMessages(
           ? await serialMessageDeliveryKind(queuedThread, queuedMessage)
           : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
-        const queuedContext = serial && queuedMessage !== message && skippedDeliveries.length
-          ? withAgentChannelDelivery(context, skippedDeliveries.shift()!)
-          : context
+        const queuedDelivery = serial && queuedMessage !== message
+          ? await openAgentChannelDelivery(state.state, {
+              agentName: context.agentIdentity?.name || "agent",
+              channelId: registration.channelId,
+              provider: chatRegistrationOrigin(registration),
+              scope: `${state.keyPrefix}${queuedThread.id}`,
+              sourceId: deliverySourceValue(queuedMessage.id) || randomToken(),
+            })
+          : undefined
+        const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
         await handleChatSdkMessage(
           agent,
           queuedContext,

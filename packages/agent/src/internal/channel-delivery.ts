@@ -114,18 +114,14 @@ function tracker(state: StateAdapter, delivery: AgentChannelDelivery, duplicate:
     duplicate,
     event: async (input) => await appendEvent(state, delivery, input),
   }
-  activeDeliveries.set(delivery.id, value)
+  // A duplicate may already be terminal and is still usable through its request
+  // context. Keeping it process-global would retain its State Adapter forever.
+  if (!duplicate) activeDeliveries.set(delivery.id, value)
   return value
 }
 
 export function activeAgentChannelDelivery(deliveryId: string): AgentChannelDeliveryTracker | undefined {
   return activeDeliveries.get(deliveryId)
-}
-
-export function activeAgentChannelDeliveries(provider: string, channelId?: string): AgentChannelDeliveryTracker[] {
-  return [...activeDeliveries.values()]
-    .filter(tracker => tracker.delivery.provider === provider && tracker.delivery.channelId === channelId)
-    .sort((left, right) => left.delivery.receivedAt.localeCompare(right.delivery.receivedAt))
 }
 
 export function setAgentChannelDeliveryWorkflowResolver(resolver: AgentChannelDeliveryWorkflowResolver): void {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { agentChannelDeliverySourceId, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliverySourceId, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
 
 import type { StateAdapter } from "chat"
 
@@ -176,6 +176,20 @@ describe("Agent Channel delivery journal", () => {
     await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
       expect.objectContaining({ status: "completed" }),
     ])
+    info.mockRestore()
+  })
+
+  it("does not retain a duplicate tracker after terminal settlement", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-terminal" }
+    const first = await openAgentChannelDelivery(state, input)
+    await first.event({ type: "completed" })
+
+    const duplicate = await openAgentChannelDelivery(state, input)
+
+    expect(duplicate.duplicate).toBe(true)
+    expect(activeAgentChannelDelivery(first.delivery.id)).toBeUndefined()
     info.mockRestore()
   })
 })
