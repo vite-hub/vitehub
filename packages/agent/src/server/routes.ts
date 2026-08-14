@@ -4061,13 +4061,21 @@ async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key:
   }
 }
 
-async function waitForResumableChatSetup(setup: Promise<void>): Promise<boolean> {
+async function waitForResumableChatSetup(setup: Promise<void>, signal: AbortSignal): Promise<boolean> {
   let settled = false
   void setup.then(() => {
     settled = true
   })
-  for (let attempt = 0; attempt < 30 && !settled; attempt++) {
-    await new Promise(resolve => setTimeout(resolve, 100))
+  for (let attempt = 0; attempt < 30 && !settled && !signal.aborted; attempt++) {
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(finish, 100)
+      function finish() {
+        clearTimeout(timeout)
+        signal.removeEventListener("abort", finish)
+        resolve()
+      }
+      signal.addEventListener("abort", finish, { once: true })
+    })
   }
   return settled
 }
@@ -4182,11 +4190,8 @@ export function createChannelChatRouteHandler(
           return new Response(null, { status: 204 })
         }
         const pendingSetup = latestResumableClaimSetups.get(key)
-        if (pendingSetup && (!run || pendingSetup.sequence > run.requestSequence)) {
-          if (!await waitForResumableChatSetup(pendingSetup.promise)) return new Response(null, { status: 204 })
-          run = latestResumableRuns.get(key)
-        }
-        if (!run) {
+        const waitsForSetup = Boolean(pendingSetup && (!run || pendingSetup.sequence > run.requestSequence))
+        if (waitsForSetup || !run) {
           if ((resumableLookupOwners.get(owner) || 0) >= resumableChatMaxPendingLookups) {
             throw createRouteError(429, "Resumable web chat has too many pending lookups. Try again later.")
           }
@@ -4196,7 +4201,11 @@ export function createChannelChatRouteHandler(
           resumableLookupOwners.set(owner, (resumableLookupOwners.get(owner) || 0) + 1)
           resumableLookupCount++
           try {
-            run = await waitForResumableChatRun(latestResumableRuns, key, request.signal)
+            if (waitsForSetup) {
+              if (!await waitForResumableChatSetup(pendingSetup!.promise, request.signal)) return new Response(null, { status: 204 })
+              run = latestResumableRuns.get(key)
+            }
+            run ||= await waitForResumableChatRun(latestResumableRuns, key, request.signal)
           }
           finally {
             const lookups = (resumableLookupOwners.get(owner) || 1) - 1

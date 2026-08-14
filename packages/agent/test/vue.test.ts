@@ -404,6 +404,7 @@ describe("Agent Vue clients", () => {
       if (String(input).includes("chat-2")) return new Response(null, { status: 204 })
       return new Response(new ReadableStream({
         start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"messageId":"assistant-1","type":"start"}\n\n'))
           init?.signal?.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")))
         },
       }), { headers: { "content-type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" } })

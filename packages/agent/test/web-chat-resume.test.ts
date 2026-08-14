@@ -885,6 +885,34 @@ describe("resumable web chat", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("bounds and aborts GET waiters for a stalled POST setup", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseInvoker!: () => void
+    const invoker = new Promise<void>((resolve) => {
+      releaseInvoker = resolve
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "done" },
+      invoker: { async resolve() { await invoker; return { id: "max" } } },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+    const post = handler(chatRequest("POST"), options)
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 1 }))
+    const controllers = Array.from({ length: 100 }, () => new AbortController())
+    const lookups = controllers.map(controller => handler(new Request("https://example.com/chat?id=chat-1", { signal: controller.signal }), options))
+
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingLookups: 100 }))
+    await expect(handler(chatRequest("GET"), options)).resolves.toMatchObject({ status: 429 })
+    controllers.forEach(controller => controller.abort())
+    await Promise.all(lookups)
+    expect(handler.inspect()).toMatchObject({ pendingLookups: 0 })
+    releaseInvoker()
+    await post
+  })
+
   it("bounds stalled claims per owner before asynchronous setup", async () => {
     const agentModule = await import("../src/index.ts")
     const { defineAgent } = agentModule

@@ -138,7 +138,22 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
           controller.enqueue(first.value)
         },
         async pull(controller) {
-          const chunk = await reader.read()
+          let chunk: Awaited<ReturnType<typeof reader.read>>
+          try {
+            chunk = await reader.read()
+          }
+          catch (error) {
+            if (generation !== reconnectGeneration) {
+              controller.close()
+              return
+            }
+            throw error
+          }
+          if (generation !== reconnectGeneration) {
+            await reader.cancel()
+            controller.close()
+            return
+          }
           if (chunk.done) controller.close()
           else controller.enqueue(chunk.value)
         },
