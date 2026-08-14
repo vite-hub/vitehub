@@ -8796,14 +8796,18 @@ describe("agent message protocol", () => {
   })
 
   it("generates a UI title after a recoverable error", async () => {
+    const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [title({ execute: () => "Recovered title" })],
       driver: { run: () => ({
           toUIMessageStream: () => new ReadableStream({
             start(controller) {
+              controller.enqueue({ messageId: "assistant-1", type: "start" })
               controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
+              controller.enqueue({ id: "text-1", type: "text-start" })
               controller.enqueue({ delta: "Recovered response", id: "text-1", type: "text-delta" })
+              controller.enqueue({ id: "text-1", type: "text-end" })
               controller.enqueue({ finishReason: "stop", type: "finish" })
               controller.close()
             },
@@ -8814,14 +8818,19 @@ describe("agent message protocol", () => {
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    const events = []
-    for await (const event of stream) events.push(event)
+    const messages = []
+    for await (const message of readUIMessageStream({ stream: stream as ReadableStream<never> })) messages.push(message)
 
-    expect(events).toContainEqual({
+    expect(messages.at(-1)?.parts).toContainEqual({
       data: { title: "Recovered title", type: "title" },
       id: "title",
       type: "data-title",
     })
+    expect(messages.at(-1)?.parts).toContainEqual({
+      data: { error: "temporary failure", recoverable: true, type: "error" },
+      type: "data-error",
+    })
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({ text: "Recovered response", type: "text" }))
   })
 
   it("prefers decorated UI message streams for hybrid async iterable results", async () => {

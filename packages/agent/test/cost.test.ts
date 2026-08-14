@@ -551,15 +551,18 @@ describe("cost Capability", () => {
   })
 
   it("prices serialized UI message response usage before returning it", async () => {
+    const { readUIMessageStream } = await import("ai")
     const { cost } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { uiMessageStreamFromResponse } = await import("../src/stream-output.ts")
+    const pricing = vi.fn(() => ({
+      usd: "0.02",
+      estimated: true as const,
+      source: "custom",
+    }))
     const agent = defineAgent({
       capabilities: [cost({
-        pricing: () => ({
-          usd: "0.02",
-          estimated: true,
-          source: "custom",
-        }),
+        pricing,
       })],
       driver: {
         run: () => new Response(`data: ${JSON.stringify({
@@ -580,26 +583,24 @@ describe("cost Capability", () => {
     const response = await streamAgent(agent, runtime(), { prompt: "hello" }, {
       output: "ui-message-stream",
     }) as Response
-    const chunks = []
-    const body = response.body!
-      .pipeThrough(new TextDecoderStream())
-    for await (const chunk of body) chunks.push(chunk)
-
-    expect(chunks.join("")).toContain("\"usd\":\"0.02\"")
-    expect(chunks.join("")).toContain("\"display\":\"~$0.02\"")
+    for await (const _message of readUIMessageStream({ stream: uiMessageStreamFromResponse(response as Response & { body: ReadableStream<Uint8Array> }) as ReadableStream<never> })) {}
+    expect(pricing).toHaveBeenCalledOnce()
   })
 
   it.each([
     { hybrid: false, kind: "plain" },
     { hybrid: true, kind: "hybrid" },
   ])("prices native response usage after a renderer returns a $kind async iterable", async ({ hybrid }) => {
+    const { readUIMessageStream } = await import("ai")
     const { cost } = await import("../src/capabilities.ts")
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { uiMessageStreamFromResponse } = await import("../src/stream-output.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
       estimated: true as const,
       source: "custom",
     }))
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [
         cost({
@@ -628,6 +629,7 @@ describe("cost Capability", () => {
       driver: {
         run: () => new Response([
           { messageId: "message-1", type: "start" },
+          { id: "text-1", type: "text-start" },
           { delta: "native", id: "text-1", type: "text-delta" },
           {
             type: "usage",
@@ -639,10 +641,14 @@ describe("cost Capability", () => {
               },
             },
           },
+          { id: "text-1", type: "text-end" },
           { finishReason: "stop", type: "finish" },
         ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), {
           headers: { "x-vercel-ai-ui-message-stream": "v1" },
         }),
+      },
+      hooks: {
+        "agent:finish": finish,
       },
     })
 
@@ -650,11 +656,16 @@ describe("cost Capability", () => {
       output: "ui-message-stream",
     }) as Response
 
-    const body = await response.text()
-    expect(body).toContain("native")
-    expect(body).not.toContain("generic")
-    expect(body).toContain("\"usd\":\"0.02\"")
-    expect(body).toContain("\"display\":\"~$0.02\"")
+    const messages = []
+    for await (const message of readUIMessageStream({ stream: uiMessageStreamFromResponse(response as Response & { body: ReadableStream<Uint8Array> }) as ReadableStream<never> })) {
+      messages.push(message)
+    }
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({ text: "native", type: "text" }))
+    expect(JSON.stringify(messages)).not.toContain("generic")
+    expect(finish.mock.calls[0]![0].invocation.usage?.cost).toMatchObject({
+      display: "~$0.02",
+      usd: "0.02",
+    })
     expect(pricing).toHaveBeenCalledOnce()
   })
 

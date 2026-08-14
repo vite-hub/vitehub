@@ -309,6 +309,17 @@ function isCapabilityCliInput(input: unknown): input is { argv: string[], input?
 export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
   if (typeof chunk !== "object" || chunk === null) return chunk
   const record = chunk as Record<string, unknown>
+  if (record.type === "error" && record.recoverable === true) {
+    const error = record.errorText ?? record.message ?? record.error
+    return {
+      data: {
+        error: error instanceof Error ? error.message : String(error || "Agent stream encountered a recoverable error."),
+        recoverable: true,
+        type: "error",
+      },
+      type: "data-error",
+    }
+  }
   if (record.type !== "tool-input-error") return chunk
   const metadata = typeof record.toolMetadata === "object" && record.toolMetadata !== null
     ? record.toolMetadata as Record<string, unknown>
@@ -319,9 +330,18 @@ export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
   return { ...available, type: "tool-input-available" }
 }
 
-export function normalizeUiMessageStream(stream: ReadableStream<unknown>): ReadableStream<unknown> {
+export function normalizeUiMessageStream(
+  stream: ReadableStream<unknown>,
+  options: {
+    omitUsageEvents?: boolean
+    onUsageRecord?: (usageRecord: AgentUsageRecord) => void
+  } = {},
+): ReadableStream<unknown> {
   return stream.pipeThrough(new TransformStream<unknown, unknown>({
     transform(chunk, controller) {
+      const usageRecord = usageRecordFromStreamChunk(chunk, stream)
+      if (usageRecord) options.onUsageRecord?.(usageRecord)
+      if (options.omitUsageEvents && streamEventType(chunk) === "usage" && usageRecord) return
       controller.enqueue(normalizeUiMessageStreamChunk(chunk))
     },
   }))
@@ -398,10 +418,7 @@ async function writeEventsToUiMessageStream(
     if (usageRecord) options.onUsageRecord?.(usageRecord)
     const type = streamEventType(event)
     if (!type) continue
-    if (type === "usage" && usageRecord) {
-      writer.write({ ...(event as object), usageRecord })
-      continue
-    }
+    if (type === "usage" && usageRecord) continue
     if (options.projection?.reasoning === "hidden") {
       const text = event as { id?: unknown, phase?: unknown }
       const id = typeof text.id === "string" ? text.id : undefined
@@ -449,7 +466,11 @@ async function writeEventsToUiMessageStream(
       break
     }
     if (type === "error") {
-      const error = event as { error?: unknown, message?: unknown }
+      const error = event as { error?: unknown, message?: unknown, recoverable?: unknown }
+      if (error.recoverable === true) {
+        writer.write(normalizeUiMessageStreamChunk(event))
+        continue
+      }
       throw error.error || new Error(typeof error.message === "string" ? error.message : "Agent stream failed.")
     }
   }
@@ -490,7 +511,10 @@ export async function finalizeUiMessageStreamOutput(
           writer.write({ type: "text-end", id: messageId })
           writer.write({ type: "finish", finishReason: "stop" })
         },
-  })), projection)
+  }), {
+    omitUsageEvents: true,
+    onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
+  }), projection)
   let streamedText = ""
   return {
     deferFinish: shouldWrapOutput,
