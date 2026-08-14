@@ -37,10 +37,12 @@ import type {
 import type { MessageChannelTitleDeliveryAttempt, MessageChannelStateBinding } from "../internal/channels.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
-type TitleResolution = Promise<string | undefined> | ((text: string) => Promise<string | undefined>)
+type TitleResolutionValue = string | typeof skippedTitleDelivery | undefined
+type TitleResolution = Promise<TitleResolutionValue> | ((text: string) => Promise<TitleResolutionValue>)
 type StreamFallback<T> = (() => AsyncIterable<T> | undefined) & { cancel?: () => void }
 const titleApplied = Symbol("vitehub.title.applied")
 const skippedTitleGeneration = Symbol("vitehub.title.skipped")
+const skippedTitleDelivery = Symbol("vitehub.title.delivery-skipped")
 type TitleApplied = { [titleApplied]?: true }
 
 function hasPropertyGetter(value: object, key: PropertyKey): boolean {
@@ -465,7 +467,7 @@ function withTitleParallel<T>(
 
         if (next.type === "title") {
           titlePending = false
-          if (next.title) {
+          if (typeof next.title === "string") {
             yield renderTitle(next.title)
           }
           continue
@@ -493,7 +495,7 @@ function withTitleParallel<T>(
           }
           const resolvedTitle = await deferredTitle(text).catch(() => undefined)
           titlePending = false
-          if (resolvedTitle) yield renderTitle(resolvedTitle)
+          if (typeof resolvedTitle === "string") yield renderTitle(resolvedTitle)
         }
         yield next.value.value
         streamNext = iterator.next()
@@ -514,7 +516,7 @@ function withTitleParallel<T>(
           : await deferredTitle!(text)
               .then(value => ({ title: value, type: "title" as const }))
               .catch(() => ({ title: undefined, type: "title" as const }))
-        if (resolvedTitle.title) {
+        if (typeof resolvedTitle.title === "string") {
           yield renderTitle(resolvedTitle.title)
         }
       }
@@ -603,7 +605,7 @@ function withTitleReadableStreamParallel<T>(
             const resolvedTitle = await deferredTitle!(text).catch(() => undefined)
             titlePending = false
             if (cancelled) return
-            if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
+            if (typeof resolvedTitle === "string") controller.enqueue(renderTitle(resolvedTitle))
             if (fallbackTerminal.emit) controller.enqueue(fallbackTerminal.value as T)
             fallbackTerminal = undefined
             controller.close()
@@ -622,11 +624,11 @@ function withTitleReadableStreamParallel<T>(
           if (cancelled) return
           if (next.type === "title") {
             titlePending = false
-            if (next.title) {
+            if (typeof next.title === "string") {
               controller.enqueue(renderTitle(next.title))
               return
             }
-            const cleared = clearInitialTitle()
+            const cleared = next.title === skippedTitleDelivery ? undefined : clearInitialTitle()
             if (cleared !== undefined) {
               controller.enqueue(cleared)
               return
@@ -652,8 +654,8 @@ function withTitleReadableStreamParallel<T>(
               const resolvedTitle = await titleNext
               titlePending = false
               if (cancelled) return
-              if (resolvedTitle.title) controller.enqueue(renderTitle(resolvedTitle.title))
-              else {
+              if (typeof resolvedTitle.title === "string") controller.enqueue(renderTitle(resolvedTitle.title))
+              else if (resolvedTitle.title !== skippedTitleDelivery) {
                 const cleared = clearInitialTitle()
                 if (cleared !== undefined) controller.enqueue(cleared)
               }
@@ -674,8 +676,8 @@ function withTitleReadableStreamParallel<T>(
               const resolvedTitle = await deferredTitle(text).catch(() => undefined)
               titlePending = false
               if (cancelled) return
-              if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
-              else {
+              if (typeof resolvedTitle === "string") controller.enqueue(renderTitle(resolvedTitle))
+              else if (resolvedTitle !== skippedTitleDelivery) {
                 const cleared = clearInitialTitle()
                 if (cleared !== undefined) controller.enqueue(cleared)
               }
@@ -705,10 +707,10 @@ function withTitleReadableStreamParallel<T>(
                   .catch(() => ({ title: undefined, type: "title" as const }))
             titlePending = false
             if (cancelled) return
-            if (resolvedTitle.title) {
+            if (typeof resolvedTitle.title === "string") {
               controller.enqueue(renderTitle(resolvedTitle.title))
             }
-            else {
+            else if (resolvedTitle.title !== skippedTitleDelivery) {
               const cleared = clearInitialTitle()
               if (cleared !== undefined) controller.enqueue(cleared)
             }
@@ -889,7 +891,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       const releaseChannelDeliveryAttempt = async () => {
         await finishMessageChannelTitleDelivery(await getChannelDeliveryAttempt(), false).catch(() => undefined)
       }
-      let title: Promise<string | undefined> | undefined
+      let title: Promise<TitleResolutionValue> | undefined
       let titleClaimed = false
       let titleSkipped = false
       const titleInput = (source: TitleSource, text: string): TitleExecuteInput | undefined => {
@@ -908,14 +910,14 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         const message = firstUserMessage(context.input.messages())
         return message ? titleInput("input", getMessageText(message)) : undefined
       }
-      const getTitle = (responseText?: string) => {
+      const getTitle = (responseText?: string): Promise<TitleResolutionValue> => {
         if (title) return title
         const input = preparedTitleInput() ?? (responseText === undefined ? undefined : titleInput("response", responseText))
         if (!input) return Promise.resolve(undefined)
         title = (async () => {
           const pendingAttempt = getChannelDeliveryAttempt()
           const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
-          if (!attempt.deliver) return
+          if (!attempt.deliver) return skippedTitleDelivery
           titleClaimed = true
           try {
             const resolvedTitle = await generateTitle(context, options as TitleOptions, input)
@@ -947,7 +949,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         if (!shouldProvideTitleFinishExtension(context)) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
         const resolvedTitle = await getTitle()
-        if (!resolvedTitle || !supportsTitleDelivery(context)) {
+        if (typeof resolvedTitle !== "string" || !supportsTitleDelivery(context)) {
           await releaseChannelDeliveryAttempt()
           return
         }
@@ -964,7 +966,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       context.finish.provide(async (finish: AgentFinishEvent) => {
         if (!shouldResolveTitleFinishExtension(context, finish)) return
         const resolvedTitle = await getTitle(finish.text)
-        return resolvedTitle ? { title: resolvedTitle } : undefined
+        return typeof resolvedTitle === "string" ? { title: resolvedTitle } : undefined
       })
       const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = async (finish) => {
         if (Object.hasOwn(finish.event, "error")) {
@@ -973,11 +975,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           const attempt = await getChannelDeliveryAttempt()
           await resetMessageChannelTitleDelivery(attempt).catch(() => undefined)
           const failureIntent = createMessageChannelTitleEffectIntent(
-            errorTitle(resolvedTitle, options.maxLength ?? 80, options.fallback ?? "Untitled"),
+            errorTitle(typeof resolvedTitle === "string" ? resolvedTitle : undefined, options.maxLength ?? 80, options.fallback ?? "Untitled"),
             "always",
             attempt,
           )
-          if (!resolvedTitle || finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) {
+          if (typeof resolvedTitle !== "string" || finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) {
             return failureIntent
           }
           return [

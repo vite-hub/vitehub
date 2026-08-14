@@ -8710,6 +8710,54 @@ describe("agent message protocol", () => {
     await reader.cancel()
   })
 
+  it("preserves a provisional UI title when once-per-thread delivery was already claimed", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
+    const { messageChannelTitleSupportContextKey } = await import("../src/channels.ts")
+    const execute = vi.fn(() => "Replacement title")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "delivered-title-state",
+          output(context) {
+            context.context.set(messageChannelTitleSupportContextKey, true)
+            context.context.set(messageChannelStateContextKey, {
+              keyPrefix: "chat:test:",
+              state: { get: vi.fn(async () => true) },
+            })
+          },
+        }),
+        title({ channelDelivery: "once-per-thread", execute }),
+      ],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ messageId: "message-1", type: "start" })
+              controller.close()
+            },
+          }),
+        }) },
+    })
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-2", threadId: "thread-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Existing thread title" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(events).toContainEqual({
+      data: { title: "Existing thread title", type: "title" },
+      id: "title",
+      type: "data-title",
+    })
+    expect(events).not.toContainEqual({ data: null, id: "title", type: "data-title" })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("emits a provisional title before a terminal UI error", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const generated = deferred<string>()
