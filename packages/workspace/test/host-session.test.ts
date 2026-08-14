@@ -103,6 +103,14 @@ async function symlinkRootRevisionArchive() {
   return { bytes: new Uint8Array(await readFile(archive)), source }
 }
 
+async function traversalRevisionArchive() {
+  const source = await mkdtemp(join(tmpdir(), "vitehub-revision-traversal-"))
+  await writeFile(join(source, "payload"), "escaped")
+  const archive = join(source, "revision.tar.gz")
+  await execFileAsync("tar", ["-czf", archive, "--transform=s|payload|../escape|", "-C", source, "payload"])
+  return { bytes: new Uint8Array(await readFile(archive)), source }
+}
+
 function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): boolean, readText(path: string): string | undefined } {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
@@ -339,6 +347,36 @@ describe("workspace host sessions", () => {
       await expect(docs.startSession({ host: localHost(), target }))
         .rejects.toThrow("Workspace revision archive root must not contain symlinks")
       await expect(stat(join(target, "secret.txt"))).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects revision archive traversal before extraction", async () => {
+    const docs = workspace()
+    const archive = await traversalRevisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    const target = join(targetParent, "workspace")
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: archive.bytes,
+          files: 1,
+          revision: "0123456789012345678901234567890123456789",
+          root: "",
+        }
+      },
+    }
+
+    try {
+      await expect(docs.startSession({ host: localHost(), target }))
+        .rejects.toThrow("Workspace revision archive contains an unsafe path")
+      await expect(stat(join(target, "escape"))).rejects.toMatchObject({ code: "ENOENT" })
     }
     finally {
       await rm(archive.source, { force: true, recursive: true })

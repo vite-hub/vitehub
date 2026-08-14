@@ -6,6 +6,7 @@ import { workspaceConflict, workspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
+import { withWorkspaceProgress } from "./progress.ts"
 import { resolveWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 
 import type { WorkspaceRevisionMaterialization } from "../storage/materialization.ts"
@@ -25,11 +26,9 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
   WorkspaceSnapshot,
-  WorkspacePrepareSessionProgressEvent,
   WorkspaceSessionWriteFileOptions,
 } from "../core/types.ts"
 
-type PrepareProgressReporter = WorkspaceSessionOptions["onProgress"]
 const publicationQueues = new WeakMap<object, Promise<void>>()
 
 async function withWorkspacePublication<T>(key: object, publish: () => Promise<T>): Promise<T> {
@@ -44,38 +43,6 @@ async function withWorkspacePublication<T>(key: object, publish: () => Promise<T
   finally {
     release()
     if (publicationQueues.get(key) === current) publicationQueues.delete(key)
-  }
-}
-
-async function withPrepareProgress<T>(
-  onProgress: PrepareProgressReporter,
-  event: Pick<WorkspacePrepareSessionProgressEvent, "id" | "label"> & { data?: Record<string, unknown> },
-  fn: () => Promise<T>,
-) {
-  const startedAt = Date.now()
-  await onProgress?.({ data: event.data, id: event.id, label: event.label, status: "started" })
-  try {
-    const result = await fn()
-    await onProgress?.({
-      data: event.data,
-      durationMs: Date.now() - startedAt,
-      id: event.id,
-      label: event.label,
-      status: "completed",
-    })
-    return result
-  }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    await onProgress?.({
-      data: { ...event.data, error: message },
-      durationMs: Date.now() - startedAt,
-      error: message,
-      id: event.id,
-      label: event.label,
-      status: "failed",
-    })
-    throw error
   }
 }
 
@@ -417,6 +384,17 @@ async function extractRevisionArchive(
   await host.files.write(archive, materialization.archive)
   await host.files.mkdir(staging, { recursive: true })
   try {
+    const listed = await host.exec("tar", ["-tzf", archive], { signal })
+    if (listed.code !== 0) {
+      throw workspaceError(`[vitehub] Failed to inspect Workspace revision ${materialization.revision}: ${listed.stderr || "tar failed"}`)
+    }
+    const unsafeMember = listed.stdout.split("\n").filter(Boolean).find((member) => {
+      if (member.startsWith("/") || member.includes("\0")) return true
+      return member.replace(/\/+$/, "").split("/").includes("..")
+    })
+    if (unsafeMember) {
+      throw workspaceError(`[vitehub] Workspace revision archive contains an unsafe path: ${unsafeMember}.`)
+    }
     const extracted = await host.exec("tar", ["-xzf", archive, "-C", staging], { signal })
     if (extracted.code !== 0) {
       throw workspaceError(`[vitehub] Failed to extract Workspace revision ${materialization.revision}: ${extracted.stderr || "tar failed"}`)
@@ -482,7 +460,7 @@ async function materializeWorkspace(workspace: Workspace, host: WorkspaceSession
   const paths = normalizeSessionPaths(options)
   const materializer = resolveWorkspaceRevisionMaterializer(workspace)
   const revision = materializer
-    ? await withPrepareProgress(options?.onProgress, {
+    ? await withWorkspaceProgress(options?.onProgress, {
         data: { paths: paths ?? null },
         id: "workspace.prepare.revision",
         label: "Resolving workspace revision",
@@ -491,12 +469,12 @@ async function materializeWorkspace(workspace: Workspace, host: WorkspaceSession
         paths,
       }))
     : undefined
-  await withPrepareProgress(options?.onProgress, {
+  await withWorkspaceProgress(options?.onProgress, {
     id: "workspace.prepare.reset-sandbox",
     label: "Resetting sandbox workspace",
   }, async () => await resetHostWorkspaceRoot(host, root))
   if (revision?.archive) {
-    await withPrepareProgress(options?.onProgress, {
+    await withWorkspaceProgress(options?.onProgress, {
       data: {
         bytes: revision.archive.byteLength,
         files: revision.files,
@@ -512,7 +490,7 @@ async function materializeWorkspace(workspace: Workspace, host: WorkspaceSession
     await sanitizeHostSymlinks(host, root)
     return { revision: revision.revision, snapshot: await snapshotHost(host, root, "host-open") }
   }
-  const entries = await withPrepareProgress(options?.onProgress, {
+  const entries = await withWorkspaceProgress(options?.onProgress, {
     data: { paths: paths ?? null },
     id: "workspace.prepare.entries",
     label: "Resolving workspace entries",
@@ -523,7 +501,7 @@ async function materializeWorkspace(workspace: Workspace, host: WorkspaceSession
     throw workspaceError(`[vitehub] Workspace path crosses a symlink parent: ${nested.path}.`)
   for (const entry of entries.filter(entry => entry.type === "directory"))
     await host.files.mkdir(toHostPath(root, entry.path), { recursive: true })
-  await withPrepareProgress(options?.onProgress, {
+  await withWorkspaceProgress(options?.onProgress, {
     data: {
       bytes: entries.reduce((total, entry) => total + (entry.size || 0), 0),
       files: entries.filter(entry => entry.type === "file").length,

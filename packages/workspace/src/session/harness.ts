@@ -3,6 +3,7 @@ import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { resolveWorkspaceAutoCommit } from "../core/rules.ts"
+import { withWorkspaceProgress } from "./progress.ts"
 import { isMissingWorkspacePathError } from "./scope.ts"
 
 import type { ExecutionAuthority } from "@vite-hub/runtime"
@@ -79,25 +80,6 @@ function normalizeSessionPaths(paths?: readonly string[]): string[] | undefined 
   const normalized = [...new Set(paths.map(path => normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })))]
   if (normalized.includes("")) return undefined
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
-}
-
-async function withPrepareProgress<T>(
-  onProgress: PrepareHarnessWorkspaceSessionOptions["onProgress"],
-  event: Pick<WorkspacePrepareSessionProgressEvent, "id" | "label"> & { data?: Record<string, unknown> },
-  fn: () => Promise<T>,
-) {
-  const startedAt = Date.now()
-  await onProgress?.({ data: event.data, id: event.id, label: event.label, status: "started" })
-  try {
-    const result = await fn()
-    await onProgress?.({ data: event.data, durationMs: Date.now() - startedAt, id: event.id, label: event.label, status: "completed" })
-    return result
-  }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    await onProgress?.({ data: { ...event.data, error: message }, durationMs: Date.now() - startedAt, error: message, id: event.id, label: event.label, status: "failed" })
-    throw error
-  }
 }
 
 async function materializeWorkspaceSourcesForSession(
@@ -197,7 +179,7 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): {
 }
 
 async function initializeSandboxGitBaseline(session: WorkspaceSession, onProgress: PrepareHarnessWorkspaceSessionOptions["onProgress"]) {
-  await withPrepareProgress(onProgress, {
+  await withWorkspaceProgress(onProgress, {
     id: "workspace.prepare.git-status",
     label: "Preparing workspace status",
   }, async () => {
@@ -210,7 +192,7 @@ export async function prepareHarnessWorkspaceSession(
   options: PrepareHarnessWorkspaceSessionOptions,
 ): Promise<HarnessWorkspaceSession> {
   const paths = normalizeSessionPaths(options.paths)
-  await withPrepareProgress(options.onProgress, {
+  await withWorkspaceProgress(options.onProgress, {
     data: { paths: paths ?? null },
     id: "workspace.prepare.materialize",
     label: "Materializing workspace sources",
@@ -220,7 +202,7 @@ export async function prepareHarnessWorkspaceSession(
   }))
 
   const sessionHost = harnessWorkspaceHost(options)
-  const session = await withPrepareProgress(options.onProgress, {
+  const session = await withWorkspaceProgress(options.onProgress, {
     data: { paths: paths ?? null },
     id: "workspace.prepare.start-session",
     label: "Starting workspace session",
