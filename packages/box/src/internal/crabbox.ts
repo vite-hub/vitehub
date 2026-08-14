@@ -318,7 +318,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
         }
         if (leaseId && remoteRoot) {
           await runCrabbox(sessionOptions, leaseId, {
-            command: removeDisposableRootCommand(remoteRoot),
+            command: removeDisposableRootCommand(remoteRoot, remoteStatePaths),
           }).catch(() => undefined);
         }
         releaseWorkspace()
@@ -717,7 +717,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       }
       finally {
         let cleanupFailure: unknown
-        const result = await runCrabbox(state.options, state.leaseId, { command: removeDisposableRootCommand(state.root) }).catch((error) => {
+        const result = await runCrabbox(state.options, state.leaseId, { command: removeDisposableRootCommand(state.root, state.statePaths) }).catch((error) => {
           cleanupFailure = error
           return undefined
         })
