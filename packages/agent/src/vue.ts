@@ -16,12 +16,12 @@ export interface AgentClient {
   readonly name: string
 }
 
-type AgentChatInitBase<UI_MESSAGE extends UIMessage> = Omit<ChatInit<UI_MESSAGE>, "transport">
+type AgentChatInitBase<UI_MESSAGE extends UIMessage> = Omit<ChatInit<UI_MESSAGE>, "id" | "transport">
   & Pick<HttpChatTransportInitOptions<UI_MESSAGE>, "api" | "credentials" | "fetch" | "headers">
 
 export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = AgentChatInitBase<UI_MESSAGE> & (
-  | { resume: true, transport?: never }
-  | { resume?: false, transport?: ChatInit<UI_MESSAGE>["transport"] }
+  | { id: string, resume: true, transport?: never }
+  | { id?: string, resume?: false, transport?: ChatInit<UI_MESSAGE>["transport"] }
 )
 
 export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
@@ -62,12 +62,18 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const initialOptions = toValue(options)
   const currentOptions = shallowRef(initialOptions)
   const liveOptions = shallowRef(initialOptions)
+  if (currentOptions.value.resume && !currentOptions.value.id?.trim()) {
+    throw new TypeError("[vitehub] Resumable web chat requires a stable id.")
+  }
   if (currentOptions.value.resume && currentOptions.value.transport) {
     throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
   }
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
-  watch(() => toValue(options).id, () => {
+  watch([() => toValue(options).id, () => toValue(options).resume], () => {
     currentOptions.value = toValue(options)
+    if (currentOptions.value.resume && !currentOptions.value.id?.trim()) {
+      throw new TypeError("[vitehub] Resumable web chat requires a stable id.")
+    }
     if (currentOptions.value.resume && currentOptions.value.transport) {
       throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
     }

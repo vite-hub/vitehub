@@ -182,7 +182,22 @@ describe("Agent Vue clients", () => {
     const transport = { reconnectToStream: async () => null, sendMessages: async () => null } as never
     const scope = effectScope()
 
-    expect(() => scope.run(() => useChat(useAgent("support"), { resume: true, transport } as never))).toThrow("does not support a custom transport")
+    expect(() => scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true, transport } as never))).toThrow("does not support a custom transport")
+    scope.stop()
+  })
+
+  it("requires a stable ID and reacts when resume is enabled", async () => {
+    vi.stubGlobal("window", {})
+    const scope = effectScope()
+    expect(() => scope.run(() => useChat(useAgent("support"), { resume: true } as never))).toThrow("requires a stable id")
+
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const options = ref({ id: "chat-1", resume: false })
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    options.value = { id: "chat-1", resume: true }
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(chat.status.value).toBe("ready")
     scope.stop()
   })
 

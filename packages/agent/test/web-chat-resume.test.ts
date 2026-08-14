@@ -429,7 +429,7 @@ describe("resumable web chat", () => {
       expect((await handler(chatRequest("GET"), options)).status).toBe(429)
       await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
       expect(handler.inspect()).toMatchObject({ liveSubscribers: 0 })
-      await Promise.all(replays.map(response => response.body!.cancel()))
+      await Promise.allSettled(replays.map(response => response.body!.cancel()))
     }
     finally {
       streamAgentTrigger.mockRestore()

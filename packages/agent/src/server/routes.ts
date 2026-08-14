@@ -3906,8 +3906,11 @@ function normalizeResumableChatStreamResponse(response: Response, messageId: str
       controller.enqueue(part)
     },
   }))
+  const headers = new Headers(response.headers)
+  headers.delete("content-encoding")
+  headers.delete("content-length")
   return createAgentUIMessageStreamResponse({
-    headers: response.headers,
+    headers,
     status: response.status,
     statusText: response.statusText,
     stream,
@@ -3972,7 +3975,7 @@ function resumableChatResponse(run: ResumableChatRun): Response {
     const terminate = () => {
       release()
       try {
-        streamController?.close()
+        streamController?.error(new Error("[vitehub] Resumable web chat replay was released before delivery completed."))
       }
       catch {}
     }
@@ -4078,6 +4081,14 @@ async function waitForResumableChatSetup(setup: Promise<void>, signal: AbortSign
     })
   }
   return settled
+}
+
+async function waitForResumableChatReady(ready: Promise<void>, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return false
+  return await Promise.race([
+    ready.then(() => true),
+    new Promise<false>((resolve) => signal.addEventListener("abort", () => resolve(false), { once: true })),
+  ])
 }
 
 function resumableChatKey(agentName: string, channelId: string | undefined, owner: string, chatId: string, messageId?: string): string {
@@ -4191,7 +4202,8 @@ export function createChannelChatRouteHandler(
         }
         const pendingSetup = latestResumableClaimSetups.get(key)
         const waitsForSetup = Boolean(pendingSetup && (!run || pendingSetup.sequence > run.requestSequence))
-        if (waitsForSetup || !run) {
+        const waitsForReady = Boolean(run && !run.consume && !run.done && !run.setupError)
+        if (waitsForSetup || waitsForReady || !run) {
           if ((resumableLookupOwners.get(owner) || 0) >= resumableChatMaxPendingLookups) {
             throw createRouteError(429, "Resumable web chat has too many pending lookups. Try again later.")
           }
@@ -4206,6 +4218,9 @@ export function createChannelChatRouteHandler(
               run = latestResumableRuns.get(key)
             }
             run ||= await waitForResumableChatRun(latestResumableRuns, key, request.signal)
+            if (run && !run.consume && !run.done && !run.setupError && !await waitForResumableChatReady(run.ready, request.signal)) {
+              return new Response(null, { status: 204 })
+            }
           }
           finally {
             const lookups = (resumableLookupOwners.get(owner) || 1) - 1
@@ -4274,7 +4289,24 @@ export function createChannelChatRouteHandler(
           }
           const existingRun = resumableRuns.get(invocationKey)
           if (existingRun) {
-            await existingRun.ready
+            if (!existingRun.consume && !existingRun.done && !existingRun.setupError) {
+              const ownerPendingClaims = [...resumableClaimOwners.values()].filter(claimOwner => claimOwner === owner).length
+                + (resumableClaimWaiters.get(owner!) || 0)
+              if (ownerPendingClaims >= resumableChatMaxPendingClaims || resumableClaimSetups.size + resumableClaimWaiterCount >= resumableChatMaxTotalPendingClaims) {
+                throw createRouteError(429, "Resumable web chat has too many pending claims. Try again later.")
+              }
+              resumableClaimWaiters.set(owner!, (resumableClaimWaiters.get(owner!) || 0) + 1)
+              resumableClaimWaiterCount++
+              try {
+                if (!await waitForResumableChatReady(existingRun.ready, request.signal)) return new Response(null, { status: 204 })
+              }
+              finally {
+                const waiters = (resumableClaimWaiters.get(owner!) || 1) - 1
+                if (waiters) resumableClaimWaiters.set(owner!, waiters)
+                else resumableClaimWaiters.delete(owner!)
+                resumableClaimWaiterCount--
+              }
+            }
             if (existingRun.cancelled) return new Response(null, { status: 204 })
             if (existingRun.setupError) throw existingRun.setupError
             return resumableChatResponse(existingRun)

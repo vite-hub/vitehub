@@ -85,7 +85,7 @@ export default defineAgent({
 
 Resumable routes buffer active and recently completed streams in one server process. A reload reconnects without cancelling the Agent Invocation, while `await stop()` resolves only after the server accepts explicit cancellation. This mode does not survive a process restart or coordinate multiple replicas.
 
-Once the server route has `resumable.owner`, enable reconnects with `useChat(agent, { resume: true })`.
+Once the server route has `resumable.owner`, enable reconnects with a stable application-owned chat ID: `useChat(agent, { id: conversationId, resume: true })`. The same ID must be restored after reload so ViteHub can find the retained run.
 
 Use an application-owned route and [`streamAgentTrigger()`](/docs/agents/triggers#consume-a-capability-trigger) when the shared dispatcher is not the right authentication or request boundary.
 
