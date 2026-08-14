@@ -3,13 +3,11 @@ import { DefaultChatTransport } from "ai"
 import { computed, onScopeDispose, shallowRef, toValue, watch } from "vue"
 
 import { defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.ts"
-import { updateAgentChatStreamedParts } from "./internal/chat-data.ts"
 import { createAgentChatData } from "./messages.ts"
 
 import type { UseChatHelpers } from "@ai-sdk/vue"
 import type { ChatInit, UIMessage } from "ai"
 import type { AgentChatData } from "./messages.ts"
-import type { AgentChatStreamedPart } from "./internal/chat-data.ts"
 import type { ComputedRef, MaybeRefOrGetter } from "vue"
 
 declare const __VITEHUB_APP_BASE_URL__: string
@@ -20,6 +18,7 @@ export interface AgentClient {
 
 export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE> & {
   api?: string
+  resume?: boolean
 }
 
 export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
@@ -58,58 +57,73 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   options: AgentChatInit<UI_MESSAGE> | MaybeRefOrGetter<AgentChatReactiveInit<UI_MESSAGE>> = {},
 ): AgentChatHelpers<UI_MESSAGE> {
   const initialOptions = toValue(options)
-  const constructorOptions = shallowRef(initialOptions)
-  const latestOptions = shallowRef(initialOptions)
-  const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
-  const resolveTransport = () => latestOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
-    api: latestOptions.value.api ?? agentChatRoute(agent.name),
+  const currentOptions = shallowRef(initialOptions)
+  const liveOptions = shallowRef(initialOptions)
+  const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
+  watch(() => toValue(options).id, () => {
+    currentOptions.value = toValue(options)
+    streamedParts.value = []
+    if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   })
-  const transport = {
-    reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
-      resolveTransport().reconnectToStream(...args)
-    ),
-    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => (
-      resolveTransport().sendMessages(...args)
-    ),
-  }
+  const reconnecting = shallowRef(false)
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
+    const { api, onData, resume: _resume, transport, ...init } = currentOptions.value
+    const route = api ?? agentChatRoute(agent.name)
     return {
       ...init,
       onData(part) {
-        streamedParts.value = updateAgentChatStreamedParts(streamedParts.value, part)
-        latestOptions.value.onData?.(part)
+        if (part.type.startsWith("data-") && (part as { transient?: boolean }).transient === true) {
+          streamedParts.value = [
+            ...streamedParts.value.filter(streamed => streamed.type !== part.type),
+            part,
+          ]
+        }
+        else if (part.type.startsWith("data-")) {
+          streamedParts.value = streamedParts.value.filter(streamed => streamed.type !== part.type)
+        }
+        liveOptions.value.onData?.(part)
       },
-      onError: error => latestOptions.value.onError?.(error),
-      onFinish: result => latestOptions.value.onFinish?.(result),
-      onToolCall: result => latestOptions.value.onToolCall?.(result),
-      sendAutomaticallyWhen: result => latestOptions.value.sendAutomaticallyWhen?.(result) ?? false,
-      transport,
+      transport: transport ?? new DefaultChatTransport<UI_MESSAGE>({
+        api: route,
+        prepareReconnectToStreamRequest({ credentials, headers, id }) {
+          return {
+            api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
+            credentials,
+            headers,
+          }
+        },
+      }),
     }
   })
-  watch(() => toValue(options), (next, previous) => {
-    const prior = latestOptions.value
-    latestOptions.value = next
-    if (next.id !== previous.id) {
-      constructorOptions.value = next
-      streamedParts.value = []
-      return
-    }
+  if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
+  onScopeDispose(() => {
+    if (!currentOptions.value.resume) void chat.stop()
+  }, true)
 
-    const nextMessages = next.messages
-    if (nextMessages && nextMessages !== prior.messages) {
-      const currentMessages = chat.messages.value
-      const mirrored = nextMessages.length === currentMessages.length
-        && nextMessages.every((message, index) => message === currentMessages[index])
-      if (!mirrored) {
-        chat.messages.value = nextMessages
-        streamedParts.value = []
-      }
+  async function stop(): Promise<void> {
+    await chat.stop()
+    if (!currentOptions.value.resume || currentOptions.value.transport || !("window" in globalThis)) return
+    const route = currentOptions.value.api ?? agentChatRoute(agent.name)
+    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
+      credentials: "same-origin",
+      method: "DELETE",
+    }).catch(() => undefined)
+  }
+
+  async function reconnect(): Promise<void> {
+    reconnecting.value = currentOptions.value.messages?.at(-1)?.role === "user"
+    try {
+      await chat.resumeStream()
     }
-  })
-  onScopeDispose(chat.stop, true)
+    finally {
+      reconnecting.value = false
+    }
+  }
+
   return {
     ...chat,
+    status: computed(() => reconnecting.value && chat.status.value === "ready" ? "submitted" : chat.status.value),
+    stop,
     data: computed(() => createAgentChatData([
       ...chat.messages.value.flatMap(message => message.parts),
       ...streamedParts.value,

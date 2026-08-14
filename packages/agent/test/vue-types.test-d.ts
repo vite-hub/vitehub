@@ -12,7 +12,7 @@ describe("Agent Vue client types", () => {
     expectTypeOf(agent.name).toEqualTypeOf<string>()
 
     const transport = {} as ChatTransport<UIMessage>
-    const init = { api: "/api/support", transport } satisfies AgentChatInit
+    const init = { api: "/api/support", resume: true, transport } satisfies AgentChatInit
     const chat = useChat(agent, init)
 
     expectTypeOf(chat.id).toEqualTypeOf<ComputedRef<string>>()

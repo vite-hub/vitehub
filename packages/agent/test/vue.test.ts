@@ -230,4 +230,49 @@ describe("Agent Vue clients", () => {
     expect(aborted).toBe(true)
     expect(chat.status.value).toBe("ready")
   })
+
+  it("reports submitted while a resumed stream reconnects without cancelling on disposal", async () => {
+    vi.stubGlobal("window", {})
+    let releaseReconnect!: () => void
+    const reconnect = new Promise<Response>((resolve) => {
+      releaseReconnect = () => resolve(new Response(null, { status: 204 }))
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(() => reconnect)
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(chat.status.value).toBe("submitted")
+    expect(fetch).toHaveBeenCalledWith("/api/_vitehub/agents/support/chat?id=chat-1", expect.anything())
+    releaseReconnect()
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    scope.stop()
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("sends explicit resumable chat cancellation through DELETE", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await chat.stop()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-1", {
+      credentials: "same-origin",
+      method: "DELETE",
+    })
+    scope.stop()
+  })
 })

@@ -53,7 +53,7 @@ Use the Vue client from the application:
 import { useAgent, useChat } from '@vite-hub/agent/vue'
 
 const agent = useAgent('support')
-const { messages, status, sendMessage, stop } = useChat(agent)
+const { messages, status, sendMessage, stop } = useChat(agent, { resume: true })
 </script>
 ```
 
@@ -70,16 +70,20 @@ export default defineAgent({
         admission: {
           authenticate({ rawBody, request }) {
             verifyPortalSignature(rawBody, request.headers.get('x-portal-signature'))
-            return { customer: request.headers.get('x-customer') }
+            const customer = request.headers.get('x-customer')
+            return customer ? { customer } : false
           },
         },
         input: { trust: ['meta', 'user', 'session'] },
+        resumable: { owner: ({ auth }) => auth.customer },
       },
     }),
   },
   driver: { run: () => 'ok' },
 })
 ```
+
+Resumable routes buffer active and recently completed streams in one server process. A reload reconnects without cancelling the Agent Invocation, while `stop()` explicitly cancels it. This mode does not survive a process restart or coordinate multiple replicas.
 
 Use an application-owned route and [`streamAgentTrigger()`](/docs/agents/triggers#consume-a-capability-trigger) when the shared dispatcher is not the right authentication or request boundary.
 

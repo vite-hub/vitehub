@@ -27,6 +27,8 @@ export type {
   AgentChannelChatRouteInputOptions,
   AgentChannelChatRouteMapInputContext,
   AgentChannelChatRouteRequestOptions,
+  AgentChannelChatRouteResumableContext,
+  AgentChannelChatRouteResumableOptions,
   AgentChannelChatRouteStandardSchemaResultFailure,
   AgentChannelChatRouteStandardSchemaResultSuccess,
   AgentChannelChatRouteStandardSchemaV1,
