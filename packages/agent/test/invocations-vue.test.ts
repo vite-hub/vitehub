@@ -140,6 +140,9 @@ describe("Agent Invocation Vue composables", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(requestMock).toHaveBeenCalledTimes(2);
     await expect(resource.refresh()).resolves.toBeUndefined();
+    resource.cursor.value = "next";
+    await expect(resource.loadMore()).resolves.toBeUndefined();
+    expect(requestMock).toHaveBeenCalledTimes(2);
     scope.stop();
   });
 

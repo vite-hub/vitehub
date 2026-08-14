@@ -19,7 +19,7 @@ export default defineConfig({
     },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/, /^eve\/extension$/],
+      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/],
       neverBundle: [
         "vite",
         "esbuild",
@@ -29,6 +29,7 @@ export default defineConfig({
         "@vite-hub/rate-limit",
         "@vite-hub/workflow",
         /^@vite-hub\/workflow\//,
+        "eve/extension",
         "cloudflare:workers",
         /^@chat-adapter\/telegram$/,
         /^evalite/,
