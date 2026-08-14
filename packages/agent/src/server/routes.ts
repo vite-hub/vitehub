@@ -950,20 +950,28 @@ async function steerQueuedWebhookDelivery(
           keepLockUntilInvocationSettles = true
           const settlement = active.result
             .then(async () => {
-              const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
-              if (completed) await state.set(claimKey, "steered")
-              else await state.delete(claimKey)
+              let completed: boolean
+              try {
+                completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
+              }
+              catch {
+                await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now()).catch(() => false)
+                await state.delete(claimKey).catch(() => undefined)
+                return false
+              }
+              if (completed) await state.set(claimKey, "steered").catch(() => undefined)
+              else await state.delete(claimKey).catch(() => undefined)
               return completed
             })
             .catch(async () => {
-              await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
-              await state.delete(claimKey)
+              await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now()).catch(() => false)
+              await state.delete(claimKey).catch(() => undefined)
               return false
             })
             .finally(async () => {
               stopDeliveryHeartbeat()
               stopHeartbeat()
-              await state.releaseLock(lock)
+              await state.releaseLock(lock).catch(() => false)
             })
           waitUntil?.(settlement.then(() => undefined).catch(() => undefined))
           return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }), settlement }
@@ -2267,11 +2275,15 @@ async function resolveWorkflowAgentChannelDelivery(
   return await resumeAgentChannelDelivery(state.state, binding.deliveryId)
 }
 
-setAgentChannelDeliveryWorkflowResolver(async (agent, context, binding) => await resolveWorkflowAgentChannelDelivery(
-  agent as AgentInput<ViteAgentRouteRuntimeContext>,
-  context as ViteAgentRouteRuntimeContext,
-  binding,
-))
+export function installAgentChannelDeliveryWorkflowResolver(): void {
+  setAgentChannelDeliveryWorkflowResolver(async (agent, context, binding) => await resolveWorkflowAgentChannelDelivery(
+    agent as AgentInput<ViteAgentRouteRuntimeContext>,
+    context as ViteAgentRouteRuntimeContext,
+    binding,
+  ))
+}
+
+installAgentChannelDeliveryWorkflowResolver()
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {
   return isRecord(options) ? options[key] as T | undefined : undefined
@@ -3263,8 +3275,8 @@ async function handleChatSdkMessage(
     input = { ...input, messages }
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) {
-      await delivery.event({ type: "accepted" })
-      await delivery.event({ type: "completed" })
+      await recordChannelDeliveryEvidence(delivery, { type: "accepted" })
+      await recordChannelDeliveryEvidence(delivery, { type: "completed" })
       return
     }
 
@@ -3272,8 +3284,8 @@ async function handleChatSdkMessage(
     const manualDelivery = options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     run = invocation.run
-    await delivery.event({ type: "accepted", runId: run?.runId })
-    await delivery.event({ type: "invocation.started", runId: run?.runId })
+    await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: run?.runId })
+    await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: run?.runId })
     invocationStarted = true
     const runContext = {
       ...context,
