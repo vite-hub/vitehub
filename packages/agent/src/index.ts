@@ -3077,7 +3077,7 @@ async function materializeAgentStructuredOutput(
     if (event.type === "error") {
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
       const rejectedText = typeof streamError?.text === "string" ? streamError.text : text
-      if (output && rejectedText && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
+      if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
       throw streamError ?? new Error(event.error)
     }
     if (event.type === "text-delta") text += event.text

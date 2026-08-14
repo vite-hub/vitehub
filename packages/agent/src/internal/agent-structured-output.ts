@@ -20,7 +20,7 @@ function agentOutputValidationError(code: AgentOutputValidationErrorCode, option
 }
 
 export async function normalizeNativeAgentOutputError(output: AgentOutputDefinition | undefined, error: unknown): Promise<never> {
-  const text = error && typeof error === "object" && "text" in error && typeof error.text === "string" ? error.text : undefined
+  const text = error && typeof error === "object" && "text" in error && typeof error.text === "string" && "name" in error && error.name === "AI_NoObjectGeneratedError" ? error.text : undefined
   if (output && text !== undefined) await validateAgentOutput(output, text)
   throw error
 }
