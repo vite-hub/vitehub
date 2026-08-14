@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliveryMessageIdentity, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -3530,6 +3530,11 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const messages = serial ? [...messageContext?.skipped ?? [], message] : [message]
+  const currentDelivery = agentChannelDeliveryTracker(context)
+  const currentMessageId = deliverySourceValue(message.id)
+  if (currentDelivery && currentMessageId) {
+    await bindAgentChannelDeliveryMessage(state.state, currentDelivery, chatRegistrationOrigin(registration), message.threadId, currentMessageId)
+  }
   const stopRefreshingLock = serial
     ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options))
     : () => undefined
@@ -3544,13 +3549,15 @@ async function handleChatSdkMessages(
           ? await serialMessageDeliveryKind(queuedThread, queuedMessage)
           : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
-        const queuedDelivery = serial && queuedMessage !== message
-          ? await openAgentChannelDelivery(state.state, {
+        const queuedMessageId = deliverySourceValue(queuedMessage.id)
+        const queuedDelivery = serial && queuedMessage !== message && queuedMessageId
+          ? await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)
+            || await openAgentChannelDelivery(state.state, {
               agentName: context.agentIdentity?.name || "agent",
               channelId: registration.channelId,
               provider: chatRegistrationOrigin(registration),
               scope: `${state.keyPrefix}${queuedThread.id}`,
-              sourceId: deliverySourceValue(queuedMessage.id) || randomToken(),
+              sourceId: queuedMessageId,
             })
           : undefined
         const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
@@ -4373,6 +4380,7 @@ export function createChannelWebhookRouteHandler(
         : undefined)
       if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       await deliveryState.state.connect()
+      const webhookPayload = parseWebhookPayload(await request.clone().text())
       const channelDelivery = await openAgentChannelDelivery(deliveryState.state, {
         agentName: context.agentIdentity?.name || "agent",
         channelId: registration.channelId,
@@ -4380,6 +4388,10 @@ export function createChannelWebhookRouteHandler(
         scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
         sourceId: await webhookDeliverySourceId(request, registration.provider),
       })
+      const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
+      if (messageIdentity) {
+        await bindAgentChannelDeliveryMessage(deliveryState.state, channelDelivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId)
+      }
       context = withAgentChannelDelivery(context, channelDelivery)
 
       if (trigger.id !== "chat.message") {

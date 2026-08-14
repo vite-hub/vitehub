@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliverySourceId, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage } from "../src/internal/channel-delivery.ts"
 
 import type { StateAdapter } from "chat"
 
@@ -9,6 +9,12 @@ describe("Agent Channel delivery source identity", () => {
     expect(agentChannelDeliverySourceId("teams", { id: "activity-1" })).toBe("activity-1")
     expect(agentChannelDeliverySourceId("custom", { id: "resource-1" })).toBeUndefined()
     expect(agentChannelDeliverySourceId("custom", { event: { id: "event-1" }, id: "resource-1" })).toBe("event-1")
+  })
+
+  it("extracts Telegram message identity separately from provider event identity", () => {
+    const payload = { message: { chat: { id: 456 }, message_id: 7 }, update_id: 42 }
+    expect(agentChannelDeliverySourceId("telegram", payload)).toBe("42")
+    expect(agentChannelDeliveryMessageIdentity("telegram", payload)).toEqual({ messageId: "7", threadId: "telegram:456" })
   })
 })
 
@@ -190,6 +196,23 @@ describe("Agent Channel delivery journal", () => {
 
     expect(duplicate.duplicate).toBe(true)
     expect(activeAgentChannelDelivery(first.delivery.id)).toBeUndefined()
+    info.mockRestore()
+  })
+
+  it("resumes provider-event custody through a durable message alias", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      provider: "telegram",
+      scope: "channel:support:telegram",
+      sourceId: "update-42",
+    })
+    await bindAgentChannelDeliveryMessage(state, delivery, "telegram", "telegram:456", "7")
+
+    const resumed = await resumeAgentChannelDeliveryMessage(state, "telegram", "telegram:456", "7")
+
+    expect(resumed?.delivery.id).toBe(delivery.delivery.id)
     info.mockRestore()
   })
 })

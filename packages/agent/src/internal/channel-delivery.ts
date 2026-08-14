@@ -39,6 +39,10 @@ function deliveryEventsKey(deliveryId: string): string {
   return `deliveries:${deliveryId}:events`
 }
 
+function messageKey(provider: string, threadId: string, messageId: string): string {
+  return `deliveries:message:${encodeURIComponent(`${provider}:${threadId}:${messageId}`)}`
+}
+
 function sourceKey(delivery: Pick<AgentChannelDelivery, "provider" | "scope" | "sourceId">): string {
   return `deliveries:source:${encodeURIComponent(`${delivery.provider}:${delivery.scope}:${delivery.sourceId}`)}`
 }
@@ -61,6 +65,18 @@ export function agentChannelDeliverySourceId(provider: string, payload: unknown)
     || (provider === "teams" ? sourceValue(record.id) : undefined)
     || sourceValue(activity?.id)
     || sourceValue(event?.id)
+}
+
+export function agentChannelDeliveryMessageIdentity(provider: string, payload: unknown): { messageId: string, threadId: string } | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return
+  const record = payload as Record<string, unknown>
+  if (provider === "telegram") {
+    const message = record.message && typeof record.message === "object" && !Array.isArray(record.message) ? record.message as Record<string, unknown> : undefined
+    const chat = message?.chat && typeof message.chat === "object" && !Array.isArray(message.chat) ? message.chat as Record<string, unknown> : undefined
+    const messageId = sourceValue(message?.message_id)
+    const chatId = sourceValue(chat?.id)
+    if (messageId && chatId) return { messageId, threadId: `telegram:${chatId}` }
+  }
 }
 
 function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): void {
@@ -161,6 +177,26 @@ export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<
 export async function resumeAgentChannelDelivery(state: StateAdapter, deliveryId: string): Promise<AgentChannelDeliveryTracker | undefined> {
   const stored = await state.get<AgentChannelDelivery>(deliveryRecordKey(deliveryId))
   return stored ? tracker(state, stored, false) : undefined
+}
+
+export async function bindAgentChannelDeliveryMessage(
+  state: StateAdapter,
+  delivery: AgentChannelDeliveryTracker,
+  provider: string,
+  threadId: string,
+  messageId: string,
+): Promise<void> {
+  await state.set(messageKey(provider, threadId, messageId), delivery.delivery.id, retentionMs)
+}
+
+export async function resumeAgentChannelDeliveryMessage(
+  state: StateAdapter,
+  provider: string,
+  threadId: string,
+  messageId: string,
+): Promise<AgentChannelDeliveryTracker | undefined> {
+  const deliveryId = await state.get<string>(messageKey(provider, threadId, messageId))
+  return deliveryId ? await resumeAgentChannelDelivery(state, deliveryId) : undefined
 }
 
 export function agentChannelDeliveryTracker(context: AgentRuntimeContext): AgentChannelDeliveryTracker | undefined {
