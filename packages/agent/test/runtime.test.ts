@@ -3595,6 +3595,7 @@ describe("agent message protocol", () => {
         id: "m2",
         parts: [
           { data: { text: "quoted reply" }, type: "data-chat-reply-text" },
+          { data: { title: "UI title" }, type: "data-title" },
           { text: "assistant response", type: "text" },
         ],
         role: "assistant",

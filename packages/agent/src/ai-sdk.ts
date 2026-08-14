@@ -204,7 +204,7 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
   if (part.type === "text") {
     return { text: part.text, type: "text" as const }
   }
-  if (isDataMessagePart(part)) {
+  if (isDataMessagePart(part) && (part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context")) {
     return { text: JSON.stringify(part.data), type: "text" as const }
   }
   if (part.type === "tool-call") {
