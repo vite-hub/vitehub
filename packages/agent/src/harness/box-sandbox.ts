@@ -150,16 +150,6 @@ function adaptBoxSession(session: BoxSession, preparationSignal?: AbortSignal): 
   return adapted
 }
 
-async function adaptOrClose(session: BoxSession, preparationSignal?: AbortSignal) {
-  try {
-    return adaptBoxSession(session, preparationSignal)
-  }
-  catch (error) {
-    await session.close().catch(() => undefined)
-    throw error
-  }
-}
-
 async function openInvocationBox(box: Box, options: Parameters<typeof openHarnessBox>[1], signal?: AbortSignal) {
   const opening = openHarnessBox(box, options)
   if (!signal) return await opening
@@ -205,7 +195,7 @@ export function createBoxHarnessSandbox(
       }, options?.abortSignal)
       try {
         options?.abortSignal?.throwIfAborted()
-        return adapted || await adaptOrClose(session, options?.abortSignal)
+        return adapted || adaptBoxSession(session, options?.abortSignal)
       }
       catch (error) {
         await session.close().catch(() => undefined)
@@ -217,7 +207,7 @@ export function createBoxHarnessSandbox(
       const session = await openInvocationBox(box, { id: options.sessionId }, options.abortSignal)
       try {
         options.abortSignal?.throwIfAborted()
-        return await adaptOrClose(session, options.abortSignal)
+        return adaptBoxSession(session, options.abortSignal)
       }
       catch (error) {
         await session.close().catch(() => undefined)
