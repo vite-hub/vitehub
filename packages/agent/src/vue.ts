@@ -89,8 +89,13 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       fetch(input, requestInit) {
         const request = fetch ?? globalThis.fetch
         const controller = requestInit?.method === "GET" ? reconnectAbort : undefined
+        const headers = new Headers(requestInit?.headers)
+        if (requestInit?.method === "POST" && liveOptions.value.resume) {
+          headers.set("x-vitehub-resumable", "true")
+        }
         return request(input, {
           ...requestInit,
+          headers,
           ...(controller ? { signal: controller.signal } : {}),
         }).catch((error) => {
           if (controller?.signal.aborted) {

@@ -4265,7 +4265,8 @@ export function createChannelChatRouteHandler(
       const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, event: handlerOptions.event, rawBody: parsed.rawBody, request })
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
-      const resumableAbortController = resumable ? new AbortController() : undefined
+      const resumes = Boolean(resumable && request.headers.get("x-vitehub-resumable") === "true")
+      const resumableAbortController = resumes ? new AbortController() : undefined
       const context = createRuntimeContext(
         createRuntimeRequest(request, parsed.rawBody, resumableAbortController?.signal),
         undefined,
@@ -4282,7 +4283,7 @@ export function createChannelChatRouteHandler(
         trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined,
       )
       const inputContext = { agentName, auth: auth as never, body, event: handlerOptions.event, input: trustedInput, rawBody: parsed.rawBody, request }
-      const owner = resumable ? await resumableChatOwner(resumable, inputContext) : undefined
+      const owner = resumes ? await resumableChatOwner(resumable!, inputContext) : undefined
       const admittedInput = mergeAgentChannelChatRouteInput(
         trustedInput,
         await routeOptions.admission?.context?.(inputContext),

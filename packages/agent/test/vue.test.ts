@@ -490,6 +490,19 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("marks resumable POST requests for detached server cancellation", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { fetch, id: "chat-1", resume: true }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await chat.sendMessage({ text: "Hello" })
+    const post = fetch.mock.calls.find(([, init]) => init?.method === "POST")
+    expect(new Headers(post?.[1]?.headers).get("x-vitehub-resumable")).toBe("true")
+    scope.stop()
+  })
+
   it("keeps cancellation tied to the chat options captured when stop starts", async () => {
     vi.stubGlobal("window", {})
     let releaseHeaders!: () => void

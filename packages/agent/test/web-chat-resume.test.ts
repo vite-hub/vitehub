@@ -7,7 +7,7 @@ function chatRequest(method: "DELETE" | "GET" | "POST", owner = "max", messageId
     ...(method === "POST"
       ? { body: JSON.stringify({ id: "chat-1", messageId, messages: [{ id: messageId, parts: [{ text: "hello", type: "text" }], role: "user" }] }) }
       : {}),
-    headers: { "content-type": "application/json", "x-owner": owner },
+    headers: { "content-type": "application/json", "x-owner": owner, ...(method === "POST" ? { "x-vitehub-resumable": "true" } : {}) },
     method,
   })
 }
@@ -148,7 +148,7 @@ describe("resumable web chat", () => {
     const options = { agentName: "support", waitUntil: () => {} }
     const post = new Request("https://example.com/chat", {
       body: JSON.stringify({ id: " chat-1 ", messageId: "user-1", messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }] }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-vitehub-resumable": "true" },
       method: "POST",
     })
     const lookup = (method: "DELETE" | "GET") => new Request("https://example.com/chat?id=%20chat-1%20", { method })
@@ -724,6 +724,37 @@ describe("resumable web chat", () => {
     await Promise.all(pending)
   })
 
+  it("preserves request-abort cancellation for clients that do not opt into resume", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let invocationSignal!: AbortSignal
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async (_agent, context) => {
+      invocationSignal = (context as { request: Request }).request.signal
+      await new Promise<void>((resolve) => invocationSignal.addEventListener("abort", () => resolve(), { once: true }))
+      return new Response(null, { status: 204 })
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const headers = new Headers(chatRequest("POST").headers)
+    headers.delete("x-vitehub-resumable")
+    const controller = new AbortController()
+    const post = handler(new Request(chatRequest("POST"), { headers, signal: controller.signal }), { agentName: "support" })
+
+    try {
+      await vi.waitFor(() => expect(streamAgentTrigger).toHaveBeenCalledOnce())
+      controller.abort()
+      expect(invocationSignal.aborted).toBe(true)
+      await expect(post).resolves.toMatchObject({ status: 204 })
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
   it("cancels every active invocation addressed by DELETE", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
@@ -1165,7 +1196,7 @@ describe("resumable web chat", () => {
       body.session = { action, id: "manual" }
       return new Request("https://example.com/api/_vitehub/agents/support/chat", {
         body: JSON.stringify(body),
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-vitehub-resumable": "true" },
         method: "POST",
       })
     }
