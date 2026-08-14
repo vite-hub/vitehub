@@ -169,7 +169,7 @@ export interface AgentChannelChatRouteResumableContext<TAuth = unknown>
 
 export interface AgentChannelChatRouteResumableOptions<TAuth = unknown> {
   owner: (context: AgentChannelChatRouteResumableContext<TAuth>) => MaybePromise<string>
-  /** ponytail: keeps streams in one handler process; use a shared run adapter when restarts or replicas must resume. */
+  /** Streams stay in one handler process; use shared run storage when restarts or replicas must resume. */
 }
 
 export interface AgentChannelChatRouteHandlerOptions<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown> {
