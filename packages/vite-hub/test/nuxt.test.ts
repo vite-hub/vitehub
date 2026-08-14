@@ -265,6 +265,9 @@ describe("ViteHub Nuxt integration", () => {
         nitro: expect.objectContaining({ preset: "cloudflare_module" }),
         resolve: {
           alias: {
+            "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
+            "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
+            "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
             "~": "/tmp/vitehub-nuxt/app",
           },
         },
@@ -279,6 +282,11 @@ describe("ViteHub Nuxt integration", () => {
     )
     expect(mocks.outputHook).not.toHaveBeenCalled()
     expect(nitroConfig).toEqual({
+      alias: {
+        "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
+        "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
+        "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
+      },
       cloudflare: {
         wrangler: {
           d1_databases: [d1Binding, d1Binding],
@@ -349,6 +357,132 @@ describe("ViteHub Nuxt integration", () => {
         include: ["../.vitehub/types.d.ts", "../apps/api/.vitehub/**/*.d.ts"],
       },
     })
+  })
+
+  it("accepts Env declarations under vitehub and installs generated runtime aliases", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const githubToken = { source: "GITHUB_TOKEN" }
+
+    await viteHubNuxtModule({
+      env: {
+        projectRoot: "apps/api",
+        server: { githubToken },
+      },
+      preset: "node",
+    } as never, nuxt)
+
+    expect(mocks.vitehub).toHaveBeenCalledWith({
+      env: { projectRoot: "apps/api" },
+      preset: "node",
+    })
+    expect(nuxt.options.vite).toMatchObject({
+      env: { server: { githubToken } },
+    })
+    expect(nuxt.options.alias).toMatchObject({
+      "#vitehub/env/server": "/tmp/vitehub-nuxt/apps/api/.vitehub/env/server.mjs",
+      "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
+    })
+
+    const nitroConfig = { alias: { "#vitehub/templates": "./custom-templates.mjs" } }
+    await runNitroConfigHook(nitroConfig)
+    expect(nitroConfig.alias).toMatchObject({
+      "#vitehub/env/server": "/tmp/vitehub-nuxt/apps/api/.vitehub/env/server.mjs",
+      "#vitehub/templates": "./custom-templates.mjs",
+    })
+  })
+
+  it("replaces existing Env array declarations instead of concatenating data values", async () => {
+    const { nuxt } = createNuxt()
+    const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }
+    vite.env = { public: { regions: ["old"] } }
+
+    await viteHubNuxtModule({
+      env: { public: { regions: ["new"] } },
+      preset: "node",
+    } as never, nuxt)
+
+    expect(vite.env).toMatchObject({ public: { regions: ["new"] } })
+  })
+
+  it("merges nested Env declaration namespaces without merging declaration leaves", async () => {
+    const { nuxt } = createNuxt()
+    const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }
+    vite.env = {
+      server: {
+        database: {
+          password: { source: "OLD_PASSWORD" },
+          url: { source: "DATABASE_URL" },
+        },
+      },
+    }
+
+    await viteHubNuxtModule({
+      env: { server: { database: { password: { source: "DATABASE_PASSWORD" } } } },
+      preset: "node",
+    } as never, nuxt)
+
+    expect(vite.env).toMatchObject({
+      server: {
+        database: {
+          password: { source: "DATABASE_PASSWORD" },
+          url: { source: "DATABASE_URL" },
+        },
+      },
+    })
+  })
+
+  it("preserves Env namespace children named source and kind", async () => {
+    const { nuxt } = createNuxt()
+    const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }
+    vite.env = {
+      server: {
+        service: {
+          kind: { source: "SERVICE_KIND" },
+          source: { source: "SERVICE_SOURCE" },
+        },
+      },
+    }
+
+    await viteHubNuxtModule({
+      env: { server: { service: { token: { source: "SERVICE_TOKEN" } } } },
+      preset: "node",
+    } as never, nuxt)
+
+    expect(vite.env).toMatchObject({
+      server: {
+        service: {
+          kind: { source: "SERVICE_KIND" },
+          source: { source: "SERVICE_SOURCE" },
+          token: { source: "SERVICE_TOKEN" },
+        },
+      },
+    })
+  })
+
+  it("derives Env aliases from an existing Env Vite plugin", async () => {
+    const envPlugin = {
+      name: "@vite-hub/env/vite",
+      api: {
+        resolveProjectRoot: (root: string) => resolve(root, "packages/config"),
+      },
+    }
+    const { nuxt } = createNuxt(false, [envPlugin])
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+
+    expect(nuxt.options.alias).toMatchObject({
+      "#vitehub/env/server": "/tmp/vitehub-nuxt/packages/config/.vitehub/env/server.mjs",
+    })
+  })
+
+  it("keeps Env runtime aliases disabled while retaining Markdown templates", async () => {
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ env: false, preset: "node" }, nuxt)
+
+    const alias = nuxt.options.alias as Record<string, string>
+    expect(alias).not.toHaveProperty("#vitehub/env/server")
+    expect(alias["#vitehub/templates"]).toBe("/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs")
   })
 
   it("includes generated types from every configured integration project root", async () => {
@@ -575,7 +709,9 @@ describe("ViteHub Nuxt integration", () => {
     }
     expect(options.imports.imports).toHaveLength(5)
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
-    expect(options.nitro).not.toHaveProperty("alias")
+    expect(options.nitro.alias).toEqual({
+      "#vitehub/templates": "/tmp/vitehub-nuxt/.vitehub/markdown-template/templates.mjs",
+    })
     expect(options.nitro).not.toHaveProperty("plugins")
   })
 
@@ -605,7 +741,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig).toEqual({
+    expect(nitroConfig).toMatchObject({
       modules: ["first", "second"],
     })
   })

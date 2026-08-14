@@ -38,7 +38,7 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
     },
   }
 
-  viteHubNuxtModule({ agent: true, preset: "node" }, nuxt)
+  await viteHubNuxtModule({ agent: true, preset: "node" }, nuxt)
   expect(nuxt.options.vite.define).toMatchObject({
     __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
   })

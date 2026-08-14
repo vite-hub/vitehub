@@ -97,6 +97,28 @@ describe("hubEmail", () => {
     expect(source).toContain("resolveServerEnv(registry,{env:vitehubEmailEnv})")
   })
 
+  it("wires the Cloudflare Email driver to its Worker binding", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({ driver: "unemail/driver/cloudflare-email" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+    const cloudflareConfig = { nitro: { preset: "cloudflare-module" } }
+
+    config(cloudflareConfig)
+    expect(cloudflareConfig).toMatchObject({
+      nitro: {
+        cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } },
+        rollupConfig: { external: ["cloudflare:workers", "cloudflare:email"] },
+      },
+    })
+
+    await resolvePlugin(plugin, root)
+    const source = await loadConfiguredDefinition(plugin)
+    expect(source).toContain("cloudflare:email")
+    expect(source).toContain("binding:vitehubEmailEnv.EMAIL")
+    expect(source).toContain("EmailMessage")
+    expect(source).not.toContain("fileURLToPath(import.meta.url)")
+  })
+
   it("uses the development Nitro preset instead of the deployment target", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({
