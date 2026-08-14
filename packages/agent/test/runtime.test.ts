@@ -11279,6 +11279,35 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("reconciles controlled queued runs without caller inspection", async () => {
+      const { defineAgent, startAgentInvocation } = await import("../src/index.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        "broken-controlled-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
+      })
+      try {
+        const controller = await startAgentInvocation(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+        }), {
+          agentIdentity: { name: "broken-controlled-agent" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {})
+
+        await Promise.all(waitUntilTasks)
+        await expect(invocations.getByRunId(controller.id, "broken-controlled-agent")).resolves.toMatchObject({ status: "failed" })
+      }
+      finally {
+        setWorkflowRuntimeRegistry(undefined)
+      }
+    })
+
     it("does not serialize abort signals into Agent Workflow payloads", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

@@ -261,13 +261,15 @@ function withSiblingWorkspaceSourceRoot<TRuntimeConfig extends AgentRuntimeConfi
   if ("name" in options.workspace) return agent
   if (options.workspace.sourceRootDir) return agent
 
+  // These options came from an already validated Agent Definition; this pass
+  // only fills the inferred workspace source root.
   return defineAgent({
     ...options,
     workspace: {
       ...options.workspace,
       sourceRootDir: inferWorkspaceSourceRoot(agentFile),
     },
-  })
+  } as never) as AgentEvalAgent<TRuntimeConfig>
 }
 
 async function resolveEvalAgent<TRuntimeConfig extends AgentRuntimeConfig>(

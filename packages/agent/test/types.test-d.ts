@@ -69,6 +69,13 @@ describe("agent public types", () => {
       capabilities: arbitraryCapabilities,
       driver: { run: () => "ok" },
     })
+
+    const readonlyArbitraryCapabilities: readonly object[] = [{}]
+    defineAgent({
+      // @ts-expect-error readonly open arrays still validate every Capability
+      capabilities: readonlyArbitraryCapabilities,
+      driver: { run: () => "ok" },
+    })
   })
 
   it("preserves call options through queued webhook rehydration", () => {
