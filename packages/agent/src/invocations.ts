@@ -377,7 +377,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         context: {
           ...context,
           run: { ...context.run, runId },
-          trace: context.trace || { id: traceId },
+          trace: context.trace || { id: runId },
           traceLog: journalTraceLog(baseTraceLog, observe),
         },
         async finish(status, error) {

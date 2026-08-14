@@ -23,8 +23,12 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 describe("Agent Invocations", () => {
   it("records safe lifecycle observations while keeping list rows bounded", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    let runtimeTraceId: string | undefined
     const agent = defineAgent({
-      driver: { run: () => "done" },
+      driver: { run: (context) => {
+        runtimeTraceId = context.trace?.id
+        return "done"
+      } },
       invocations,
       runtime: false,
     })
@@ -51,6 +55,7 @@ describe("Agent Invocations", () => {
       "agent.invocation.finish",
     ])
     expect(record?.observations.every(event => event.attributes?.prompt === undefined)).toBe(true)
+    expect(runtimeTraceId).toBe("run-1")
 
     const listed = await invocations.list()
     expect(listed.invocations).toHaveLength(1)

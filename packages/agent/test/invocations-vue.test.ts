@@ -119,6 +119,28 @@ describe("Agent Invocation Vue composables", () => {
     expect(resource.isLoading.value).toBe(false);
   });
 
+  it("does not paginate while refreshing the first page", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ request }))!;
+
+    calls[0]!.resolve({
+      cursor: "next",
+      invocations: [record("inv-1")],
+    } satisfies AgentInvocationListResult);
+    await settle();
+
+    const refresh = resource.refresh();
+    expect(resource.isLoading.value).toBe(true);
+    await expect(resource.loadMore()).resolves.toBeUndefined();
+    expect(calls).toHaveLength(2);
+
+    calls[1]!.resolve({ invocations: [record("inv-2")] } satisfies AgentInvocationListResult);
+    await refresh;
+    expect(resource.invocations.value).toEqual([record("inv-2")]);
+    scope.stop();
+  });
+
   it("polls after completion and stop cancels future work", async () => {
     vi.useFakeTimers();
     const requestMock = vi.fn(async () => ({

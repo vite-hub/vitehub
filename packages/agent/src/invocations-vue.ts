@@ -232,7 +232,7 @@ export function useAgentInvocations(
   });
 
   async function loadMore(): Promise<AgentInvocationListResult | undefined> {
-    if (stopped) return;
+    if (stopped || resource.isLoading.value) return;
     const nextCursor = cursor.value;
     if (!nextCursor) return;
     loadMoreController?.abort();
