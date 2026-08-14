@@ -11250,6 +11250,35 @@ describe("agent message protocol", () => {
       expect(record?.observations.every(observation => observation.trace?.id === record.traceId)).toBe(true)
     })
 
+    it("reconciles ordinary queued runs that fail before the Agent worker starts", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        "broken-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
+      })
+      try {
+        const run = await runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+        }), {
+          agentIdentity: { name: "broken-agent" },
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string }
+
+        await Promise.all(waitUntilTasks)
+        await expect(invocations.getByRunId(run.id, "broken-agent")).resolves.toMatchObject({ status: "failed" })
+      }
+      finally {
+        setWorkflowRuntimeRegistry(undefined)
+      }
+    })
+
     it("does not serialize abort signals into Agent Workflow payloads", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -11359,6 +11388,7 @@ describe("agent message protocol", () => {
 
     it("owns deferred recovery for Workflow runs with source origins", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const { registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()
       let completed = false
       const result = runAgentWorkflowDefinition({} as never, {
@@ -11368,7 +11398,7 @@ describe("agent message protocol", () => {
         provider: "vercel",
       }, async (_agent, context) => {
         expect(context.run?.origin).toBe("portal")
-        context.waitUntil(recovery.promise)
+        registerAgentInvocationRecovery(context, recovery.promise)
         return "done"
       }).then((value) => {
         completed = true

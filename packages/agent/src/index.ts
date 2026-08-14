@@ -1465,7 +1465,9 @@ type ValidateStaticAgentCapability<TCapability> =
 type ValidateStaticAgentCapabilities<TCapabilities> =
   TCapabilities extends readonly unknown[]
     ? number extends TCapabilities["length"]
-      ? TCapabilities
+      ? AgentStaticCapabilitiesList extends TCapabilities
+        ? TCapabilities
+        : readonly ValidateStaticAgentCapability<TCapabilities[number]>[]
       : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
     : TCapabilities
 
@@ -4100,6 +4102,27 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
   }
 }
 
+async function reconcileQueuedWorkflowJournal<CALL_OPTIONS, TOutput>(
+  started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
+): Promise<void> {
+  if (!started.invocationJournal) return
+  const deadline = Date.now() + 60_000
+  let run = started.run
+  while ((run.status === "queued" || run.status === "running" || run.status === "unknown") && Date.now() < deadline) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 1_000)
+      const unref = (timer as unknown as { unref?: () => void }).unref
+      if (unref) unref.call(timer)
+    })
+    try { run = await started.handle.getRun(run.id) as AgentWorkflowRun<TOutput> }
+    catch { continue }
+  }
+  const snapshot = agentInvocationSnapshotFromWorkflow(run)
+  if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+    await started.invocationJournal.finish(snapshot.status, snapshot.error)
+  }
+}
+
 function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable" {
   return typeof error === "object"
     && error !== null
@@ -4197,7 +4220,10 @@ export async function runAgent<
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
-  if (workflow) return workflow.run
+  if (workflow) {
+    if (workflow.invocationJournal) context.waitUntil(reconcileQueuedWorkflowJournal(workflow))
+    return workflow.run
+  }
   if (input.context?.[requireAgentWorkflowContextKey] === true) {
     throw new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
   }

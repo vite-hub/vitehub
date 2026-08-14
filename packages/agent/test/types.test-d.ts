@@ -62,6 +62,13 @@ describe("agent public types", () => {
       capabilities: [{ *[Symbol.iterator]() {} }],
       driver: { run: () => "ok" },
     })
+
+    const arbitraryCapabilities: object[] = [{}]
+    defineAgent({
+      // @ts-expect-error open-ended arrays still validate every Capability
+      capabilities: arbitraryCapabilities,
+      driver: { run: () => "ok" },
+    })
   })
 
   it("preserves call options through queued webhook rehydration", () => {
