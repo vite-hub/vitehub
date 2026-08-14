@@ -427,7 +427,9 @@ describe("Agent Invocations", () => {
         "agent.invocation.finish",
       ])
       expect((await restored.getByRunId("durable-run"))?.observations[1]?.attributes).toMatchObject({ nan: null })
-      await expect(restored.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
+      for (const cursor of ["invalid", "01", "1.0", " 1", String(Number.MAX_SAFE_INTEGER + 1)]) {
+        await expect(restored.list({ cursor })).rejects.toThrow("cursor is invalid")
+      }
     }
     finally {
       writerClient.close()

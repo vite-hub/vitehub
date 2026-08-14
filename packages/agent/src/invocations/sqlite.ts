@@ -134,7 +134,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         : Array.isArray(listOptions.status) ? listOptions.status : [listOptions.status]
       if (Array.isArray(listOptions.status) && listOptions.status.length === 0) return { invocations: [] }
       const before = listOptions.cursor === undefined ? undefined : numberValue(listOptions.cursor)
-      if (before !== undefined && (!Number.isInteger(before) || before < 1)) {
+      if (before !== undefined && (!Number.isSafeInteger(before) || before < 1 || String(before) !== listOptions.cursor)) {
         throw new TypeError("[vitehub] Agent Invocation cursor is invalid.")
       }
       const filters: string[] = []

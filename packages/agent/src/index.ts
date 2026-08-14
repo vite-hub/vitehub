@@ -841,7 +841,7 @@ async function runAgentAsWorkflow<
     payload,
     workflowRunId ? { id: workflowRunId } : {},
   ))
-  const invocationJournal = run.status === "queued" && hasAgentDefinition(agent)
+  const invocationJournal = (run.status === "queued" || run.status === "running" || run.status === "unknown") && hasAgentDefinition(agent)
     ? await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: run.id },
