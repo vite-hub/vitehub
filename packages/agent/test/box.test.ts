@@ -146,7 +146,7 @@ describe("Agent Box", () => {
     } as never).createSession({ abortSignal: activeController.signal })
     activeController.abort(new Error("after acquisition"))
     expect(close).not.toHaveBeenCalled()
-    await active.destroy()
+    await active.destroy?.()
     expect(close).toHaveBeenCalledOnce()
   })
 
