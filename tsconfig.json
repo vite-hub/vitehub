@@ -19,6 +19,8 @@
   },
   "include": [
     ".vitehub/types/**/*.d.ts",
+    "app/**/*.ts",
+    "app/**/*.vue",
     "server/**/*.ts",
     "test/**/*.ts",
     "vite.config.ts"

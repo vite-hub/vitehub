@@ -25,10 +25,11 @@ export default defineSchedule({
   async handler(schedule) {
     const {maxOwners, repositories: configuredRepositories, repository} = useServerEnv().babysitter
     const repositories = resolveRepositories(configuredRepositories, repository)
-    const jobs = await selectPullRequestJobs(repositories, resolveMaxOwners(maxOwners), listPullRequests, key => kv.get<string>(key))
+    const jobs = await selectPullRequestJobs(repositories, resolveMaxOwners(maxOwners), listPullRequests, readCompletion)
 
     await Promise.all(jobs.map(async job => {
       const { pullRequest, repository } = job
+      const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
       try {
         await withPullRequestCheckout(repository, pullRequest, async checkout => {
           const context = {
@@ -42,8 +43,19 @@ export default defineSchedule({
           }
           await runScheduledAgent(babysitter, {
             ...schedule,
-            runId: `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`,
-          }, {}, {
+            runId,
+          }, {
+            run: {
+              annotations: {
+                'github.head': pullRequest.headRefOid,
+                'github.pullRequest': pullRequest.number,
+                'github.repository': repository,
+                'github.title': pullRequest.title,
+                'github.url': pullRequest.url,
+              },
+              runId,
+            },
+          }, {
             abortSignal: AbortSignal.timeout(60 * 60 * 1000),
             context,
             options: { checkout },
@@ -53,7 +65,8 @@ export default defineSchedule({
 
         const current = await readPullRequest(repository, pullRequest.number)
         if (current.state === 'OPEN' && blockerPattern.test(current.body)) {
-          await kv.set(job.completionKey, pullRequestFingerprint(repository, current))
+          const [error] = await kv.set(job.completionKey, pullRequestFingerprint(repository, current))
+          if (error) throw error
         }
       }
       catch (error) {
@@ -62,6 +75,12 @@ export default defineSchedule({
     }))
   },
 })
+
+async function readCompletion(key: string) {
+  const [error, value] = await kv.get<string>(key)
+  if (error) throw error
+  return value
+}
 
 async function listPullRequests(repository: string) {
   const result = await exec('gh', ['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields])

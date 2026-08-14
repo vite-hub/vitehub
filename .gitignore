@@ -1,4 +1,7 @@
 .nitro/
 .output/
+.data/
 .vitehub/
 node_modules/
+auto-imports.d.ts
+components.d.ts

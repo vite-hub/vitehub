@@ -11,22 +11,29 @@
     "dev": "vite --host 127.0.0.1 --port 3028",
     "start": "node .output/server/index.mjs",
     "test": "node --test test/*.test.ts",
-    "typecheck": "vite build --app && tsc --noEmit"
+    "typecheck": "vite build --app && vue-tsc --noEmit && tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/harness": "1.0.39",
     "@ai-sdk/harness-codex": "1.0.41",
-    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@1bdf7300c9bc954c19020aa05a6629ea9533474f",
-    "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1bdf7300c9bc954c19020aa05a6629ea9533474f",
-    "ai": "7.0.0",
+    "@github-tools/eve-extension": "0.3.0",
+    "@nuxt/ui": "4.10.0",
+    "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@c917454529adf4a5157745dc51be75a8eb7268c5",
+    "ai": "7.0.38",
+    "eve": "^0.31.3",
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
+    "tailwindcss": "4.3.2",
     "vite": "^8.0.11",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@1bdf7300c9bc954c19020aa05a6629ea9533474f"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@c917454529adf4a5157745dc51be75a8eb7268c5",
+    "vue": "3.5.40",
+    "vue-router": "4.6.4"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "typescript": "^6.0.3"
+    "@vitejs/plugin-vue": "6.0.5",
+    "typescript": "^6.0.3",
+    "vue-tsc": "3.3.8"
   },
   "imports": {
     "#vitehub/env/public": {

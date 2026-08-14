@@ -4,20 +4,37 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { codexDriver } from '@vite-hub/agent/harness/codex'
+import github from '@github-tools/eve-extension'
 import { defineAgent } from 'vite-hub/agent'
-import { trustedHost } from 'vite-hub/box'
+import { invocations } from '../../invocations.ts'
+
+import type { AgentInvokerProfile, BuiltInAgentDriver } from 'vite-hub/agent'
 
 const exec = promisify(execFile)
 const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex')
 const codexAuth = join(codexHome, 'auth.json')
+const githubToken = process.env.GITHUB_TOKEN || (await exec('gh', ['auth', 'token'])).stdout.trim()
+const capabilities = [github({
+  exclude: [
+    'addPullRequestComment',
+    'createPullRequestReview',
+    'deletePullRequestComment',
+    'requestReviewers',
+    'updatePullRequest',
+    'updatePullRequestComment',
+  ],
+  preset: 'code-review',
+  token: githubToken,
+})] as const
+const driver = { kind: 'codex', model: 'gpt-5.6-sol' } satisfies BuiltInAgentDriver<{ checkout: string }>
 
-export default defineAgent({
+export default defineAgent<{}, { checkout: string }, AgentInvokerProfile>({
   box: {
-    runtime: trustedHost(),
+    runtime: 'trusted-host',
     cwd: ({ input }) => {
-      if (!input.options?.checkout) throw new Error('Babysitter requires a checkout.')
-      return input.options.checkout
+      const checkout = (input.options as { checkout?: string } | undefined)?.checkout
+      if (!checkout) throw new Error('Babysitter requires a checkout.')
+      return checkout
     },
     env: {
       GH_TOKEN: async () => (await exec('gh', ['auth', 'token'])).stdout.trim(),
@@ -43,7 +60,9 @@ export default defineAgent({
       'pnpm',
     ],
   },
-  driver: codexDriver<{ checkout: string }>({ model: 'gpt-5.6-sol' }),
+  capabilities,
+  driver,
+  invocations,
 })
 
 async function readGitConfig(key: string) {
