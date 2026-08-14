@@ -813,7 +813,7 @@ async function steerQueuedWebhookDelivery(
           await state.set(claimKey, "steering")
         }
         catch {
-          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
           await state.delete(claimKey).catch(() => undefined)
           return { queued: true, response: await fallback(true) }
         }
@@ -830,7 +830,7 @@ async function steerQueuedWebhookDelivery(
         catch {}
         if (steeringLeaseLost || sendLockLost) {
           stopDeliveryHeartbeat()
-          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
           await state.delete(claimKey)
           return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
         }
@@ -856,7 +856,7 @@ async function steerQueuedWebhookDelivery(
           return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
         }
         stopDeliveryHeartbeat()
-        await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+        await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
         await state.set(claimKey, "queued")
         return { queued: true, response: await fallback(true) }
       }
@@ -999,6 +999,10 @@ async function executeQueuedWebhookDelivery(
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
+  if (delivery.attempts >= maxWebhookQueueAttempts) {
+    await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
+    return
+  }
   let resolveActiveCompletion: (() => void) | undefined
   let rejectActiveCompletion: ((reason?: unknown) => void) | undefined
   const request = requestFromPersistedWebhook(delivery)

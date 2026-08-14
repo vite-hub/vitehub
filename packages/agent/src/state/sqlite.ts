@@ -209,16 +209,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         const claimed = await execute(
           tx,
           `UPDATE ${this.tables.webhookQueue}
-            SET status = 'running', lease_token = ?, lease_expires_at = ?
+            SET attempts = attempts + CASE WHEN status = 'running' THEN 1 ELSE 0 END,
+              status = 'running', lease_token = ?, lease_expires_at = ?
             WHERE scope = ? AND delivery_id = ?
               AND (status = 'queued' OR (status IN ('running', 'steering') AND lease_expires_at <= ?))
-            RETURNING value`,
+            RETURNING value, attempts`,
           [leaseToken, now + leaseTtlMs, scope, candidate.delivery_id, now],
         )
         if (claimed.length === 0 || typeof candidate.value !== "string") continue
         return {
           ...JSON.parse(candidate.value) as AgentWebhookQueueDelivery,
-          attempts: numberValue(candidate.attempts),
+          attempts: numberValue(claimed[0]?.attempts),
           leaseExpiresAt: now + leaseTtlMs,
           leaseToken,
         }

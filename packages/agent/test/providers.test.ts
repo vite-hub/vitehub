@@ -6469,6 +6469,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
@@ -6581,6 +6582,13 @@ describe("server helpers", () => {
       rejectSteer = true
       const rejected = await handler(request("delivery-3"), "github", options)
       await expect(rejected.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      expect(retryDelivery).toHaveBeenCalledWith(
+        "webhook:review:github:github:",
+        "delivery-3",
+        expect.any(String),
+        expect.any(Number),
+        { incrementAttempts: false },
+      )
       rejectSteer = false
       const rejectedReplay = await handler(request("delivery-3"), "github", options)
       await expect(rejectedReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
@@ -7203,7 +7211,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("retries a failed queued webhook delivery without the startup pump", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)

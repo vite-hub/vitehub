@@ -158,19 +158,22 @@ describe("createCrabboxRuntime", () => {
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
       const session = await boxProvider(box).createSession()
-      const spawnOrphan = async (argument: string) => {
+      const spawnOrphan = async (argument: string, cwd?: string) => {
         const result = await session.run({
-          command: `node -e 'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { detached: true, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${argument}'`,
+          command: `node -e 'const { spawn } = require("node:child_process"); const cwd = process.argv[2] || undefined; const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { cwd, detached: true, env: { ...process.env, PWD: cwd || process.env.PWD }, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${argument}' '${cwd || ""}'`,
         })
         expect(result.exitCode).toBe(0)
         return Number(result.stdout.trim())
       }
       const ownedPid = await spawnOrphan(`${session.root}/owned`)
-      const unrelatedPid = await spawnOrphan(`${session.root}.other/keep`)
+      const cwdOwnedPid = await spawnOrphan("unmarked", session.root)
+      await session.run({ command: `mkdir -p -- '${session.root}.other'` })
+      const unrelatedPid = await spawnOrphan(`${session.root}.other/keep`, `${session.root}.other`)
 
       try {
         await vi.waitFor(async () => {
           await expect(readFile(`/proc/${ownedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${cwdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${unrelatedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
         })
         await session.destroy()
@@ -178,12 +181,15 @@ describe("createCrabboxRuntime", () => {
         await vi.waitFor(async () => {
           const status = await readFile(`/proc/${ownedPid}/status`, "utf8").catch(() => undefined)
           expect(status === undefined || /^State:\s+Z/m.test(status)).toBe(true)
+          const cwdStatus = await readFile(`/proc/${cwdOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(cwdStatus === undefined || /^State:\s+Z/m.test(cwdStatus)).toBe(true)
         })
         expect(() => process.kill(unrelatedPid, 0)).not.toThrow()
       }
       finally {
         try { process.kill(unrelatedPid, "SIGKILL") } catch {}
         try { process.kill(ownedPid, "SIGKILL") } catch {}
+        try { process.kill(cwdOwnedPid, "SIGKILL") } catch {}
       }
     })
   }, 30_000)
