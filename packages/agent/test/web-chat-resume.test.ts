@@ -460,8 +460,12 @@ describe("resumable web chat", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseOwner!: (owner: string) => void
+    const owner = new Promise<string>((resolve) => {
+      releaseOwner = resolve
+    })
     const handler = createChannelChatRouteHandler(defineAgent({
-      channels: { portal: webChat({ route: { resumable: { owner: async () => await new Promise<string>(() => {}) } } }) },
+      channels: { portal: webChat({ route: { resumable: { owner: async () => await owner } } }) },
       driver: { run: () => "unused" },
     }) as never)
     const controller = new AbortController()
@@ -470,7 +474,9 @@ describe("resumable web chat", () => {
 
     controller.abort()
     await expect(lookup).resolves.toMatchObject({ status: 204 })
-    expect(handler.inspect()).toMatchObject({ pendingOwnerResolutions: 0 })
+    expect(handler.inspect()).toMatchObject({ pendingOwnerResolutions: 1 })
+    releaseOwner("max")
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingOwnerResolutions: 0 }))
   })
 
   it("normalizes resumable UI streams to a stable leading message identity", async () => {

@@ -51,6 +51,17 @@ function agentChatRoute(name: string): string {
   return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
 }
 
+function agentChatRouteWithId(route: string, id: string): string {
+  const hashIndex = route.indexOf("#")
+  const hash = hashIndex < 0 ? "" : route.slice(hashIndex)
+  const requestRoute = hashIndex < 0 ? route : route.slice(0, hashIndex)
+  const queryIndex = requestRoute.indexOf("?")
+  const path = queryIndex < 0 ? requestRoute : requestRoute.slice(0, queryIndex)
+  const query = new URLSearchParams(queryIndex < 0 ? "" : requestRoute.slice(queryIndex + 1))
+  query.set("id", id)
+  return `${path}?${query}${hash}`
+}
+
 export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   agent: AgentClient,
   options?: AgentChatInit<UI_MESSAGE>,
@@ -109,7 +120,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       headers,
       prepareReconnectToStreamRequest({ credentials, headers, id }) {
         return {
-          api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
+          api: agentChatRouteWithId(route, id),
           credentials,
           headers,
         }
@@ -254,7 +265,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     await chat.stop()
     if (!cancellation) return
     const [cancellationRoute, cancellationRequest, cancellationCredentials, cancellationHeaders] = await cancellation
-    const response = await cancellationRequest(`${cancellationRoute}${cancellationRoute.includes("?") ? "&" : "?"}id=${encodeURIComponent(cancellationId)}`, {
+    const response = await cancellationRequest(agentChatRouteWithId(cancellationRoute, cancellationId), {
       credentials: cancellationCredentials ?? "same-origin",
       headers: cancellationHeaders,
       method: "DELETE",

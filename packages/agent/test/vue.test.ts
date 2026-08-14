@@ -493,6 +493,7 @@ describe("Agent Vue clients", () => {
     vi.stubGlobal("fetch", fetch)
     const scope = effectScope()
     const chat = scope.run(() => useChat(useAgent("support"), {
+      api: "/api/_vitehub/agents/support/chat?id=stale&view=full#section",
       credentials: "include",
       headers: async () => ({ authorization: "Bearer token" }),
       id: "chat-1",
@@ -503,7 +504,7 @@ describe("Agent Vue clients", () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     await chat.stop()
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-1", {
+    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-1&view=full#section", {
       credentials: "include",
       headers: { authorization: "Bearer token" },
       method: "DELETE",

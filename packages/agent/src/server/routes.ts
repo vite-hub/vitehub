@@ -4127,24 +4127,22 @@ export function createChannelChatRouteHandler(
     input: Parameters<typeof resumableChatOwner>[1],
     signal: AbortSignal,
   ): Promise<string | undefined> => {
+    if (signal.aborted) return undefined
     if (resumableOwnerResolutionCount >= resumableChatMaxTotalPendingOwnerResolutions) {
       throw createRouteError(429, "Resumable web chat has reached its owner resolution capacity. Try again later.")
     }
     resumableOwnerResolutionCount++
     let removeAbortListener = () => {}
-    try {
-      const aborted = new Promise<undefined>((resolve) => {
-        if (signal.aborted) return resolve(undefined)
-        const abort = () => resolve(undefined)
-        signal.addEventListener("abort", abort, { once: true })
-        removeAbortListener = () => signal.removeEventListener("abort", abort)
-      })
-      return await Promise.race([resumableChatOwner(resumable, input), aborted])
-    }
-    finally {
+    const owner = resumableChatOwner(resumable, input).finally(() => {
       removeAbortListener()
       resumableOwnerResolutionCount--
-    }
+    })
+    const aborted = new Promise<undefined>((resolve) => {
+      const abort = () => resolve(undefined)
+      signal.addEventListener("abort", abort, { once: true })
+      removeAbortListener = () => signal.removeEventListener("abort", abort)
+    })
+    return await Promise.race([owner, aborted])
   }
   const withResumableSessionBoundaryWrite = async <T>(key: string, write: () => Promise<T>): Promise<T> => {
     const predecessor = resumableSessionBoundaryWrites.get(key) || Promise.resolve()
@@ -4164,6 +4162,7 @@ export function createChannelChatRouteHandler(
   }
   const setResumableCancellationTombstone = (key: string, owner: string, sequence: number): boolean => {
     const existing = resumableCancellationTombstones.get(key)
+    if (existing && existing.sequence >= sequence) return true
     if (existing) clearTimeout(existing.cleanup)
     else if ([...resumableCancellationTombstones.values()].filter(tombstone => tombstone.owner === owner).length >= resumableChatMaxOwnerTombstones) return false
     else if (resumableCancellationTombstones.size >= resumableChatMaxTombstones) return false
