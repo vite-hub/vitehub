@@ -13,7 +13,7 @@ import {
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { ChatTransport, UIMessage } from "ai"
 import type { ComputedRef, ShallowRef } from "vue"
-import type { AgentInvocationRecord, AgentInvocationSummary } from "../src/invocations.ts"
+import type { AgentInvocationSummary } from "../src/invocations.ts"
 
 describe("Agent Vue client types", () => {
   it("preserves AI SDK Vue message and transport types", () => {
@@ -40,7 +40,7 @@ describe("Agent Vue client types", () => {
     expectTypeOf(list.cursor).toEqualTypeOf<ShallowRef<string | undefined>>()
     expectTypeOf(list.refresh).toBeFunction()
     expectTypeOf(list.stop).toBeFunction()
-    expectTypeOf(detail.invocation).toEqualTypeOf<ShallowRef<AgentInvocationRecord | null>>()
+    expectTypeOf(detail.invocation).toEqualTypeOf<ShallowRef<AgentInvocationSummary | null>>()
     expectTypeOf(detail.observations).toEqualTypeOf<ShallowRef<readonly TraceEventLogEntry[]>>()
     expectTypeOf(detail.refresh).toBeFunction()
     expectTypeOf(detail.stop).toBeFunction()

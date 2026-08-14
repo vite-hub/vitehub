@@ -4,7 +4,6 @@ import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { MaybeRefOrGetter, ShallowRef } from "vue";
 import type {
   AgentInvocationListResult,
-  AgentInvocationRecord,
   AgentInvocationSummary,
 } from "./invocations.ts";
 
@@ -38,7 +37,7 @@ export interface UseAgentInvocationsReturn {
 }
 
 export interface AgentInvocationDetailResult {
-  invocation: AgentInvocationRecord;
+  invocation: AgentInvocationSummary;
   observations: readonly TraceEventLogEntry[];
 }
 
@@ -52,7 +51,7 @@ export interface UseAgentInvocationOptions {
 
 export interface UseAgentInvocationReturn {
   error: ShallowRef<unknown>;
-  invocation: ShallowRef<AgentInvocationRecord | null>;
+  invocation: ShallowRef<AgentInvocationSummary | null>;
   isLoading: ShallowRef<boolean>;
   observations: ShallowRef<readonly TraceEventLogEntry[]>;
   refresh: () => Promise<AgentInvocationDetailResult | undefined>;
@@ -225,7 +224,7 @@ export function useAgentInvocation(
   id: MaybeRefOrGetter<string | undefined>,
   options: UseAgentInvocationOptions = {},
 ): UseAgentInvocationReturn {
-  const invocation = shallowRef<AgentInvocationRecord | null>(null);
+  const invocation = shallowRef<AgentInvocationSummary | null>(null);
   const observations = shallowRef<readonly TraceEventLogEntry[]>([]);
   const request = options.request ?? defaultRequester;
   const baseURL = options.baseURL ?? defaultBaseURL;
