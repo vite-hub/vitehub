@@ -633,6 +633,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
+  trace?: AgentRuntimeContext["trace"]
   runtime?: AgentRuntimeContext["runtime"]
   runtimeConfig?: AgentRuntimeConfig
 }
@@ -820,6 +821,7 @@ async function runAgentAsWorkflow<
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(inheritedRun ? { run: inheritedRun } : {}),
+    ...(context.trace ? { trace: context.trace } : {}),
   }
   const workflowEvent = {
     ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
@@ -4112,15 +4114,22 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   parentAbortSignal?: AbortSignal,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
   const { handle, invocationJournal, run } = started
+  const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
+    if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+      await invocationJournal?.finish(snapshot.status, snapshot.error)
+    }
+    return snapshot
+  }
   return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
     cancel: async () => {
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
-      if (snapshot?.status === "cancelled") await invocationJournal?.finish("cancelled")
-      return snapshot
+      return await reconcileJournal(snapshot)
     },
     errorOutcome: workflowOperationOutcome,
     id: run.id,
-    inspect: async () => agentInvocationSnapshotFromWorkflow(await handle.getRun(run.id) as AgentWorkflowRun<TOutput>),
+    inspect: async () => await reconcileJournal(agentInvocationSnapshotFromWorkflow(
+      await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
+    )),
     parentAbortSignal,
     result: Promise.resolve(run),
   })

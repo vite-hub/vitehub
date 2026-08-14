@@ -64,6 +64,38 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
+  it("stops observation writes at the durable cap and retries terminal writes", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let terminalFailures = 1
+    let updates = 0
+    const store: AgentInvocationStore = {
+      ...memory,
+      update(id, input, claimId) {
+        updates++
+        if (input.status === "completed" && terminalFailures-- > 0) return
+        return memory.update(id, input, claimId)
+      },
+    }
+    const invocations = defineAgentInvocations({ store })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (let index = 0; index < 300; index++) {
+          await context.traceLog?.append({ name: `event-${index}`, type: "run" })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("bounded-observations"), {})
+
+    const record = await invocations.getByRunId("bounded-observations")
+    expect(record).toMatchObject({ status: "completed" })
+    expect(record?.observations).toHaveLength(256)
+    expect(updates).toBeLessThanOrEqual(259)
+  })
+
   it("records cancellation while an invocation waits for driver capacity", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })

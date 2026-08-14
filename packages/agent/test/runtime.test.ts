@@ -11231,6 +11231,7 @@ describe("agent message protocol", () => {
         agentIdentity: { name: "support-agent" },
         memo: vi.fn(),
         runtime: "vercel",
+        trace: { id: "source-trace" },
         waitUntil: promise => waitUntilTasks.push(promise),
       }, { prompt: "hello" }) as { id: string }
 
@@ -11245,6 +11246,8 @@ describe("agent message protocol", () => {
         status: "completed",
       })
       await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "completed" })
+      const record = await invocations.getByRunId(run.id, "support-agent")
+      expect(record?.observations.every(observation => observation.trace?.id === record.traceId)).toBe(true)
     })
 
     it("does not serialize abort signals into Agent Workflow payloads", async () => {

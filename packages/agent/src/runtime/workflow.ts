@@ -38,6 +38,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
+  trace?: AgentRuntimeContext["trace"]
   runtime?: AgentRuntimeName
   runtimeConfig?: AgentRuntimeConfig
 }
@@ -206,6 +207,7 @@ export async function runAgentWorkflowDefinition<
     ...(runId
       ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } }
       : {}),
+    ...(payload.trace ? { trace: payload.trace } : {}),
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
     runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
     waitUntil,

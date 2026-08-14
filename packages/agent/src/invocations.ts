@@ -19,6 +19,7 @@ const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
+const TERMINAL_WRITE_ATTEMPTS = 3
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -350,6 +351,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let writes = Promise.resolve()
       let finished = false
       let ownsRecord = false
+      let observationCount = 0
       let heartbeat: ReturnType<typeof setInterval> | undefined
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
@@ -377,7 +379,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const now = new Date().toISOString()
       try {
-        await store.create({
+        const result = await store.create({
           ...(agentName ? { agentName: boundedString(agentName) } : {}),
           ...(annotations ? { annotations } : {}),
           ...(context.run?.channelId ? { channelId: boundedString(context.run.channelId) } : {}),
@@ -390,20 +392,29 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           traceId,
           updatedAt: now,
         })
+        observationCount = result.record.observations.length
       }
       catch {}
       if (!bindOptions.deferClaim) await renew()
       const baseTraceLog = context.traceLog || createTraceEventLog()
-      const update = (input: AgentInvocationStoreUpdateInput) => write(async () => {
-        if (!await renew()) return
-        await store.update(recordId, input, claimId)
-      })
-      const observe = (observation: TraceEventLogEntry) => update({
-        observation: {
-          ...observation,
-          ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-        },
-        timestamp: observation.timestamp,
+      const update = async (input: AgentInvocationStoreUpdateInput): Promise<boolean> => {
+        let updated = false
+        await write(async () => {
+          if (!await renew()) return
+          updated = await store.update(recordId, input, claimId) !== undefined
+        })
+        return updated
+      }
+      const observe = (observation: TraceEventLogEntry) => write(async () => {
+        if (observationCount >= MAX_OBSERVATIONS || !await renew()) return
+        const updated = await store.update(recordId, {
+          observation: {
+            ...observation,
+            ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+          },
+          timestamp: observation.timestamp,
+        }, claimId)
+        if (updated) observationCount = updated.observations.length
       })
       return {
         context: {
@@ -414,12 +425,16 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         async finish(status, error) {
           if (finished) return
+          let updated = false
+          for (let attempt = 0; attempt < TERMINAL_WRITE_ATTEMPTS && !updated; attempt++) {
+            updated = await update({
+              ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
+              status,
+              timestamp: new Date().toISOString(),
+            })
+          }
+          if (!updated) return
           finished = true
-          await update({
-            ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
-            status,
-            timestamp: new Date().toISOString(),
-          })
           stopHeartbeat()
           if (ownsRecord) await write(() => store.release(recordId, claimId))
           ownsRecord = false
