@@ -10959,17 +10959,18 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const iteratorReturn = vi.fn(async () => ({ done: true as const, value: undefined }))
+    let first = true
+    const iteratorNext = vi.fn(async () => {
+      if (first) {
+        first = false
+        return { done: false as const, value: "partial" }
+      }
+      return await new Promise<IteratorResult<string>>(() => undefined)
+    })
     const reply = {
       [Symbol.asyncIterator]: () => {
-        let first = true
         return {
-          next: async () => {
-            if (first) {
-              first = false
-              return { done: false as const, value: "partial" }
-            }
-            return await new Promise<IteratorResult<string>>(() => undefined)
-          },
+          next: iteratorNext,
           return: iteratorReturn,
         }
       },
@@ -11001,7 +11002,7 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0), { interval: 0 })
+      await vi.waitFor(() => expect(iteratorNext).toHaveBeenCalledTimes(2), { interval: 0 })
       await vi.advanceTimersByTimeAsync(28_000)
 
       await expect(responseError).resolves.toMatchObject({
@@ -11045,9 +11046,6 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledOnce(), { interval: 0 })
-      await vi.advanceTimersByTimeAsync(1_000)
-
       await expect(responseError).resolves.toMatchObject({ message: "model timeout" })
       expect(adapter.postMessage).toHaveBeenCalledTimes(1)
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Tailored fallback.")
@@ -11087,10 +11085,7 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       })
-      for (let index = 0; index < 100 && !resolveFallback; index++) {
-        await vi.advanceTimersByTimeAsync(1)
-      }
-      expect(resolveFallback).toBeTypeOf("function")
+      await vi.waitFor(() => expect(resolveFallback).toBeTypeOf("function"), { interval: 0 })
       await vi.advanceTimersByTimeAsync(1_100)
       resolveFallback?.("Tailored fallback.")
       for (let index = 0; index < 20 && !adapter.postMessage.mock.calls.length; index++) await Promise.resolve()
