@@ -16,6 +16,7 @@ export interface AgentChannelDeliveryWorkflowBinding {
   channelId: string
   deliveryId: string
   provider: string
+  state: "chat" | "webhook"
 }
 
 export interface AgentChannelDeliveryTracker {

@@ -253,5 +253,6 @@ function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentCh
   return Boolean(value && typeof value === "object"
     && typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string"
     && typeof (value as AgentChannelDeliveryWorkflowBinding).deliveryId === "string"
-    && typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string")
+    && typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string"
+    && ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"))
 }

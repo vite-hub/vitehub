@@ -588,7 +588,6 @@ async function webhookDeliverySourceId(request: Request): Promise<string> {
   if (isRecord(payload)) {
     const source = deliverySourceValue(payload.event_id)
       || deliverySourceValue(payload.update_id)
-      || deliverySourceValue(payload.id)
       || (isRecord(payload.activity) ? deliverySourceValue(payload.activity.id) : undefined)
       || (isRecord(payload.event) ? deliverySourceValue(payload.event.id) : undefined)
     if (source) return source
@@ -2243,12 +2242,15 @@ async function resolveWorkflowAgentChannelDelivery(
     id: binding.channelId,
     provider: binding.provider,
   }
-  const state = await resolveChatState(
-    getChannelChatOptions(agent, binding.channelId, getAgentChatOptions(agent)),
-    context,
-    registration,
-    {},
-  )
+  const webhookState = binding.state === "webhook"
+    ? await resolveAgentWebhookState(context, registration, {})
+    : undefined
+  const state = webhookState || await resolveChatState(
+      getChannelChatOptions(agent, binding.channelId, getAgentChatOptions(agent)),
+      context,
+      registration,
+      {},
+    )
   await state.state.connect()
   return await resumeAgentChannelDelivery(state.state, binding.deliveryId)
 }
@@ -3282,6 +3284,7 @@ async function handleChatSdkMessage(
               channelId: registration.channelId,
               deliveryId: delivery.delivery.id,
               provider: chatRegistrationOrigin(registration),
+              state: "chat",
             },
             [finalChannelOutputContextKey]: true,
             [requireAgentWorkflowContextKey]: true,
@@ -4507,6 +4510,7 @@ export function createChannelWebhookRouteHandler(
                       channelId: registration.channelId,
                       deliveryId: channelDelivery.delivery.id,
                       provider: registration.provider,
+                      state: webhookDeliveryState ? "webhook" : "chat",
                     },
                   },
                   ...(ownershipAbort
