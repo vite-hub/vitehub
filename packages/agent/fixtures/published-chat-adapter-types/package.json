@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@chat-adapter/telegram": "4.37.0",
+    "@chat-adapter/telegram": "4.38.0",
     "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz"
   },
   "devDependencies": {

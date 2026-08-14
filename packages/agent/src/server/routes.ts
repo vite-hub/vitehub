@@ -2411,6 +2411,47 @@ async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversi
   return parts
 }
 
+async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
+  const parts = await chatMessageParts(message, options)
+  if (!parts.length || !message.replyTo) return parts
+  const replyContext = chatReplyMetadata(message)!
+  delete replyContext.text
+  const replyParts: MessagePart[] = []
+  if (message.replyTo.text) {
+    replyParts.push({ data: { text: message.replyTo.text }, id: "reply-text-0", type: "data-chat-reply-text" })
+  }
+  for (const [index, source] of message.replyTo.attachments.entries()) {
+    const part = attachmentPartFromAttachment(source, index)
+    if (!part) continue
+    const { data: _data, fetchData: _fetchData, ...attachment } = part
+    replyParts.push({ data: { attachment }, id: `reply-${part.id || index + 1}`, type: "data-chat-reply-attachment" })
+  }
+  return [
+    { data: { ...replyContext, kind: "reply_to_message" }, id: "reply-context", type: "data-chat-reply-context" },
+    ...replyParts,
+    { data: { kind: "user_message", messageId: message.id }, id: "user-message-context", type: "data-chat-user-message-context" },
+    ...parts,
+  ]
+}
+
+function chatReplyMetadata(message: ChatSdkMessage): Record<string, unknown> | undefined {
+  const replyTo = message.replyTo
+  if (!replyTo) return
+  return objectWithoutUndefined({
+    attachmentCount: replyTo.attachments.length,
+    author: objectWithoutUndefined({
+      fullName: replyTo.author.fullName,
+      isBot: replyTo.author.isBot,
+      isMe: replyTo.author.isMe,
+      userId: replyTo.author.userId,
+      userName: replyTo.author.userName,
+    }),
+    dateSent: isoDate(replyTo.metadata.dateSent),
+    messageId: replyTo.id,
+    text: replyTo.text,
+  })
+}
+
 function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): Record<string, unknown> | undefined {
   const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
   return objectWithoutUndefined({
@@ -2419,6 +2460,7 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
       editedAt: isoDate(message.metadata.editedAt),
       isMention: message.isMention,
       messageId: message.id,
+      replyTo: chatReplyMetadata(message),
       platform: objectWithoutUndefined({
         channelId: platformChannelId,
         threadId: message.threadId,
@@ -2439,7 +2481,7 @@ async function chatSdkMessageToUiMessage(
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
-    parts: await chatMessageParts(message, options),
+    parts: await chatMessagePartsWithReply(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
 }
