@@ -589,6 +589,65 @@ describe("cost Capability", () => {
     expect(chunks.join("")).toContain("\"display\":\"~$0.02\"")
   })
 
+  it("prices native response usage after a renderer returns a hybrid async iterable", async () => {
+    const { cost } = await import("../src/capabilities.ts")
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const pricing = vi.fn(() => ({
+      usd: "0.02",
+      estimated: true as const,
+      source: "custom",
+    }))
+    const agent = defineAgent({
+      capabilities: [
+        cost({
+          pricing,
+        }),
+        defineCapability({
+          id: "iterable-response-renderer",
+          output(context) {
+            context.output.render((result) => {
+              const stream = (result as { toUIMessageStream: () => ReadableStream<unknown> }).toUIMessageStream()
+              return {
+                async *[Symbol.asyncIterator]() {
+                  yield { text: "generic", type: "text-delta" }
+                },
+                toUIMessageStream: () => stream,
+              }
+            })
+          },
+        }),
+      ],
+      driver: {
+        run: () => new Response([
+          { messageId: "message-1", type: "start" },
+          { delta: "native", id: "text-1", type: "text-delta" },
+          {
+            type: "usage",
+            usageRecord: {
+              usage: {
+                inputTokens: 10,
+                outputTokens: 2,
+                totalTokens: 12,
+              },
+            },
+          },
+          { finishReason: "stop", type: "finish" },
+        ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+          headers: { "x-vercel-ai-ui-message-stream": "v1" },
+        }),
+      },
+    })
+
+    const response = await streamAgent(agent, runtime(), { prompt: "hello" }, {
+      output: "ui-message-stream",
+    }) as Response
+
+    const body = await response.text()
+    expect(body).toContain("native")
+    expect(body).not.toContain("generic")
+    expect(pricing).toHaveBeenCalledOnce()
+  })
+
   it("returns stream results before their usage promise settles", async () => {
     const { cost } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

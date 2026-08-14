@@ -2265,19 +2265,23 @@ function withEagerUiMessageStreamUsageExtensions<
   rendered: unknown,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): unknown {
-  if (!isUIMessageStreamResult(rendered)) return rendered
-  const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
-  return cloneWithPropertyDescriptors(rendered, {
-    toUIMessageStream: {
-      configurable: true,
-      enumerable: false,
-      value: (...args: unknown[]) => toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
-        toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)),
-        context,
-        rendered,
-      )),
-    },
-  })
+  if (isUIMessageStreamResult(rendered)) {
+    const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+    return cloneWithPropertyDescriptors(rendered, {
+      toUIMessageStream: {
+        configurable: true,
+        enumerable: false,
+        value: (...args: unknown[]) => toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
+          toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)),
+          context,
+          rendered,
+        )),
+      },
+    })
+  }
+  return isAsyncIterable(rendered)
+    ? withEagerStreamUsageExtensions(rendered, context, rendered)
+    : rendered
 }
 
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
