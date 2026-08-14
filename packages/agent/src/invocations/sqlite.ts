@@ -74,7 +74,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
-        claim_id TEXT NOT NULL
+        claim_id TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
       )`)
     })().catch((error) => {
       initialized = undefined
@@ -92,11 +93,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     return row ? deserialize(row.record, row.sequence) : undefined
   }
   return {
-    async claim(id, claimId) {
+    async claim(id, claimId, expiresAt) {
       await initialize()
       const result = await client.execute({
-        args: [id, claimId, id],
-        sql: `INSERT OR IGNORE INTO ${table}_claims (id, claim_id) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)`,
+        args: [id, claimId, expiresAt, id, Date.now()],
+        sql: `INSERT INTO ${table}_claims (id, claim_id, expires_at)
+          SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
+          ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, expires_at = excluded.expires_at
+          WHERE ${table}_claims.claim_id = excluded.claim_id OR ${table}_claims.expires_at <= ?`,
       })
       return result.rowsAffected > 0
     },
@@ -148,13 +152,22 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         }),
       }
     },
-    async update(id, input) {
+    async release(id, claimId) {
+      await initialize()
+      await client.execute({
+        args: [id, claimId],
+        sql: `DELETE FROM ${table}_claims WHERE id = ? AND claim_id = ?`,
+      })
+    },
+    async update(id, input, claimId) {
       await initialize()
       const transaction = await client.transaction("write")
       try {
         const result = await transaction.execute({
-          args: [id],
-          sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+          args: claimId ? [id, id, claimId] : [id],
+          sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId
+            ? ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`
+            : ""} LIMIT 1`,
         })
         const row = result.rows[0]
         const record = row ? deserialize(row.record, row.sequence) : undefined

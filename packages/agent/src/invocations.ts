@@ -17,6 +17,8 @@ const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
+const CLAIM_LEASE_MS = 30_000
+const CLAIM_RENEW_INTERVAL_MS = 10_000
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -72,11 +74,12 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
-  claim(id: string, claimId: string): MaybePromise<boolean>
+  claim(id: string, claimId: string, expiresAt: number): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
-  update(id: string, input: AgentInvocationStoreUpdateInput): MaybePromise<AgentInvocationRecord | undefined>
+  release(id: string, claimId: string): MaybePromise<void>
+  update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
 }
 
 export interface AgentInvocationsOptions {
@@ -209,8 +212,9 @@ function assertStore(store: AgentInvocationStore | undefined): asserts store is 
     || typeof store.create !== "function"
     || typeof store.get !== "function"
     || typeof store.list !== "function"
+    || typeof store.release !== "function"
     || typeof store.update !== "function") {
-    throw new TypeError("[vitehub] Agent Invocations require a store with create(), get(), list(), and update().")
+    throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), list(), release(), and update().")
   }
 }
 
@@ -251,13 +255,14 @@ export function applyAgentInvocationStoreUpdate(
 }
 
 export function createMemoryAgentInvocationStore(): AgentInvocationStore {
-  const claims = new Map<string, string>()
+  const claims = new Map<string, { claimId: string, expiresAt: number }>()
   const records = new Map<string, AgentInvocationRecord>()
   let cursor = 0
   return {
-    claim(id, claimId) {
-      if (!records.has(id) || claims.has(id)) return false
-      claims.set(id, claimId)
+    claim(id, claimId, expiresAt) {
+      const claim = claims.get(id)
+      if (!records.has(id) || (claim && claim.claimId !== claimId && claim.expiresAt > Date.now())) return false
+      claims.set(id, { claimId, expiresAt })
       return true
     },
     create(input) {
@@ -290,9 +295,12 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
         }),
       }
     },
-    update(id, input) {
+    release(id, claimId) {
+      if (claims.get(id)?.claimId === claimId) claims.delete(id)
+    },
+    update(id, input, claimId) {
       const record = records.get(id)
-      if (!record) return
+      if (!record || (claimId && claims.get(id)?.claimId !== claimId)) return
       const updated = applyAgentInvocationStoreUpdate(record, input)
       records.set(id, cloneRecord(updated))
       return cloneRecord(updated)
@@ -337,10 +345,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let writes = Promise.resolve()
       let finished = false
       let ownsRecord = false
-      const acquire = async (): Promise<boolean> => {
-        if (ownsRecord) return true
-        try { ownsRecord = await store.claim(recordId, claimId) }
-        catch {}
+      let heartbeat: ReturnType<typeof setInterval> | undefined
+      const stopHeartbeat = () => {
+        if (heartbeat !== undefined) clearInterval(heartbeat)
+        heartbeat = undefined
+      }
+      const startHeartbeat = () => {
+        if (finished || !ownsRecord || heartbeat !== undefined) return
+        heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
+        const unref = (heartbeat as unknown as { unref?: () => void }).unref
+        if (unref) unref.call(heartbeat)
+      }
+      const renew = async (): Promise<boolean> => {
+        try { ownsRecord = await store.claim(recordId, claimId, Date.now() + CLAIM_LEASE_MS) }
+        catch { ownsRecord = false }
+        if (ownsRecord) startHeartbeat()
+        else stopHeartbeat()
         return ownsRecord
       }
       const write = async (operation: () => MaybePromise<unknown>): Promise<void> => {
@@ -367,12 +387,15 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
       }
       catch {}
-      if (!bindOptions.deferClaim) await acquire()
+      if (!bindOptions.deferClaim) await renew()
       const baseTraceLog = context.traceLog || createTraceEventLog()
-      const observe = (observation: TraceEventLogEntry) => ownsRecord ? write(() => store.update(recordId, {
-        observation,
-        timestamp: observation.timestamp,
-      })) : Promise.resolve()
+      const update = (input: AgentInvocationStoreUpdateInput) => write(async () => {
+        if (!await renew()) return
+        await store.update(recordId, input, claimId)
+      })
+      const observe = (observation: TraceEventLogEntry) => ownsRecord
+        ? update({ observation, timestamp: observation.timestamp })
+        : Promise.resolve()
       return {
         context: {
           ...context,
@@ -381,20 +404,23 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           traceLog: journalTraceLog(baseTraceLog, observe),
         },
         async finish(status, error) {
-          if (finished || !await acquire()) return
+          if (finished) return
           finished = true
-          await write(() => store.update(recordId, {
+          await update({
             ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
             status,
             timestamp: new Date().toISOString(),
-          }))
+          })
+          stopHeartbeat()
+          if (ownsRecord) await write(() => store.release(recordId, claimId))
+          ownsRecord = false
         },
         async running() {
           if (finished || !ownsRecord) return
-          await write(() => store.update(recordId, {
+          await update({
             status: "running",
             timestamp: new Date().toISOString(),
-          }))
+          })
         },
       }
     },

@@ -116,6 +116,7 @@ describe("Agent Invocations", () => {
       create: () => { throw failure },
       get: () => { throw failure },
       list: () => { throw failure },
+      release: () => { throw failure },
       update: () => { throw failure },
     }
     const agent = defineAgent({
@@ -134,6 +135,7 @@ describe("Agent Invocations", () => {
       create: input => ({ created: true, record: { ...input, cursor: "created/token" } }),
       get: () => undefined,
       list,
+      release: () => {},
       update: () => undefined,
     }
     const invocations = defineAgentInvocations({ store })
@@ -263,6 +265,39 @@ describe("Agent Invocations", () => {
     finally {
       writerClient.close()
       readerClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("recovers expired libSQL writer leases and fences previous writers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-lease-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client })
+    const createdAt = new Date().toISOString()
+    try {
+      await store.create({
+        createdAt,
+        id: "invocation-1",
+        observations: [],
+        status: "pending",
+        traceId: "trace-1",
+        updatedAt: createdAt,
+      })
+      await expect(store.claim("invocation-1", "first", Date.now() - 1)).resolves.toBe(true)
+      await expect(store.claim("invocation-1", "second", Date.now() + 30_000)).resolves.toBe(true)
+      await expect(store.update("invocation-1", {
+        status: "failed",
+        timestamp: new Date().toISOString(),
+      }, "first")).resolves.toBeUndefined()
+      await expect(store.update("invocation-1", {
+        status: "running",
+        timestamp: new Date().toISOString(),
+      }, "second")).resolves.toMatchObject({ status: "running" })
+      await store.release("invocation-1", "second")
+      await expect(store.claim("invocation-1", "third", Date.now() + 30_000)).resolves.toBe(true)
+    }
+    finally {
+      client.close()
       await rm(directory, { force: true, recursive: true })
     }
   })
