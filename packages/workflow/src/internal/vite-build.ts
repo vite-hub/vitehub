@@ -516,6 +516,7 @@ function createWorkflowRegistryContents(
       ? [
           `import { agentWithColocatedInstructions, runAgentInline } from ${JSON.stringify(agentImportBase)}`,
           `import { agentWithColocatedHome, agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
+          `import ${JSON.stringify(`${agentImportBase}/server/internal`)}`,
           ...(installAgentWorkflowRuntime
             ? [`import { setAgentWorkflowRuntimeLoaders } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`]
             : []),

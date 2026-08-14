@@ -948,25 +948,25 @@ async function steerQueuedWebhookDelivery(
         }
         if (accepted) {
           keepLockUntilInvocationSettles = true
-          const deliverySettlement = active.result.then(() => true, () => false)
           const settlement = active.result
             .then(async () => {
               const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
               if (completed) await state.set(claimKey, "steered")
               else await state.delete(claimKey)
+              return completed
             })
             .catch(async () => {
               await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
               await state.delete(claimKey)
+              return false
             })
             .finally(async () => {
               stopDeliveryHeartbeat()
               stopHeartbeat()
               await state.releaseLock(lock)
             })
-            .catch(() => {})
-          waitUntil?.(settlement)
-          return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }), settlement: deliverySettlement }
+          waitUntil?.(settlement.then(() => undefined).catch(() => undefined))
+          return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }), settlement }
         }
         stopDeliveryHeartbeat()
         await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
