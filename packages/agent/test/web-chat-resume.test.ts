@@ -427,8 +427,57 @@ describe("resumable web chat", () => {
       for (let index = 0; index < 100; index++) replays.push(await handler(chatRequest("GET"), options))
       expect(handler.inspect()).toMatchObject({ activeRuns: 0, liveSubscribers: 100 })
       expect((await handler(chatRequest("GET"), options)).status).toBe(429)
-      await Promise.all(replays.map(response => response.body!.cancel()))
+      await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
       expect(handler.inspect()).toMatchObject({ liveSubscribers: 0 })
+      await Promise.all(replays.map(response => response.body!.cancel()))
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
+  it("bounds and aborts pending lookups for missing chats", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const controllers = Array.from({ length: 100 }, () => new AbortController())
+    const lookups = controllers.map((controller, index) => handler(new Request(`https://example.com/chat?id=missing-${index}`, { signal: controller.signal })))
+
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingLookups: 100, maxPendingLookupsPerOwner: 100 }))
+    await expect(handler(new Request("https://example.com/chat?id=overflow"))).resolves.toMatchObject({ status: 429 })
+    controllers.forEach(controller => controller.abort())
+    await Promise.all(lookups)
+    expect(handler.inspect()).toMatchObject({ pendingLookups: 0 })
+  })
+
+  it("normalizes resumable UI streams to a stable leading message identity", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockResolvedValue(new Response([
+      'data: {"id":"text-1","type":"text-start"}',
+      "",
+      'data: {"messageId":"provider-id","type":"start"}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"), { headers: { "content-type": "text/event-stream" } }))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+
+    try {
+      const response = await handler(chatRequest("POST"), { agentName: "support", waitUntil: () => {} })
+      const events = (await response.text()).split("\n\n").filter(frame => frame.startsWith("data: {")).map(frame => JSON.parse(frame.slice(6)))
+      expect(events[0]).toMatchObject({ type: "start" })
+      expect(events[0].messageId).toBeTruthy()
+      expect(events[2]).toMatchObject({ messageId: events[0].messageId, type: "start" })
     }
     finally {
       streamAgentTrigger.mockRestore()
@@ -671,7 +720,7 @@ describe("resumable web chat", () => {
 
     expect((await cancellation).status).toBe(204)
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith("Cancelled by the web chat client."))
-    await expect(body).resolves.toContain("assistant-1")
+    await expect(body).resolves.toEqual(expect.any(String))
     await Promise.all(pending)
   })
 

@@ -12,7 +12,7 @@ describe("Agent Vue client types", () => {
     expectTypeOf(agent.name).toEqualTypeOf<string>()
 
     const transport = {} as ChatTransport<UIMessage>
-    const init = { api: "/api/support", resume: true, transport } satisfies AgentChatInit
+    const init = { api: "/api/support", transport } satisfies AgentChatInit
     const chat = useChat(agent, init)
 
     expectTypeOf(chat.id).toEqualTypeOf<ComputedRef<string>>()
@@ -21,6 +21,7 @@ describe("Agent Vue client types", () => {
     expectTypeOf(chat.status.value).toEqualTypeOf<"submitted" | "streaming" | "ready" | "error">()
     expectTypeOf(chat.sendMessage).toBeFunction()
     expectTypeOf(useChat).toBeCallableWith(agent, (() => init) satisfies MaybeRefOrGetter<AgentChatReactiveInit>)
+    expectTypeOf<AgentChatInit>().not.toMatchTypeOf<{ resume: true, transport: ChatTransport<UIMessage> }>()
 
     // @ts-expect-error AI SDK constructor-only options cannot update without resetting an active chat.
     useChat(agent, () => ({ generateId: () => "message-id" }))

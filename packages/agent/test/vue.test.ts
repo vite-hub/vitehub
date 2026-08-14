@@ -177,6 +177,15 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("rejects a custom transport for resumable chat", () => {
+    vi.stubGlobal("window", {})
+    const transport = { reconnectToStream: async () => null, sendMessages: async () => null } as never
+    const scope = effectScope()
+
+    expect(() => scope.run(() => useChat(useAgent("support"), { resume: true, transport } as never))).toThrow("does not support a custom transport")
+    scope.stop()
+  })
+
   it("uses an explicit API instead of the conventional generated route", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({ execute() {} }),
@@ -385,6 +394,29 @@ describe("Agent Vue clients", () => {
     releaseReconnect()
     await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
     expect(chat.messages.value).toEqual(options.value.messages)
+    scope.stop()
+  })
+
+  it("ignores a superseded reconnect body abort while the next chat reconnects", async () => {
+    vi.stubGlobal("window", {})
+    const options = ref({ id: "chat-1", resume: true })
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (String(input).includes("chat-2")) return new Response(null, { status: 204 })
+      return new Response(new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")))
+        },
+      }), { headers: { "content-type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" } })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    options.value = { id: "chat-2", resume: true }
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(chat.error.value).toBeUndefined()
     scope.stop()
   })
 

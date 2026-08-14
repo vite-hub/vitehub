@@ -16,11 +16,13 @@ export interface AgentClient {
   readonly name: string
 }
 
-export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE>
+type AgentChatInitBase<UI_MESSAGE extends UIMessage> = Omit<ChatInit<UI_MESSAGE>, "transport">
   & Pick<HttpChatTransportInitOptions<UI_MESSAGE>, "api" | "credentials" | "fetch" | "headers">
-  & {
-  resume?: boolean
-}
+
+export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = AgentChatInitBase<UI_MESSAGE> & (
+  | { resume: true, transport?: never }
+  | { resume?: false, transport?: ChatInit<UI_MESSAGE>["transport"] }
+)
 
 export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
   AgentChatInit<UI_MESSAGE>,
@@ -60,9 +62,15 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const initialOptions = toValue(options)
   const currentOptions = shallowRef(initialOptions)
   const liveOptions = shallowRef(initialOptions)
+  if (currentOptions.value.resume && currentOptions.value.transport) {
+    throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
+  }
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
   watch(() => toValue(options).id, () => {
     currentOptions.value = toValue(options)
+    if (currentOptions.value.resume && currentOptions.value.transport) {
+      throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
+    }
     streamedParts.value = []
     if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   })
@@ -108,7 +116,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       if (generation !== reconnectGeneration) return null
       if (!stream) return null
       const reader = stream.getReader()
-      const first = await reader.read()
+      let first: Awaited<ReturnType<typeof reader.read>>
+      try {
+        first = await reader.read()
+      }
+      catch (error) {
+        if (generation !== reconnectGeneration) return null
+        throw error
+      }
       if (generation !== reconnectGeneration) {
         await reader.cancel()
         return null
