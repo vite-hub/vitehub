@@ -837,6 +837,12 @@ async function runAgentAsWorkflow<
     payload,
     workflowRunId ? { id: workflowRunId } : {},
   ))
+  if (run.status === "queued" && hasAgentDefinition(agent)) {
+    await bindAgentInvocations(agent.invocations, {
+      ...context,
+      run: { ...context.run, runId: run.id },
+    })
+  }
   return { handle, run }
 }
 

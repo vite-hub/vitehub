@@ -39,6 +39,8 @@ describe("Agent Vue client types", () => {
     expectTypeOf(list.invocations).toEqualTypeOf<ShallowRef<readonly AgentInvocationSummary[]>>()
     expectTypeOf(list.cursor).toEqualTypeOf<ShallowRef<string | undefined>>()
     expectTypeOf(list.refresh).toBeFunction()
+    expectTypeOf(list.loadMore).toBeFunction()
+    expectTypeOf(list.isLoadingMore).toEqualTypeOf<ShallowRef<boolean>>()
     expectTypeOf(list.stop).toBeFunction()
     expectTypeOf(detail.invocation).toEqualTypeOf<ShallowRef<AgentInvocationSummary | null>>()
     expectTypeOf(detail.observations).toEqualTypeOf<ShallowRef<readonly TraceEventLogEntry[]>>()

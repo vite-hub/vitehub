@@ -11216,13 +11216,16 @@ describe("agent message protocol", () => {
 
     it("queues discovered agent runs as Workflow Runs by default", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const agent = defineAgent({
         driver: { run: context => `received ${context.prompt}` },
+        invocations,
       })
       const run = await runAgent(agent, {
         agentIdentity: { name: "support-agent" },
@@ -11235,11 +11238,13 @@ describe("agent message protocol", () => {
         provider: "vercel",
         status: "queued",
       })
+      await expect(invocations.get(run.id)).resolves.toMatchObject({ status: "pending" })
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent", run.id)).resolves.toMatchObject({
         result: "received hello",
         status: "completed",
       })
+      await expect(invocations.get(run.id)).resolves.toMatchObject({ status: "completed" })
     })
 
     it("does not serialize abort signals into Agent Workflow payloads", async () => {

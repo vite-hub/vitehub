@@ -32,6 +32,8 @@ export interface UseAgentInvocationsReturn {
   error: ShallowRef<unknown>;
   invocations: ShallowRef<readonly AgentInvocationSummary[]>;
   isLoading: ShallowRef<boolean>;
+  isLoadingMore: ShallowRef<boolean>;
+  loadMore: () => Promise<AgentInvocationListResult | undefined>;
   refresh: () => Promise<AgentInvocationListResult | undefined>;
   stop: () => void;
 }
@@ -99,6 +101,7 @@ function detailPath(baseURL: string, id: string): string {
 
 interface InvocationResourceOptions<T> {
   apply: (value: T) => void;
+  beforeLoad?: () => void;
   clear: () => void;
   immediate: boolean;
   load: (signal: AbortSignal) => Promise<T | undefined>;
@@ -132,6 +135,7 @@ function useInvocationResource<T>(options: InvocationResourceOptions<T>) {
 
   async function refresh(): Promise<T | undefined> {
     if (stopped) return;
+    options.beforeLoad?.();
     clearTimer();
     active?.abort();
     const controller = new AbortController();
@@ -193,8 +197,11 @@ export function useAgentInvocations(
 ): UseAgentInvocationsReturn {
   const invocations = shallowRef<readonly AgentInvocationSummary[]>([]);
   const cursor = shallowRef<string | undefined>();
+  const isLoadingMore = shallowRef(false);
   const request = options.request ?? defaultRequester;
   const baseURL = options.baseURL ?? defaultBaseURL;
+  let loadMoreController: AbortController | undefined;
+  let revision = 0;
 
   const resource = useInvocationResource<AgentInvocationListResult>({
     apply(result) {
@@ -204,6 +211,12 @@ export function useAgentInvocations(
     clear() {
       invocations.value = [];
       cursor.value = undefined;
+    },
+    beforeLoad() {
+      revision++;
+      loadMoreController?.abort();
+      loadMoreController = undefined;
+      isLoadingMore.value = false;
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
@@ -217,7 +230,50 @@ export function useAgentInvocations(
     watch: options.watch !== false,
   });
 
-  return { cursor, invocations, ...resource };
+  async function loadMore(): Promise<AgentInvocationListResult | undefined> {
+    const nextCursor = cursor.value;
+    if (!nextCursor) return;
+    loadMoreController?.abort();
+    const controller = new AbortController();
+    const currentRevision = revision;
+    loadMoreController = controller;
+    isLoadingMore.value = true;
+    resource.error.value = null;
+    try {
+      const query = options.query ? toValue(options.query) : undefined;
+      const result = await request<AgentInvocationListResult>(
+        appendQuery(toValue(baseURL), { ...query, cursor: nextCursor }),
+        { signal: controller.signal },
+      );
+      if (loadMoreController !== controller || revision !== currentRevision) return;
+      const ids = new Set(invocations.value.map(invocation => invocation.id));
+      invocations.value = [
+        ...invocations.value,
+        ...result.invocations.filter(invocation => !ids.has(invocation.id)),
+      ];
+      cursor.value = result.cursor;
+      return result;
+    } catch (cause) {
+      if (loadMoreController !== controller || isAbortError(cause)) return;
+      resource.error.value = cause;
+    } finally {
+      if (loadMoreController === controller) {
+        loadMoreController = undefined;
+        isLoadingMore.value = false;
+      }
+    }
+  }
+
+  function stop() {
+    revision++;
+    loadMoreController?.abort();
+    loadMoreController = undefined;
+    isLoadingMore.value = false;
+    resource.stop();
+  }
+
+  onScopeDispose(() => loadMoreController?.abort(), true);
+  return { cursor, invocations, isLoadingMore, loadMore, ...resource, stop };
 }
 
 export function useAgentInvocation(
