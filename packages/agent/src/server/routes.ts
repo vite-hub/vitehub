@@ -4437,7 +4437,7 @@ export function createChannelChatRouteHandler(
       await state.connect()
       const sessionOptions = chatOptions.sessions
       let approvalTtlMs = agentChatApprovalTtlMs
-      let writtenSessionBoundary: { key: string, previous: string | null | undefined, value: string } | undefined
+      let cancelledDuringSessionBoundary = false
       const manualSessions = sessionOptions === true
         || Boolean(sessionOptions && (sessionOptions.strategy === "manual" || sessionOptions.strategy === "hybrid" || (!sessionOptions.strategy && !sessionOptions.idleTimeoutMs)))
       if (sessionId && manualSessions) {
@@ -4449,28 +4449,35 @@ export function createChannelChatRouteHandler(
         if (triggerInput.session?.action === "new") {
           selectedSessionId = `${manualId}:manual:${randomToken()}`
           await withResumableSessionBoundaryWrite(boundaryKey, async () => {
-            if (resumableRequestCancelled()) return
+            if (resumableRequestCancelled()) {
+              cancelledDuringSessionBoundary = true
+              return
+            }
             const previous = await state.get<string>(boundaryKey)
             await state.set(boundaryKey, selectedSessionId!, approvalTtlMs)
-            writtenSessionBoundary = { key: boundaryKey, previous, value: selectedSessionId! }
+            if (!resumableRequestCancelled()) return
+            if (await state.get<string>(boundaryKey) === selectedSessionId) {
+              if (previous) await state.set(boundaryKey, previous, approvalTtlMs)
+              else await state.delete(boundaryKey)
+            }
+            cancelledDuringSessionBoundary = true
           })
         }
         else {
-          selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
-          if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
+          await withResumableSessionBoundaryWrite(boundaryKey, async () => {
+            if (resumableRequestCancelled()) {
+              cancelledDuringSessionBoundary = true
+              return
+            }
+            selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
+            if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
+          })
         }
       }
       const approvalSessionId = sessionId && selectedSessionId
         ? `${sessionId}:chat-session:${selectedSessionId}`
         : sessionId
-      if (resumableRequestCancelled()) {
-        if (writtenSessionBoundary) {
-          await withResumableSessionBoundaryWrite(writtenSessionBoundary.key, async () => {
-            if (await state.get<string>(writtenSessionBoundary!.key) !== writtenSessionBoundary!.value) return
-            if (writtenSessionBoundary!.previous) await state.set(writtenSessionBoundary!.key, writtenSessionBoundary!.previous, approvalTtlMs)
-            else await state.delete(writtenSessionBoundary!.key)
-          })
-        }
+      if (cancelledDuringSessionBoundary || resumableRequestCancelled()) {
         releaseResumableClaim?.()
         return new Response(null, { status: 204 })
       }

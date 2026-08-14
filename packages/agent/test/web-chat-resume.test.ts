@@ -1081,9 +1081,9 @@ describe("resumable web chat", () => {
       messages: { sessions: true },
     }) as never)
     const options = { agentName: "support", state: () => state as never, waitUntil: () => {} }
-    const sessionRequest = async (messageId: string) => {
+    const sessionRequest = async (messageId: string, action: "continue" | "new" = "new") => {
       const body = await chatRequest("POST", "max", messageId).json() as Record<string, unknown>
-      body.session = { action: "new", id: "manual" }
+      body.session = { action, id: "manual" }
       return new Request("https://example.com/api/_vitehub/agents/support/chat", {
         body: JSON.stringify(body),
         headers: { "content-type": "application/json" },
@@ -1097,14 +1097,13 @@ describe("resumable web chat", () => {
 
     await vi.waitFor(() => expect([...values.keys()]).toEqual([expect.stringContaining(":boundary")]))
     await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+    const continuation = handler(await sessionRequest("user-3", "continue"), options)
     releaseSet()
     await expect(Promise.all(posts)).resolves.toEqual([
       expect.objectContaining({ status: 204 }),
       expect.objectContaining({ status: 204 }),
     ])
-    expect([...values.keys()]).not.toEqual(expect.arrayContaining([expect.stringContaining(":boundary")]))
-
-    await expect(handler(await sessionRequest("user-3"), options)).resolves.toMatchObject({ status: 200 })
+    await expect(continuation).resolves.toMatchObject({ status: 200 })
     expect([...values.keys()]).toEqual([expect.stringContaining(":boundary")])
     expect(run).toHaveBeenCalledOnce()
   })
