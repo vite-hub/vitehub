@@ -3,20 +3,60 @@
 
 :root {
   --ui-radius: 0.25rem;
-  --console-paper: #f5f3ee;
-  --console-surface: #fbfaf7;
-  --console-ink: #191a17;
-  --console-muted: #74746d;
-  --console-faint: #a4a198;
-  --console-line: #dcd8cf;
-  --console-accent: #d85a31;
-  --console-running: #3378a4;
-  --console-queued: #b78325;
-  --console-success: #667d46;
-  --console-failed: #b1463e;
+  --console-paper: #f4f6fb;
+  --console-surface: #ffffff;
+  --console-ink: #172033;
+  --console-muted: #667085;
+  --console-faint: #98a2b3;
+  --console-line: #e1e6ef;
+  --console-accent: #6d5ce7;
+  --console-running: #168aad;
+  --console-queued: #b7791f;
+  --console-success: #2f855a;
+  --console-failed: #c24156;
+  --ui-text: var(--console-ink);
+  --ui-text-dimmed: var(--console-faint);
+  --ui-text-toned: var(--console-muted);
+  --ui-text-muted: var(--console-muted);
+  --ui-text-highlighted: var(--console-ink);
+  --ui-bg: var(--console-surface);
+  --ui-bg-muted: var(--console-paper);
+  --ui-bg-elevated: var(--console-surface);
+  --ui-bg-accented: color-mix(in srgb, var(--console-line) 55%, var(--console-surface));
+  --ui-border: var(--console-line);
+  --ui-border-muted: color-mix(in srgb, var(--console-line) 70%, transparent);
+  --ui-border-accented: var(--console-line);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   color: var(--console-ink);
   background: var(--console-paper);
+  color-scheme: light;
+}
+
+.dark {
+  --console-paper: #080c14;
+  --console-surface: #0d1420;
+  --console-ink: #e7edf7;
+  --console-muted: #9ba9bc;
+  --console-faint: #66758a;
+  --console-line: #202c3d;
+  --console-accent: #a78bfa;
+  --console-running: #38bdf8;
+  --console-queued: #f5b942;
+  --console-success: #4ade80;
+  --console-failed: #fb7185;
+  --ui-text: var(--console-ink);
+  --ui-text-dimmed: var(--console-faint);
+  --ui-text-toned: var(--console-muted);
+  --ui-text-muted: var(--console-muted);
+  --ui-text-highlighted: var(--console-ink);
+  --ui-bg: var(--console-surface);
+  --ui-bg-muted: var(--console-paper);
+  --ui-bg-elevated: color-mix(in srgb, var(--console-surface) 88%, white);
+  --ui-bg-accented: color-mix(in srgb, var(--console-line) 72%, var(--console-surface));
+  --ui-border: var(--console-line);
+  --ui-border-muted: color-mix(in srgb, var(--console-line) 70%, transparent);
+  --ui-border-accented: var(--console-line);
+  color-scheme: dark;
 }
 
 * {
@@ -33,6 +73,7 @@ body,
 
 body {
   min-height: 100vh;
+  color: var(--console-ink);
   background:
     linear-gradient(90deg, transparent calc(100% - 1px), color-mix(in srgb, var(--console-line) 45%, transparent) 0) 0 0 / 48px 48px,
     linear-gradient(transparent calc(100% - 1px), color-mix(in srgb, var(--console-line) 32%, transparent) 0) 0 0 / 48px 48px,
@@ -52,12 +93,12 @@ a:focus-visible {
 
 .console-shell {
   width: min(1580px, calc(100vw - 32px));
-  min-height: calc(100vh - 32px);
+  height: calc(100dvh - 32px);
   margin: 16px auto;
   overflow: hidden;
   border: 1px solid var(--console-line);
   background: var(--console-surface);
-  box-shadow: 0 18px 50px rgb(44 42 36 / 8%);
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--console-ink) 10%, transparent);
 }
 
 .console-header {
@@ -103,7 +144,7 @@ a:focus-visible {
 
 .brand-mark i:nth-child(2) {
   height: 100%;
-  background: #ef895e;
+  background: var(--console-accent);
 }
 
 .brand-mark i:nth-child(3) {
@@ -162,7 +203,7 @@ a:focus-visible {
   height: 7px;
   border-radius: 999px;
   background: var(--console-success);
-  box-shadow: 0 0 0 4px rgb(102 125 70 / 10%);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--console-success) 12%, transparent);
 }
 
 .refresh-time {
@@ -172,11 +213,15 @@ a:focus-visible {
 
 .console-workspace {
   display: grid;
-  min-height: calc(100vh - 98px);
+  height: calc(100% - 64px);
+  min-height: 0;
   grid-template-columns: minmax(290px, 350px) minmax(0, 1fr);
 }
 
 .invocation-rail {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   border-right: 1px solid var(--console-line);
   background: color-mix(in srgb, var(--console-paper) 68%, var(--console-surface));
 }
@@ -302,7 +347,7 @@ a:focus-visible {
 }
 
 .invocation-row:hover {
-  background: rgb(25 26 23 / 4%);
+  background: color-mix(in srgb, var(--console-ink) 5%, transparent);
 }
 
 .invocation-row.selected {
@@ -342,6 +387,9 @@ a:focus-visible {
 
 .invocation-detail {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .detail-placeholder {
@@ -759,8 +807,10 @@ a.annotation:hover strong {
 @media (max-width: 760px) {
   .console-shell {
     width: 100%;
-    min-height: 100vh;
+    height: auto;
+    min-height: 100dvh;
     margin: 0;
+    overflow: visible;
     border: 0;
   }
 
@@ -777,6 +827,13 @@ a.annotation:hover strong {
 
   .console-workspace {
     display: block;
+    height: auto;
+  }
+
+  .invocation-rail,
+  .invocation-detail {
+    overflow-y: visible;
+    scrollbar-gutter: auto;
   }
 
   .invocation-rail {
