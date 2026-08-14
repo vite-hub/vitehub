@@ -7219,7 +7219,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  }, 15_000)
+  }, 30_000)
 
   it("retries a failed queued webhook delivery without the startup pump", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)

@@ -182,7 +182,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const now = Date.now()
       const candidates = await execute(
         tx,
-        `SELECT candidate.delivery_id, candidate.value, candidate.concurrency_group,
+        `SELECT candidate.delivery_id, candidate.value, candidate.status, candidate.concurrency_group,
             candidate.concurrency_key, candidate.concurrency_limit, candidate.lease_ttl_ms, candidate.attempts
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
@@ -213,13 +213,13 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
               status = 'running', lease_token = ?, lease_expires_at = ?
             WHERE scope = ? AND delivery_id = ?
               AND (status = 'queued' OR (status IN ('running', 'steering') AND lease_expires_at <= ?))
-            RETURNING value, attempts`,
+            RETURNING value`,
           [leaseToken, now + leaseTtlMs, scope, candidate.delivery_id, now],
         )
         if (claimed.length === 0 || typeof candidate.value !== "string") continue
         return {
           ...JSON.parse(candidate.value) as AgentWebhookQueueDelivery,
-          attempts: numberValue(claimed[0]?.attempts),
+          attempts: numberValue(candidate.attempts) + (candidate.status === "queued" ? 0 : 1),
           leaseExpiresAt: now + leaseTtlMs,
           leaseToken,
         }
