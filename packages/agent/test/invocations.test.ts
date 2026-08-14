@@ -102,7 +102,8 @@ describe("Agent Invocations", () => {
     const entries: Array<Record<string, unknown>> = []
     const traceLog = {
       append: vi.fn(async (event: Record<string, unknown>) => {
-        const entry = { ...event, sequence: entries.length ? Number.POSITIVE_INFINITY : Number.NaN }
+        const customSequences = [Number.MAX_SAFE_INTEGER, 1, Number.NaN]
+        const entry = { ...event, sequence: customSequences[entries.length] }
         entries.push(entry)
         return entry
       }),

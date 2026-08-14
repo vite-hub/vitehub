@@ -841,7 +841,7 @@ async function runAgentAsWorkflow<
     payload,
     workflowRunId ? { id: workflowRunId } : {},
   ))
-  const invocationJournal = (run.status === "queued" || run.status === "running" || run.status === "unknown") && hasAgentDefinition(agent)
+  const invocationJournal = hasAgentDefinition(agent)
     ? await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: run.id },
@@ -4107,8 +4107,9 @@ async function reconcileQueuedWorkflowJournal<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
 ): Promise<void> {
   if (!started.invocationJournal) return
+  const deadline = Date.now() + 60_000
   let run = started.run
-  while (run.status === "queued" || run.status === "running" || run.status === "unknown") {
+  while ((run.status === "queued" || run.status === "running" || run.status === "unknown") && Date.now() < deadline) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1_000)
       const unref = (timer as unknown as { unref?: () => void }).unref

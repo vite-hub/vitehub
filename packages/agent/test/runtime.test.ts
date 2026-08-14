@@ -11314,8 +11314,7 @@ describe("agent message protocol", () => {
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const waitUntilTasks: Array<Promise<unknown>> = []
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-      let inspections = 0
-      vi.useFakeTimers()
+      let initialStatus = "running"
       setAgentWorkflowRuntimeLoaders({
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
@@ -11325,12 +11324,8 @@ describe("agent message protocol", () => {
         }) as never,
         workflow: async () => ({
           createWorkflow: () => ({
-            getRun: async (id: string) => ({
-              id,
-              provider: "openworkflow",
-              status: ++inspections > 60 ? "failed" : "running",
-            }),
-            run: async () => ({ id: "running-before-worker", provider: "openworkflow", status: "running" }),
+            getRun: async (id: string) => ({ id, provider: "openworkflow", status: "failed" }),
+            run: async () => ({ id: `${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }),
           }),
         }) as never,
       })
@@ -11347,12 +11342,24 @@ describe("agent message protocol", () => {
 
         expect(run.status).not.toBe("queued")
         await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "pending" })
-        await vi.runAllTimersAsync()
         await Promise.all(waitUntilTasks)
         await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "failed" })
+
+        initialStatus = "failed"
+        const terminalRun = await runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          runtime: workflow("terminal-agent"),
+        }), {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string, status: string }
+        await Promise.all(waitUntilTasks)
+        expect(terminalRun.status).toBe("failed")
+        await expect(invocations.getByRunId(terminalRun.id)).resolves.toMatchObject({ status: "failed" })
       }
       finally {
-        vi.useRealTimers()
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),
