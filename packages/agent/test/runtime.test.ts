@@ -11381,6 +11381,27 @@ describe("agent message protocol", () => {
       await expect(result).resolves.toBe("done")
     })
 
+    it("owns deferred recovery before rethrowing Workflow failures", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const recovery = deferred<void>()
+      const failure = new Error("driver failed")
+      let completed = false
+      const result = runAgentWorkflowDefinition({} as never, {
+        id: "failed-source-run",
+        name: "failed-source-run",
+        payload: { run: { origin: "portal", runId: "failed-source-run" } },
+        provider: "vercel",
+      }, async (_agent, context) => {
+        context.waitUntil(recovery.promise)
+        throw failure
+      }).finally(() => { completed = true })
+
+      await Promise.resolve()
+      expect(completed).toBe(false)
+      recovery.resolve()
+      await expect(result).rejects.toBe(failure)
+    })
+
     it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

@@ -213,14 +213,16 @@ export async function runAgentWorkflowDefinition<
     waitUntil,
   } as never)
 
-  const result = await runAgentInline(
-    agent,
-    runtimeContext,
-    payload.resolvedInvoker
-      ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
-      : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
-  )
-  const portableResult = await portableWorkflowResult(result)
-  for (let index = 0; index < waitUntilTasks.length; index++) await waitUntilTasks[index]
-  return portableResult
+  try {
+    return await portableWorkflowResult(await runAgentInline(
+      agent,
+      runtimeContext,
+      payload.resolvedInvoker
+        ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
+        : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
+    ))
+  }
+  finally {
+    for (let index = 0; index < waitUntilTasks.length; index++) await waitUntilTasks[index]
+  }
 }
