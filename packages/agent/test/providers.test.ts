@@ -7086,6 +7086,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-retry-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
+    const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
     const run = vi.fn()
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValue("accepted")
@@ -7126,6 +7127,8 @@ describe("server helpers", () => {
       stop = handler.resume({ agentName: "review", webhookState: state })
       await expect(handler(request(), "github", { agentName: "review", webhookState: state })).resolves.toMatchObject({ status: 200 })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledOnce())
+      await expect(retryDelivery.mock.results[0]?.value).resolves.toBe(true)
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
@@ -7153,6 +7156,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-terminal-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
+    const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
     const run = vi.fn(async () => { throw new Error("persistent failure") })
     const agent = defineAgent({
       channels: {
@@ -7191,9 +7195,13 @@ describe("server helpers", () => {
       stop = handler.resume({ agentName: "review", webhookState: state })
       await handler(request(), "github", { agentName: "review", webhookState: state })
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(1))
+      await expect(retryDelivery.mock.results[0]?.value).resolves.toBe(true)
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(2))
+      await expect(retryDelivery.mock.results[1]?.value).resolves.toBe(true)
       await vi.advanceTimersByTimeAsync(2_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
