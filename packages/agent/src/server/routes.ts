@@ -4204,9 +4204,7 @@ export function createChannelChatRouteHandler(
 
     try {
       if (request.method !== "POST") {
-        const rawId = new URL(request.url).searchParams.get("id") || undefined
-        if (!rawId) throw createRouteBodyError("Resumable agent chat requires an id query parameter.")
-        const id = optionalBodyString(rawId, "id")
+        const id = optionalBodyString(new URL(request.url).searchParams.get("id") || undefined, "id")
         if (!id) throw createRouteBodyError("Resumable agent chat requires an id query parameter.")
         const body = { id }
         const agentIdentity = routeAgentIdentity(handlerOptions)
