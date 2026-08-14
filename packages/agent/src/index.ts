@@ -1456,7 +1456,9 @@ type ValidateStaticAgentCapability<TCapability> =
     ? TCapability
     : Extract<keyof TCapability, symbol> extends never
       ? never
-      : TCapability
+      : TCapability[Extract<keyof TCapability, symbol>] extends true
+        ? TCapability
+        : never
 
 type ValidateStaticAgentCapabilities<TCapabilities> =
   TCapabilities extends readonly unknown[]

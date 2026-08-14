@@ -11238,13 +11238,13 @@ describe("agent message protocol", () => {
         provider: "vercel",
         status: "queued",
       })
-      await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "pending" })
+      await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "pending" })
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent", run.id)).resolves.toMatchObject({
         result: "received hello",
         status: "completed",
       })
-      await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "completed" })
+      await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "completed" })
     })
 
     it("does not serialize abort signals into Agent Workflow payloads", async () => {

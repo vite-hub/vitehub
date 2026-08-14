@@ -55,6 +55,7 @@ describe("Agent Invocations", () => {
       "agent.invocation.finish",
     ])
     expect(record?.observations.every(event => event.attributes?.prompt === undefined)).toBe(true)
+    expect(record?.observations.every(event => event.trace?.id === record.traceId)).toBe(true)
     expect(runtimeTraceId).toBe("run-1")
 
     const listed = await invocations.list()
@@ -192,7 +193,22 @@ describe("Agent Invocations", () => {
 
     await runAgent(agent, runtime("run-1"), {})
 
-    expect(await invocations.getByRunId("run-1")).toMatchObject({ agentName: "support" })
+    expect(await invocations.getByRunId("run-1", "support")).toMatchObject({ agentName: "support" })
+  })
+
+  it("isolates matching source run IDs by Agent Definition", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const support = defineAgent({ name: "support", driver: { run: () => "support" }, invocations, runtime: false })
+    const review = defineAgent({ name: "review", driver: { run: () => "review" }, invocations, runtime: false })
+
+    await Promise.all([
+      runAgent(support, runtime("shared-run"), {}),
+      runAgent(review, runtime("shared-run"), {}),
+    ])
+
+    await expect(invocations.getByRunId("shared-run", "support")).resolves.toMatchObject({ agentName: "support" })
+    await expect(invocations.getByRunId("shared-run", "review")).resolves.toMatchObject({ agentName: "review" })
+    await expect(invocations.list()).resolves.toMatchObject({ invocations: [{}, {}] })
   })
 
   it("bounds dynamic summary metadata without truncating invocation identity", async () => {
@@ -283,8 +299,13 @@ describe("Agent Invocations", () => {
         traceId: "trace-1",
         updatedAt: createdAt,
       })
-      await expect(store.claim("invocation-1", "first", Date.now() - 1)).resolves.toBe(true)
-      await expect(store.claim("invocation-1", "second", Date.now() + 30_000)).resolves.toBe(true)
+      await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
+      const localNow = Date.now()
+      const clock = vi.spyOn(Date, "now").mockReturnValue(localNow + 60_000)
+      await expect(store.claim("invocation-1", "second", 30_000)).resolves.toBe(false)
+      clock.mockRestore()
+      await store.release("invocation-1", "first")
+      await expect(store.claim("invocation-1", "second", 30_000)).resolves.toBe(true)
       await expect(store.update("invocation-1", {
         status: "failed",
         timestamp: new Date().toISOString(),
@@ -294,7 +315,7 @@ describe("Agent Invocations", () => {
         timestamp: new Date().toISOString(),
       }, "second")).resolves.toMatchObject({ status: "running" })
       await store.release("invocation-1", "second")
-      await expect(store.claim("invocation-1", "third", Date.now() + 30_000)).resolves.toBe(true)
+      await expect(store.claim("invocation-1", "third", 30_000)).resolves.toBe(true)
     }
     finally {
       client.close()

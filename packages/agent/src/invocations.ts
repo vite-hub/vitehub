@@ -74,7 +74,7 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
-  claim(id: string, claimId: string, expiresAt: number): MaybePromise<boolean>
+  claim(id: string, claimId: string, leaseMs: number): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
@@ -89,7 +89,7 @@ export interface AgentInvocationsOptions {
 export interface AgentInvocations {
   readonly [agentInvocationsBrand]: true
   get(id: string): Promise<AgentInvocationRecord | undefined>
-  getByRunId(runId: string): Promise<AgentInvocationRecord | undefined>
+  getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
 }
 
@@ -200,6 +200,10 @@ async function boundedIdentity(value: string): Promise<string> {
   return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
+function invocationIdentity(runId: string, agentName?: string): string {
+  return `${agentName || ""}\0${runId}`
+}
+
 function assertInvocationId(id: string): void {
   if (typeof id !== "string" || !id.trim()) {
     throw new TypeError("[vitehub] Agent Invocations require a non-empty invocation id.")
@@ -259,10 +263,10 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
   const records = new Map<string, AgentInvocationRecord>()
   let cursor = 0
   return {
-    claim(id, claimId, expiresAt) {
+    claim(id, claimId, leaseMs) {
       const claim = claims.get(id)
       if (!records.has(id) || (claim && claim.claimId !== claimId && claim.expiresAt > Date.now())) return false
-      claims.set(id, { claimId, expiresAt })
+      claims.set(id, { claimId, expiresAt: Date.now() + leaseMs })
       return true
     },
     create(input) {
@@ -338,7 +342,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       bindOptions: { agentName?: string, deferClaim?: boolean } = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
-      const recordId = await boundedIdentity(runId)
+      const agentName = context.agentIdentity?.name || bindOptions.agentName
+      const recordId = await boundedIdentity(invocationIdentity(runId, agentName))
       const claimId = createInvocationId()
       const traceId = await boundedIdentity(context.trace?.id || runId)
       const annotations = normalizeAnnotations(context.run?.annotations)
@@ -357,7 +362,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (unref) unref.call(heartbeat)
       }
       const renew = async (): Promise<boolean> => {
-        try { ownsRecord = await store.claim(recordId, claimId, Date.now() + CLAIM_LEASE_MS) }
+        try { ownsRecord = await store.claim(recordId, claimId, CLAIM_LEASE_MS) }
         catch { ownsRecord = false }
         if (ownsRecord) startHeartbeat()
         else stopHeartbeat()
@@ -373,7 +378,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const now = new Date().toISOString()
       try {
         await store.create({
-          ...(context.agentIdentity?.name || bindOptions.agentName ? { agentName: boundedString(context.agentIdentity?.name || bindOptions.agentName) } : {}),
+          ...(agentName ? { agentName: boundedString(agentName) } : {}),
           ...(annotations ? { annotations } : {}),
           ...(context.run?.channelId ? { channelId: boundedString(context.run.channelId) } : {}),
           createdAt: now,
@@ -393,9 +398,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (!await renew()) return
         await store.update(recordId, input, claimId)
       })
-      const observe = (observation: TraceEventLogEntry) => ownsRecord
-        ? update({ observation, timestamp: observation.timestamp })
-        : Promise.resolve()
+      const observe = (observation: TraceEventLogEntry) => update({
+        observation: {
+          ...observation,
+          ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+        },
+        timestamp: observation.timestamp,
+      })
       return {
         context: {
           ...context,
@@ -416,7 +425,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ownsRecord = false
         },
         async running() {
-          if (finished || !ownsRecord) return
+          if (finished) return
           await update({
             status: "running",
             timestamp: new Date().toISOString(),
@@ -428,9 +437,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       assertInvocationId(id)
       return await store.get(id)
     },
-    async getByRunId(runId) {
+    async getByRunId(runId, agentName) {
       assertInvocationId(runId)
-      return await store.get(await boundedIdentity(runId))
+      return await store.get(await boundedIdentity(invocationIdentity(runId, agentName)))
     },
     async list(options = {}) {
       return await store.list({ ...options, limit: normalizeLimit(options.limit) })

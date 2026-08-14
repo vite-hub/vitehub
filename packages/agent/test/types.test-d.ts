@@ -56,6 +56,12 @@ describe("agent public types", () => {
       capabilities: [{}],
       driver: { run: () => "ok" },
     })
+
+    defineAgent({
+      // @ts-expect-error unrelated symbol-bearing objects are not extension mounts
+      capabilities: [{ *[Symbol.iterator]() {} }],
+      driver: { run: () => "ok" },
+    })
   })
 
   it("preserves call options through queued webhook rehydration", () => {
