@@ -324,6 +324,35 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("restores pre-existing excluded state when revision extraction fails after reset", async () => {
+    const docs = workspace()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-failure-"))
+    const target = join(targetParent, "workspace")
+    await mkdir(join(target, ".agent-runs"), { recursive: true })
+    await writeFile(join(target, ".agent-runs", "trace.json"), "before")
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: new TextEncoder().encode("not a tar archive"),
+          files: 1,
+          revision: "0123456789012345678901234567890123456789",
+          root: "",
+        }
+      },
+    }
+
+    try {
+      await expect(docs.startSession({ host: localHost(), target })).rejects.toThrow("Failed to inspect Workspace revision")
+      await expect(readFile(join(target, ".agent-runs", "trace.json"), "utf8")).resolves.toBe("before")
+    }
+    finally {
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
   it("rejects a pinned revision whose configured root is a symlink", async () => {
     const docs = workspace()
     const archive = await symlinkRootRevisionArchive()

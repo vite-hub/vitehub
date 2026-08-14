@@ -619,9 +619,22 @@ export async function createHostedWorkspaceSession(
   let closed = false
   const existingExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
   let attachedState = options.attach ? await captureHostState(host, root, "host-attach") : undefined
-  const materialization: { revision?: string, snapshot: WorkspaceSnapshot } = attachedState
-    ? { snapshot: attachedState.snapshot }
-    : await materializeWorkspace(workspace, host, root, options)
+  let materialization: { revision?: string, snapshot: WorkspaceSnapshot }
+  try {
+    materialization = attachedState
+      ? { snapshot: attachedState.snapshot }
+      : await materializeWorkspace(workspace, host, root, options)
+  }
+  catch (error) {
+    if (attachedState) throw error
+    try {
+      await restoreExcludedHostState(host, root, excludedWriteBackPaths, existingExcludedState)
+    }
+    catch (restoreError) {
+      throw new AggregateError([error, restoreError], "[vitehub] Workspace Session setup and excluded-state restoration failed.")
+    }
+    throw error
+  }
   let baseline = materialization.snapshot
   let baseRevision = materialization.revision
   const excludedState = attachedState
