@@ -356,6 +356,45 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("stops fallback materialization when preparation is canceled", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+
+    await expect(docs.startSession({
+      abortSignal: abort.signal,
+      host,
+      onProgress(event) {
+        if (event.id === "workspace.prepare.read-files" && event.status === "started") abort.abort()
+      },
+    })).rejects.toThrow()
+
+    expect(host.readText("/workspace/README.md")).toBe("authoritative")
+  })
+
+  it("restores the host when post-materialization excluded-state capture fails", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.mkdir("/workspace/.agent-runs", { recursive: true })
+    await host.files.write("/workspace/.agent-runs/trace.json", new TextEncoder().encode("before"))
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    const list = host.files.list.bind(host.files)
+    let workspaceLists = 0
+    host.files.list = async (path, options) => {
+      if (path === "/workspace" && ++workspaceLists === 3)
+        throw new Error("excluded-state capture unavailable")
+      return await list(path, options)
+    }
+
+    await expect(docs.startSession({ host })).rejects.toThrow("excluded-state capture unavailable")
+
+    expect(host.readText("/workspace/.agent-runs/trace.json")).toBe("before")
+    expect(host.readText("/workspace/README.md")).toBe("authoritative")
+  })
+
   it("rejects a pinned revision whose configured root is a symlink", async () => {
     const docs = workspace()
     const archive = await symlinkRootRevisionArchive()

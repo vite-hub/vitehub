@@ -497,6 +497,8 @@ async function materializeWorkspace(
   options?: WorkspaceSessionOptions,
   useRevisionMaterializer = true,
 ) {
+  const abortSignal = options?.abortSignal
+  abortSignal?.throwIfAborted()
   const paths = normalizeSessionPaths(options)
   const materializer = useRevisionMaterializer ? resolveWorkspaceRevisionMaterializer(workspace) : undefined
   const revision = materializer
@@ -513,6 +515,7 @@ async function materializeWorkspace(
     id: "workspace.prepare.reset-sandbox",
     label: "Resetting sandbox workspace",
   }, async () => await resetHostWorkspaceRoot(host, root))
+  abortSignal?.throwIfAborted()
   if (revision?.archive) {
     await withWorkspaceProgress(options?.onProgress, {
       data: {
@@ -539,8 +542,11 @@ async function materializeWorkspace(
   const nested = entries.find(entry => hasSymlinkParent(entry.path, symlinks))
   if (nested)
     throw workspaceError(`[vitehub] Workspace path crosses a symlink parent: ${nested.path}.`)
-  for (const entry of entries.filter(entry => entry.type === "directory"))
+  for (const entry of entries.filter(entry => entry.type === "directory")) {
+    abortSignal?.throwIfAborted()
     await host.files.mkdir(toHostPath(root, entry.path), { recursive: true })
+    abortSignal?.throwIfAborted()
+  }
   await withWorkspaceProgress(options?.onProgress, {
     data: {
       bytes: entries.reduce((total, entry) => total + (entry.size || 0), 0),
@@ -549,7 +555,9 @@ async function materializeWorkspace(
     id: "workspace.prepare.read-files",
     label: "Reading workspace files",
   }, async () => {
+    abortSignal?.throwIfAborted()
     for (const entry of entries) {
+      abortSignal?.throwIfAborted()
       if (entry.type !== "file") continue
       const target = toHostPath(root, entry.path)
       await ensureHostParent(host, target)
@@ -566,6 +574,7 @@ async function materializeWorkspace(
         await host.files.write(target, contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
         if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
       }
+      abortSignal?.throwIfAborted()
     }
   })
   if (revision && await materializer?.currentRevision({ abortSignal: options?.abortSignal }) !== revision.revision) {
@@ -640,10 +649,13 @@ export async function createHostedWorkspaceSession(
   const existingExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
   let attachedState = options.attach ? await captureHostState(host, root, "host-attach") : undefined
   let materialization: { revision?: string, snapshot: WorkspaceSnapshot }
+  let materializedExcludedState: Awaited<ReturnType<typeof captureExcludedHostState>> | undefined
   try {
     materialization = attachedState
       ? { snapshot: attachedState.snapshot }
       : await materializeWorkspace(workspace, host, root, options)
+    if (!attachedState)
+      materializedExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
   }
   catch (error) {
     if (attachedState) throw error
@@ -667,7 +679,7 @@ export async function createHostedWorkspaceSession(
     ? existingExcludedState
     : mergeExcludedHostState(
         existingExcludedState,
-        await captureExcludedHostState(host, root, excludedWriteBackPaths),
+        materializedExcludedState!,
         excludedWriteBackPaths,
       )
   const mediaTypes = new Map<string, string>()
