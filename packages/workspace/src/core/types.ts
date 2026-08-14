@@ -1,10 +1,8 @@
-import type {
-  FileSourceOptions as SourcePackageFileSourceOptions,
-  GitHubSourceOptions as SourcePackageGitHubSourceOptions,
-  GlobSourceOptions as SourcePackageGlobSourceOptions,
-  McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions,
-  Source as SourcePackageSource,
-} from "@vite-hub/source"
+import type { Source as SourcePackageSource } from "@vite-hub/source"
+import type { FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/file"
+import type { GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
+import type { GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source/glob"
+import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/mcp"
 import type { ExecutionAuthority } from "@vite-hub/runtime"
 
 export type WorkspaceContent = string | Uint8Array

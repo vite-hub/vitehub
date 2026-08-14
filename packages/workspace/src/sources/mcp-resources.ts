@@ -1,4 +1,4 @@
-import { mcpResources as createMcpResourcesSource, type McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
+import { mcpResources as createMcpResourcesSource, type McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/mcp"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
@@ -56,4 +56,5 @@ export type {
   McpResourcesClientConfig,
   McpResourcesRequestOptions,
   McpResourcesServer,
-} from "@vite-hub/source"
+  McpResourcesTransport,
+} from "@vite-hub/source/mcp"

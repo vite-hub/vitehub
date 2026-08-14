@@ -21,6 +21,12 @@ become a barrel of every ViteHub API.
 | `@vite-hub/agent` | `vite-hub/agent` |
 | `@vite-hub/agent/capabilities` | `vite-hub/agent/capabilities` |
 | `@vite-hub/env` | `vite-hub/env` |
+| `@vite-hub/source` core and `custom` APIs | `vite-hub/source` |
+| `file` from `@vite-hub/source` | `file` from `vite-hub/source/file` |
+| `glob` from `@vite-hub/source` | `glob` from `vite-hub/source/glob` |
+| `github` from `@vite-hub/source` | `github` from `vite-hub/source/github` |
+| `markdown` from `@vite-hub/source` | `markdown` from `vite-hub/source/markdown` |
+| `mcpResources` from `@vite-hub/source` | `mcpResources` from `vite-hub/source/mcp` |
 | `@vite-hub/workspace` | `vite-hub/workspace` |
 | `@vite-hub/workflow` | `vite-hub/workflow` |
 
@@ -61,6 +67,14 @@ package remains independently installable and supported.
 Third-party model providers, chat adapters, and harness packages stay explicit
 dependencies. Workflow retains its documented Vercel Functions runtime default,
 while other provider SDKs remain package-owned and explicit.
+
+Source loader imports are intentionally breaking. The subpath selects and owns
+the loader's implementation closure, so a custom or GitHub-only consumer does
+not resolve MCP, local glob, or unrelated runtime code.
+
+Source MCP request, resource, client, and transport types are now ViteHub-owned
+structural contracts. Existing MCP SDK clients and transports remain assignable,
+but code that needs SDK-specific members should import those types from the SDK.
 
 ## Verify the migration
 
