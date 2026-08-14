@@ -673,8 +673,12 @@ function observeChannelDeliveryResponse(response: Response, delivery: AgentChann
       }
     },
     async cancel(reason) {
-      await reader.cancel(reason)
-      await fail(reason || new Error("Channel response stream was cancelled."))
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        await fail(reason || new Error("Channel response stream was cancelled."))
+      }
     },
   }), response)
 }
@@ -1218,8 +1222,8 @@ async function executeQueuedWebhookDelivery(
     if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
       throw new Error("[vitehub] Webhook queue completion lost its lease.")
     }
-    await channelDelivery?.event({ attempt: delivery.attempts + 1, type: "invocation.completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
-    await channelDelivery?.event({ type: "completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, { attempt: delivery.attempts + 1, type: "invocation.completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, { type: "completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
     resolveActiveCompletion?.()
   }
   catch (error) {
@@ -3459,8 +3463,8 @@ async function handleChatSdkMessage(
   }
   catch (error) {
     invocationFailed = true
-    if (invocationStarted) await delivery.event({ error: channelDeliveryError(error), type: "invocation.failed", runId: run?.runId })
-    await delivery.event({ error: channelDeliveryError(error), type: "failed", runId: run?.runId })
+    if (invocationStarted) await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "invocation.failed", runId: run?.runId })
+    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed", runId: run?.runId })
     typing?.stop()
     await progress?.finish()
     await postChatErrorFallback(error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline)
@@ -3469,8 +3473,8 @@ async function handleChatSdkMessage(
   finally {
     typing?.stop()
     if (invocationStarted && !invocationFailed && !durableHandoff) {
-      await delivery.event({ type: "invocation.completed", runId: run?.runId })
-      await delivery.event({ type: "completed", runId: run?.runId })
+      await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId: run?.runId })
+      await recordChannelDeliveryEvidence(delivery, { type: "completed", runId: run?.runId })
     }
   }
 }
