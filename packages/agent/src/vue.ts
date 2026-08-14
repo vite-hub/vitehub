@@ -62,7 +62,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const initialOptions = toValue(options)
   const currentOptions = shallowRef(initialOptions)
   const liveOptions = shallowRef(initialOptions)
-  const validateOptions = (value: AgentChatInit<UI_MESSAGE>) => {
+  const validateOptions = (value: AgentChatInit<UI_MESSAGE> | AgentChatReactiveInit<UI_MESSAGE>) => {
     if (value.resume && !value.id?.trim()) {
       throw new TypeError("[vitehub] Resumable web chat requires a stable id.")
     }
@@ -72,24 +72,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }
   validateOptions(currentOptions.value)
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
-  watch([() => toValue(options).id, () => toValue(options).resume], ([, resume]) => {
-    const value = toValue(options)
-    validateOptions(value)
-    currentOptions.value = value
-    streamedParts.value = []
-    if (resume && "window" in globalThis) queueMicrotask(reconnect)
-    else {
-      reconnectGeneration++
-      reconnectAbort?.abort()
-    }
-  })
   const reconnecting = shallowRef(0)
   let reconnectAbort: AbortController | undefined
   let reconnectGeneration = 0
   let disposed = false
   let prepareReplay: (messageId: string | undefined) => void = () => {}
-  const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api, credentials, fetch, headers, onData, resume: _resume, transport, ...init } = currentOptions.value
+  const resolveTransport = () => {
+    if (liveOptions.value.transport) return liveOptions.value.transport
+    const { api, credentials, fetch, headers } = liveOptions.value
     const route = api ?? agentChatRoute(agent.name)
     const defaultTransport = new DefaultChatTransport<UI_MESSAGE>({
       api: route,
@@ -168,6 +158,18 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
         },
       })
     }
+    return defaultTransport
+  }
+  const transport = {
+    reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
+      resolveTransport().reconnectToStream(...args)
+    ),
+    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => (
+      resolveTransport().sendMessages(...args)
+    ),
+  }
+  const chat = useAiChat<UI_MESSAGE>(() => {
+    const { api: _api, credentials: _credentials, fetch: _fetch, headers: _headers, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = currentOptions.value
     return {
       ...init,
       onData(part) {
@@ -182,16 +184,38 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
         }
         liveOptions.value.onData?.(part)
       },
-      transport: transport ?? defaultTransport,
+      onError: error => liveOptions.value.onError?.(error),
+      onFinish: result => liveOptions.value.onFinish?.(result),
+      onToolCall: result => liveOptions.value.onToolCall?.(result),
+      sendAutomaticallyWhen: result => liveOptions.value.sendAutomaticallyWhen?.(result) ?? false,
+      transport,
     }
   })
-  watch([
-    () => toValue(options).api,
-    () => toValue(options).credentials,
-    () => toValue(options).fetch,
-    () => toValue(options).headers,
-  ], ([api, credentials, fetch, headers]) => {
-    currentOptions.value = { ...currentOptions.value, api, credentials, fetch, headers, messages: chat.messages.value }
+  watch(() => toValue(options), (next, previous) => {
+    validateOptions(next)
+    const prior = liveOptions.value
+    liveOptions.value = next
+    if (next.id !== previous.id || next.resume !== previous.resume) {
+      currentOptions.value = next
+      streamedParts.value = []
+      if (next.resume && "window" in globalThis) queueMicrotask(reconnect)
+      else {
+        reconnectGeneration++
+        reconnectAbort?.abort()
+      }
+      return
+    }
+
+    const nextMessages = next.messages
+    if (nextMessages && nextMessages !== prior.messages) {
+      const currentMessages = chat.messages.value
+      const mirrored = nextMessages.length === currentMessages.length
+        && nextMessages.every((message, index) => message === currentMessages[index])
+      if (!mirrored) {
+        chat.messages.value = nextMessages
+        streamedParts.value = []
+      }
+    }
   })
   prepareReplay = (messageId) => {
     if (!messageId) return
@@ -212,7 +236,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
 
   async function stop(): Promise<void> {
     reconnectAbort?.abort()
-    const cancellationOptions = currentOptions.value
+    const cancellationOptions = liveOptions.value
     const cancellationId = chat.id.value
     const cancellation = cancellationOptions.resume && !cancellationOptions.transport && "window" in globalThis
       ? Promise.all([
