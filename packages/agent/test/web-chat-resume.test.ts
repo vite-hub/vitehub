@@ -1050,7 +1050,7 @@ describe("resumable web chat", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it("rolls back a new manual session boundary when DELETE arrives during its write", async () => {
+  it("rolls back concurrent cancelled session boundaries without touching a newer POST", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -1080,20 +1080,33 @@ describe("resumable web chat", () => {
       invoker: { resolve: async () => ({ id: "max" }) },
       messages: { sessions: true },
     }) as never)
-    const body = await chatRequest("POST").json() as Record<string, unknown>
-    body.session = { action: "new", id: "manual" }
-    const post = handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    }), { agentName: "support", state: () => state as never, waitUntil: () => {} })
+    const options = { agentName: "support", state: () => state as never, waitUntil: () => {} }
+    const sessionRequest = async (messageId: string) => {
+      const body = await chatRequest("POST", "max", messageId).json() as Record<string, unknown>
+      body.session = { action: "new", id: "manual" }
+      return new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      })
+    }
+    const posts = [
+      handler(await sessionRequest("user-1"), options),
+      handler(await sessionRequest("user-2"), options),
+    ]
 
     await vi.waitFor(() => expect([...values.keys()]).toEqual([expect.stringContaining(":boundary")]))
-    await expect(handler(chatRequest("DELETE"), { agentName: "support", state: () => state as never, waitUntil: () => {} })).resolves.toMatchObject({ status: 204 })
+    await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
     releaseSet()
-    await expect(post).resolves.toMatchObject({ status: 204 })
+    await expect(Promise.all(posts)).resolves.toEqual([
+      expect.objectContaining({ status: 204 }),
+      expect.objectContaining({ status: 204 }),
+    ])
     expect([...values.keys()]).not.toEqual(expect.arrayContaining([expect.stringContaining(":boundary")]))
-    expect(run).not.toHaveBeenCalled()
+
+    await expect(handler(await sessionRequest("user-3"), options)).resolves.toMatchObject({ status: 200 })
+    expect([...values.keys()]).toEqual([expect.stringContaining(":boundary")])
+    expect(run).toHaveBeenCalledOnce()
   })
 
   it("releases duplicate waiters after setup failure", async () => {

@@ -4106,6 +4106,7 @@ export function createChannelChatRouteHandler(
   const resumableClaimOwners = new Map<string, string>()
   const resumableClaimWaiters = new Map<string, number>()
   const resumableClaimWaiterResolves = new Map<string, Set<() => void>>()
+  const resumableSessionBoundaryWrites = new Map<string, Promise<void>>()
   let resumableClaimWaiterCount = 0
   const resumableLookupOwners = new Map<string, number>()
   let resumableLookupCount = 0
@@ -4116,6 +4117,22 @@ export function createChannelChatRouteHandler(
   const resumableClaimSetupsByChat = new Map<string, Set<ResumableClaimSetup>>()
   const resumableCancellationTombstones = new Map<string, { cleanup: ReturnType<typeof setTimeout>, owner: string, sequence: number }>()
   let resumableRequestSequence = 0
+  const withResumableSessionBoundaryWrite = async <T>(key: string, write: () => Promise<T>): Promise<T> => {
+    const predecessor = resumableSessionBoundaryWrites.get(key) || Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    resumableSessionBoundaryWrites.set(key, current)
+    await predecessor.catch(() => undefined)
+    try {
+      return await write()
+    }
+    finally {
+      release()
+      if (resumableSessionBoundaryWrites.get(key) === current) resumableSessionBoundaryWrites.delete(key)
+    }
+  }
   const setResumableCancellationTombstone = (key: string, owner: string, sequence: number): boolean => {
     const existing = resumableCancellationTombstones.get(key)
     if (existing) clearTimeout(existing.cleanup)
@@ -4430,22 +4447,29 @@ export function createChannelChatRouteHandler(
           ? Math.min(agentChatApprovalTtlMs, sessionOptions.idleTimeoutMs)
           : agentChatApprovalTtlMs
         if (triggerInput.session?.action === "new") {
-          const previous = await state.get<string>(boundaryKey)
           selectedSessionId = `${manualId}:manual:${randomToken()}`
-          writtenSessionBoundary = { key: boundaryKey, previous, value: selectedSessionId }
+          await withResumableSessionBoundaryWrite(boundaryKey, async () => {
+            if (resumableRequestCancelled()) return
+            const previous = await state.get<string>(boundaryKey)
+            await state.set(boundaryKey, selectedSessionId!, approvalTtlMs)
+            writtenSessionBoundary = { key: boundaryKey, previous, value: selectedSessionId! }
+          })
         }
         else {
           selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
+          if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
         }
-        if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
       }
       const approvalSessionId = sessionId && selectedSessionId
         ? `${sessionId}:chat-session:${selectedSessionId}`
         : sessionId
       if (resumableRequestCancelled()) {
-        if (writtenSessionBoundary && await state.get<string>(writtenSessionBoundary.key) === writtenSessionBoundary.value) {
-          if (writtenSessionBoundary.previous) await state.set(writtenSessionBoundary.key, writtenSessionBoundary.previous, approvalTtlMs)
-          else await state.delete(writtenSessionBoundary.key)
+        if (writtenSessionBoundary) {
+          await withResumableSessionBoundaryWrite(writtenSessionBoundary.key, async () => {
+            if (await state.get<string>(writtenSessionBoundary!.key) !== writtenSessionBoundary!.value) return
+            if (writtenSessionBoundary!.previous) await state.set(writtenSessionBoundary!.key, writtenSessionBoundary!.previous, approvalTtlMs)
+            else await state.delete(writtenSessionBoundary!.key)
+          })
         }
         releaseResumableClaim?.()
         return new Response(null, { status: 204 })
