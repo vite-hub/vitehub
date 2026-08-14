@@ -167,6 +167,7 @@ describe("createCrabboxRuntime", () => {
       }
       const ownedPid = await spawnOrphan(`${session.root}/owned`)
       const cwdOwnedPid = await spawnOrphan("unmarked", session.root)
+      const workspaceOwnedPid = await spawnOrphan("unmarked", workspace)
       await session.run({ command: `mkdir -p -- '${session.root}.other'` })
       const envOwnedPid = await spawnOrphan("unmarked", `${session.root}.other`, session.root)
       const fdTree = await session.run({
@@ -186,6 +187,7 @@ describe("createCrabboxRuntime", () => {
         await vi.waitFor(async () => {
           await expect(readFile(`/proc/${ownedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${cwdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${workspaceOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${treeParentPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${envOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${fdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
@@ -199,6 +201,8 @@ describe("createCrabboxRuntime", () => {
           expect(status === undefined || /^State:\s+Z/m.test(status)).toBe(true)
           const cwdStatus = await readFile(`/proc/${cwdOwnedPid}/status`, "utf8").catch(() => undefined)
           expect(cwdStatus === undefined || /^State:\s+Z/m.test(cwdStatus)).toBe(true)
+          const workspaceStatus = await readFile(`/proc/${workspaceOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(workspaceStatus === undefined || /^State:\s+Z/m.test(workspaceStatus)).toBe(true)
           const treeChildStatus = await readFile(`/proc/${treeChildPid}/status`, "utf8").catch(() => undefined)
           expect(treeChildStatus === undefined || /^State:\s+Z/m.test(treeChildStatus)).toBe(true)
           const envStatus = await readFile(`/proc/${envOwnedPid}/status`, "utf8").catch(() => undefined)
@@ -214,6 +218,7 @@ describe("createCrabboxRuntime", () => {
         try { process.kill(unrelatedPid, "SIGKILL") } catch {}
         try { process.kill(ownedPid, "SIGKILL") } catch {}
         try { process.kill(cwdOwnedPid, "SIGKILL") } catch {}
+        try { process.kill(workspaceOwnedPid, "SIGKILL") } catch {}
         try { process.kill(treeParentPid, "SIGKILL") } catch {}
         try { process.kill(treeChildPid, "SIGKILL") } catch {}
         try { process.kill(envOwnedPid, "SIGKILL") } catch {}

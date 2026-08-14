@@ -205,6 +205,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
       let stateLease = emptyStateLease();
       let leaseId: string | undefined;
       let remoteRoot: string | undefined;
+      let remoteWorkspace: string | undefined;
       let initializedState: string[] = [];
       try {
         if (options.workspace) releaseWorkspace = await acquireWorkspace(options.workspace, createOptions.abortSignal);
@@ -217,12 +218,13 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
           sync: Boolean(options.workspace),
         })
         if (setup.exitCode !== 0) throw crabboxError("create disposable Box cache", setup)
-        const [root, remoteWorkspace, remotePath, remoteUser, remoteStateRoot] = lastLines(setup.stdout,
+        const [root, resolvedRemoteWorkspace, remotePath, remoteUser, remoteStateRoot] = lastLines(setup.stdout,
           hasState ? 5 : 4,
         );
         if (!/^\/tmp\/vitehub-box\.[A-Za-z0-9]+$/.test(root)) throw new Error(`[vitehub] Crabbox returned an invalid session root: ${root || "<empty>"}`)
-        if (!posix.isAbsolute(remoteWorkspace)) throw new Error(`[vitehub] Crabbox returned an invalid workspace path: ${remoteWorkspace || "<empty>"}`,
+        if (!posix.isAbsolute(resolvedRemoteWorkspace)) throw new Error(`[vitehub] Crabbox returned an invalid workspace path: ${resolvedRemoteWorkspace || "<empty>"}`,
           );
+        remoteWorkspace = resolvedRemoteWorkspace;
         if (
           hasState &&
           (!remoteStateRoot ||
@@ -312,7 +314,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
         }
         if (leaseId && remoteRoot) {
           await runCrabbox(sessionOptions, leaseId, {
-            command: removeDisposableRootCommand(remoteRoot),
+            command: removeDisposableRootCommand(remoteRoot, remoteWorkspace),
           }).catch(() => undefined);
         }
         releaseWorkspace()
@@ -702,7 +704,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       try {
         await this.stop();
         state.stateLease.assertActive();
-        const reclaim = await runCrabbox(state.options, state.leaseId, { command: reclaimDisposableRootProcessesCommand(state.root) })
+        const reclaim = await runCrabbox(state.options, state.leaseId, { command: reclaimDisposableRootProcessesCommand(state.root, state.remoteWorkspace) })
         if (reclaim.exitCode !== 0) throw crabboxError("reclaim disposable Box processes", reclaim)
         if (state.options.workspace) await syncWorkspaceBack(state)
       }
@@ -711,7 +713,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       }
       finally {
         let cleanupFailure: unknown
-        const result = await runCrabbox(state.options, state.leaseId, { command: removeDisposableRootCommand(state.root) }).catch((error) => {
+        const result = await runCrabbox(state.options, state.leaseId, { command: removeDisposableRootCommand(state.root, state.remoteWorkspace) }).catch((error) => {
           cleanupFailure = error
           return undefined
         })
@@ -893,12 +895,12 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
   return session
 }
 
-function removeDisposableRootCommand(root: string) {
-  return `${reclaimDisposableRootProcessesCommand(root)}; chmod -R u+w -- ${shellQuote(root)} 2>/dev/null || true; rm -rf -- ${shellQuote(root)}`
+function removeDisposableRootCommand(root: string, workspace?: string) {
+  return `${reclaimDisposableRootProcessesCommand(root, workspace)}; chmod -R u+w -- ${shellQuote(root)} 2>/dev/null || true; rm -rf -- ${shellQuote(root)}`
 }
 
-function reclaimDisposableRootProcessesCommand(root: string) {
-  return `root=${shellQuote(root)}; owner_uid=$(id -u); references_box_root() { pid=$1; cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true); case "$cwd" in "$root"|"$root"/*) return 0 ;; esac; for fd in /proc/$pid/fd/*; do target=$(readlink "$fd" 2>/dev/null || true); case "$target" in "$root"|"$root"/*) return 0 ;; esac; done; awk -v root="$root" 'BEGIN { RS="\\0" } { value=$0; offset=1; while ((position=index(substr(value, offset), root)) != 0) { position += offset - 1; before=position == 1 ? "" : substr(value, position - 1, 1); after=substr(value, position + length(root), 1); if ((position == 1 || before !~ /[A-Za-z0-9_.\\/-]/) && (after == "" || after == "/")) { found=1; break } offset=position + 1 } } END { exit found ? 0 : 1 }' "/proc/$pid/cmdline" "/proc/$pid/environ" 2>/dev/null; }; owns_box_process() { pid=$1; status=/proc/$pid/status; test -r "$status" || return 1; ppid=; uid=; while IFS=: read -r key value; do case "$key" in PPid) set -- $value; ppid=$1 ;; Uid) set -- $value; uid=$1 ;; esac; done < "$status"; test "$ppid" = 1 && test "$uid" = "$owner_uid" && references_box_root "$pid"; }; passes=0; while :; do pids=; for status in /proc/[0-9]*/status; do pid=\${status#/proc/}; pid=\${pid%/status}; if owns_box_process "$pid"; then pids="$pids $pid"; kill -TERM "$pid" 2>/dev/null || true; fi; done; test -n "$pids" || break; passes=$((passes + 1)); test "$passes" -le 32 || exit 1; sleep 1; for pid in $pids; do owns_box_process "$pid" && kill -KILL "$pid" 2>/dev/null || true; done; done`
+function reclaimDisposableRootProcessesCommand(root: string, workspace?: string) {
+  return `root=${shellQuote(root)}; workspace=${shellQuote(workspace || "")}; owner_uid=$(id -u); references_box_path() { pid=$1; owned_root=$2; test -n "$owned_root" || return 1; cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true); case "$cwd" in "$owned_root"|"$owned_root"/*) return 0 ;; esac; for fd in /proc/$pid/fd/*; do target=$(readlink "$fd" 2>/dev/null || true); case "$target" in "$owned_root"|"$owned_root"/*) return 0 ;; esac; done; awk -v root="$owned_root" 'BEGIN { RS="\\0" } { value=$0; offset=1; while ((position=index(substr(value, offset), root)) != 0) { position += offset - 1; before=position == 1 ? "" : substr(value, position - 1, 1); after=substr(value, position + length(root), 1); if ((position == 1 || before !~ /[A-Za-z0-9_.\\/-]/) && (after == "" || after == "/")) { found=1; break } offset=position + 1 } } END { exit found ? 0 : 1 }' "/proc/$pid/cmdline" "/proc/$pid/environ" 2>/dev/null; }; references_box() { references_box_path "$1" "$root" || references_box_path "$1" "$workspace"; }; owns_box_process() { pid=$1; status=/proc/$pid/status; test -r "$status" || return 1; ppid=; uid=; while IFS=: read -r key value; do case "$key" in PPid) set -- $value; ppid=$1 ;; Uid) set -- $value; uid=$1 ;; esac; done < "$status"; test "$ppid" = 1 && test "$uid" = "$owner_uid" && references_box "$pid"; }; passes=0; while :; do pids=; for status in /proc/[0-9]*/status; do pid=\${status#/proc/}; pid=\${pid%/status}; if owns_box_process "$pid"; then pids="$pids $pid"; kill -TERM "$pid" 2>/dev/null || true; fi; done; test -n "$pids" || break; passes=$((passes + 1)); test "$passes" -le 32 || exit 1; sleep 1; for pid in $pids; do owns_box_process "$pid" && kill -KILL "$pid" 2>/dev/null || true; done; done`
 }
 
 async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal | undefined) {
