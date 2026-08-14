@@ -3831,6 +3831,47 @@ describe("server helpers", () => {
     }
   })
 
+  it("settles custody when an adapter ignores a webhook without claiming a message", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-delivery-ignored-"))
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => createTestChatAdapter() as never },
+        webhooks: { telegram: {} },
+      })],
+      driver: { run: vi.fn() },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const body = JSON.stringify({ update_id: 43 })
+    const request = new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" })
+    const options = { agentName: "support", state: () => state }
+
+    try {
+      const response = await handler(request, "telegram", options)
+      await expect(response.json()).resolves.toEqual({ ignored: true, ok: true })
+      await expect(handler.deliveries(new Request(request.url, { body, method: "POST" }), "telegram", options)).resolves.toEqual([
+        expect.objectContaining({
+          events: [
+            expect.objectContaining({ type: "received" }),
+            expect.objectContaining({ type: "completed" }),
+          ],
+          sourceId: "43",
+          status: "completed",
+        }),
+      ])
+    }
+    finally {
+      info.mockRestore()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("filters adapter messages before Agent invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
