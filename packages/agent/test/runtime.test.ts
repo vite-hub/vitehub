@@ -4804,20 +4804,25 @@ describe("agent message protocol", () => {
   it("does not fail invocations when delivery effects or hook observers fail", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
+    const channelId = `portal-${"c".repeat(300)}`
+    const effect = `reaction-${"e".repeat(300)}`
+    const intent = `started-${"i".repeat(300)}`
+    const runId = `portal-run-${"r".repeat(300)}`
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const agent = defineAgent({
       capabilities: [
         defineCapability({
           id: "feedback",
           prepare(context) {
-            context.delivery.effect({ intent: "started", kind: "reaction" })
+            context.delivery.effect({ intent, kind: effect })
           },
         }),
       ],
       channels: {
-        portal: defineChannel("portal", {
+        [channelId]: defineChannel("portal", {
           effects: {
-            reaction: () => {
+            [effect]: () => {
               throw new Error("reaction failed")
             },
           },
@@ -4826,7 +4831,7 @@ describe("agent message protocol", () => {
             message: {
               invoke: context => ({
                 input: { prompt: "hello" },
-                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId },
               }),
             },
           },
@@ -4842,10 +4847,20 @@ describe("agent message protocol", () => {
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
     try {
-      await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+      await expect(runAgentTrigger(agent, runtime, `${channelId}.message`, {})).resolves.toBe("ok")
+      expect(error).toHaveBeenCalledWith(JSON.stringify({
+        scope: "vitehub.channel.delivery",
+        event: "outbound.failed",
+        channelId: channelId.slice(0, 256),
+        effect: effect.slice(0, 256),
+        intent: intent.slice(0, 256),
+        runId: runId.slice(0, 256),
+        error: "reaction failed",
+      }))
       expect(warn).toHaveBeenCalled()
     }
     finally {
+      error.mockRestore()
       warn.mockRestore()
     }
   })

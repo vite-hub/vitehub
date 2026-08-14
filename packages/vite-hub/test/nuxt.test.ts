@@ -570,7 +570,7 @@ describe("ViteHub Nuxt integration", () => {
       .toBe(databaseRuntimeState)
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/custom-vite-root/.vitehub/database/cloudflare-runtime.mjs",
+        "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/.vitehub/database/cloudflare-runtime.mjs",
         "@vite-hub/database/runtime/state": databaseRuntimeState,
       },
     })
