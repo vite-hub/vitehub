@@ -97,12 +97,18 @@ describe("packed Source capability closures", () => {
         }, null, 2)),
         writeFile(join(appDir, "src/lightweight.ts"), `
 import { custom } from "vite-hub/source"
+import { file } from "vite-hub/source/file"
 import { github } from "vite-hub/source/github"
+import { glob } from "vite-hub/source/glob"
+import { markdown } from "vite-hub/source/markdown"
 
 const local = custom({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
+const inline = file({ content: "ok", workspacePath: "inline.txt" })
 const remote = github({ auth: false, repo: "vite-hub/vitehub" })
+const matches = glob({ include: "**/*.md" })
+const document = markdown({ content: "# ok", workspacePath: "readme.md" })
 
-export default { fetch: () => new Response(local.name + remote.name) }
+export default { fetch: () => new Response(local.name + inline.name + remote.name + matches.name + document.name) }
 `),
         writeFile(join(appDir, "src/mcp.ts"), `
 import { mcpResources } from "vite-hub/source/mcp"

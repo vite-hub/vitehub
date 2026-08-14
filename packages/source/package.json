@@ -59,14 +59,14 @@
     "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "effect": "catalog:effect"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "effect": "catalog:effect",
     "mrmime": "catalog:workspace",
     "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",
