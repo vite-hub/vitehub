@@ -9772,7 +9772,7 @@ describe("agent message protocol", () => {
 
   it("includes first-chunk tool activity in the initial progress summary", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const execute = vi.fn(() => "Checking inventory.")
+    const execute = vi.fn((_input: { activeTools: string[] }) => "Checking inventory.")
     const agent = defineAgent({
       capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
       driver: { run: () => ({
@@ -9790,7 +9790,37 @@ describe("agent message protocol", () => {
     const reader = stream.getReader()
 
     await reader.read()
-    await expect.poll(() => execute).toHaveBeenCalledWith(expect.objectContaining({ activeTools: ["inventory search"] }))
+    await expect.poll(() => execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ activeTools: ["inventory search"] }))
+    expect(execute).toHaveBeenCalledOnce()
+    await reader.cancel()
+  })
+
+  it("ignores provisional titles before observing first-chunk tool activity", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const generatedTitle = deferred<string>()
+    const execute = vi.fn((_input: { activeTools: string[] }) => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [
+        title({ execute: () => generatedTitle.promise }),
+        progressSummary({ execute, intervalMs: 60_000 }),
+      ],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+            },
+          }),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    await reader.read()
+    await expect.poll(() => execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ activeTools: ["inventory search"] }))
+    expect(execute).toHaveBeenCalledOnce()
     await reader.cancel()
   })
 

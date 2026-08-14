@@ -589,7 +589,10 @@ describe("cost Capability", () => {
     expect(chunks.join("")).toContain("\"display\":\"~$0.02\"")
   })
 
-  it("prices native response usage after a renderer returns a plain async iterable", async () => {
+  it.each([
+    { hybrid: false, kind: "plain" },
+    { hybrid: true, kind: "hybrid" },
+  ])("prices native response usage after a renderer returns a $kind async iterable", async ({ hybrid }) => {
     const { cost } = await import("../src/capabilities.ts")
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const pricing = vi.fn(() => ({
@@ -607,6 +610,14 @@ describe("cost Capability", () => {
           output(context) {
             context.output.render((result) => {
               const stream = (result as { toUIMessageStream: () => ReadableStream<unknown> }).toUIMessageStream()
+              if (hybrid) {
+                return {
+                  async *[Symbol.asyncIterator]() {
+                    yield { text: "generic", type: "text-delta" }
+                  },
+                  toUIMessageStream: () => stream,
+                }
+              }
               return (async function* () {
                 for await (const chunk of stream) yield chunk
               })()
@@ -641,6 +652,7 @@ describe("cost Capability", () => {
 
     const body = await response.text()
     expect(body).toContain("native")
+    expect(body).not.toContain("generic")
     expect(body).toContain("\"usd\":\"0.02\"")
     expect(body).toContain("\"display\":\"~$0.02\"")
     expect(pricing).toHaveBeenCalledOnce()

@@ -398,6 +398,10 @@ async function writeEventsToUiMessageStream(
     if (usageRecord) options.onUsageRecord?.(usageRecord)
     const type = streamEventType(event)
     if (!type) continue
+    if (type === "usage" && usageRecord) {
+      writer.write({ ...(event as object), usageRecord })
+      continue
+    }
     if (options.projection?.reasoning === "hidden") {
       const text = event as { id?: unknown, phase?: unknown }
       const id = typeof text.id === "string" ? text.id : undefined
