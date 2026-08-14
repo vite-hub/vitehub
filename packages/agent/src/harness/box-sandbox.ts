@@ -3,13 +3,14 @@ import { posix } from "node:path"
 import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness"
 import type { Box, BoxProcess, BoxSession } from "@vite-hub/box"
 import type { ExecutionAuthority } from "@vite-hub/runtime"
+import type { WorkspaceSessionHost } from "@vite-hub/workspace"
 import { openHarnessBox } from "./shared-box.ts"
 
 const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
 
 type BoxHarnessSandboxSession = HarnessV1NetworkSandboxSession & {
   [harnessRemoveDirectory](path: string): Promise<void>
-  workspaceHost: BoxSession
+  workspaceHost: WorkspaceSessionHost
 }
 
 function streamFromBytes(bytes: Uint8Array) {
@@ -57,8 +58,27 @@ function adaptProcess(process: BoxProcess) {
   }
 }
 
-function adaptBoxSession(session: BoxSession): BoxHarnessSandboxSession {
+function adaptBoxSession(session: BoxSession, preparationSignal?: AbortSignal): BoxHarnessSandboxSession {
   if (!session.spawn) throw new Error("[vitehub] Harness Agent Drivers require a Box runtime with process spawning.")
+  let workspaceSignal = preparationSignal
+  const workspaceHost: WorkspaceSessionHost = {
+    detachAbortSignal() {
+      workspaceSignal = undefined
+    },
+    executionAuthority: session.executionAuthority,
+    files: {
+      exists: async path => await session.files.exists(path, { signal: workspaceSignal }),
+      list: async (path, options) => await session.files.list(path, { ...options, signal: workspaceSignal }),
+      mkdir: async (path, options) => await session.files.mkdir(path, { ...options, signal: workspaceSignal }),
+      read: async path => await session.files.read(path, { signal: workspaceSignal }),
+      remove: async (path, options) => await session.files.remove(path, { ...options, signal: workspaceSignal }),
+      write: async (path, content) => await session.files.write(path, content, { signal: workspaceSignal }),
+    },
+    exec: async (command, args, options) => await session.exec(command, args, {
+      ...options,
+      signal: options?.signal || workspaceSignal,
+    }),
+  }
   const adapted = {
     async [harnessRemoveDirectory](path: string) {
       const directory = resolvePath(session, path)
@@ -96,7 +116,7 @@ function adaptBoxSession(session: BoxSession): BoxHarnessSandboxSession {
     restricted() {
       return this
     },
-    workspaceHost: session,
+    workspaceHost,
     async run({ abortSignal, command, env, workingDirectory }: { abortSignal?: AbortSignal, command: string, env?: Record<string, string>, workingDirectory?: string }) {
       const result = await session.exec("sh", ["-lc", command], {
         cwd: resolvePath(session, workingDirectory || session.cwd),
@@ -130,9 +150,9 @@ function adaptBoxSession(session: BoxSession): BoxHarnessSandboxSession {
   return adapted
 }
 
-async function adaptOrClose(session: BoxSession) {
+async function adaptOrClose(session: BoxSession, preparationSignal?: AbortSignal) {
   try {
-    return adaptBoxSession(session)
+    return adaptBoxSession(session, preparationSignal)
   }
   catch (error) {
     await session.close().catch(() => undefined)
@@ -178,14 +198,14 @@ export function createBoxHarnessSandbox(
         id: options?.sessionId,
         initialize: options?.onFirstCreate
           ? async (boxSession) => {
-              adapted = adaptBoxSession(boxSession)
+              adapted = adaptBoxSession(boxSession, options.abortSignal)
               await options.onFirstCreate!(adapted, { abortSignal: options.abortSignal })
             }
           : undefined,
       }, options?.abortSignal)
       try {
         options?.abortSignal?.throwIfAborted()
-        return adapted || await adaptOrClose(session)
+        return adapted || await adaptOrClose(session, options?.abortSignal)
       }
       catch (error) {
         await session.close().catch(() => undefined)
@@ -197,7 +217,7 @@ export function createBoxHarnessSandbox(
       const session = await openInvocationBox(box, { id: options.sessionId }, options.abortSignal)
       try {
         options.abortSignal?.throwIfAborted()
-        return await adaptOrClose(session)
+        return await adaptOrClose(session, options.abortSignal)
       }
       catch (error) {
         await session.close().catch(() => undefined)

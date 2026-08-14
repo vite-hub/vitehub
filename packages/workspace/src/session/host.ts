@@ -209,6 +209,7 @@ async function listHostEntries(
   path = "",
   recursive = false,
   include?: (entry: WorkspaceEntry) => boolean,
+  includeGit = false,
 ): Promise<WorkspaceEntry[]> {
   await assertHostWorkspaceRoot(host, root)
   const entries = (await host.files.list(toHostPath(root, path), { recursive }))
@@ -222,7 +223,7 @@ async function listHostEntries(
       : workspaceEntry
   })
   return resolved
-    .filter(entry => entry.path && entry.path !== ".git" && !entry.path.startsWith(".git/"))
+    .filter(entry => entry.path && (includeGit || (entry.path !== ".git" && !entry.path.startsWith(".git/"))))
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
@@ -272,7 +273,7 @@ async function captureExcludedHostState(host: WorkspaceSessionHost, root: string
   if (await isHostPath(host, root, "-L"))
     throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
   if (!await host.files.exists(root)) return await captureHostEntriesState(host, root, [], "host-excluded")
-  const entries = await listHostEntries(host, root, "", true, entry => isInsideExcludedWriteBackPath(entry.path, excluded))
+  const entries = await listHostEntries(host, root, "", true, entry => isInsideExcludedWriteBackPath(entry.path, excluded), true)
   return await captureHostEntriesState(host, root, entries, "host-excluded")
 }
 

@@ -946,6 +946,18 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/partial.txt")).toBeUndefined()
   })
 
+  it("preserves Git metadata when closing an attached Session", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.mkdir("/workspace/.git", { recursive: true })
+    await host.files.write("/workspace/.git/config", new TextEncoder().encode("checkout"))
+
+    const session = await docs.startSession({ attach: true, host })
+    await session.close()
+
+    expect(host.readText("/workspace/.git/config")).toBe("checkout")
+  })
+
   it("restores excluded host state after an attached commit", async () => {
     const docs = workspace()
     const host = memoryHost()
