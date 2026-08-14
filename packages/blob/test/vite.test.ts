@@ -492,7 +492,7 @@ describe("hubBlob", () => {
     ])
   })
 
-  it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", async () => {
+  it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", { timeout: 30_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-inferred-cloudflare-"))
     const previousBucket = process.env.BLOB_BUCKET_NAME
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -525,6 +525,18 @@ describe("hubBlob", () => {
       expect(middleware).not.toContain("next")
 
       await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+        compilerOptions: {
+          module: "Preserve",
+          moduleResolution: "Bundler",
+          noEmit: true,
+          skipLibCheck: true,
+          strict: true,
+          types: [],
+        },
+        files: [".vitehub/nitro/blob/middleware.ts"],
+      }, null, 2)}\n`)
+      await execFileAsync(process.execPath, [join(workspaceRoot, "node_modules/typescript/bin/tsc"), "-p", root], { cwd: root })
       await writeFile(join(root, "runtime-types.d.ts"), [
         "declare module 'cloudflare:workers' {",
         "  export const env: unknown",
