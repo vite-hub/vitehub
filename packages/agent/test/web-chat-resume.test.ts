@@ -312,6 +312,38 @@ describe("resumable web chat", () => {
     }
   })
 
+  it("bounds concurrent live subscribers for one retained run", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let source!: ReadableStreamDefaultController<Uint8Array>
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockResolvedValue(new Response(new ReadableStream({
+      start(controller) {
+        source = controller
+      },
+    })))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      const subscribers = [await handler(chatRequest("POST"), options)]
+      for (let index = 1; index < 100; index++) subscribers.push(await handler(chatRequest("GET"), options))
+      expect(handler.inspect()).toMatchObject({ activeRuns: 1, maxSubscribersPerRun: 100 })
+      expect((await handler(chatRequest("GET"), options)).status).toBe(429)
+      source.close()
+      await Promise.all(subscribers.map(response => response.text()))
+      await Promise.all(pending)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
   it("fails and cancels a producer that exceeds the retained replay limit", async () => {
     vi.useFakeTimers()
     const agentModule = await import("../src/index.ts")

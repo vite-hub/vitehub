@@ -116,6 +116,7 @@ export interface AgentChannelChatRouteInspection {
   maxBufferedBytesPerOwner: number
   maxTotalBufferedBytes: number
   maxRunsPerOwner: number
+  maxSubscribersPerRun: number
   maxTotalRuns: number
   pendingCancellations: number
   pendingClaims: number
@@ -3907,10 +3908,14 @@ const resumableChatMaxBufferedBytes = 8 * 1024 * 1024
 const resumableChatMaxOwnerBufferedBytes = 64 * 1024 * 1024
 const resumableChatMaxTotalBufferedBytes = 512 * 1024 * 1024
 const resumableChatMaxRuns = 100
+const resumableChatMaxSubscribers = 100
 const resumableChatMaxTotalRuns = 10_000
 const resumableChatMaxTombstones = 10_000
 
 function resumableChatResponse(run: ResumableChatRun): Response {
+  if (!run.done && run.subscribers.size >= resumableChatMaxSubscribers) {
+    return createJsonErrorResponse(429, "Resumable web chat has too many live subscribers. Try again later.")
+  }
   let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined
   return new Response(new ReadableStream<Uint8Array>({
     start(controller) {
@@ -4362,6 +4367,7 @@ export function createChannelChatRouteHandler(
         maxBufferedBytesPerOwner: resumableChatMaxOwnerBufferedBytes,
         maxTotalBufferedBytes: resumableChatMaxTotalBufferedBytes,
         maxRunsPerOwner: resumableChatMaxRuns,
+        maxSubscribersPerRun: resumableChatMaxSubscribers,
         maxTotalRuns: resumableChatMaxTotalRuns,
         pendingCancellations: resumableCancellationTombstones.size,
         pendingClaims: resumableClaimSetups.size,
