@@ -43,6 +43,10 @@ function messageKey(provider: string, threadId: string, messageId: string): stri
   return `deliveries:message:${encodeURIComponent(`${provider}:${threadId}:${messageId}`)}`
 }
 
+function payloadKey(provider: string, fingerprint: string): string {
+  return `deliveries:payload:${encodeURIComponent(`${provider}:${fingerprint}`)}`
+}
+
 function sourceKey(delivery: Pick<AgentChannelDelivery, "provider" | "scope" | "sourceId">): string {
   return `deliveries:source:${encodeURIComponent(`${delivery.provider}:${delivery.scope}:${delivery.sourceId}`)}`
 }
@@ -62,7 +66,7 @@ export function agentChannelDeliverySourceId(provider: string, payload: unknown)
   const event = record.event && typeof record.event === "object" && !Array.isArray(record.event) ? record.event as Record<string, unknown> : undefined
   return sourceValue(record.event_id)
     || sourceValue(record.update_id)
-    || (provider === "teams" ? sourceValue(record.id) : undefined)
+    || (provider === "teams" || provider === "discord" ? sourceValue(record.id) : undefined)
     || sourceValue(activity?.id)
     || sourceValue(event?.id)
 }
@@ -77,6 +81,21 @@ export function agentChannelDeliveryMessageIdentity(provider: string, payload: u
     const chatId = sourceValue(chat?.id)
     if (messageId && chatId) return { messageId, threadId: `telegram:${chatId}` }
   }
+}
+
+function stablePayload(value: unknown): string {
+  if (!value || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stablePayload).join(",")}]`
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stablePayload(entry)}`)
+    .join(",")}}`
+}
+
+export async function agentChannelDeliveryPayloadFingerprint(payload: unknown): Promise<string | undefined> {
+  if (payload === undefined) return
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(stablePayload(payload)))
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): void {
@@ -196,6 +215,24 @@ export async function resumeAgentChannelDeliveryMessage(
   messageId: string,
 ): Promise<AgentChannelDeliveryTracker | undefined> {
   const deliveryId = await state.get<string>(messageKey(provider, threadId, messageId))
+  return deliveryId ? await resumeAgentChannelDelivery(state, deliveryId) : undefined
+}
+
+export async function bindAgentChannelDeliveryPayload(
+  state: StateAdapter,
+  delivery: AgentChannelDeliveryTracker,
+  provider: string,
+  fingerprint: string,
+): Promise<void> {
+  await state.set(payloadKey(provider, fingerprint), delivery.delivery.id, retentionMs)
+}
+
+export async function resumeAgentChannelDeliveryPayload(
+  state: StateAdapter,
+  provider: string,
+  fingerprint: string,
+): Promise<AgentChannelDeliveryTracker | undefined> {
+  const deliveryId = await state.get<string>(payloadKey(provider, fingerprint))
   return deliveryId ? await resumeAgentChannelDelivery(state, deliveryId) : undefined
 }
 

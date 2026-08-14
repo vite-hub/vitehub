@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { agentChannelDeliveryMessageIdentity, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -637,10 +637,10 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
   })
 }
 
-function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Response {
+async function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
   if (!response.body) {
-    void recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
-      .then(() => recordChannelDeliveryEvidence(delivery, { type: "completed", runId }))
+    await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
+    await recordChannelDeliveryEvidence(delivery, { type: "completed", runId })
     return response
   }
   const reader = response.body.getReader()
@@ -3549,15 +3549,19 @@ async function handleChatSdkMessages(
           : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
         const queuedMessageId = deliverySourceValue(queuedMessage.id)
-        const queuedDelivery = serial && queuedMessageId
-          ? await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)
-            || (queuedMessage !== message ? await openAgentChannelDelivery(state.state, {
-              agentName: context.agentIdentity?.name || "agent",
-              channelId: registration.channelId,
-              provider: chatRegistrationOrigin(registration),
-              scope: `${state.keyPrefix}${queuedThread.id}`,
-              sourceId: queuedMessageId,
-            }) : undefined)
+        const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw)
+        const queuedDelivery = serial
+          ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined)
+            || (queuedMessageId
+              ? await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)
+                || (queuedMessage !== message ? await openAgentChannelDelivery(state.state, {
+                  agentName: context.agentIdentity?.name || "agent",
+                  channelId: registration.channelId,
+                  provider: chatRegistrationOrigin(registration),
+                  scope: `${state.keyPrefix}${queuedThread.id}`,
+                  sourceId: queuedMessageId,
+                }) : undefined)
+              : undefined)
           : undefined
         const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
         await handleChatSdkMessage(
@@ -4202,7 +4206,7 @@ export function createChannelChatRouteHandler(
         output: "ui-message-stream",
       }))
       if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
-      return observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
+      return await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
     }
     catch (error) {
       if (delivery) {
@@ -4390,6 +4394,10 @@ export function createChannelWebhookRouteHandler(
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
       if (messageIdentity) {
         await bindAgentChannelDeliveryMessage(deliveryState.state, channelDelivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId)
+      }
+      const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(webhookPayload)
+      if (payloadFingerprint) {
+        await bindAgentChannelDeliveryPayload(deliveryState.state, channelDelivery, registration.provider, payloadFingerprint)
       }
       context = withAgentChannelDelivery(context, channelDelivery)
 

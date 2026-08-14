@@ -1,14 +1,20 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload } from "../src/internal/channel-delivery.ts"
 
 import type { StateAdapter } from "chat"
 
 describe("Agent Channel delivery source identity", () => {
   it("scopes top-level activity IDs to providers that define them", () => {
     expect(agentChannelDeliverySourceId("teams", { id: "activity-1" })).toBe("activity-1")
+    expect(agentChannelDeliverySourceId("discord", { id: "interaction-1" })).toBe("interaction-1")
     expect(agentChannelDeliverySourceId("custom", { id: "resource-1" })).toBeUndefined()
     expect(agentChannelDeliverySourceId("custom", { event: { id: "event-1" }, id: "resource-1" })).toBe("event-1")
+  })
+
+  it("fingerprints equivalent provider payloads independently of key order", async () => {
+    await expect(agentChannelDeliveryPayloadFingerprint({ event: { id: 7, type: "message" }, team: "one" }))
+      .resolves.toBe(await agentChannelDeliveryPayloadFingerprint({ team: "one", event: { type: "message", id: 7 } }))
   })
 
   it("extracts Telegram message identity separately from provider event identity", () => {
@@ -211,6 +217,25 @@ describe("Agent Channel delivery journal", () => {
     await bindAgentChannelDeliveryMessage(state, delivery, "telegram", "telegram:456", "7")
 
     const resumed = await resumeAgentChannelDeliveryMessage(state, "telegram", "telegram:456", "7")
+
+    expect(resumed?.delivery.id).toBe(delivery.delivery.id)
+    info.mockRestore()
+  })
+
+  it("resumes custom-provider custody through a durable payload alias", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const payload = { custom: { message: "opaque", thread: 9 } }
+    const fingerprint = await agentChannelDeliveryPayloadFingerprint(payload)
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      provider: "custom",
+      scope: "channel:support:custom",
+      sourceId: "provider-event-9",
+    })
+    await bindAgentChannelDeliveryPayload(state, delivery, "custom", fingerprint!)
+
+    const resumed = await resumeAgentChannelDeliveryPayload(state, "custom", (await agentChannelDeliveryPayloadFingerprint({ custom: { thread: 9, message: "opaque" } }))!)
 
     expect(resumed?.delivery.id).toBe(delivery.delivery.id)
     info.mockRestore()
