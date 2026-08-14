@@ -1058,11 +1058,23 @@ describe("resumable web chat", () => {
     const setReady = new Promise<void>((resolve) => {
       releaseSet = resolve
     })
+    let releaseGet!: () => void
+    let getBlocked = false
+    let blockBoundaryGet = false
+    const getReady = new Promise<void>((resolve) => {
+      releaseGet = resolve
+    })
     const values = new Map<string, unknown>()
     const state = {
       connect: async () => {},
       delete: async (key: string) => { values.delete(key) },
-      get: async <T>(key: string) => values.get(key) as T | undefined,
+      get: async <T>(key: string) => {
+        if (blockBoundaryGet && key.includes(":boundary")) {
+          getBlocked = true
+          await getReady
+        }
+        return values.get(key) as T | undefined
+      },
       set: async (key: string, value: unknown) => {
         values.set(key, value)
         if (key.includes(":boundary")) await setReady
@@ -1105,6 +1117,16 @@ describe("resumable web chat", () => {
     ])
     await expect(continuation).resolves.toMatchObject({ status: 200 })
     expect([...values.keys()]).toEqual([expect.stringContaining(":boundary")])
+    expect(run).toHaveBeenCalledOnce()
+
+    values.clear()
+    blockBoundaryGet = true
+    const cancelledContinuation = handler(await sessionRequest("user-4", "continue"), options)
+    await vi.waitFor(() => expect(getBlocked).toBe(true))
+    await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+    releaseGet()
+    await expect(cancelledContinuation).resolves.toMatchObject({ status: 204 })
+    expect([...values.keys()]).not.toEqual(expect.arrayContaining([expect.stringContaining(":boundary")]))
     expect(run).toHaveBeenCalledOnce()
   })
 

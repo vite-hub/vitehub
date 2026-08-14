@@ -4469,8 +4469,14 @@ export function createChannelChatRouteHandler(
               cancelledDuringSessionBoundary = true
               return
             }
-            selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
+            const previous = await state.get<string>(boundaryKey)
+            selectedSessionId = previous || selectedSessionId
             if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
+            if (!resumableRequestCancelled()) return
+            if (!previous && selectedSessionId && await state.get<string>(boundaryKey) === selectedSessionId) {
+              await state.delete(boundaryKey)
+            }
+            cancelledDuringSessionBoundary = true
           })
         }
       }
