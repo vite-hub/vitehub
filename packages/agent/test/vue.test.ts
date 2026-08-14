@@ -255,12 +255,34 @@ describe("Agent Vue clients", () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it("reports submitted while reconnecting after a partial assistant message", async () => {
+    vi.stubGlobal("window", {})
+    let releaseReconnect!: () => void
+    const reconnect = new Promise<Response>((resolve) => {
+      releaseReconnect = () => resolve(new Response(null, { status: 204 }))
+    })
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(() => reconnect))
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "assistant-1", parts: [{ text: "Partial", type: "text" }], role: "assistant" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
+    releaseReconnect()
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    scope.stop()
+  })
+
   it("sends explicit resumable chat cancellation through DELETE", async () => {
     vi.stubGlobal("window", {})
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
     vi.stubGlobal("fetch", fetch)
     const scope = effectScope()
     const chat = scope.run(() => useChat(useAgent("support"), {
+      credentials: "include",
+      headers: async () => ({ authorization: "Bearer token" }),
       id: "chat-1",
       messages: [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }],
       resume: true,
@@ -270,7 +292,8 @@ describe("Agent Vue clients", () => {
     await chat.stop()
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-1", {
-      credentials: "same-origin",
+      credentials: "include",
+      headers: { authorization: "Bearer token" },
       method: "DELETE",
     })
     scope.stop()

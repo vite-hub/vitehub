@@ -6,7 +6,7 @@ import { defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.
 import { createAgentChatData } from "./messages.ts"
 
 import type { UseChatHelpers } from "@ai-sdk/vue"
-import type { ChatInit, UIMessage } from "ai"
+import type { ChatInit, HttpChatTransportInitOptions, UIMessage } from "ai"
 import type { AgentChatData } from "./messages.ts"
 import type { ComputedRef, MaybeRefOrGetter } from "vue"
 
@@ -16,8 +16,9 @@ export interface AgentClient {
   readonly name: string
 }
 
-export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE> & {
-  api?: string
+export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE>
+  & Pick<HttpChatTransportInitOptions<UI_MESSAGE>, "api" | "credentials" | "fetch" | "headers">
+  & {
   resume?: boolean
 }
 
@@ -67,7 +68,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   })
   const reconnecting = shallowRef(false)
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api, onData, resume: _resume, transport, ...init } = currentOptions.value
+    const { api, credentials, fetch, headers, onData, resume: _resume, transport, ...init } = currentOptions.value
     const route = api ?? agentChatRoute(agent.name)
     return {
       ...init,
@@ -85,6 +86,9 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       },
       transport: transport ?? new DefaultChatTransport<UI_MESSAGE>({
         api: route,
+        credentials,
+        fetch,
+        headers,
         prepareReconnectToStreamRequest({ credentials, headers, id }) {
           return {
             api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
@@ -103,15 +107,17 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   async function stop(): Promise<void> {
     await chat.stop()
     if (!currentOptions.value.resume || currentOptions.value.transport || !("window" in globalThis)) return
-    const route = currentOptions.value.api ?? agentChatRoute(agent.name)
-    await fetch(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
-      credentials: "same-origin",
+    const { api, credentials, fetch: request = globalThis.fetch, headers } = currentOptions.value
+    const route = api ?? agentChatRoute(agent.name)
+    await request(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
+      credentials: await resolveTransportOption(credentials) ?? "same-origin",
+      headers: await resolveTransportOption(headers),
       method: "DELETE",
     }).catch(() => undefined)
   }
 
   async function reconnect(): Promise<void> {
-    reconnecting.value = currentOptions.value.messages?.at(-1)?.role === "user"
+    reconnecting.value = true
     try {
       await chat.resumeStream()
     }
@@ -129,6 +135,10 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       ...streamedParts.value,
     ])),
   }
+}
+
+async function resolveTransportOption<T>(value: T | (() => T | PromiseLike<T>) | undefined): Promise<T | undefined> {
+  return typeof value === "function" ? await (value as () => T | PromiseLike<T>)() : value
 }
 
 export type { UseChatHelpers } from "@ai-sdk/vue"

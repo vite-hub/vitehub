@@ -3931,6 +3931,10 @@ async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key:
   }
 }
 
+function resumableChatKey(agentName: string, channelId: string | undefined, owner: string, chatId: string, messageId?: string): string {
+  return JSON.stringify([agentName, channelId || "http", owner, chatId, ...(messageId ? [messageId] : [])])
+}
+
 export function createChannelChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
@@ -3967,7 +3971,7 @@ export function createChannelChatRouteHandler(
           rawBody: "",
           request,
         })
-        const key = JSON.stringify([agentName, routeOptions.channelId || "http", owner, id])
+        const key = resumableChatKey(agentName, routeOptions.channelId, owner, id)
         const run = latestResumableRuns.get(key) || await waitForResumableChatRun(latestResumableRuns, key)
         if (!run) return new Response(null, { status: 204 })
         await run.ready
@@ -4026,9 +4030,9 @@ export function createChannelChatRouteHandler(
         invoker,
       }
       const chatId = optionalBodyString(body.id, "id") || "default"
-      const latestKey = owner ? JSON.stringify([agentName, routeOptions.channelId || "http", owner, chatId]) : undefined
+      const latestKey = owner ? resumableChatKey(agentName, routeOptions.channelId, owner, chatId) : undefined
       const invocationKey = latestKey
-        ? JSON.stringify([agentName, routeOptions.channelId || "http", owner, chatId, triggerInput.run?.messageId || "default"])
+        ? resumableChatKey(agentName, routeOptions.channelId, owner!, chatId, triggerInput.run?.messageId || "default")
         : undefined
       const existingRun = invocationKey ? resumableRuns.get(invocationKey) : undefined
       if (existingRun) {

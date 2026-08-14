@@ -17,6 +17,40 @@ function chatRequest(method: "DELETE" | "GET" | "POST", owner = "max"): Request 
 }
 
 describe("resumable web chat", () => {
+  it("drops completed runs after the retention timeout and across handler restarts", async () => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const agent = defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate: ({ request }) => ({ owner: request.headers.get("x-owner") || "" }) },
+            resumable: { owner: ({ auth }) => auth.owner },
+          },
+        }),
+      },
+      driver: { run: () => "Completed answer." },
+    })
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+    const handler = createChannelChatRouteHandler(agent as never)
+
+    await expect((await handler(chatRequest("POST"), options)).text()).resolves.toContain("Completed answer.")
+    await Promise.all(pending)
+    await expect((await handler(chatRequest("GET"), options)).text()).resolves.toContain("Completed answer.")
+
+    const restartedLookup = createChannelChatRouteHandler(agent as never)(chatRequest("GET"), options)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect((await restartedLookup).status).toBe(204)
+
+    await vi.advanceTimersByTimeAsync(597_000)
+    const expiredLookup = handler(chatRequest("GET"), options)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect((await expiredLookup).status).toBe(204)
+  })
+
   it("registers before an immediate reconnect and deduplicates the same owner message", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
