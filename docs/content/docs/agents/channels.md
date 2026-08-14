@@ -83,7 +83,7 @@ export default defineAgent({
 })
 ```
 
-Resumable routes buffer active and recently completed streams in one server process. A reload reconnects without cancelling the Agent Invocation, while `stop()` explicitly cancels it. This mode does not survive a process restart or coordinate multiple replicas.
+Resumable routes buffer active and recently completed streams in one server process. A reload reconnects without cancelling the Agent Invocation, while `await stop()` resolves only after the server accepts explicit cancellation. This mode does not survive a process restart or coordinate multiple replicas.
 
 Once the server route has `resumable.owner`, enable reconnects with `useChat(agent, { resume: true })`.
 

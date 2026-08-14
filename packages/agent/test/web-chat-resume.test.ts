@@ -145,7 +145,7 @@ describe("resumable web chat", () => {
     }
   })
 
-  it("replays buffered chunks before continuing the live stream after subscriber disposal", async () => {
+  it("replays buffered chunks to concurrent subscribers without detaching the original stream", async () => {
     const agentModule = await import("../src/index.ts")
     const { defineAgent } = agentModule
     const { webChat } = await import("../src/channels.ts")
@@ -186,12 +186,13 @@ describe("resumable web chat", () => {
       expect(reconnectPending).toEqual(pending)
       const reconnectedReader = reconnected.body!.getReader()
       expect(new TextDecoder().decode((await reconnectedReader.read()).value)).toBe("first")
-      await expect(initialReader.read()).resolves.toEqual({ done: true, value: undefined })
       expect(sourceCancel).not.toHaveBeenCalled()
 
       source.enqueue(new TextEncoder().encode("second"))
+      expect(new TextDecoder().decode((await initialReader.read()).value)).toBe("second")
       expect(new TextDecoder().decode((await reconnectedReader.read()).value)).toBe("second")
       source.close()
+      await expect(initialReader.read()).resolves.toEqual({ done: true, value: undefined })
       await expect(reconnectedReader.read()).resolves.toEqual({ done: true, value: undefined })
       await Promise.all(pending)
     }

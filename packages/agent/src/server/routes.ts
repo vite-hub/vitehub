@@ -3890,16 +3890,6 @@ const resumableChatMaxRuns = 100
 const resumableChatMaxTotalRuns = 10_000
 const resumableChatMaxTombstones = 10_000
 
-function detachResumableChatSubscribers(run: ResumableChatRun): void {
-  for (const subscriber of run.subscribers) {
-    try {
-      subscriber.close()
-    }
-    catch {}
-  }
-  run.subscribers.clear()
-}
-
 function resumableChatResponse(run: ResumableChatRun): Response {
   let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined
   return new Response(new ReadableStream<Uint8Array>({
@@ -4044,7 +4034,6 @@ export function createChannelChatRouteHandler(
           await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
           return new Response(null, { status: 204 })
         }
-        detachResumableChatSubscribers(run)
         return resumableChatResponse(run)
       }
 
@@ -4159,6 +4148,10 @@ export function createChannelChatRouteHandler(
       const approvalSessionId = sessionId && selectedSessionId
         ? `${sessionId}:chat-session:${selectedSessionId}`
         : sessionId
+      if (latestKey && (resumableCancellationTombstones.get(latestKey)?.sequence || 0) > requestSequence) {
+        releaseResumableClaim?.()
+        return new Response(null, { status: 204 })
+      }
       if (approvalSessionId) {
         const persistApprovedTools = invoker.kind !== "anonymous"
         if (!persistApprovedTools && triggerInput.messages.some(message => message.parts?.some(part => uiApprovalPart(part)?.record.state === "approval-responded"))) {
@@ -4177,11 +4170,6 @@ export function createChannelChatRouteHandler(
           messages: authorized.messages,
         }
       }
-      if (latestKey && (resumableCancellationTombstones.get(latestKey)?.sequence || 0) > requestSequence) {
-        releaseResumableClaim?.()
-        return new Response(null, { status: 204 })
-      }
-
       let resumableRun: ResumableChatRun | undefined
       if (invocationKey && latestKey && resumable) {
         const ownerRuns = () => [...resumableRuns.values()].filter(run => run.owner === owner)

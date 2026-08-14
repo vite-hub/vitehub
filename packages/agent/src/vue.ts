@@ -161,11 +161,12 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     if (!currentOptions.value.resume || currentOptions.value.transport || !("window" in globalThis)) return
     const { api, credentials, fetch: request = globalThis.fetch, headers } = currentOptions.value
     const route = api ?? agentChatRoute(agent.name)
-    await request(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
+    const response = await request(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
       credentials: await resolveTransportOption(credentials) ?? "same-origin",
       headers: await resolveTransportOption(headers),
       method: "DELETE",
-    }).catch(() => undefined)
+    })
+    if (!response.ok) throw new Error(`[vitehub] Resumable web chat cancellation failed with ${response.status} ${response.statusText || "Unknown Error"}.`)
   }
 
   async function reconnect(): Promise<void> {

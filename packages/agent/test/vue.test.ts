@@ -400,4 +400,31 @@ describe("Agent Vue clients", () => {
     })
     scope.stop()
   })
+
+  it("rejects explicit resumable chat cancellation when the server does not accept DELETE", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => new Response(null, { status: init?.method === "DELETE" ? 429 : 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await expect(chat.stop()).rejects.toThrow("cancellation failed with 429")
+    scope.stop()
+  })
+
+  it("rejects explicit resumable chat cancellation when DELETE cannot reach the server", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === "DELETE") throw new TypeError("network unavailable")
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await expect(chat.stop()).rejects.toThrow("network unavailable")
+    scope.stop()
+  })
 })
