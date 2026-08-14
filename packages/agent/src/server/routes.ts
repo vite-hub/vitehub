@@ -4207,13 +4207,14 @@ export function createChannelChatRouteHandler(
         }
         let run = latestResumableRuns.get(key)
         if (request.method === "DELETE") {
-          if (run && run.requestSequence <= requestSequence) {
-            releaseResumableChatRun(run)
-            run.cancelled = true
-            closeResumableChatRun(run)
-            run.abortController.abort("Cancelled by the web chat client.")
-            void run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
-            run.resolveReady()
+          for (const activeRun of [...resumableRuns.values()]) {
+            if (activeRun.latestKey !== key || activeRun.requestSequence > requestSequence) continue
+            releaseResumableChatRun(activeRun)
+            activeRun.cancelled = true
+            closeResumableChatRun(activeRun)
+            activeRun.abortController.abort("Cancelled by the web chat client.")
+            void activeRun.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+            activeRun.resolveReady()
           }
           for (const setup of resumableClaimSetupsByChat.get(key) || []) {
             if (setup.sequence <= requestSequence) setup.cancel()
@@ -4385,11 +4386,11 @@ export function createChannelChatRouteHandler(
           resumableClaimOwners.set(invocationKey, owner!)
           let claimSettled = false
           const settleResumableClaim = () => {
-            if (claimSettled) return
-            claimSettled = true
             const waiters = resumableClaimWaiterResolves.get(invocationKey)
             resumableClaimWaiterResolves.delete(invocationKey)
             for (const resolve of waiters || []) resolve()
+            if (claimSettled) return
+            claimSettled = true
             const chatSetups = resumableClaimSetupsByChat.get(latestKey!)
             chatSetups?.delete(claimSetup)
             if (!chatSetups?.size) resumableClaimSetupsByChat.delete(latestKey!)

@@ -724,6 +724,38 @@ describe("resumable web chat", () => {
     await Promise.all(pending)
   })
 
+  it("cancels every active invocation addressed by DELETE", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const cancel = vi.fn()
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: {
+        run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            cancel,
+            start(controller) {
+              controller.enqueue({ messageId: "assistant-1", type: "start" })
+            },
+          }),
+        }),
+      },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+    const responses = await Promise.all([
+      handler(chatRequest("POST", "max", "user-1"), options),
+      handler(chatRequest("POST", "max", "user-2"), options),
+    ])
+    const bodies = responses.map(response => response.text())
+
+    await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(2))
+    await expect(Promise.all(bodies)).resolves.toEqual([expect.any(String), expect.any(String)])
+    await Promise.all(pending)
+  })
+
   it("returns DELETE after accepting cancellation when provider cleanup stalls", async () => {
     const agentModule = await import("../src/index.ts")
     const { defineAgent } = agentModule
@@ -1008,6 +1040,37 @@ describe("resumable web chat", () => {
     await expect(claim).resolves.toMatchObject({ status: 204 })
     expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it("releases a duplicate that arrives after stalled claim cancellation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseInvoker!: () => void
+    const invoker = new Promise<void>((resolve) => {
+      releaseInvoker = resolve
+    })
+    const run = vi.fn(() => "unused")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run },
+      invoker: { async resolve() { await invoker; return { id: "max" } } },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    const claim = handler(chatRequest("POST"), options)
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 1 }))
+    await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+    const lateDuplicate = handler(chatRequest("POST"), options)
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 2 }))
+    releaseInvoker()
+
+    await expect(Promise.all([claim, lateDuplicate])).resolves.toEqual([
+      expect.objectContaining({ status: 204 }),
+      expect.objectContaining({ status: 200 }),
+    ])
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
+    expect(run).toHaveBeenCalledTimes(1)
   })
 
   it("releases every older stalled claim and waiter for a cancelled chat", async () => {
