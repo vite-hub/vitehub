@@ -1246,6 +1246,17 @@ async function executeQueuedWebhookDelivery(
       }))
       return retryAt
     }
+    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, {
+      attempt: delivery.attempts + 1,
+      error: channelDeliveryError(error),
+      type: "invocation.failed",
+      runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+    })
+    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, {
+      error: channelDeliveryError(error),
+      type: "failed",
+      runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+    })
   }
   finally {
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
@@ -4481,10 +4492,19 @@ export function createChannelWebhookRouteHandler(
           const task = dispatchGate.then(async (accepted) => {
             if (!accepted) return
             try {
+              let durableHandoff = false
               await runWithRuntimeCloudflareEnv(runContext, async () => {
               try {
                 const result = await runAgent(agent as never, runContext as never, {
                   ...invocation.input,
+                  context: {
+                    ...invocation.input.context,
+                    [agentChannelDeliveryWorkflowContextKey]: {
+                      channelId: registration.channelId,
+                      deliveryId: channelDelivery.delivery.id,
+                      provider: registration.provider,
+                    },
+                  },
                   ...(ownershipAbort
                     ? {
                         abortSignal: invocation.input.abortSignal
@@ -4496,6 +4516,10 @@ export function createChannelWebhookRouteHandler(
                 if (!isWorkflowRun(result) || result.status !== "queued") {
                   await runContext.flushWaitUntil?.()
                 }
+                else {
+                  durableHandoff = true
+                  await recordChannelDeliveryEvidence(channelDelivery, { type: "queued", runId: invocation.run?.runId })
+                }
               }
               finally {
                 stopHeartbeat?.()
@@ -4504,6 +4528,7 @@ export function createChannelWebhookRouteHandler(
                 }
               }
               })
+              if (durableHandoff) return
               await channelDelivery.event({ type: "invocation.completed", runId: invocation.run?.runId })
               await channelDelivery.event({ type: "completed", runId: invocation.run?.runId })
             }
