@@ -21,9 +21,9 @@ function cancellationDetails(value: unknown): { message: string; name: "AbortErr
 
 function isExpectedCancellation(signal: AbortSignal | undefined, error: unknown): boolean {
   if (!signal?.aborted) return false
+  if (error === signal.reason) return true
   const errorDetails = cancellationDetails(error)
   if (!errorDetails) return false
-  if (error === signal.reason) return true
   const reasonDetails = cancellationDetails(signal.reason)
   return reasonDetails?.name === errorDetails.name && reasonDetails.message === errorDetails.message
 }

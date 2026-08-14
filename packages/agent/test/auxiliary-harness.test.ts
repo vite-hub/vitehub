@@ -36,6 +36,22 @@ describe("auxiliary Harness cancellation", () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
+  it("suppresses an identical custom abort reason", async () => {
+    const controller = new AbortController()
+    const reason = new Error("The auxiliary turn stopped.")
+    const emit = vi.fn()
+    const session = await wrappedTurn((options) => {
+      controller.abort(reason)
+      options.emit({ error: reason, type: "error" })
+      return { done: Promise.reject(reason) }
+    })
+
+    const control = await session.doPromptTurn({ abortSignal: controller.signal, emit })
+
+    await expect(control.done).resolves.toBeUndefined()
+    expect(emit).not.toHaveBeenCalled()
+  })
+
   it("preserves a TimeoutError when the signal was not aborted", async () => {
     const controller = new AbortController()
     const error = new DOMException("The operation timed out.", "TimeoutError")
