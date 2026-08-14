@@ -4645,7 +4645,9 @@ export function createChannelWebhookRouteHandler(
           webhookDeadlineAbort?.signal.throwIfAborted()
           const response = await handler(request, { waitUntil: context.waitUntil })
           if (!channelDelivery.claimed) {
-            await recordChannelDeliveryEvidence(channelDelivery, { type: "completed" })
+            await recordChannelDeliveryEvidence(channelDelivery, {
+              type: response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected",
+            })
           }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
             await context.flushWaitUntil?.()
