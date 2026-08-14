@@ -65,6 +65,10 @@ function workspaceSourceMaterializer(workspace: WorkspaceFacade): SourceMaterial
 }
 
 function workspaceSessionStarter(workspace: WorkspaceFacade) {
+  const facadeStarter = (workspace as WorkspaceFacade & {
+    startSession?: (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
+  }).startSession
+  if (facadeStarter) return facadeStarter.bind(workspace)
   if (isWritableWorkspaceFacade(workspace)) return workspace.startSession.bind(workspace)
   const startSession = (workspace.fs as WorkspaceFsWithSession).startSession
   if (!startSession) throw new Error("[vitehub] Harness Workspace materialization requires Workspace Session support.")

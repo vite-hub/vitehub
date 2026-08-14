@@ -609,7 +609,6 @@ async function materializeWorkspace(
 }
 
 async function commitHostChanges(
-  root: string,
   workspace: Workspace,
   diff: WorkspaceDiff,
   contents: ReadonlyMap<string, Uint8Array | string>,
@@ -633,13 +632,9 @@ async function commitHostChanges(
       : undefined
     const content = contents.get(entry.path)
     if (content !== undefined) {
-      const metadata = entry.after.metadata?.gitMode === "120000"
-        && !isSafeHostSymlink(root, entry.path, String(content))
-          ? undefined
-          : entry.after.metadata
       await workspace.writeFile(entry.path, content, {
         mediaType: mediaTypes.get(entry.path) || before?.mediaType,
-        metadata,
+        metadata: entry.after.metadata,
       })
     }
   }
@@ -802,10 +797,20 @@ export async function createHostedWorkspaceSession(
       return filterSessionDiff(await currentDiff(), sessionPaths)
     },
     async commit(commitOptions) {
+      assertOpen()
       const capturedState = await captureHostState(host, root, commitOptions?.message || "host-commit")
       const diff = filterWriteBackDiff(diffSnapshots(baseline, capturedState.snapshot), excludedWriteBackPaths)
       if (!diff.entries.length) return
       assertDiffInsideSessionPaths(diff, sessionPaths)
+      const publicationDiff: WorkspaceDiff = {
+        ...diff,
+        entries: diff.entries.map((entry) => {
+          const content = capturedState.contents.get(entry.path)
+          if (entry.after?.metadata?.gitMode !== "120000" || content === undefined
+            || isSafeHostSymlink(root, entry.path, String(content))) return entry
+          return { ...entry, after: { ...entry.after, metadata: undefined } }
+        }),
+      }
       const revisionMaterializer = resolveWorkspaceRevisionMaterializer(workspace)
       await withWorkspacePublication(revisionMaterializer || workspace, options.abortSignal, async () => {
         if (baseRevision && await revisionMaterializer?.currentRevision({ abortSignal: options.abortSignal }) !== baseRevision) {
@@ -814,18 +819,18 @@ export async function createHostedWorkspaceSession(
         const nextAttachedState = options.attach ? capturedState : undefined
         const nextBaseline = nextAttachedState?.snapshot || await createSnapshotFromEntries(
           Object.entries(baseline.entries)
-            .filter(([path]) => !diff.entries.some(entry => entry.path === path && !entry.after))
+            .filter(([path]) => !publicationDiff.entries.some(entry => entry.path === path && !entry.after))
             .map(([path, entry]) => {
-              const changed = diff.entries.find(item => item.path === path)?.after
+              const changed = publicationDiff.entries.find(item => item.path === path)?.after
               return { path, ...(changed || entry) }
             })
-            .concat(diff.entries
+            .concat(publicationDiff.entries
               .filter(entry => entry.after && !baseline.entries[entry.path])
               .map(entry => ({ path: entry.path, ...entry.after! }))),
           commitOptions?.message || "host-commit",
         )
         try {
-          await commitHostChanges(root, workspace, diff, capturedState.contents, mediaTypes, commitOptions?.message)
+          await commitHostChanges(workspace, publicationDiff, capturedState.contents, mediaTypes, commitOptions?.message)
         }
         catch (error) {
           if (baseRevision) {

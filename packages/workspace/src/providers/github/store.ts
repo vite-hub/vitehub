@@ -509,7 +509,16 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async diff(options: DiffOptions = {}): Promise<WorkspaceDiff> {
     return await this.#mutate(async () => {
       await this.#ensure({ refresh: true });
-      const from = options.from || this.#baseline;
+      const fromSnapshot = options.from || this.#baseline;
+      const from = fromSnapshot && {
+        ...fromSnapshot,
+        entries: Object.fromEntries(Object.entries(fromSnapshot.entries).map(([path, entry]) => [path, {
+          ...entry,
+          ...(entry.metadata?.gitMode === "120000"
+            ? { metadata: { ...entry.metadata, symlinkTarget: undefined } }
+            : {}),
+        }])),
+      };
       const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }, false));
       return diffSnapshots(from, to);
     });

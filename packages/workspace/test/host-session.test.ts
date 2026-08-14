@@ -1237,7 +1237,8 @@ describe("workspace host sessions", () => {
 
   it("publishes an escaping host symlink as an inert file", async () => {
     const docs = workspace()
-    const session = await docs.startSession({ host: memoryHost() })
+    const host = memoryHost()
+    const session = await docs.startSession({ host })
 
     await expect(session.exec("ln", ["-s", "../../outside", "escape"])).resolves.toMatchObject({ exitCode: 0 })
     await session.commit({ message: "capture unsafe link" })
@@ -1245,6 +1246,8 @@ describe("workspace host sessions", () => {
     await expect(docs.readFile("escape")).resolves.toBe("../../outside")
     await expect(docs.stat("escape")).resolves.toMatchObject({ metadata: undefined })
     await session.close()
+    expect(host.readText("/workspace/escape")).toBe("../../outside")
+    await expect(session.commit({ message: "too late" })).rejects.toThrow("already closed")
   })
 
   it("preserves executable mode through materialization and commit", async () => {

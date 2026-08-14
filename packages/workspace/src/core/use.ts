@@ -17,6 +17,7 @@ import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { createHostedWorkspaceSession } from "../session/host.ts"
 
 import type { Tool, ToolSet } from "ai"
 import type { History } from "@vite-hub/history"
@@ -354,8 +355,8 @@ function createReadonlyFs<Name extends WorkspaceName>(
   workspace: Workspace,
 ): ReadonlyWorkspaceFs<Name> {
   const assets = useOptionalWorkspaceAssets(name)
-
-  return attachWorkspaceSourceRequestExecution({
+  let readonlyFs: ReadonlyWorkspaceFs<Name>
+  readonlyFs = attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => {
       const normalized = normalizePath(path)
       try {
@@ -421,8 +422,20 @@ function createReadonlyFs<Name extends WorkspaceName>(
       path: options?.path || "",
       sources: [],
     },
-    startSession: async (options?: WorkspaceSessionOptions) => await workspace.startSession(options),
+    startSession: async (options?: WorkspaceSessionOptions) => {
+      if (!assets || !options?.host) return await workspace.startSession(options)
+      const overlay = Object.assign(Object.create(workspace) as Workspace, {
+        exists: readonlyFs.exists,
+        glob: readonlyFs.glob,
+        list: readonlyFs.list,
+        readFile: readonlyFs.readFile,
+        search: readonlyFs.search,
+        stat: readonlyFs.stat,
+      })
+      return await createHostedWorkspaceSession(overlay, { ...options, host: options.host })
+    },
   }, getWorkspaceSourceRequestExecution(workspace))
+  return readonlyFs
 }
 
 function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
