@@ -527,7 +527,7 @@ function withTitleReadableStreamParallel<T>(
   getText: (value: T) => string = () => "",
   isTerminal: (value: T) => boolean = () => false,
   fallback?: StreamFallback<T>,
-  options: { initialTitle?: string, waitForStart?: boolean } = {},
+  options: { clearInitialTitle?: () => T, initialTitle?: string, waitForStart?: boolean } = {},
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
   let fallbackIterator: AsyncIterator<T> | undefined
@@ -538,6 +538,7 @@ function withTitleReadableStreamParallel<T>(
   let text = ""
   let titlePending = true
   let initialTitlePending = false
+  let initialTitleEmitted = false
   let streamStarted = options.waitForStart !== true
   const deferredTitle = typeof title === "function" ? title : undefined
   const eagerTitle = typeof title === "function" ? undefined : title
@@ -548,6 +549,11 @@ function withTitleReadableStreamParallel<T>(
     if (closed) return
     closed = true
     reader?.releaseLock()
+  }
+  const clearInitialTitle = () => {
+    if (!initialTitleEmitted || !options.clearInitialTitle) return
+    initialTitleEmitted = false
+    return options.clearInitialTitle()
   }
 
   return markTitleApplied(withAsyncIterator(new ReadableStream<T>({
@@ -571,6 +577,7 @@ function withTitleReadableStreamParallel<T>(
       if (cancelled || closed) return
       if (initialTitlePending) {
         initialTitlePending = false
+        initialTitleEmitted = true
         controller.enqueue(renderTitle(options.initialTitle!))
         return
       }
@@ -612,6 +619,11 @@ function withTitleReadableStreamParallel<T>(
               controller.enqueue(renderTitle(next.title))
               return
             }
+            const cleared = clearInitialTitle()
+            if (cleared !== undefined) {
+              controller.enqueue(cleared)
+              return
+            }
             continue
           }
 
@@ -624,6 +636,7 @@ function withTitleReadableStreamParallel<T>(
             text += getText(next.value.value)
             if (initialTitlePending && isTerminal(next.value.value)) {
               initialTitlePending = false
+              initialTitleEmitted = true
               controller.enqueue(renderTitle(options.initialTitle!))
             }
             if (!deferredTitle && titlePending && titleNext && isTerminal(next.value.value)) {
@@ -631,6 +644,10 @@ function withTitleReadableStreamParallel<T>(
               titlePending = false
               if (cancelled) return
               if (resolvedTitle.title) controller.enqueue(renderTitle(resolvedTitle.title))
+              else {
+                const cleared = clearInitialTitle()
+                if (cleared !== undefined) controller.enqueue(cleared)
+              }
             }
             if (deferredTitle && isTerminal(next.value.value)) {
               reader?.releaseLock()
@@ -649,6 +666,10 @@ function withTitleReadableStreamParallel<T>(
               titlePending = false
               if (cancelled) return
               if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
+              else {
+                const cleared = clearInitialTitle()
+                if (cleared !== undefined) controller.enqueue(cleared)
+              }
               controller.enqueue(next.value.value)
               controller.close()
               closed = true
@@ -677,6 +698,10 @@ function withTitleReadableStreamParallel<T>(
             if (cancelled) return
             if (resolvedTitle.title) {
               controller.enqueue(renderTitle(resolvedTitle.title))
+            }
+            else {
+              const cleared = clearInitialTitle()
+              if (cleared !== undefined) controller.enqueue(cleared)
             }
           }
           controller.close()
@@ -749,7 +774,11 @@ function withTitleUiMessageStream(
     statefulTextDelta(),
     isFinish,
     undefined,
-    { initialTitle: provisionalTitle, waitForStart: true },
+    {
+      clearInitialTitle: () => ({ data: undefined, id: "title", type: "data-title" }),
+      initialTitle: provisionalTitle,
+      waitForStart: true,
+    },
   )
 }
 

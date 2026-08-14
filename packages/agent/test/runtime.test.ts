@@ -8636,6 +8636,36 @@ describe("agent message protocol", () => {
     await reader.cancel()
   })
 
+  it("clears a provisional UI title when generation fails", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const generated = deferred<string>()
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => generated.promise })],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ messageId: "message-1", type: "start" })
+            },
+          }),
+        }) },
+    })
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    await reader.read()
+    await expect(reader.read()).resolves.toMatchObject({
+      value: { data: { title: "Explain critical overstock" }, id: "title", type: "data-title" },
+    })
+    generated.reject(new Error("title failed"))
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: { data: undefined, id: "title", type: "data-title" },
+    })
+    await reader.cancel()
+  })
+
   it("prefers decorated UI message streams for hybrid async iterable results", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const iterated = vi.fn()
