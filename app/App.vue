@@ -8,6 +8,7 @@ import {
   invocationSummary,
   invocationTitle,
   isToolObservation,
+  observationContent,
   observationDetail,
   observationDurationMs,
   observationTone,
@@ -273,8 +274,8 @@ watch(invocations, (next) => {
               <section class="timeline-panel">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Ordered evidence</p>
-                    <h3>Timeline</h3>
+                    <p class="eyebrow">Complete history</p>
+                    <h3>Session</h3>
                   </div>
                   <span>{{ visibleObservations.length }} events</span>
                 </div>
@@ -288,6 +289,7 @@ watch(invocations, (next) => {
                         <time :datetime="observation.timestamp">{{ formatTime(observation.timestamp) }}</time>
                       </div>
                       <p v-if="observationDetail(observation)">{{ observationDetail(observation) }}</p>
+                      <pre v-if="observationContent(observation)" class="event-content">{{ observationContent(observation) }}</pre>
                     </div>
                   </li>
                 </ol>

@@ -652,6 +652,19 @@ a.annotation:hover strong {
   line-height: 1.5;
 }
 
+.event-content {
+  overflow-wrap: anywhere;
+  margin: 9px 0 22px;
+  border: 1px solid var(--console-line);
+  padding: 12px 14px;
+  color: var(--console-ink);
+  background: color-mix(in srgb, var(--console-paper) 72%, var(--console-surface));
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .tool-list li {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;

@@ -17,5 +17,6 @@ catch (error) {
 }
 
 export const invocations = defineAgentInvocations({
+  content: 'content',
   store,
 })

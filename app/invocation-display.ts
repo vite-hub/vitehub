@@ -38,6 +38,15 @@ export function observationDetail(observation: InvocationObservation) {
   return preferred === undefined ? undefined : String(preferred)
 }
 
+export function observationContent(observation: InvocationObservation) {
+  const attributes = observation.attributes || {}
+  const value = ['result.text', 'tool.input', 'tool.output', 'approval.input', 'message', 'text']
+    .map(key => attributes[key])
+    .find(item => item !== undefined)
+  if (value === undefined) return
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+}
+
 export function observationDurationMs(observation: InvocationObservation) {
   const value = observation.attributes?.['duration.ms']
   return typeof value === 'number' ? value : undefined

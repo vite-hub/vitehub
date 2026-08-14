@@ -8,7 +8,7 @@ import github from '@github-tools/eve-extension'
 import { defineAgent } from 'vite-hub/agent'
 import { invocations } from '../../invocations.ts'
 
-import type { AgentInvokerProfile, BuiltInAgentDriver } from 'vite-hub/agent'
+import type { BuiltInAgentDriver } from 'vite-hub/agent'
 
 const exec = promisify(execFile)
 const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex')
@@ -28,7 +28,7 @@ const capabilities = [github({
 })] as const
 const driver = { kind: 'codex', model: 'gpt-5.6-sol' } satisfies BuiltInAgentDriver<{ checkout: string }>
 
-export default defineAgent<{}, { checkout: string }, AgentInvokerProfile>({
+export default defineAgent({
   box: {
     runtime: 'trusted-host',
     cwd: ({ input }) => {

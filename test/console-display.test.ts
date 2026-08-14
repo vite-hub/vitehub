@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { annotationItems, invocationSummary, isToolObservation, statusLabel } from '../app/invocation-display.ts'
+import { annotationItems, invocationSummary, isToolObservation, observationContent, statusLabel } from '../app/invocation-display.ts'
 
 test('projects runtime statuses into Console groups', () => {
   assert.equal(statusLabel('pending'), 'Queued')
@@ -33,6 +33,16 @@ test('recognizes tools from generic trace metadata', () => {
     timestamp: '2026-08-14T10:00:00Z',
     type: 'capability',
   }), true)
+})
+
+test('renders retained session content', () => {
+  assert.equal(observationContent({
+    attributes: { 'result.text': 'Reviewed the pull request.' },
+    name: 'agent.invocation.finish',
+    sequence: 4,
+    timestamp: '2026-08-14T10:00:00Z',
+    type: 'run',
+  }), 'Reviewed the pull request.')
 })
 
 test('uses failure detail before generic invocation context', () => {
