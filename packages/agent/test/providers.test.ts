@@ -9569,6 +9569,18 @@ describe("server helpers", () => {
       await vi.waitFor(() => {
         expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Durable reply" })
       })
+      await expect(handler.deliveries(chatWebhookRequest(91_100), "telegram", {
+        agentIdentity: { name: "calories" },
+      })).resolves.toEqual([
+        expect.objectContaining({
+          events: expect.arrayContaining([
+            expect.objectContaining({ type: "queued" }),
+            expect.objectContaining({ type: "outbound.completed" }),
+            expect.objectContaining({ type: "failed" }),
+          ]),
+          status: "failed",
+        }),
+      ])
       expect(observedTimeout).toBeUndefined()
     }
     finally {

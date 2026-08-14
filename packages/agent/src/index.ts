@@ -979,6 +979,7 @@ async function applyChannelDeliveryEffectIntents<
 
     let delivered = true
     for (const handler of handlers) {
+      let handlerCompleted = false
       try {
         await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
         await runObservedAgentHook(context.hooks, {
@@ -1006,7 +1007,7 @@ async function applyChannelDeliveryEffectIntents<
           })
           await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
         })
-        await delivery?.event({ type: "outbound.completed", runId: context.run?.runId })
+        handlerCompleted = true
       }
       catch (error) {
         delivered = false
@@ -1022,10 +1023,20 @@ async function applyChannelDeliveryEffectIntents<
           }))
         }
         catch {}
+        try {
+          await delivery?.event({ error: agentErrorMessage(error), type: "outbound.failed", runId: context.run?.runId })
+        }
+        catch {}
         await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
         })
+      }
+      if (handlerCompleted) {
+        try {
+          await delivery?.event({ type: "outbound.completed", runId: context.run?.runId })
+        }
+        catch {}
       }
     }
     if (titleDelivery) {

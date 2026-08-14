@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { agentChannelDeliveryTracker, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -35,6 +35,7 @@ import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
   AgentChannelDefinition,
+  AgentChannelDeliveryEventInput,
   AgentChannelDeliveryInspection,
   AgentChatErrorHookArgs,
   AgentChatFinishExtension,
@@ -63,7 +64,7 @@ import type { AttachmentPart, MessagePart } from "../messages.ts"
 import type { Adapter, AdapterPostableMessage, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
 import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
-import type { AgentChannelDeliveryTracker } from "../internal/channel-delivery.ts"
+import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -599,6 +600,22 @@ function channelDeliveryError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 2_000)
 }
 
+async function recordChannelDeliveryEvidence(delivery: AgentChannelDeliveryTracker, input: AgentChannelDeliveryEventInput): Promise<void> {
+  try {
+    await delivery.event(input)
+  }
+  catch {}
+}
+
+async function terminalChannelDeliveryResponse(
+  delivery: AgentChannelDeliveryTracker,
+  response: Response,
+  type: "completed" | "failed" | "rejected" = "rejected",
+): Promise<Response> {
+  await delivery.event({ type })
+  return response
+}
+
 function logChannelListener(event: string, provider: string, listenerId: string, extra: Record<string, unknown> = {}): void {
   console.info(JSON.stringify({ scope: "vitehub.channel.listener", event, provider, listenerId, ...extra }))
 }
@@ -611,11 +628,11 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
           await delivery.event({ type: "outbound.started" })
           try {
             const message = await target.post(...args)
-            await delivery.event({ messageId: deliverySourceValue((message as { id?: unknown }).id), type: "outbound.completed" })
+            await recordChannelDeliveryEvidence(delivery, { messageId: deliverySourceValue((message as { id?: unknown }).id), type: "outbound.completed" })
             return message
           }
           catch (error) {
-            await delivery.event({ error: channelDeliveryError(error), type: "outbound.failed" })
+            await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "outbound.failed" })
             throw error
           }
         }
@@ -2176,7 +2193,7 @@ async function resolveChatState(
   registration: AgentWebhookRegistrationDefinition,
   handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<{ state: StateAdapter, titleKeyPrefix: string }> {
-  const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
+  const agentName = routeAgentIdentity(handlerOptions)?.name || context.agentIdentity?.name || "agent"
   const origin = chatRegistrationOrigin(registration)
   const agentKeyPrefix = `chat:${agentName}:`
   const stateKeyPrefix = `${agentKeyPrefix}${origin}:`
@@ -2203,6 +2220,28 @@ async function resolveChatState(
     }
   }
   return { state, titleKeyPrefix: stateKeyPrefix }
+}
+
+export async function resumeWorkflowAgentChannelDelivery(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  binding: AgentChannelDeliveryWorkflowBinding,
+): Promise<AgentChannelDeliveryTracker | undefined> {
+  const active = activeAgentChannelDelivery(binding.deliveryId)
+  if (active) return active
+  const registration = {
+    channelId: binding.channelId,
+    id: binding.channelId,
+    provider: binding.provider,
+  }
+  const state = await resolveChatState(
+    getChannelChatOptions(agent, binding.channelId, getAgentChatOptions(agent)),
+    context,
+    registration,
+    {},
+  )
+  await state.state.connect()
+  return await resumeAgentChannelDelivery(state.state, binding.deliveryId)
 }
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {
@@ -3154,6 +3193,7 @@ async function handleChatSdkMessage(
   const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   let invocationStarted = false
   let invocationFailed = false
+  let durableHandoff = false
   try {
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
     if (typeof options?.timeout === "number" && Number.isFinite(options.timeout) && options.timeout > 0) {
@@ -3223,10 +3263,17 @@ async function handleChatSdkMessage(
           ...resolvedInvocationInput,
           context: {
             ...resolvedInvocationInput.context,
+            [agentChannelDeliveryWorkflowContextKey]: {
+              channelId: registration.channelId,
+              deliveryId: delivery.delivery.id,
+              provider: chatRegistrationOrigin(registration),
+            },
             [finalChannelOutputContextKey]: true,
             [requireAgentWorkflowContextKey]: true,
           },
         }, invoker) as never)
+        durableHandoff = true
+        await recordChannelDeliveryEvidence(delivery, { type: "queued", runId: run?.runId })
       }
       catch (error) {
         clearTimeout(durableTypingTimeout)
@@ -3396,7 +3443,7 @@ async function handleChatSdkMessage(
   }
   finally {
     typing?.stop()
-    if (invocationStarted && !invocationFailed) {
+    if (invocationStarted && !invocationFailed && !durableHandoff) {
       await delivery.event({ type: "invocation.completed", runId: run?.runId })
       await delivery.event({ type: "completed", runId: run?.runId })
     }
@@ -4065,7 +4112,7 @@ export function createChannelChatRouteHandler(
         agentName,
         channelId: registration.channelId,
         provider: registration.provider,
-        scope: `chat:${agentName}:${registration.provider}:${sessionId || "default"}`,
+        scope: `chat:${agentName}:${registration.provider}:${encodeURIComponent(invoker.id)}:${sessionId || "default"}`,
         sourceId: deliverySourceValue(body.messageId) || deliverySourceValue(triggerInput.run?.messageId) || randomToken(),
       })
       context = withAgentChannelDelivery(context, delivery)
@@ -4270,6 +4317,16 @@ export function createChannelWebhookRouteHandler(
           status: 204,
         })
       }
+      if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
+        try {
+          await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
+        }
+        catch (error) {
+          const response = toHttpErrorResponse(error)
+          if (response) return response
+          throw error
+        }
+      }
       const webhookDeliveryState = await resolveAgentWebhookState(context, registration, handlerOptions)
       const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
       const chatDeliveryState = webhookDeliveryState
@@ -4288,17 +4345,6 @@ export function createChannelWebhookRouteHandler(
         sourceId: await webhookDeliverySourceId(request),
       })
       context = withAgentChannelDelivery(context, channelDelivery)
-      if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
-        try {
-          await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
-        }
-        catch (error) {
-          await channelDelivery.event({ error: channelDeliveryError(error), type: "rejected" })
-          const response = toHttpErrorResponse(error)
-          if (response) return response
-          throw error
-        }
-      }
 
       if (trigger.id !== "chat.message") {
         try {
@@ -4311,29 +4357,29 @@ export function createChannelWebhookRouteHandler(
             return invocation.response
           }
           if (invocation.webhook?.busy === "steer" && (invocation.webhook.concurrencyKey === undefined || invocation.webhook.concurrencyLimit === undefined)) {
-            return createJsonErrorResponse(500, 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.')
+            return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.'))
           }
           if ((invocation.webhook?.concurrencyKey !== undefined || invocation.webhook?.concurrencyLimit !== undefined) && await hasActiveWorkflowRuntime(agent, context)) {
-            return createJsonErrorResponse(503, "Webhook concurrency ownership requires inline Agent execution.")
+            return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(503, "Webhook concurrency ownership requires inline Agent execution."))
           }
           const webhookState = invocation.webhook ? webhookDeliveryState : undefined
           if (invocation.webhook && !webhookState) {
-            return createJsonErrorResponse(503, "Durable Agent state is required for webhook delivery ownership.")
+            return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(503, "Durable Agent state is required for webhook delivery ownership."))
           }
           if (invocation.webhook?.concurrencyLimit !== undefined && webhookState) {
             const { concurrencyKey, deliveryId } = invocation.webhook
             if (!deliveryId.trim()) {
-              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId.")
+              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId."))
             }
             if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
-              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured.")
+              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured."))
             }
             if (invocation.webhook.busy === "steer" && invocation.webhook.rehydrate) {
-              return createJsonErrorResponse(500, "Webhook delivery ownership cannot combine busy steering with rehydration.")
+              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership cannot combine busy steering with rehydration."))
             }
             const concurrencyLimit = positiveWebhookConcurrencyLimit(invocation.webhook.concurrencyLimit)!
             if (!hasAgentWebhookQueue(webhookState.state)) {
-              return createJsonErrorResponse(503, "Persistent webhook concurrency requires a queue-capable Agent state provider.")
+              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(503, "Persistent webhook concurrency requires a queue-capable Agent state provider."))
             }
             const backendId = await resolveWebhookStateBackendId(webhookState.state)
             const persistedInvocation = persistedWebhookInvocation(invocation as unknown as { input: Record<string, unknown>, run?: unknown })
@@ -4373,10 +4419,10 @@ export function createChannelWebhookRouteHandler(
           if (invocation.webhook && webhookState) {
             const { concurrencyKey, deliveryId } = invocation.webhook
             if (!deliveryId.trim()) {
-              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId.")
+              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId."))
             }
             if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
-              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured.")
+              return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured."))
             }
             concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
             deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
@@ -4390,7 +4436,7 @@ export function createChannelWebhookRouteHandler(
                 concurrencyTtlMs,
               )
               if (!webhookLock) {
-                return Response.json({ accepted: false, busy: true, ok: true }, { status: 503 })
+                return await terminalChannelDeliveryResponse(channelDelivery, Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }))
               }
             }
             let claimed: boolean
@@ -4496,7 +4542,7 @@ export function createChannelWebhookRouteHandler(
         const adapterName = resolveChatAdapterName(adapters, registration)
         const adapter = adapterName ? adapters[adapterName] : undefined
         if (!adapter) {
-          return createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`)
+          return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`))
         }
 
         try {

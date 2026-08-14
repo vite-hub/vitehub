@@ -159,15 +159,7 @@ The evidence boundary stays explicit: no ViteHub record can prove a provider eve
 
 The journal uses the Channel's existing State Adapter and retains the newest 10,000 delivery references. Each delivery and its newest 256 events expire 30 days after their last update. Records contain identifiers, timestamps, attempts, provider reply ids, and bounded error messages; ViteHub does not copy message text, attachment data, webhook bodies, or connector options into the journal. Production durability therefore follows the configured Agent state provider, while the default in-memory development state remains process-local.
 
-Invocation hooks and Drivers receive the active record as `context.channelDelivery`. Trace Events repeat `channel.delivery.id`, `channel.delivery.provider`, and `channel.delivery.source.id`, while JSON logs use the `vitehub.channel.delivery` and `vitehub.channel.listener` scopes. Applications that own the State Adapter can inspect the durable records directly:
-
-```ts
-import { readAgentChannelDeliveries } from '@vite-hub/agent/server'
-
-const deliveries = await readAgentChannelDeliveries(agentState, 100)
-```
-
-The webhook route handler also exposes `handler.deliveries(request, webhookId, options)` for host integrations that need ViteHub to resolve the same scoped state automatically.
+Invocation hooks and Drivers receive the active record as `context.channelDelivery`. Trace Events repeat `channel.delivery.id`, `channel.delivery.provider`, and `channel.delivery.source.id`, while JSON logs use the `vitehub.channel.delivery` and `vitehub.channel.listener` scopes. The webhook route handler exposes `handler.deliveries(request, webhookId, options)` so host integrations inspect records through the same scoped State Adapter used by the Channel.
 
 ## Scope abilities to one Channel
 

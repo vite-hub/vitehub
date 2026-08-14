@@ -6,8 +6,16 @@ const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
 const maximumDeliveries = 10_000
 const indexKey = "deliveries:index"
+const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 
 export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
+export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
+
+export interface AgentChannelDeliveryWorkflowBinding {
+  channelId: string
+  deliveryId: string
+  provider: string
+}
 
 export interface AgentChannelDeliveryTracker {
   delivery: AgentChannelDelivery
@@ -54,6 +62,8 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
     id: token(),
   }
   try {
+    await state.set(sourceKey(delivery), delivery, retentionMs)
+    await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
     await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
   }
   catch (error) {
@@ -70,15 +80,22 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
     throw error
   }
   log(event, delivery)
+  if (event.type === "completed" || event.type === "failed" || event.type === "rejected") activeDeliveries.delete(delivery.id)
   return event
 }
 
 function tracker(state: StateAdapter, delivery: AgentChannelDelivery, duplicate: boolean): AgentChannelDeliveryTracker {
-  return {
+  const value: AgentChannelDeliveryTracker = {
     delivery,
     duplicate,
     event: async (input) => await appendEvent(state, delivery, input),
   }
+  activeDeliveries.set(delivery.id, value)
+  return value
+}
+
+export function activeAgentChannelDelivery(deliveryId: string): AgentChannelDeliveryTracker | undefined {
+  return activeDeliveries.get(deliveryId)
 }
 
 export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<AgentChannelDelivery, "id" | "receivedAt">): Promise<AgentChannelDeliveryTracker> {
@@ -89,8 +106,10 @@ export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<
   }
   const created = await state.setIfNotExists(sourceKey(candidate), candidate, retentionMs)
   const delivery = created ? candidate : (await state.get<AgentChannelDelivery>(sourceKey(candidate))) || candidate
+  await state.set(sourceKey(delivery), delivery, retentionMs)
   await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
-  if (created) await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
+  const indexed = await state.getList<string>(indexKey)
+  if (!indexed.includes(delivery.id)) await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
   const opened = tracker(state, delivery, !created)
   await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
   return opened
@@ -119,20 +138,18 @@ export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context:
 
 export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get" | "getList">, limit = 100, scopePrefix?: string): Promise<AgentChannelDeliveryInspection[]> {
   const ids = await state.getList<string>(indexKey)
-  const stored = await Promise.all(
-    [...new Set([...ids].reverse())].map(async (id) => {
-      const delivery = await state.get<AgentChannelDelivery>(deliveryRecordKey(id))
-      if (!delivery) return
-      return { ...delivery, events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)) }
-    }),
-  )
-  return stored
-    .filter((delivery): delivery is AgentChannelDelivery & { events: AgentChannelDeliveryEvent[] } => delivery !== undefined)
-    .filter(delivery => !scopePrefix || delivery.scope.startsWith(scopePrefix))
-    .slice(0, Math.max(0, limit))
-    .map((delivery) => ({
+  const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[] }> = []
+  const maximum = Math.max(0, limit)
+  for (const id of new Set([...ids].reverse())) {
+    if (stored.length >= maximum) break
+    const delivery = await state.get<AgentChannelDelivery>(deliveryRecordKey(id))
+    if (!delivery || (scopePrefix && !delivery.scope.startsWith(scopePrefix))) continue
+    stored.push({ ...delivery, events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)) })
+  }
+  return stored.map((delivery) => ({
       ...delivery,
       status: delivery.events.reduce<AgentChannelDeliveryStatus>((status, event) => {
+        if (status === "completed" || status === "failed" || status === "rejected") return status
         if (event.type === "invocation.started") return "running"
         if (event.type === "received") return "received"
         if (event.type === "accepted" || event.type === "completed" || event.type === "failed" || event.type === "queued" || event.type === "rejected" || event.type === "retrying") return event.type

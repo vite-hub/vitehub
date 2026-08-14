@@ -3,8 +3,6 @@ export {
   createTelegramPollingRouteHandler,
 } from "./server/routes.ts"
 
-export { readAgentChannelDeliveries } from "./internal/channel-delivery.ts"
-
 export { defineAgentRunEvents } from "./run-events.ts"
 
 export type {

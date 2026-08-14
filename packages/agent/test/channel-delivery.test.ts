@@ -102,4 +102,56 @@ describe("Agent Channel delivery journal", () => {
     expect(error.mock.calls.map(([entry]) => String(entry)).join("\n")).toContain('"event":"journal.failed"')
     error.mockRestore()
   })
+
+  it("repairs the inspection index after a partially failed open", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const appendToList = state.appendToList.bind(state)
+    let failIndex = true
+    state.appendToList = async (key, value, options) => {
+      if (key === "deliveries:index" && failIndex) {
+        failIndex = false
+        throw new Error("index unavailable")
+      }
+      await appendToList(key, value, options)
+    }
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10" }
+
+    await expect(openAgentChannelDelivery(state, input)).rejects.toThrow("index unavailable")
+    const reopened = await openAgentChannelDelivery(state, input)
+
+    expect(reopened.duplicate).toBe(true)
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ id: reopened.delivery.id, sourceId: "delivery-10" }),
+    ])
+    info.mockRestore()
+  })
+
+  it("bounds event-history reads before applying the inspection limit", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    for (const sourceId of ["one", "two", "three"]) {
+      await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId })
+    }
+    const getList = vi.spyOn(state, "getList")
+
+    await expect(readAgentChannelDeliveries(state, 1)).resolves.toHaveLength(1)
+
+    expect(getList.mock.calls.filter(([key]) => String(key).endsWith(":events"))).toHaveLength(1)
+    info.mockRestore()
+  })
+
+  it("keeps terminal settlement when a delayed queued event arrives", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "discord", scope: "chat:support", sourceId: "message-11" })
+
+    await delivery.event({ type: "completed" })
+    await delivery.event({ type: "queued" })
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
+    info.mockRestore()
+  })
 })
