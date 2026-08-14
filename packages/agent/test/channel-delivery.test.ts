@@ -162,4 +162,20 @@ describe("Agent Channel delivery journal", () => {
     ])
     info.mockRestore()
   })
+
+  it("lets a reopened attempt replace a recoverable terminal status", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-retry" }
+    const first = await openAgentChannelDelivery(state, input)
+    await first.event({ type: "rejected" })
+    const retry = await openAgentChannelDelivery(state, input)
+    await retry.event({ type: "accepted" })
+    await retry.event({ type: "completed" })
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
+    info.mockRestore()
+  })
 })

@@ -122,6 +122,12 @@ export function activeAgentChannelDelivery(deliveryId: string): AgentChannelDeli
   return activeDeliveries.get(deliveryId)
 }
 
+export function activeAgentChannelDeliveries(provider: string, channelId?: string): AgentChannelDeliveryTracker[] {
+  return [...activeDeliveries.values()]
+    .filter(tracker => tracker.delivery.provider === provider && tracker.delivery.channelId === channelId)
+    .sort((left, right) => left.delivery.receivedAt.localeCompare(right.delivery.receivedAt))
+}
+
 export function setAgentChannelDeliveryWorkflowResolver(resolver: AgentChannelDeliveryWorkflowResolver): void {
   workflowResolver = resolver
 }
@@ -187,14 +193,22 @@ export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get"
     if (!delivery || (scopePrefix && !delivery.scope.startsWith(scopePrefix))) continue
     stored.push({ ...delivery, events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)) })
   }
-  return stored.map((delivery) => ({
-      ...delivery,
-      status: delivery.events.reduce<AgentChannelDeliveryStatus>((status, event) => {
-        if (status === "completed" || status === "failed" || status === "rejected") return status
-        if (event.type === "invocation.started") return "running"
-        if (event.type === "received") return "received"
-        if (event.type === "accepted" || event.type === "completed" || event.type === "failed" || event.type === "queued" || event.type === "rejected" || event.type === "retrying") return event.type
-        return status
-      }, "received"),
-    }))
+  return stored.map((delivery) => {
+    let reopened = false
+    const status = delivery.events.reduce<AgentChannelDeliveryStatus>((current, event) => {
+      if (event.type === "duplicate") {
+        reopened = true
+        return current
+      }
+      if (current === "completed" || current === "failed" || current === "rejected") {
+        if (!reopened || (event.type !== "accepted" && event.type !== "retrying" && event.type !== "invocation.started")) return current
+        reopened = false
+      }
+      if (event.type === "invocation.started") return "running"
+      if (event.type === "received") return "received"
+      if (event.type === "accepted" || event.type === "completed" || event.type === "failed" || event.type === "queued" || event.type === "rejected" || event.type === "retrying") return event.type
+      return current
+    }, "received")
+    return { ...delivery, status }
+  })
 }

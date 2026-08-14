@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { activeAgentChannelDeliveries, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -1228,6 +1228,12 @@ async function executeQueuedWebhookDelivery(
       : Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
     const retryAt = Date.now() + retryDelay
     if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt)) {
+      if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, {
+        attempt: delivery.attempts + 1,
+        error: channelDeliveryError(error),
+        type: "invocation.failed",
+        runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+      })
       if (lifecycleSignal.aborted) return retryAt
       console.error(JSON.stringify({
         scope: "vitehub.channel.delivery",
@@ -3518,6 +3524,12 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const messages = serial ? [...messageContext?.skipped ?? [], message] : [message]
+  const currentDelivery = agentChannelDeliveryTracker(context)
+  const skippedDeliveries = serial
+    ? activeAgentChannelDeliveries(registration.provider, registration.channelId)
+        .filter(delivery => delivery !== currentDelivery)
+        .slice(-(messageContext?.skipped.length ?? 0))
+    : []
   const stopRefreshingLock = serial
     ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options))
     : () => undefined
@@ -3532,9 +3544,12 @@ async function handleChatSdkMessages(
           ? await serialMessageDeliveryKind(queuedThread, queuedMessage)
           : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
+        const queuedContext = serial && queuedMessage !== message && skippedDeliveries.length
+          ? withAgentChannelDelivery(context, skippedDeliveries.shift()!)
+          : context
         await handleChatSdkMessage(
           agent,
-          context,
+          queuedContext,
           registration,
           queuedThread,
           queuedMessage,
@@ -4613,18 +4628,31 @@ export function createChannelWebhookRouteHandler(
     const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
     if (!match) return []
     const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
-    const workflowCustody = await hasActiveWorkflowRuntime(agent, context)
-    const chatState = webhookState && !workflowCustody ? undefined : await resolveChatState(
+    const chatState = await resolveChatState(
       getChannelChatOptions(agent, match.registration.channelId, getAgentChatOptions(agent)),
       context,
       match.registration,
-      workflowCustody ? {} : handlerOptions,
+      handlerOptions,
     )
-    const state = (workflowCustody ? undefined : webhookState?.state) || chatState?.state
-    if (!state) return []
-    await state.connect()
-    const scopePrefix = (workflowCustody ? undefined : webhookState?.keyPrefix) || chatState?.titleKeyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(match.registration)}`
-    return await readAgentChannelDeliveries(state, handlerOptions.limit, scopePrefix)
+    const workflowChatState = await resolveChatState(
+      getChannelChatOptions(agent, match.registration.channelId, getAgentChatOptions(agent)),
+      context,
+      match.registration,
+      {},
+    )
+    const fallbackScope = `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(match.registration)}`
+    const sources = [
+      webhookState && { scope: webhookState.keyPrefix, state: webhookState.state },
+      { scope: chatState.titleKeyPrefix || fallbackScope, state: chatState.state },
+      { scope: workflowChatState.titleKeyPrefix || fallbackScope, state: workflowChatState.state },
+    ].filter((source): source is { scope: string, state: StateAdapter } => Boolean(source))
+    const inspections = (await Promise.all(sources.map(async ({ scope, state }) => {
+      await state.connect()
+      return await readAgentChannelDeliveries(state, handlerOptions.limit, scope)
+    }))).flat()
+    return [...new Map(inspections.map(delivery => [delivery.id, delivery])).values()]
+      .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
+      .slice(0, handlerOptions.limit ?? 100)
   }
   handler.resume = (handlerOptions = {}) => {
     let stopped = false
