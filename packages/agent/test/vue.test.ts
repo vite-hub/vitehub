@@ -42,22 +42,26 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
-  it("keeps a reactive external message list stable while sending", async () => {
+  it("keeps active chat state and stop ownership across same-id reactive updates", async () => {
     let finish!: () => void
     const finished = new Promise<void>((resolve) => {
       finish = resolve
     })
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
-      stream: createUIMessageStream({
-        async execute() {
-          await finished
-        },
-      }),
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => createUIMessageStreamResponse({
+      stream: createUIMessageStream(String(input) === "/chat/first"
+        ? {
+            async execute() {
+              await finished
+            },
+          }
+        : { execute() {} }),
     }))
     vi.stubGlobal("fetch", fetch)
+    const api = ref("/chat/first")
     const messages = ref<UIMessage[]>([])
     const scope = effectScope()
     const chat = scope.run(() => useChat(useAgent("support"), () => ({
+      api: api.value,
       id: "chat-1",
       messages: messages.value,
     })))!
@@ -65,12 +69,18 @@ describe("Agent Vue clients", () => {
     const request = chat.sendMessage({ text: "Hello" })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     messages.value = [...chat.messages.value]
+    api.value = "/chat/second"
     await nextTick()
 
     expect(fetch).toHaveBeenCalledOnce()
     expect(chat.status.value).toBe("submitted")
+    expect(chat.messages.value).toHaveLength(1)
+    chat.stop()
     finish()
     await request
+    expect(chat.status.value).toBe("ready")
+    await chat.sendMessage({ text: "Again" })
+    expect(fetch).toHaveBeenLastCalledWith("/chat/second", expect.anything())
     scope.stop()
   })
 

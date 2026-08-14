@@ -386,7 +386,9 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
       if (!await raceTimeout(Promise.resolve(options.when({ ...templateInput, input: timedInput.input })))) return skippedTitleGeneration
     }
     catch (error) {
-      return recoverGeneration(error)
+      if (parentSignal?.aborted) throw error
+      if (timeoutSignal.aborted) return skippedTitleGeneration
+      throw error
     }
   }
 

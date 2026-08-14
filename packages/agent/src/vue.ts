@@ -38,50 +38,56 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   agent: AgentClient,
   options: MaybeRefOrGetter<AgentChatInit<UI_MESSAGE>> = {},
 ): AgentChatHelpers<UI_MESSAGE> {
-  const currentOptions = shallowRef(toValue(options))
+  const initialOptions = toValue(options)
+  const currentOptions = shallowRef(initialOptions)
+  const liveOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
+  const resolveTransport = () => liveOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
+    api: liveOptions.value.api ?? agentChatRoute(agent.name),
+  })
+  const transport = {
+    reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
+      resolveTransport().reconnectToStream(...args)
+    ),
+    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => (
+      resolveTransport().sendMessages(...args)
+    ),
+  }
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api, onData, transport, ...init } = currentOptions.value
+    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = currentOptions.value
     return {
       ...init,
       onData(part) {
         if (part.type.startsWith("data-") && (part as { transient?: boolean }).transient === true) {
           streamedParts.value = [...streamedParts.value, part]
         }
-        onData?.(part)
+        liveOptions.value.onData?.(part)
       },
-      transport: transport ?? new DefaultChatTransport<UI_MESSAGE>({
-        api: api ?? agentChatRoute(agent.name),
-      }),
+      onError: error => liveOptions.value.onError?.(error),
+      onFinish: result => liveOptions.value.onFinish?.(result),
+      onToolCall: result => liveOptions.value.onToolCall?.(result),
+      sendAutomaticallyWhen: result => liveOptions.value.sendAutomaticallyWhen?.(result) ?? false,
+      transport,
     }
   })
   watch(() => toValue(options), (next, previous) => {
+    const prior = liveOptions.value
+    liveOptions.value = next
     if (next.id !== previous.id) {
       currentOptions.value = next
       streamedParts.value = []
       return
     }
 
-    const { messages: nextMessages, ...nextConfig } = next
-    const { messages: _currentMessages, ...currentConfig } = currentOptions.value
-    const configChanged = Object.keys({ ...currentConfig, ...nextConfig }).some(key => (
-      currentConfig[key as keyof typeof currentConfig] !== nextConfig[key as keyof typeof nextConfig]
-    ))
-    let replacementMessages: UI_MESSAGE[] | undefined
-    if (nextMessages && nextMessages !== _currentMessages) {
+    const nextMessages = next.messages
+    if (nextMessages && nextMessages !== prior.messages) {
       const currentMessages = chat.messages.value
       const mirrored = nextMessages.length === currentMessages.length
         && nextMessages.every((message, index) => message === currentMessages[index])
       if (!mirrored) {
-        replacementMessages = nextMessages
+        chat.messages.value = nextMessages
         streamedParts.value = []
       }
-    }
-    if (configChanged || replacementMessages) {
-      currentOptions.value = {
-        ...nextConfig,
-        messages: replacementMessages ?? _currentMessages,
-      } as AgentChatInit<UI_MESSAGE>
     }
   })
   onScopeDispose(chat.stop, true)

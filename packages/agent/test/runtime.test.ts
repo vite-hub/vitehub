@@ -8058,7 +8058,7 @@ describe("agent message protocol", () => {
     })
 
     expect(aborted).toHaveBeenCalledOnce()
-    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toBeUndefined()
   })
 
   it("resolves built-in title drivers before creating the harness adapter", async () => {
