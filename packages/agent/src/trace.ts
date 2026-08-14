@@ -45,7 +45,6 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasInput": event.input !== undefined,
-      "tool.input": event.input,
     }
   }
   if (event.type === "tool-result") {
@@ -54,14 +53,12 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasOutput": event.output !== undefined,
-      "tool.output": event.output,
       "tool.error": event.error,
     }
   }
   if (event.type === "approval-request") {
     return {
       "approval.id": event.id,
-      "approval.input": event.input,
       "approval.name": event.name,
       "approval.reason": event.reason,
       "approval.hasInput": event.input !== undefined,
@@ -78,7 +75,6 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
     return {
       "usage.hasCost": event.usageRecord.cost !== undefined,
       "usage.hasRaw": event.usageRecord.raw !== undefined,
-      "usage.raw": event.usageRecord.raw,
       "usage.totalTokens": event.usageRecord.usage?.totalTokens,
     }
   }

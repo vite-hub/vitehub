@@ -2958,7 +2958,6 @@ async function finishAgentInvocation<
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
         ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
-        ...(text !== undefined ? { "result.text": text } : {}),
         ...(usage ? { "usage.record": usage } : {}),
       })
     }

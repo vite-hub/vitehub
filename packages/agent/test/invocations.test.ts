@@ -139,22 +139,6 @@ describe("Agent Invocations", () => {
     expect(updates).toBeLessThanOrEqual(259)
   })
 
-  it("retains output content only when the invocation journal opts in", async () => {
-    const metadata = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const content = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
-    const metadataAgent = defineAgent({ driver: { run: () => "private result" }, invocations: metadata, runtime: false })
-    const contentAgent = defineAgent({ driver: { run: () => "private result" }, invocations: content, runtime: false })
-
-    await runAgent(metadataAgent, runtime("metadata-run"), {})
-    await runAgent(contentAgent, runtime("content-run"), {})
-
-    const metadataFinish = (await metadata.getByRunId("metadata-run"))?.observations.at(-1)
-    const contentFinish = (await content.getByRunId("content-run"))?.observations.at(-1)
-    expect(metadataFinish?.attributes?.["result.text"]).toBeUndefined()
-    expect(metadataFinish?.attributes?.["content.omitted"]).toContain("result.text")
-    expect(contentFinish?.attributes?.["result.text"]).toBe("private result")
-  })
-
   it("records cancellation while an invocation waits for driver capacity", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })

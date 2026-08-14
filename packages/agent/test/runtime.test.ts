@@ -10023,7 +10023,7 @@ describe("agent message protocol", () => {
   it("traces fullStream results when UI message streams are requested", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const traceLog = createTraceEventLog({ content: "content" })
+    const traceLog = createTraceEventLog()
     const agent = defineAgent({
       driver: { run: () => ({
           fullStream: (async function* () {
@@ -10074,8 +10074,6 @@ describe("agent message protocol", () => {
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
-    expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ query: "users" })
-    expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes?.["tool.output"]).toBe("42")
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
   })
 
