@@ -113,7 +113,7 @@ describe("Agent Vue clients", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({
         execute({ writer }) {
-          writer.write({ data: { title: "Provisional" }, id: "title", type: "data-title" })
+          writer.write({ data: { title: "Provisional" }, id: "title", transient: true, type: "data-title" })
           writer.write({ data: { summary: "Checking inventory" }, transient: true, type: "data-progress-summary" })
           writer.write({ data: { title: "Inventory health" }, id: "title", type: "data-title" })
         },

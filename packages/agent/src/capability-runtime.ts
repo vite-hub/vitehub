@@ -1343,11 +1343,14 @@ export async function applyCapabilityToolTransforms(
   return current
 }
 
+const currentOutputProviderResult = Symbol("currentOutputProviderResult")
+
 export async function applyOutputRenderers(
   result: unknown,
   renderers: ResolvedAgentOutputRenderer[] = [],
   providers: ResolvedAgentOutputExtensionProvider[] = [],
   values: Map<string, unknown> = new Map<string, unknown>(),
+  providerResult: unknown = currentOutputProviderResult,
 ): Promise<unknown> {
   let current = result
   let providerIndex = 0
@@ -1357,7 +1360,10 @@ export async function applyOutputRenderers(
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
       if (values.has(provider.id)) continue
-      const value = await provider.resolve({ extensions, result: current })
+      const value = await provider.resolve({
+        extensions,
+        result: providerResult === currentOutputProviderResult ? current : providerResult,
+      })
       if (value !== undefined) values.set(provider.id, value)
     }
     if (renderer.order === "last") {

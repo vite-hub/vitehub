@@ -10142,9 +10142,23 @@ describe("agent message protocol", () => {
 
   it("projects an already-framed UI message stream Response", async () => {
     const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
+    const providerResult = vi.fn()
     const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "response-metadata",
+        output(context) {
+          context.output.provide(({ result }: { result: unknown }) => {
+            providerResult(result)
+            return { status: result instanceof Response ? result.status : undefined }
+          })
+          context.output.render((result, renderContext) => {
+            expect(renderContext.output.extensions.get("response-metadata", "status")).toBe(201)
+            return result
+          })
+        },
+      })],
       driver: {
         run: () => createAgentUIMessageStreamResponse({
           headers: { "content-length": "999", "x-agent": "custom" },
@@ -10175,6 +10189,7 @@ describe("agent message protocol", () => {
     expect(response.statusText).toBe("Created")
     expect(response.headers.get("x-agent")).toBe("custom")
     expect(response.headers.has("content-length")).toBe(false)
+    expect(providerResult).toHaveBeenCalledWith(expect.any(Response))
     expect(finish).not.toHaveBeenCalled()
     const body = await response.text()
     expect(body).not.toContain("private")

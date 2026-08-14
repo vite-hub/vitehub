@@ -3853,7 +3853,7 @@ async function executeAgentInvocationWithCapacityLease<
             : definition?.uiMessageStream
           const renderedResponseStream = await applyOutputRenderers({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
-          }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+          }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions, response)
           const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
           const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
