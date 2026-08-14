@@ -401,14 +401,19 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   const startSession = starter?.startSession.bind(starter)
   if (!startSession) throw new Error("Workspace Dev command requires a Workspace Session.")
   await materializeWorkspaceDevSources(workspace, input)
-  const session = await withWorkspaceProgress(input.onProgress, {
-    data: { paths: input.paths ?? null },
-    id: "workspace.dev.start-session",
-    label: "Starting workspace session",
-  }, async () => await startSession({ host: input.host, paths: input.paths }))
+  let session: WorkspaceSession | undefined
   const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
   let result
   try {
+    await withWorkspaceProgress(input.onProgress, {
+      data: { paths: input.paths ?? null },
+      id: "workspace.dev.start-session",
+      label: "Starting workspace session",
+    }, async () => {
+      session = await startSession({ abortSignal: input.abortSignal, host: input.host, paths: input.paths })
+      return session
+    })
+    if (!session) throw new Error("Workspace Dev Session did not start.")
     result = input.args
       ? await session.exec(command, input.args, execOptions)
       : await session.exec("sh", ["-lc", command], execOptions)
@@ -419,6 +424,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     }
   }
   catch (error) {
+    if (!session) throw error
     try {
       await session.close()
     }
@@ -427,6 +433,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     }
     throw error
   }
+  if (!session) throw new Error("Workspace Dev Session did not start.")
   await session.close()
   return result
 }
