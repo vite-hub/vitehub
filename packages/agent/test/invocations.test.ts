@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, runAgentInline } from "../src/index.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
@@ -82,6 +82,24 @@ describe("Agent Invocations", () => {
     expect(await invocations.get("run-2")).toMatchObject({ status: "cancelled" })
     release()
     await expect(first).resolves.toBe("done")
+  })
+
+  it("records preparation failures before capacity admission", async () => {
+    const failure = new Error("prepare failed")
+    const capability = defineCapability({
+      id: "broken",
+      prepare() { throw failure },
+    })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      capabilities: [capability],
+      driver: { capacity: { concurrency: 1 }, run: () => "unreachable" },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime("run-1"), {})).rejects.toThrow("prepare failed")
+    expect(await invocations.get("run-1")).toMatchObject({ status: "failed" })
   })
 
   it("never lets journal storage failures change invocation behavior", async () => {

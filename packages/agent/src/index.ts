@@ -3954,20 +3954,21 @@ async function executeAgentInvocation<
     ? await bindAgentInvocations((definition as AgentDefinition).invocations, context)
     : undefined
   if (invocationJournal) context = invocationJournal.context
-  const preparedInvocation = definition && inspectAgentCapacity(definition)
-    ? await createAgentInvocationContext(
-        agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
-        context,
-        input,
-        options.kind,
-        invocationJournal,
-      )
-    : undefined
-  if (preparedInvocation?.handledResponse) {
-    return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
-  }
+  let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
+    preparedInvocation = definition && inspectAgentCapacity(definition)
+      ? await createAgentInvocationContext(
+          agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
+          context,
+          input,
+          options.kind,
+          invocationJournal,
+        )
+      : undefined
+    if (preparedInvocation?.handledResponse) {
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
+    }
     release = definition
       ? await acquireAgentCapacity(definition, input.abortSignal)
       : undefined
