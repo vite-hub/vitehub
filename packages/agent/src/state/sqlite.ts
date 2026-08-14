@@ -447,17 +447,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
-  async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number): Promise<boolean> {
+  async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean> {
     const retried = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
       return await execute(
         this.driver,
         `UPDATE ${this.tables.webhookQueue}
-        SET status = 'queued', available_at = ?, attempts = attempts + 1,
+        SET status = 'queued', available_at = ?, attempts = attempts + ?,
           lease_token = NULL, lease_expires_at = NULL
         WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
         RETURNING delivery_id`,
-        [availableAt, scope, deliveryId, leaseToken],
+        [availableAt, options?.incrementAttempts === false ? 0 : 1, scope, deliveryId, leaseToken],
       )
     })
     return retried.length > 0

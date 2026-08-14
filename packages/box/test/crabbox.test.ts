@@ -175,7 +175,10 @@ describe("createCrabboxRuntime", () => {
         })
         await session.destroy()
         await expect(stat(session.root)).rejects.toMatchObject({ code: "ENOENT" })
-        await vi.waitFor(() => expect(() => process.kill(ownedPid, 0)).toThrow())
+        await vi.waitFor(async () => {
+          const status = await readFile(`/proc/${ownedPid}/status`, "utf8").catch(() => undefined)
+          expect(status === undefined || /^State:\s+Z/m.test(status)).toBe(true)
+        })
         expect(() => process.kill(unrelatedPid, 0)).not.toThrow()
       }
       finally {

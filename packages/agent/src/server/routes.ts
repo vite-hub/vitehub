@@ -1115,7 +1115,7 @@ async function executeQueuedWebhookDelivery(
       ? 0
       : Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
     const retryAt = Date.now() + retryDelay
-    if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt)) {
+    if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: !lifecycleSignal.aborted })) {
       if (lifecycleSignal.aborted) return retryAt
       console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed and will be retried.`, error)
       return retryAt
@@ -4061,7 +4061,7 @@ export function createChannelWebhookRouteHandler(
           break
         }
         if (queueStopped) {
-          await queue.state.retryWebhookDelivery(queue.scope, delivery.deliveryId, delivery.leaseToken, Date.now()).catch(() => undefined)
+          await queue.state.retryWebhookDelivery(queue.scope, delivery.deliveryId, delivery.leaseToken, Date.now(), { incrementAttempts: false }).catch(() => undefined)
           break
         }
         const controller = new AbortController()

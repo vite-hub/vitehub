@@ -255,7 +255,7 @@ finally {
     try {
       await state.connect()
       await expect(state.claimWebhookDelivery("webhook:review:github:github:")).resolves.toMatchObject({
-        attempts: 1,
+        attempts: 0,
         deliveryId: "shutdown-delivery",
       })
     } finally {

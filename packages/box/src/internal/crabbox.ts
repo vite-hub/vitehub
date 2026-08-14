@@ -702,6 +702,8 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       try {
         await this.stop();
         state.stateLease.assertActive();
+        const reclaim = await runCrabbox(state.options, state.leaseId, { command: reclaimDisposableRootProcessesCommand(state.root) })
+        if (reclaim.exitCode !== 0) throw crabboxError("reclaim disposable Box processes", reclaim)
         if (state.options.workspace) await syncWorkspaceBack(state)
       }
       catch (error) {
@@ -892,7 +894,11 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
 }
 
 function removeDisposableRootCommand(root: string) {
-  return `root=${shellQuote(root)}; owner_uid=$(id -u); owns_box_process() { pid=$1; status=/proc/$pid/status; test -r "$status" || return 1; ppid=; uid=; while IFS=: read -r key value; do case "$key" in PPid) set -- $value; ppid=$1 ;; Uid) set -- $value; uid=$1 ;; esac; done < "$status"; test "$ppid" = 1 && test "$uid" = "$owner_uid" || return 1; awk -v root="$root" 'BEGIN { RS="\\0" } { value=$0; equals=index(value, "="); if (value == root || index(value, root "/") == 1 || (equals && (substr(value, equals + 1) == root || index(substr(value, equals + 1), root "/") == 1))) found=1 } END { exit found ? 0 : 1 }' "/proc/$pid/cmdline" 2>/dev/null; }; pids=; for status in /proc/[0-9]*/status; do pid=\${status#/proc/}; pid=\${pid%/status}; if owns_box_process "$pid"; then pids="$pids $pid"; kill -TERM "$pid" 2>/dev/null || true; fi; done; test -z "$pids" || sleep 1; for pid in $pids; do owns_box_process "$pid" && kill -KILL "$pid" 2>/dev/null || true; done; chmod -R u+w -- "$root" 2>/dev/null || true; rm -rf -- "$root"`
+  return `${reclaimDisposableRootProcessesCommand(root)}; chmod -R u+w -- ${shellQuote(root)} 2>/dev/null || true; rm -rf -- ${shellQuote(root)}`
+}
+
+function reclaimDisposableRootProcessesCommand(root: string) {
+  return `root=${shellQuote(root)}; owner_uid=$(id -u); owns_box_process() { pid=$1; status=/proc/$pid/status; test -r "$status" || return 1; ppid=; uid=; while IFS=: read -r key value; do case "$key" in PPid) set -- $value; ppid=$1 ;; Uid) set -- $value; uid=$1 ;; esac; done < "$status"; test "$ppid" = 1 && test "$uid" = "$owner_uid" || return 1; awk -v root="$root" 'BEGIN { RS="\\0" } { value=$0; equals=index(value, "="); if (value == root || index(value, root "/") == 1 || (equals && (substr(value, equals + 1) == root || index(substr(value, equals + 1), root "/") == 1))) found=1 } END { exit found ? 0 : 1 }' "/proc/$pid/cmdline" 2>/dev/null; }; pids=; for status in /proc/[0-9]*/status; do pid=\${status#/proc/}; pid=\${pid%/status}; if owns_box_process "$pid"; then pids="$pids $pid"; kill -TERM "$pid" 2>/dev/null || true; fi; done; test -z "$pids" || sleep 1; for pid in $pids; do owns_box_process "$pid" && kill -KILL "$pid" 2>/dev/null || true; done`
 }
 
 async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal | undefined) {
