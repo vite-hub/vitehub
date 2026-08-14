@@ -793,6 +793,94 @@ describe("resumable web chat", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("bounds duplicate waiters for one stalled claim", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseInvoker!: () => void
+    const invoker = new Promise<void>((resolve) => {
+      releaseInvoker = resolve
+    })
+    const run = vi.fn(() => "unused")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run },
+      invoker: {
+        async resolve() {
+          await invoker
+          return { id: "max" }
+        },
+      },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    const claim = handler(chatRequest("POST"), options)
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 1 }))
+    const abortController = new AbortController()
+    const aborted = handler(new Request(chatRequest("POST"), { signal: abortController.signal }), options)
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 2 }))
+    abortController.abort()
+    await expect(aborted).resolves.toMatchObject({ status: 204 })
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 1 }))
+    const duplicates = Array.from({ length: 99 }, () => handler(chatRequest("POST"), options))
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 100 }))
+    await expect(handler(chatRequest("POST"), options)).resolves.toMatchObject({ status: 429 })
+    releaseInvoker()
+    await expect(Promise.all([claim, ...duplicates])).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ status: 200 })]))
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it("releases duplicate waiters when a stalled claim is cancelled", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseInvoker!: () => void
+    const invoker = new Promise<void>((resolve) => {
+      releaseInvoker = resolve
+    })
+    const run = vi.fn(() => "unused")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run },
+      invoker: { async resolve() { await invoker; return { id: "max" } } },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    const claim = handler(chatRequest("POST"), options)
+    const duplicates = Array.from({ length: 3 }, () => handler(chatRequest("POST"), options))
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 4 }))
+    await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+    await expect(Promise.all(duplicates)).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ status: 204 })]))
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
+    releaseInvoker()
+    await expect(claim).resolves.toMatchObject({ status: 204 })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("releases duplicate waiters after setup failure", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let rejectInvoker!: (error: Error) => void
+    const invoker = new Promise<void>((_resolve, reject) => {
+      rejectInvoker = reject
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+      invoker: { async resolve() { await invoker; return { id: "max" } } },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    const claim = handler(chatRequest("POST"), options)
+    const duplicates = Array.from({ length: 3 }, () => handler(chatRequest("POST"), options))
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 4 }))
+    rejectInvoker(new Error("setup failed"))
+    await expect(Promise.all([claim, ...duplicates])).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ status: 500 })]))
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
+  })
+
   it("partitions pending cancellation capacity by owner", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")

@@ -4003,7 +4003,10 @@ export function createChannelChatRouteHandler(
   const latestResumableRuns = new Map<string, ResumableChatRun>()
   const resumableClaimSetups = new Map<string, Promise<void>>()
   const resumableClaimOwners = new Map<string, string>()
-  const latestResumableClaimSetups = new Map<string, { owner: string, promise: Promise<void>, sequence: number }>()
+  const resumableClaimWaiters = new Map<string, number>()
+  const resumableClaimWaiterResolves = new Map<string, Set<() => void>>()
+  let resumableClaimWaiterCount = 0
+  const latestResumableClaimSetups = new Map<string, { cancel: () => void, owner: string, promise: Promise<void>, sequence: number }>()
   const resumableCancellationTombstones = new Map<string, { cleanup: ReturnType<typeof setTimeout>, owner: string, sequence: number }>()
   let resumableRequestSequence = 0
   const setResumableCancellationTombstone = (key: string, owner: string, sequence: number): boolean => {
@@ -4080,6 +4083,8 @@ export function createChannelChatRouteHandler(
             await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
             run.resolveReady()
           }
+          const setup = latestResumableClaimSetups.get(key)
+          if (setup && setup.sequence <= requestSequence) setup.cancel()
           return new Response(null, { status: 204 })
         }
         const pendingSetup = latestResumableClaimSetups.get(key)
@@ -4143,6 +4148,9 @@ export function createChannelChatRouteHandler(
         : undefined
       if (invocationKey) {
         while (true) {
+          if ((resumableCancellationTombstones.get(latestKey!)?.sequence || 0) > requestSequence) {
+            return new Response(null, { status: 204 })
+          }
           const existingRun = resumableRuns.get(invocationKey)
           if (existingRun) {
             await existingRun.ready
@@ -4152,7 +4160,40 @@ export function createChannelChatRouteHandler(
           }
           const pendingSetup = resumableClaimSetups.get(invocationKey)
           if (pendingSetup) {
-            await pendingSetup
+            const ownerPendingClaims = [...resumableClaimOwners.values()].filter(claimOwner => claimOwner === owner).length
+              + (resumableClaimWaiters.get(owner!) || 0)
+            if (ownerPendingClaims >= resumableChatMaxPendingClaims) {
+              throw createRouteError(429, "Resumable web chat has too many pending claims. Try again later.")
+            }
+            if (resumableClaimSetups.size + resumableClaimWaiterCount >= resumableChatMaxTotalPendingClaims) {
+              throw createRouteError(429, "Resumable web chat has reached its pending claim capacity. Try again later.")
+            }
+            resumableClaimWaiters.set(owner!, (resumableClaimWaiters.get(owner!) || 0) + 1)
+            resumableClaimWaiterCount++
+            try {
+              await new Promise<void>((resolve) => {
+                const waiters = resumableClaimWaiterResolves.get(invocationKey) || new Set<() => void>()
+                resumableClaimWaiterResolves.set(invocationKey, waiters)
+                const finish = () => {
+                  request.signal.removeEventListener("abort", finish)
+                  waiters.delete(finish)
+                  if (!waiters.size && resumableClaimWaiterResolves.get(invocationKey) === waiters) {
+                    resumableClaimWaiterResolves.delete(invocationKey)
+                  }
+                  resolve()
+                }
+                waiters.add(finish)
+                if (request.signal.aborted) finish()
+                else request.signal.addEventListener("abort", finish, { once: true })
+              })
+              if (request.signal.aborted) return new Response(null, { status: 204 })
+            }
+            finally {
+              const waiters = (resumableClaimWaiters.get(owner!) || 1) - 1
+              if (waiters) resumableClaimWaiters.set(owner!, waiters)
+              else resumableClaimWaiters.delete(owner!)
+              resumableClaimWaiterCount--
+            }
             continue
           }
           let resolveSetup!: () => void
@@ -4160,26 +4201,30 @@ export function createChannelChatRouteHandler(
             resolveSetup = resolve
           })
           const ownerPendingClaims = [...resumableClaimOwners.values()].filter(claimOwner => claimOwner === owner).length
+            + (resumableClaimWaiters.get(owner!) || 0)
           if (ownerPendingClaims >= resumableChatMaxPendingClaims) {
             throw createRouteError(429, "Resumable web chat has too many pending claims. Try again later.")
           }
-          if (resumableClaimSetups.size >= resumableChatMaxTotalPendingClaims) {
+          if (resumableClaimSetups.size + resumableClaimWaiterCount >= resumableChatMaxTotalPendingClaims) {
             throw createRouteError(429, "Resumable web chat has reached its pending claim capacity. Try again later.")
           }
           resumableClaimSetups.set(invocationKey, setup)
           resumableClaimOwners.set(invocationKey, owner!)
-          const latestSetup = latestResumableClaimSetups.get(latestKey!)
-          if (!latestSetup || latestSetup.sequence < requestSequence) {
-            latestResumableClaimSetups.set(latestKey!, { owner: owner!, promise: setup, sequence: requestSequence })
-          }
           releaseResumableClaim = () => {
             if (resumableClaimSetups.get(invocationKey) === setup) {
               resumableClaimSetups.delete(invocationKey)
               resumableClaimOwners.delete(invocationKey)
             }
+            const waiters = resumableClaimWaiterResolves.get(invocationKey)
+            resumableClaimWaiterResolves.delete(invocationKey)
+            for (const resolve of waiters || []) resolve()
             if (latestResumableClaimSetups.get(latestKey!)?.promise === setup) latestResumableClaimSetups.delete(latestKey!)
             resolveSetup()
             releaseResumableClaim = undefined
+          }
+          const latestSetup = latestResumableClaimSetups.get(latestKey!)
+          if (!latestSetup || latestSetup.sequence < requestSequence) {
+            latestResumableClaimSetups.set(latestKey!, { cancel: () => releaseResumableClaim?.(), owner: owner!, promise: setup, sequence: requestSequence })
           }
           break
         }
@@ -4414,7 +4459,7 @@ export function createChannelChatRouteHandler(
         maxSubscribersPerRun: resumableChatMaxSubscribers,
         maxTotalRuns: resumableChatMaxTotalRuns,
         pendingCancellations: resumableCancellationTombstones.size,
-        pendingClaims: resumableClaimSetups.size,
+        pendingClaims: resumableClaimSetups.size + resumableClaimWaiterCount,
         retainedRuns: resumableRuns.size - activeRuns,
       }
     },
