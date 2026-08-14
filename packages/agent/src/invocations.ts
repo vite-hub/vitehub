@@ -171,7 +171,8 @@ function normalizedTimestamp(value: Date | string): string {
 
 function boundedObservationValue(value: unknown, depth = 0): unknown {
   if (typeof value === "string") return boundedString(value)
-  if (value === null || typeof value === "boolean" || typeof value === "number") return value
+  if (value === null || typeof value === "boolean") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
   if (typeof value === "bigint") return boundedString(String(value))
   if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
   if (Array.isArray(value)) {

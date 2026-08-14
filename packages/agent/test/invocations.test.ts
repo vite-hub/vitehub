@@ -64,6 +64,27 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
+  it("normalizes non-finite observation numbers across stores", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { finite: 1, nan: Number.NaN, negative: Number.NEGATIVE_INFINITY, positive: Number.POSITIVE_INFINITY },
+          name: "numbers",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("observation-numbers"), {})
+    const observation = (await invocations.getByRunId("observation-numbers"))?.observations
+      .find(event => event.name === "numbers")
+    expect(observation?.attributes).toMatchObject({ finite: 1, nan: null, negative: null, positive: null })
+  })
+
   it("stops observation writes at the durable cap and retries terminal writes", async () => {
     const memory = createMemoryAgentInvocationStore()
     let terminalFailures = 1
@@ -351,7 +372,10 @@ describe("Agent Invocations", () => {
       })
       await expect(invocations.list({ status: [] })).resolves.toEqual({ invocations: [] })
       const agent = defineAgent({
-        driver: { run: () => "persisted" },
+        driver: { async run(context) {
+          await context.traceLog?.append({ attributes: { nan: Number.NaN }, name: "numbers", type: "run" })
+          return "persisted"
+        } },
         invocations,
         runtime: false,
       })
@@ -366,8 +390,10 @@ describe("Agent Invocations", () => {
       })
       expect((await restored.getByRunId("durable-run"))?.observations.map(event => event.name)).toEqual([
         "agent.invocation.start",
+        "numbers",
         "agent.invocation.finish",
       ])
+      expect((await restored.getByRunId("durable-run"))?.observations[1]?.attributes).toMatchObject({ nan: null })
       await expect(restored.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
     }
     finally {

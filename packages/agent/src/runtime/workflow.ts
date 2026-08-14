@@ -224,6 +224,6 @@ export async function runAgentWorkflowDefinition<
   }
   finally {
     const recoveryTasks = agentInvocationRecoveryTasks(runtimeContext)
-    for (let index = 0; index < recoveryTasks.length; index++) await recoveryTasks[index]
+    while (recoveryTasks.length) await Promise.all([...recoveryTasks])
   }
 }

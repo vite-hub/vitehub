@@ -11450,6 +11450,21 @@ describe("agent message protocol", () => {
       background.resolve()
     })
 
+    it("releases settled Workflow recovery tasks", async () => {
+      const { agentInvocationRecoveryTasks, registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
+      const recovery = deferred<void>()
+      const context = {
+        memo: vi.fn(),
+        waitUntil: vi.fn(),
+      } as never
+
+      registerAgentInvocationRecovery(context, recovery.promise)
+      expect(agentInvocationRecoveryTasks(context)).toHaveLength(1)
+      recovery.resolve()
+      await recovery.promise
+      await vi.waitFor(() => expect(agentInvocationRecoveryTasks(context)).toHaveLength(0))
+    })
+
     it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
