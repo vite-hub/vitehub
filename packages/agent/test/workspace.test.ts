@@ -2933,7 +2933,7 @@ describe("defineAgent workspace option", () => {
     expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive audio" })
   })
 
-  it("rebases and retries a conflicting Workspace auto-commit", async () => {
+  it("rebases and retries racing Workspace auto-commits", async () => {
     diff.mockResolvedValueOnce({
       entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
       to: "next",
@@ -2942,7 +2942,9 @@ describe("defineAgent workspace option", () => {
       message: "chore: archive audio",
       paths: ["inbox/audio.md"],
     })
-    snapshot.mockRejectedValueOnce(new ViteHubError("WORKSPACE_CONFLICT", "Remote Workspace changed."))
+    snapshot
+      .mockRejectedValueOnce(new ViteHubError("WORKSPACE_CONFLICT", "Remote Workspace changed."))
+      .mockRejectedValueOnce(new ViteHubError("WORKSPACE_CONFLICT", "Remote Workspace changed again."))
     const { defineAgent, runAgent } = await import("../src/index.ts")
 
     const agent = withExplicitWorkspaceName(defineAgent({
@@ -2952,9 +2954,33 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
 
-    expect(rebase).toHaveBeenCalledOnce()
-    expect(snapshot).toHaveBeenCalledTimes(2)
-    expect(snapshot).toHaveBeenNthCalledWith(2, { name: "chore: archive audio" })
+    expect(rebase).toHaveBeenCalledTimes(2)
+    expect(snapshot).toHaveBeenCalledTimes(3)
+    expect(snapshot).toHaveBeenNthCalledWith(3, { name: "chore: archive audio" })
+  })
+
+  it("bounds conflicting Workspace auto-commit retries", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive audio",
+      paths: ["inbox/audio.md"],
+    })
+    snapshot.mockRejectedValue(new ViteHubError("WORKSPACE_CONFLICT", "Remote Workspace changed."))
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: { commit: "chore: archive audio", mode: "write" },
+      driver: { run: () => "ok" },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] }))
+      .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+
+    expect(rebase).toHaveBeenCalledTimes(2)
+    expect(snapshot).toHaveBeenCalledTimes(3)
   })
 
   it("turns workspace commit into a default auto-commit rule", async () => {

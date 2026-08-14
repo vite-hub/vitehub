@@ -2648,13 +2648,15 @@ async function commitWorkspaceChanges<
     diff,
   )
   if (!commit) return
-  try {
-    await context.workspace.snapshot({ name: commit.message })
-  }
-  catch (error) {
-    if (!isWorkspaceConflict(error)) throw error
-    await context.workspace.history.rebase()
-    await context.workspace.snapshot({ name: commit.message })
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await context.workspace.snapshot({ name: commit.message })
+      return
+    }
+    catch (error) {
+      if (!isWorkspaceConflict(error) || attempt >= 2) throw error
+      await context.workspace.history.rebase()
+    }
   }
 }
 
