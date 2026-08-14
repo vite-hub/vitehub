@@ -762,6 +762,59 @@ describe("resumable web chat", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("bounds stalled claims per owner before asynchronous setup", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseInvokers!: () => void
+    const invokers = new Promise<void>((resolve) => {
+      releaseInvokers = resolve
+    })
+    const run = vi.fn(() => "unused")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run },
+      invoker: {
+        async resolve() {
+          await invokers
+          return { id: "max" }
+        },
+      },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    const claims = Array.from({ length: 100 }, (_, index) => handler(chatRequest("POST", "max", `user-${index}`), options))
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 100, maxPendingClaimsPerOwner: 100 }))
+    await expect(handler(chatRequest("POST", "max", "overflow"), options)).resolves.toMatchObject({ status: 429 })
+    await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+    releaseInvokers()
+    await expect(Promise.all(claims)).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ status: 204 })]))
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("partitions pending cancellation capacity by owner", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: ({ request }) => request.headers.get("x-owner") || "" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+    const cancellation = (owner: string, id: string) => new Request(`https://example.com/api/_vitehub/agents/support/chat?id=${id}`, {
+      headers: { "x-owner": owner },
+      method: "DELETE",
+    })
+
+    for (let index = 0; index < 100; index++) {
+      await expect(handler(cancellation("noisy", `chat-${index}`), options)).resolves.toMatchObject({ status: 204 })
+    }
+    expect(handler.inspect()).toMatchObject({ maxPendingCancellationsPerOwner: 100, pendingCancellations: 100 })
+    await expect(handler(cancellation("noisy", "overflow"), options)).resolves.toMatchObject({ status: 429 })
+    await expect(handler(cancellation("other", "real-chat"), options)).resolves.toMatchObject({ status: 204 })
+  })
+
   it("does not cancel a newer POST that registers during DELETE lookup", async () => {
     vi.useFakeTimers()
     const agentModule = await import("../src/index.ts")
