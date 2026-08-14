@@ -139,6 +139,22 @@ describe("Agent Invocations", () => {
     expect(updates).toBeLessThanOrEqual(259)
   })
 
+  it("retains output content only when the invocation journal opts in", async () => {
+    const metadata = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const content = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const metadataAgent = defineAgent({ driver: { run: () => "private result" }, invocations: metadata, runtime: false })
+    const contentAgent = defineAgent({ driver: { run: () => "private result" }, invocations: content, runtime: false })
+
+    await runAgent(metadataAgent, runtime("metadata-run"), {})
+    await runAgent(contentAgent, runtime("content-run"), {})
+
+    const metadataFinish = (await metadata.getByRunId("metadata-run"))?.observations.at(-1)
+    const contentFinish = (await content.getByRunId("content-run"))?.observations.at(-1)
+    expect(metadataFinish?.attributes?.["result.text"]).toBeUndefined()
+    expect(metadataFinish?.attributes?.["content.omitted"]).toContain("result.text")
+    expect(contentFinish?.attributes?.["result.text"]).toBe("private result")
+  })
+
   it("records cancellation while an invocation waits for driver capacity", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
@@ -432,6 +448,32 @@ describe("Agent Invocations", () => {
     finally {
       writerClient.close()
       readerClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes concurrent writes through one SQLite invocation store", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-concurrent-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client })
+    const createdAt = new Date().toISOString()
+    const ids = Array.from({ length: 12 }, (_, index) => `invocation-${index}`)
+    try {
+      await Promise.all(ids.map(id => store.create({
+        createdAt,
+        id,
+        observations: [],
+        status: "pending",
+        traceId: id,
+        updatedAt: createdAt,
+      })))
+      await Promise.all(ids.map(id => store.update(id, { status: "completed", timestamp: createdAt })))
+
+      const records = await Promise.all(ids.map(id => store.get(id)))
+      expect(records.every(record => record?.status === "completed")).toBe(true)
+    }
+    finally {
+      client.close()
       await rm(directory, { force: true, recursive: true })
     }
   })

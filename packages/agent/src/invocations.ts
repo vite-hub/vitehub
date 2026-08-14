@@ -3,7 +3,7 @@ import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
-import type { TraceEvent, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
 
 const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
@@ -86,6 +86,7 @@ export interface AgentInvocationStore {
 }
 
 export interface AgentInvocationsOptions {
+  content?: TraceEventContentPolicy
   store: AgentInvocationStore
 }
 
@@ -329,12 +330,13 @@ function createInvocationId(): string {
 function journalTraceLog(
   traceLog: TraceEventLog,
   observe: (entry: TraceEventLogEntry) => Promise<void>,
+  content: TraceEventContentPolicy,
 ): TraceEventLog {
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       const safeEntry = {
-        ...await createTraceEventLog().append(entry),
+        ...await createTraceEventLog({ content }).append(entry),
         sequence: entry.sequence,
       }
       await observe(safeEntry)
@@ -421,7 +423,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       await ensureCreated()
       if (!bindOptions.deferClaim) await renew()
-      const baseTraceLog = context.traceLog || createTraceEventLog()
+      const baseTraceLog = context.traceLog || createTraceEventLog({ content: options.content })
       const update = async (input: AgentInvocationStoreUpdateInput, force = false): Promise<boolean> => {
         let updated = false
         await write(async () => {
@@ -449,7 +451,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe),
+          traceLog: journalTraceLog(baseTraceLog, observe, options.content || "metadata"),
         },
         async finish(status, error) {
           if (finished) return

@@ -63,6 +63,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   })
   const table = tableName(options.tablePrefix)
   let initialized: Promise<void> | undefined
+  let writes = Promise.resolve()
+  const write = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = writes.then(operation, operation)
+    writes = result.then(() => undefined, () => undefined)
+    return result
+  }
   const initialize = async () => {
     if (!initialized) initialized = (async () => {
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table} (
@@ -94,26 +100,30 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   return {
     async claim(id, claimId, leaseMs, force) {
-      await initialize()
-      const result = await client.execute({
-        args: [id, claimId, leaseMs, id, force ? 1 : 0],
-        sql: `INSERT INTO ${table}_claims (id, claim_id, expires_at)
-          SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
-          ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, expires_at = excluded.expires_at
-          WHERE ? = 1 OR ${table}_claims.claim_id = excluded.claim_id
-            OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
+      return write(async () => {
+        await initialize()
+        const result = await client.execute({
+          args: [id, claimId, leaseMs, id, force ? 1 : 0],
+          sql: `INSERT INTO ${table}_claims (id, claim_id, expires_at)
+            SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
+            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, expires_at = excluded.expires_at
+            WHERE ? = 1 OR ${table}_claims.claim_id = excluded.claim_id
+              OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
+        })
+        return result.rowsAffected > 0
       })
-      return result.rowsAffected > 0
     },
     async create(input: AgentInvocationStoreCreateInput) {
-      await initialize()
-      const result = await client.execute({
-        args: [input.id, input.status, serialize(input)],
-        sql: `INSERT OR IGNORE INTO ${table} (id, status, record) VALUES (?, ?, ?)`,
+      return write(async () => {
+        await initialize()
+        const result = await client.execute({
+          args: [input.id, input.status, serialize(input)],
+          sql: `INSERT OR IGNORE INTO ${table} (id, status, record) VALUES (?, ?, ?)`,
+        })
+        const record = await read(input.id)
+        if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
+        return { created: result.rowsAffected > 0, record }
       })
-      const record = await read(input.id)
-      if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
-      return { created: result.rowsAffected > 0, record }
     },
     get: read,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {
@@ -155,43 +165,47 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
     },
     async release(id, claimId) {
-      await initialize()
-      await client.execute({
-        args: [id, claimId],
-        sql: `DELETE FROM ${table}_claims WHERE id = ? AND claim_id = ?`,
+      await write(async () => {
+        await initialize()
+        await client.execute({
+          args: [id, claimId],
+          sql: `DELETE FROM ${table}_claims WHERE id = ? AND claim_id = ?`,
+        })
       })
     },
     async update(id, input, claimId) {
-      await initialize()
-      const transaction = await client.transaction("write")
-      try {
-        const result = await transaction.execute({
-          args: claimId ? [id, id, claimId] : [id],
-          sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId
-            ? ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`
-            : ""} LIMIT 1`,
-        })
-        const row = result.rows[0]
-        const record = row ? deserialize(row.record, row.sequence) : undefined
-        if (!record) {
+      return write(async () => {
+        await initialize()
+        const transaction = await client.transaction("write")
+        try {
+          const result = await transaction.execute({
+            args: claimId ? [id, id, claimId] : [id],
+            sql: `SELECT sequence, record FROM ${table} WHERE id = ?${claimId
+              ? ` AND EXISTS (SELECT 1 FROM ${table}_claims WHERE id = ? AND claim_id = ?)`
+              : ""} LIMIT 1`,
+          })
+          const row = result.rows[0]
+          const record = row ? deserialize(row.record, row.sequence) : undefined
+          if (!record) {
+            await transaction.commit()
+            return
+          }
+          const updated = applyAgentInvocationStoreUpdate(record, input)
+          await transaction.execute({
+            args: [updated.status, serialize(storedRecord(updated)), id],
+            sql: `UPDATE ${table} SET status = ?, record = ? WHERE id = ?`,
+          })
           await transaction.commit()
-          return
+          return updated
         }
-        const updated = applyAgentInvocationStoreUpdate(record, input)
-        await transaction.execute({
-          args: [updated.status, serialize(storedRecord(updated)), id],
-          sql: `UPDATE ${table} SET status = ?, record = ? WHERE id = ?`,
-        })
-        await transaction.commit()
-        return updated
-      }
-      catch (error) {
-        await transaction.rollback()
-        throw error
-      }
-      finally {
-        await transaction.close()
-      }
+        catch (error) {
+          await transaction.rollback()
+          throw error
+        }
+        finally {
+          await transaction.close()
+        }
+      })
     },
   }
 }
