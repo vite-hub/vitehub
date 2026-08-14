@@ -33,6 +33,7 @@ import {
   withAgentToolStepReporting,
   withJsonCompatibleToolOutputs,
 } from "./tool-runtime.ts"
+import { traceAgentEvent } from "./trace.ts"
 
 import type {
   AgentAdapter,
@@ -51,6 +52,7 @@ import type {
   MaybePromise,
 } from "./types.ts"
 import type { AttachmentData, Message } from "./messages.ts"
+import type { ExecutionAuthority } from "@vite-hub/runtime"
 import type { UserContent, UserModelMessage } from "ai"
 
 type HarnessAgentLike = {
@@ -781,6 +783,43 @@ function harnessWriteBackIgnorePaths(context: AgentAdapterRunContext, instructio
     ...(instructions ? harnessInstructionFiles : []),
     ...colocatedSkillDirectories,
   ]
+}
+
+async function reportHarnessWorkspaceProgress(
+  context: AgentAdapterRunContext,
+  event: {
+    data?: Record<string, unknown>
+    durationMs?: number
+    error?: string
+    id: string
+    label: string
+    status: "started" | "updating" | "completed" | "failed"
+  },
+) {
+  const trace = traceAgentEvent({
+    context: context.context,
+    input: context.input,
+    invoker: context.invoker,
+    run: context.runtime.run,
+    runtime: context.runtime,
+  }, {
+    attributes: {
+      ...event.data,
+      "workspace.durationMs": event.durationMs,
+      "workspace.error": event.error,
+      "workspace.phase": event.id,
+      "workspace.status": event.status,
+    },
+    name: event.id,
+    type: event.status === "failed" ? "error" : "run",
+  })
+  const runEvents = (context.runtime as typeof context.runtime & {
+    runEvents?: { publish(event: { data: unknown, type: string }): Promise<unknown> }
+  }).runEvents
+  await Promise.allSettled([
+    trace,
+    runEvents?.publish({ data: event, type: "workspace.progress" }),
+  ])
 }
 
 function toRunCallbackContext<
@@ -1581,10 +1620,14 @@ export function createHarnessAgentAdapter<
           const commitDefinition = context.workspaceDefinition && context.workspaceAutoCommit !== undefined
             ? workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
             : context.workspaceDefinition
+          const executionAuthority = context.box?.plan.executionAuthority
+            || (context.harnessSandboxProvider as { executionAuthority?: ExecutionAuthority } | undefined)?.executionAuthority
           workspaceSession = await prepareHarnessWorkspaceSession(context.workspaceMaterializationSource || context.workspace, {
             abortSignal,
             ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
+            ...(executionAuthority ? { executionAuthority } : {}),
             ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),
+            onProgress: event => reportHarnessWorkspaceProgress(context, event),
             onWriteBack: diff => setHarnessWorkspaceDiff(context.context, diff),
             paths: selectedWorkspaceScopePaths(context, commitDefinition),
             session: session as never,
@@ -1606,7 +1649,7 @@ export function createHarnessAgentAdapter<
           const destination = globalSkillsDestination || globalSkillsDirectory
           const ensureDestination = await (session as HarnessGlobalSkillsSandbox).run({
             abortSignal,
-            command: `if [ -L '${destination.replace(/'/g, "'\\''")}' ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi && mkdir -p -- '${destination.replace(/'/g, "'\\''")}' && chmod u+rwx -- '${destination.replace(/'/g, "'\\''")}'`,
+            command: `if [ -L '${destination.replace(/'/g, "'\\''")}' ]; then printf '%s\\n' 'Persisted Skill directory cannot be a symlink.' >&2; exit 1; fi && mkdir -p -- '${destination.replace(/'/g, "'\\''")}' && chmod u+rwx '${destination.replace(/'/g, "'\\''")}'`,
           })
           if (ensureDestination.exitCode !== 0) {
             throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensureDestination.stderr || "sandbox command failed"}`)

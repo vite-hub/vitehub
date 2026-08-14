@@ -296,7 +296,7 @@ describe("workspace CLI", () => {
     expect(materializeSources).toHaveBeenCalledWith(expect.objectContaining({
       path: "docs/README.md",
     }))
-    expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["docs/README.md"] })
+    expect(workspace.startSession).toHaveBeenCalledWith({ abortSignal: undefined, paths: ["docs/README.md"] })
     expect(progress).toEqual([
       expect.objectContaining({ id: "workspace.dev.materialize", status: "started" }),
       expect.objectContaining({ data: expect.objectContaining({ source: "docs" }), id: "workspace.dev.materialize.docs", status: "updating" }),
@@ -304,6 +304,27 @@ describe("workspace CLI", () => {
       expect.objectContaining({ id: "workspace.dev.start-session", status: "started" }),
       expect.objectContaining({ id: "workspace.dev.start-session", status: "completed" }),
     ])
+  })
+
+  it("closes an acquired Workspace Dev Session when completed progress fails", async () => {
+    const close = vi.fn(async () => {})
+    const exec = vi.fn()
+    const workspace = {
+      startSession: vi.fn(async () => ({ close, diff: vi.fn(), exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok",
+      onProgress(event) {
+        if (event.id === "workspace.dev.start-session" && event.status === "completed") {
+          throw new Error("progress unavailable")
+        }
+      },
+      workspace: workspace as never,
+    })).rejects.toThrow("progress unavailable")
+
+    expect(exec).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
   })
 
   it("uses the portable Workspace shell for string Workspace Dev commands", async () => {

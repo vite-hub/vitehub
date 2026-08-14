@@ -143,10 +143,15 @@ export interface WorkspaceSyncOptions {
 }
 
 export interface WorkspaceSessionOptions {
+  abortSignal?: AbortSignal
   attach?: boolean
   host?: WorkspaceSessionHost
+  onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   target?: string
+  writeBack?: {
+    exclude?: readonly string[]
+  }
 }
 
 export interface WorkspaceSessionHostFileEntry {
@@ -166,6 +171,7 @@ export interface WorkspaceSessionHostFiles {
 
 export interface WorkspaceSessionHost {
   readonly executionAuthority: ExecutionAuthority
+  detachAbortSignal?(): void
   files: WorkspaceSessionHostFiles
   exec(
     command: string,

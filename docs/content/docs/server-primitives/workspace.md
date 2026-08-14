@@ -398,7 +398,9 @@ export async function testDocs() {
 
 ### Session method options
 
-`startSession({ host, paths, target })` composes Workspace state with an already-open Box Session. `host` is required for execution; `paths` limits materialization and commit scope; `target` defaults to `/workspace`. The caller owns the Box lifecycle, so closing the Workspace Session does not close its host. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
+`startSession(options)` composes Workspace state with an already-open Box Session. `host` is required for execution; `paths` limits materialization and commit scope; `target` defaults to `/workspace`. `abortSignal` cancels preparation, and `onProgress` reports its materialization phases. The caller owns the Box lifecycle, so closing the Workspace Session does not close its host.
+
+Set `writeBack.exclude` to Workspace-relative paths owned by the runtime rather than the invocation. Excluded paths remain usable in the host tree, but their changes are omitted from `diff()` and `commit()` and their pre-Session state is restored by `close()`. ViteHub always applies the same behavior to `.agent-runs`, `.git`, and `.vitehub`. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
 
 | Method | Options | Behavior |
 | --- | --- | --- |

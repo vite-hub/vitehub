@@ -1,7 +1,9 @@
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
+import { normalizeWorkspaceSources } from "../sources/config.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
+import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
@@ -96,6 +98,9 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
   }
 
   forwardWorkspaceStoreTarget(store, workspace)
+  if (!normalizeWorkspaceSources(definition.sources).some(source => source.requestDescriptor || source.livePaths)) {
+    forwardWorkspaceRevisionMaterializer(store, workspace)
+  }
 
   ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async () => {
     const { syncWorkspaceDefinition } = await import("../lifecycle.ts")

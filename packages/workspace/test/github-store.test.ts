@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env";
+import { resolveGitHubWorkspaceRoot } from "../src/providers/github/shared.ts";
+import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts";
+
+import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts";
 
 const requests: Array<{ body?: unknown; headers: Headers; method: string; path: string }> = [];
 let refSha = "base-sha";
@@ -10,6 +14,8 @@ let commitIndex = 0;
 let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
+let archiveFailures = 0;
+let archiveBytes = textBytes("archive");
 const blobs = new Map<string, Uint8Array>();
 const treesByRef = new Map<string, typeof remoteTree>();
 
@@ -48,6 +54,8 @@ beforeEach(() => {
   treeIndex = 0;
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
+  archiveFailures = 0;
+  archiveBytes = textBytes("archive");
   blobs.clear();
   treesByRef.clear();
   vi.stubEnv("WORKSPACE_GITHUB_TOKEN", "");
@@ -71,6 +79,13 @@ beforeEach(() => {
             })
           : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
+
+      if (url.hostname === "codeload.github.com") {
+        if (archiveFailures-- > 0) {
+          return new Response("retry", { headers: { "retry-after": "0" }, status: 503 });
+        }
+        return new Response(archiveBytes);
+      }
 
       if (url.hostname === "raw.githubusercontent.com") {
         const [, , , ref, ...path] = decodeURIComponent(url.pathname).split("/");
@@ -148,6 +163,11 @@ beforeEach(() => {
   );
 });
 
+it("rejects GitHub Workspace roots that escape the repository", () => {
+  expect(() => resolveGitHubWorkspaceRoot("../../outside", "docs")).toThrow("escapes the workspace root");
+  expect(() => resolveGitHubWorkspaceRoot("workspaces/<workspace>/../outside", "docs")).toThrow("escapes the workspace root");
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -155,6 +175,132 @@ afterEach(() => {
 });
 
 describe("GitHub workspace store", () => {
+  it("materializes a pinned full revision with one archive request and reuses it while unchanged", async () => {
+    for (let index = 0; index < 856; index++) {
+      seedRemote(`.vitehub/workspaces/docs/files/${index}.txt`, `${index}\n`);
+    }
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "files/0.txt", "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+
+    await expect(materializer.materializeRevision()).resolves.toMatchObject({
+      archive: archiveBytes,
+      files: 857,
+      revision: "base-sha",
+      root: ".vitehub/workspaces/docs",
+    });
+    await materializer.materializeRevision();
+    await expect(materializer.materializeRevision({ paths: ["files/0.txt"] })).resolves.toMatchObject({
+      files: 1,
+      paths: ["files/0.txt"],
+      revision: "base-sha",
+    });
+    await expect(materializer.materializeRevision({ paths: ["files/0.txt"] })).resolves.not.toHaveProperty("archive");
+    await expect(store.diff()).resolves.toMatchObject({ entries: [] });
+
+    expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(1);
+    expect(requests.filter(request => request.path.startsWith("/onmax/repo/base-sha/"))).toHaveLength(0);
+  });
+
+  it("coalesces concurrent first materializations of one revision archive", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+
+    const results = await Promise.all([
+      materializer.materializeRevision(),
+      materializer.materializeRevision(),
+      materializer.materializeRevision(),
+    ]);
+
+    expect(results).toHaveLength(3);
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ archive: archiveBytes, revision: "base-sha" }),
+    ]));
+    expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(1);
+  });
+
+  it("lets callers cancel revision resolution while the GitHub request continues", async () => {
+    const abort = new AbortController();
+    vi.mocked(fetch).mockImplementationOnce(async () => await new Promise<Response>(() => {}));
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+
+    const resolution = materializer.materializeRevision({ abortSignal: abort.signal });
+    abort.abort();
+
+    await expect(resolution).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("retries transient pinned archive reads within a bounded attempt count", async () => {
+    archiveFailures = 2;
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+
+    await expect((store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!.materializeRevision()).resolves.toMatchObject({
+      revision: "base-sha",
+    });
+    expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(3);
+  });
+
+  it("falls back to the current Store state when it has staged writes", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+    await store.writeFile("staged.txt", { content: "staged", path: "staged.txt" });
+
+    await expect((store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!.materializeRevision())
+      .resolves.toMatchObject({ files: 0, revision: "base-sha" });
+    await expect(store.readFile("staged.txt")).resolves.toMatchObject({ content: textBytes("staged") });
+    expect(requests.filter(request => request.path.includes("/tar.gz/"))).toHaveLength(0);
+  });
+
+  it("does not retry GitHub writes", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const calls = fetchMock.mock.calls.length;
+    fetchMock.mockResolvedValueOnce(new Response("retry", { status: 503 }));
+    const { requestGitHub } = await import("../src/providers/github/shared.ts");
+
+    await expect(requestGitHub("https://api.github.com/write", { method: "POST" }))
+      .resolves.toMatchObject({ status: 503 });
+    expect(fetchMock.mock.calls).toHaveLength(calls + 1);
+  });
+
+  it("retains immutable blob bytes when a branch moves without changing the blob", async () => {
+    seedRemote(".vitehub/workspaces/docs/README.md", "same\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+
+    await store.readFile("README.md");
+    refSha = "next-sha";
+    remoteTreeSha = "next-tree";
+    requests.length = 0;
+    await store.list();
+    requests.length = 0;
+    await store.readFile("README.md");
+
+    expect(requests).toEqual([]);
+  });
+
   it.each([
     ["Workspace", {
       WORKSPACE_GITHUB_BRANCH: "release",
@@ -1069,6 +1215,85 @@ describe("GitHub workspace store", () => {
         }),
       ]),
     );
+  });
+
+  it("discards selected staged writes when the provider revision is unchanged", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Authoritative\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("page.md", { path: "page.md", content: "# Failed invocation\n" });
+    await store.writeFile("draft.md", { path: "draft.md", content: "unrelated draft\n" });
+    await store.rebase?.({ takeRemote: ["page.md"] });
+
+    await expect(store.readFile("page.md")).resolves.toMatchObject({
+      content: textBytes("# Authoritative\n"),
+    });
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({
+      content: textBytes("unrelated draft\n"),
+    });
+    await store.snapshot({ name: "retry" });
+    expect(remoteTree).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: ".vitehub/workspaces/docs/page.md",
+        sha: textSha("# Authoritative\n"),
+      }),
+      expect.objectContaining({
+        path: ".vitehub/workspaces/docs/draft.md",
+        sha: textSha("unrelated draft\n"),
+      }),
+    ]));
+  });
+
+  it("discards selected staged writes after an unrelated remote change", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Authoritative\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("page.md", { path: "page.md", content: "# Failed invocation\n" });
+    await store.writeFile("draft.md", { path: "draft.md", content: "unrelated draft\n" });
+    refSha = "remote-sha";
+    remoteTreeSha = "remote-tree";
+    seedRemote(".vitehub/workspaces/docs/remote.md", "remote addition\n");
+    await store.rebase?.({ takeRemote: ["page.md"] });
+
+    await expect(store.readFile("page.md")).resolves.toMatchObject({
+      content: textBytes("# Authoritative\n"),
+    });
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({
+      content: textBytes("unrelated draft\n"),
+    });
+    await store.snapshot({ name: "retry" });
+    expect(remoteTree).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: ".vitehub/workspaces/docs/page.md",
+        sha: textSha("# Authoritative\n"),
+      }),
+      expect.objectContaining({
+        path: ".vitehub/workspaces/docs/draft.md",
+        sha: textSha("unrelated draft\n"),
+      }),
+      expect.objectContaining({
+        path: ".vitehub/workspaces/docs/remote.md",
+        sha: textSha("remote addition\n"),
+      }),
+    ]));
   });
 
   it("requires repository and token configuration", async () => {

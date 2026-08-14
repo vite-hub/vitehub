@@ -560,6 +560,21 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "@vite-hub/workspace",
       ]))
       await Promise.all([
+        writeFile(join(appDir, "index.ts"), `
+          import { createWorkspace } from "@vite-hub/workspace"
+          import type { WorkspacePrepareSessionProgressEvent, WorkspaceSessionHost } from "@vite-hub/workspace"
+
+          declare const host: WorkspaceSessionHost
+          const workspace = createWorkspace({ name: "packed-consumer" })
+          void workspace.startSession({
+            abortSignal: new AbortController().signal,
+            host,
+            onProgress(event: WorkspacePrepareSessionProgressEvent) {
+              console.log(event.id, event.durationMs, event.data?.bytes, event.data?.files)
+            },
+            writeBack: { exclude: [".consumer-cache"] },
+          })
+        `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/workspace": specs["@vite-hub/workspace"],
@@ -571,6 +586,19 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await run(process.execPath, [
+        resolve(repoRoot, "node_modules/typescript/bin/tsc"),
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        "--noEmit",
+        "--skipLibCheck",
+        "--strict",
+        "--target",
+        "ESNext",
+        "index.ts",
+      ], appDir)
       const missingShell = await run("node", ["--input-type=module", "--eval", `
         import { createWorkspaceTools } from "@vite-hub/workspace/ai"
         let shellResolved = true

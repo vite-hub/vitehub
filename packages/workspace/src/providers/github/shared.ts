@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
 import { workspaceError } from "../../core/errors.ts";
-import { contentToBytes, normalizeWorkspacePath } from "../../core/path.ts";
+import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
 import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
 
@@ -43,6 +43,58 @@ export interface GitHubFileUpdate {
 export interface GitHubCommitResult {
   commitSha: string;
   treeSha: string;
+}
+
+const githubReadAttempts = 3
+
+function retryDelay(response: Response, attempt: number): number {
+  const retryAfter = response.headers.get("retry-after")
+  if (retryAfter) {
+    const seconds = Number(retryAfter)
+    if (Number.isFinite(seconds)) return Math.min(seconds * 1_000, 2_000)
+    const date = Date.parse(retryAfter)
+    if (Number.isFinite(date)) return Math.min(Math.max(date - Date.now(), 0), 2_000)
+  }
+  return 100 * 2 ** attempt
+}
+
+function retryableGitHubRead(response: Response) {
+  return response.status === 429 || response.status >= 500
+}
+
+async function waitForRetry(delay: number, signal?: AbortSignal) {
+  signal?.throwIfAborted()
+  await new Promise<void>((resolve, reject) => {
+    const aborted = () => {
+      clearTimeout(timeout)
+      reject(signal?.reason || new DOMException("The operation was aborted.", "AbortError"))
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", aborted)
+      resolve()
+    }, delay)
+    signal?.addEventListener("abort", aborted, { once: true })
+  })
+}
+
+export async function requestGitHub(input: string | URL, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method || "GET").toUpperCase()
+  const retryable = method === "GET" || method === "HEAD"
+  for (let attempt = 0; ; attempt++) {
+    init.signal?.throwIfAborted()
+    let response: Response
+    try {
+      response = await fetch(input, init)
+    }
+    catch (error) {
+      if (!retryable || init.signal?.aborted || attempt + 1 >= githubReadAttempts) throw error
+      await waitForRetry(100 * 2 ** attempt, init.signal || undefined)
+      continue
+    }
+    if (!retryable || !retryableGitHubRead(response) || attempt + 1 >= githubReadAttempts) return response
+    await response.body?.cancel().catch(() => undefined)
+    await waitForRetry(retryDelay(response, attempt), init.signal || undefined)
+  }
 }
 
 class GitHubRequestError extends Error {
@@ -118,7 +170,10 @@ export function joinGitPath(...parts: string[]): string {
 }
 
 export function resolveGitHubWorkspaceRoot(root: string, workspaceName: string): string {
-  return joinGitPath(root.replaceAll("<workspace>", workspaceName));
+  return normalizeSafeWorkspacePath(joinGitPath(root.replaceAll("<workspace>", workspaceName)), {
+    allowEmpty: true,
+    allowReserved: true,
+  });
 }
 
 export function workspacePathFromGitPath(path: string, root: string): string | undefined {
@@ -246,7 +301,7 @@ export async function requestGitHubJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`https://api.github.com${path}`, {
+  const response = await requestGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
       accept: "application/vnd.github+json",
@@ -274,7 +329,7 @@ export async function requestGitHubBytes(
   path: string,
   init?: RequestInit,
 ): Promise<Uint8Array> {
-  const response = await fetch(`https://api.github.com${path}`, {
+  const response = await requestGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
       accept: "application/vnd.github.raw+json",
@@ -308,7 +363,7 @@ export async function readGitHubRawFile(input: {
 }): Promise<Uint8Array> {
   const { owner, repo } = splitGitHubRepository(input.repository, "store");
   const path = input.path.split("/").map(encodeURIComponent).join("/");
-  const response = await fetch(
+  const response = await requestGitHub(
     `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(input.ref)}/${path}`,
     {
       headers: {
@@ -320,6 +375,33 @@ export async function readGitHubRawFile(input: {
   if (!response.ok) {
     const cause = new GitHubRequestError(
       `[vitehub] GitHub workspace raw file request failed for ${input.repository}: ${response.status} ${response.statusText}`,
+      response.status,
+    );
+    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+export async function readGitHubArchive(input: {
+  ref: string;
+  repository: string;
+  signal?: AbortSignal;
+  token: string;
+}): Promise<Uint8Array> {
+  const { owner, repo } = splitGitHubRepository(input.repository, "store");
+  const response = await requestGitHub(
+    `https://codeload.github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tar.gz/${encodeURIComponent(input.ref)}`,
+    {
+      headers: {
+        authorization: `Bearer ${input.token}`,
+        "user-agent": "vitehub-workspace",
+      },
+      signal: input.signal,
+    },
+  );
+  if (!response.ok) {
+    const cause = new GitHubRequestError(
+      `[vitehub] GitHub workspace archive request failed for ${input.repository}: ${response.status} ${response.statusText}`,
       response.status,
     );
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
