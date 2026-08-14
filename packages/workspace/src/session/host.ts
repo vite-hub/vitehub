@@ -760,8 +760,14 @@ export async function createHostedWorkspaceSession(
         await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
         diff = await currentDiff()
       }
+      if (diff?.entries.length) {
+        await materializeWorkspace(workspace, host, root, {
+          ...options,
+          abortSignal: undefined,
+          onProgress: undefined,
+        })
+      }
       closed = true
-      if (diff?.entries.length) await materializeWorkspace(workspace, host, root, options)
     },
   }
 }

@@ -732,6 +732,36 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/partial.txt")).toBeUndefined()
   })
 
+  it("restores a revision-backed host after the Session operation is canceled", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    await docs.writeFile("README.md", "before")
+    await docs.snapshot({ name: "baseline" })
+    const materializeRevision = vi.fn(async (options?: { abortSignal?: AbortSignal }) => {
+      options?.abortSignal?.throwIfAborted()
+      return {
+        files: 1,
+        revision: "0123456789012345678901234567890123456789",
+        root: "",
+      }
+    })
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      materializeRevision,
+    }
+
+    const session = await docs.startSession({ abortSignal: abort.signal, host })
+    await session.writeFile("README.md", "failed mutation")
+    abort.abort()
+    await expect(session.close()).resolves.toBeUndefined()
+
+    expect(host.readText("/workspace/README.md")).toBe("before")
+    expect(materializeRevision).toHaveBeenLastCalledWith(expect.objectContaining({ abortSignal: undefined }))
+  })
+
   it("keeps unsafe symlinks inert and rejects writes through symlink parents", async () => {
     const docs = workspace()
     const host = memoryHost()
