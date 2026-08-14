@@ -128,8 +128,13 @@ export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<
   const delivery = created ? candidate : (await state.get<AgentChannelDelivery>(sourceKey(candidate))) || candidate
   await state.set(sourceKey(delivery), delivery, retentionMs)
   await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
-  const indexed = await state.getList<string>(indexKey)
-  if (!indexed.includes(delivery.id)) await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
+  if (created) {
+    await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
+  }
+  else {
+    const indexed = await state.getList<string>(indexKey)
+    if (!indexed.includes(delivery.id)) await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
+  }
   const opened = tracker(state, delivery, !created)
   await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
   return opened

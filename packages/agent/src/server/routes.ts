@@ -611,7 +611,7 @@ async function terminalChannelDeliveryResponse(
   response: Response,
   type: "completed" | "failed" | "rejected" = "rejected",
 ): Promise<Response> {
-  await delivery.event({ type })
+  await recordChannelDeliveryEvidence(delivery, { type })
   return response
 }
 
