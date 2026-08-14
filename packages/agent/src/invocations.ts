@@ -1,4 +1,5 @@
 import { createTraceEventLog } from "@vite-hub/runtime"
+import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
@@ -478,7 +479,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               ownsRecord = false
             }
           })()
-          context.waitUntil(terminalRetry)
+          registerAgentInvocationRecovery(context, terminalRetry)
         },
         async running() {
           if (finished) return
@@ -495,7 +496,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               if (await markRunning()) return
             }
           })()
-          context.waitUntil(runningRetry)
+          registerAgentInvocationRecovery(context, runningRetry)
         },
       }
     },

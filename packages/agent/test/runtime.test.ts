@@ -11383,6 +11383,7 @@ describe("agent message protocol", () => {
 
     it("owns deferred recovery before rethrowing Workflow failures", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const { registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()
       const failure = new Error("driver failed")
       let completed = false
@@ -11392,7 +11393,7 @@ describe("agent message protocol", () => {
         payload: { run: { origin: "portal", runId: "failed-source-run" } },
         provider: "vercel",
       }, async (_agent, context) => {
-        context.waitUntil(recovery.promise)
+        registerAgentInvocationRecovery(context, recovery.promise)
         throw failure
       }).finally(() => { completed = true })
 
@@ -11400,6 +11401,23 @@ describe("agent message protocol", () => {
       expect(completed).toBe(false)
       recovery.resolve()
       await expect(result).rejects.toBe(failure)
+    })
+
+    it("does not make public waitUntil work block Workflow completion", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const background = deferred<void>()
+
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "background-source-run",
+        name: "background-source-run",
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        context.waitUntil(background.promise)
+        return "done"
+      })).resolves.toBe("done")
+
+      background.resolve()
     })
 
     it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {

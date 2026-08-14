@@ -5,6 +5,7 @@ import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
@@ -190,9 +191,8 @@ export async function runAgentWorkflowDefinition<
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
-  const waitUntilTasks: Array<Promise<void>> = []
   const waitUntil = (promise: Promise<unknown>): void => {
-    waitUntilTasks.push(Promise.resolve(promise).then(() => {}, () => {}))
+    void Promise.resolve(promise).catch(() => {})
   }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare"
@@ -223,6 +223,7 @@ export async function runAgentWorkflowDefinition<
     ))
   }
   finally {
-    for (let index = 0; index < waitUntilTasks.length; index++) await waitUntilTasks[index]
+    const recoveryTasks = agentInvocationRecoveryTasks(runtimeContext)
+    for (let index = 0; index < recoveryTasks.length; index++) await recoveryTasks[index]
   }
 }
