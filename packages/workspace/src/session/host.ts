@@ -534,7 +534,9 @@ async function materializeWorkspace(
     abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root)
     abortSignal?.throwIfAborted()
-    return { revision: revision.revision, snapshot: await snapshotHost(host, root, "host-open") }
+    const snapshot = await snapshotHost(host, root, "host-open")
+    abortSignal?.throwIfAborted()
+    return { revision: revision.revision, snapshot }
   }
   const entries = await withWorkspaceProgress(options?.onProgress, {
     data: { paths: paths ?? null },

@@ -366,6 +366,61 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("restores the host when preparation is canceled during the revision snapshot", async () => {
+    const docs = workspace()
+    const archive = await revisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-snapshot-canceled-"))
+    const target = join(targetParent, "workspace")
+    const abort = new AbortController()
+    const host = localHost()
+    const read = host.files.read.bind(host.files)
+    let extracted = false
+    let aborted = false
+    host.files.read = async (path) => {
+      const content = await read(path)
+      if (extracted && !aborted) {
+        aborted = true
+        abort.abort()
+      }
+      return content
+    }
+    await mkdir(join(target, ".agent-runs"), { recursive: true })
+    await writeFile(join(target, ".agent-runs", "trace.json"), "before")
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: archive.bytes,
+          files: 6,
+          revision: "0123456789012345678901234567890123456789",
+          root: ".vitehub/workspaces/docs",
+        }
+      },
+    }
+
+    try {
+      await expect(docs.startSession({
+        abortSignal: abort.signal,
+        host,
+        onProgress(event) {
+          if (event.id === "workspace.prepare.extract-archive" && event.status === "completed") extracted = true
+        },
+        target,
+      })).rejects.toThrow()
+      expect(aborted).toBe(true)
+      await expect(readFile(join(target, ".agent-runs", "trace.json"), "utf8")).resolves.toBe("before")
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
   it("restores pre-existing excluded state when revision extraction fails after reset", async () => {
     const docs = workspace()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-failure-"))

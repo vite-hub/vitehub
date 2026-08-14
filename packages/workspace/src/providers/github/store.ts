@@ -423,11 +423,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       );
 
       for (const path of changed) {
-        const remoteChanged = !sameGitHubTreeEntry(
-          previousRemoteFiles.get(path),
-          remote.files.get(path),
-        );
-        if (remoteChanged && shouldTakeRemote(path)) continue;
+        if (shouldTakeRemote(path)) continue;
         const file = local.get(path);
         if (file) this.#files.set(path, file);
         else this.#files.delete(path);
