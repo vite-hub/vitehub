@@ -1876,6 +1876,7 @@ export interface AgentAdapterRunContext<
   invoker: AgentInvoker
   messages: Message[]
   modelExecutionInstrumentation?: AgentModelExecutionInstrumentation[]
+  nativeStructuredOutput?: boolean
   output?: AgentOutputDefinition
   outputRenderers?: Array<(result: unknown) => MaybePromise<unknown>>
   prompt?: string

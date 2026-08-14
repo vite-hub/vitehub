@@ -1612,9 +1612,11 @@ describe("agent message protocol", () => {
 
   it("guides model Drivers with configured structured output", async () => {
     const agentSettings: Record<string, unknown>[] = []
+    const nativeOutput = { name: "object" }
     loadAiSdk.mockResolvedValue({
       isStepCount: () => () => false,
       jsonSchema: vi.fn(schema => schema),
+      Output: { object: vi.fn(() => nativeOutput) },
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -1636,7 +1638,7 @@ describe("agent message protocol", () => {
         version: 1 as const,
       },
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent, runAgentInline } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: { model: {} as never, output: { schema } },
       runtime: false,
@@ -1645,6 +1647,71 @@ describe("agent message protocol", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
     expect(agentSettings.at(-1)?.instructions).toContain("Return only one valid JSON value")
     expect(agentSettings.at(-1)?.instructions).toContain('"title"')
+    expect(agentSettings.at(-1)?.output).toBe(nativeOutput)
+
+    await expect(runAgentInline(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "raw" })).resolves.toBeDefined()
+    expect(agentSettings.at(-1)).not.toHaveProperty("output")
+
+    const validationOnlyAgent = defineAgent({
+      driver: {
+        model: {} as never,
+        output: {
+          schema: {
+            "~standard": {
+              validate: (value: unknown) => ({ value: value as { title: string } }),
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          } as never,
+        },
+      },
+      runtime: false,
+    })
+    await expect(runAgent(validationOnlyAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
+    expect(agentSettings.at(-1)).not.toHaveProperty("output")
+
+    const unsupportedTargetAgent = defineAgent({
+      driver: {
+        model: {} as never,
+        output: {
+          schema: {
+            "~standard": {
+              jsonSchema: {
+                input: () => {
+                  throw new Error("draft-07 is not supported")
+                },
+                output: () => ({ type: "object" }),
+              },
+              validate: (value: unknown) => ({ value: value as { title: string } }),
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          } as never,
+        },
+      },
+      runtime: false,
+    })
+    await expect(runAgent(unsupportedTargetAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
+    expect(agentSettings.at(-1)).not.toHaveProperty("output")
+
+    const scalarAgent = defineAgent({
+      driver: {
+        model: {} as never,
+        output: {
+          schema: {
+            "~standard": {
+              jsonSchema: { input: () => ({ type: "string" }), output: () => ({ type: "string" }) },
+              validate: (value: unknown) => ({ value: value as string }),
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          } as never,
+        },
+      },
+      runtime: false,
+    })
+    await expect(runAgent(scalarAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBeDefined()
+    expect(agentSettings.at(-1)).not.toHaveProperty("output")
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
