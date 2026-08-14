@@ -318,6 +318,18 @@ describe("Agent Vue clients", () => {
     expect(fetch.mock.calls[0]?.[1]?.method).toBe("GET")
   })
 
+  it("does not start a queued reconnect after same-tick scope disposal", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true }))
+
+    scope.stop()
+    await Promise.resolve()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("preserves partial content when a newer reconnect supersedes a pending reconnect", async () => {
     vi.stubGlobal("window", {})
     let releaseReconnect!: () => void

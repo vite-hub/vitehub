@@ -69,6 +69,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const reconnecting = shallowRef(0)
   let reconnectAbort: AbortController | undefined
   let reconnectGeneration = 0
+  let disposed = false
   let prepareReplay: () => UI_MESSAGE | undefined = () => undefined
   let replayPartial: { chatId: string, message: UI_MESSAGE } | undefined
   const chat = useAiChat<UI_MESSAGE>(() => {
@@ -148,6 +149,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }
   if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   onScopeDispose(() => {
+    disposed = true
     reconnectGeneration++
     reconnectAbort?.abort()
     void chat.stop()
@@ -167,6 +169,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }
 
   async function reconnect(): Promise<void> {
+    if (disposed) return
     reconnecting.value++
     try {
       await chat.resumeStream()

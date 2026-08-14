@@ -53,7 +53,7 @@ Use the Vue client from the application:
 import { useAgent, useChat } from '@vite-hub/agent/vue'
 
 const agent = useAgent('support')
-const { messages, status, sendMessage, stop } = useChat(agent, { resume: true })
+const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
@@ -84,6 +84,8 @@ export default defineAgent({
 ```
 
 Resumable routes buffer active and recently completed streams in one server process. A reload reconnects without cancelling the Agent Invocation, while `stop()` explicitly cancels it. This mode does not survive a process restart or coordinate multiple replicas.
+
+Once the server route has `resumable.owner`, enable reconnects with `useChat(agent, { resume: true })`.
 
 Use an application-owned route and [`streamAgentTrigger()`](/docs/agents/triggers#consume-a-capability-trigger) when the shared dispatcher is not the right authentication or request boundary.
 

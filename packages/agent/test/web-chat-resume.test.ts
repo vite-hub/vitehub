@@ -113,6 +113,38 @@ describe("resumable web chat", () => {
     expect((await otherOwnerPromise).status).toBe(204)
   })
 
+  it("starts a new invocation when the AI SDK regenerates a retained message", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async () => new Response("ok"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      await expect((await handler(chatRequest("POST"), options)).text()).resolves.toBe("ok")
+      const regeneration = new Request(chatRequest("POST"), {
+        body: JSON.stringify({
+          id: "chat-1",
+          messageId: "user-1",
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+          trigger: "regenerate-message",
+        }),
+      })
+      await expect((await handler(regeneration, options)).text()).resolves.toBe("ok")
+      await Promise.all(pending)
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
   it("replays buffered chunks before continuing the live stream after subscriber disposal", async () => {
     const agentModule = await import("../src/index.ts")
     const { defineAgent } = agentModule
@@ -240,6 +272,127 @@ describe("resumable web chat", () => {
     }
   })
 
+  it("does not evict another owner's replay or idempotent claim at the retained-run limit", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async () => new Response("ok"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate: ({ request }) => ({ owner: request.headers.get("x-owner") || "" }) },
+            resumable: { owner: ({ auth }) => auth.owner },
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      await expect((await handler(chatRequest("POST", "other"), options)).text()).resolves.toBe("ok")
+      for (let index = 0; index < 100; index++) {
+        await expect((await handler(chatRequest("POST", "max", `user-${index}`), options)).text()).resolves.toBe("ok")
+      }
+      await Promise.all(pending)
+
+      await expect((await handler(chatRequest("GET", "other"), options)).text()).resolves.toBe("ok")
+      await expect((await handler(chatRequest("POST", "other"), options)).text()).resolves.toBe("ok")
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(101)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
+  it("applies the retained-run limit per owner instead of rejecting a new owner", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async () => new Response("ok"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate: ({ request }) => ({ owner: request.headers.get("x-owner") || "" }) },
+            resumable: { owner: ({ auth }) => auth.owner },
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      for (let index = 0; index <= 100; index++) {
+        await expect((await handler(chatRequest("POST", `owner-${index}`), options)).text()).resolves.toBe("ok")
+      }
+      await Promise.all(pending)
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(101)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
+  it("evicts completed replay buffers before enforcing the aggregate byte limit", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async () => new Response(new Uint8Array(8 * 1024 * 1024)))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      for (let index = 0; index < 9; index++) {
+        await expect((await handler(chatRequest("POST", "max", `user-${index}`), options)).arrayBuffer()).resolves.toHaveProperty("byteLength", 8 * 1024 * 1024)
+      }
+      await Promise.all(pending)
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(9)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
+  it("releases a completed invocation when DELETE cancels its chat", async () => {
+    vi.useFakeTimers()
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async () => new Response("ok"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      await expect((await handler(chatRequest("POST"), options)).text()).resolves.toBe("ok")
+      await Promise.all(pending)
+      expect(vi.getTimerCount()).toBe(1)
+      expect((await handler(chatRequest("DELETE"), options)).status).toBe(204)
+      expect(vi.getTimerCount()).toBe(1)
+      await expect((await handler(chatRequest("POST"), options)).text()).resolves.toBe("ok")
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
   it("cancels the detached producer only through DELETE", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
@@ -276,15 +429,80 @@ describe("resumable web chat", () => {
     const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
     const responsePromise = handler(chatRequest("POST"), options)
     await Promise.resolve()
-    const cancellation = handler(chatRequest("DELETE"), options)
     releaseAuthentication()
     const response = await responsePromise
     const body = response.text()
+    const cancellation = handler(chatRequest("DELETE"), options)
 
     expect((await cancellation).status).toBe(204)
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith("Cancelled by the web chat client."))
     await expect(body).resolves.toContain("assistant-1")
     await Promise.all(pending)
+  })
+
+  it("preserves DELETE cancellation while a POST is still registering", async () => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseAuthentication!: () => void
+    const authentication = new Promise<void>((resolve) => {
+      releaseAuthentication = resolve
+    })
+    const run = vi.fn(() => "unused")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { async authenticate({ request }) {
+              if (request.method === "POST") await authentication
+              return { owner: request.headers.get("x-owner") || "" }
+            } },
+            resumable: { owner: ({ auth }) => auth.owner },
+          },
+        }),
+      },
+      driver: { run },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    const posts = [handler(chatRequest("POST"), options), handler(chatRequest("POST"), options)]
+    await Promise.resolve()
+    const cancellation = handler(chatRequest("DELETE"), options)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect((await cancellation).status).toBe(204)
+    releaseAuthentication()
+    await expect(Promise.all(posts)).resolves.toMatchObject([{ status: 204 }, { status: 204 }])
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("does not cancel a newer POST that registers during DELETE lookup", async () => {
+    vi.useFakeTimers()
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async () => new Response("ok"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      const cancellation = handler(chatRequest("DELETE"), options)
+      await Promise.resolve()
+      await expect((await handler(chatRequest("POST"), options)).text()).resolves.toBe("ok")
+      await vi.advanceTimersByTimeAsync(100)
+      expect((await cancellation).status).toBe(204)
+      await Promise.all(pending)
+      await expect((await handler(chatRequest("GET"), options)).text()).resolves.toBe("ok")
+      expect(streamAgentTrigger).toHaveBeenCalledOnce()
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
   })
 
   it.each([
