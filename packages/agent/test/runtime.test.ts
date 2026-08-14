@@ -8061,6 +8061,30 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toBeUndefined()
   })
 
+  it("cancels title template work when generation exceeds its timeout", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const aborted = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({
+        driver: { run: () => "unreachable" },
+        template: ({ input }) => new Promise(() => {
+          input.abortSignal?.addEventListener("abort", aborted, { once: true })
+        }),
+        timeoutMs: 10,
+      })],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+    })
+
+    expect(aborted).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+  })
+
   it("resolves built-in title drivers before creating the harness adapter", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

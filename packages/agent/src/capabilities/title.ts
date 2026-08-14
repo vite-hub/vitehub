@@ -361,6 +361,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 10_000)
   const abortSignal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
   const timedInput = { ...input, input: { ...input.input, abortSignal } }
+  const timedTemplateInput = { ...templateInput, input: timedInput.input }
   const raceTimeout = async <T>(promise: Promise<T>): Promise<T> => {
     if (abortSignal.aborted) throw abortSignal.reason
     let onAbort!: () => void
@@ -383,7 +384,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
 
   if (options.when) {
     try {
-      if (!await raceTimeout(Promise.resolve(options.when({ ...templateInput, input: timedInput.input })))) return skippedTitleGeneration
+      if (!await raceTimeout(Promise.resolve(options.when(timedTemplateInput)))) return skippedTitleGeneration
     }
     catch (error) {
       if (parentSignal?.aborted) throw error
@@ -404,7 +405,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
 
   if (options.driver) {
     try {
-      const prompt = await raceTimeout(renderTitleTemplate(options, templateInput))
+      const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
       return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt)), maxLength, fallback)
     }
     catch (error) {
@@ -415,7 +416,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   try {
     const model = await raceTimeout(resolveTitleModel(context, options))
     if (model) {
-      const prompt = await raceTimeout(renderTitleTemplate(options, templateInput))
+      const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
       const { generateText } = await loadAiSdk()
       const result = await raceTimeout(generateText(options.instructions
         ? { abortSignal, instructions: options.instructions, model: model as never, prompt }
