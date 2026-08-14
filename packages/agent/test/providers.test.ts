@@ -12749,9 +12749,13 @@ describe("server helpers", () => {
   })
 
   it("returns Chat SDK adapter webhook responses", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-delivery-rejected-"))
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter({ secret: "secret" })
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
@@ -12767,15 +12771,35 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const body = JSON.stringify({ update_id: 42 })
+    const url = "https://example.com/api/_vitehub/agents/support/webhooks/telegram"
+    const options = { agentName: "support", state: () => state }
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-      body: JSON.stringify({ update_id: 42 }),
-      headers: { "x-test-secret": "wrong" },
-      method: "POST",
-    }), "telegram")
+    try {
+      const response = await handler(new Request(url, {
+        body,
+        headers: { "x-test-secret": "wrong" },
+        method: "POST",
+      }), "telegram", options)
 
-    expect(response.status).toBe(401)
-    expect(run).not.toHaveBeenCalled()
+      expect(response.status).toBe(401)
+      expect(run).not.toHaveBeenCalled()
+      await expect(handler.deliveries(new Request(url, { body, method: "POST" }), "telegram", options)).resolves.toEqual([
+        expect.objectContaining({
+          events: [
+            expect.objectContaining({ type: "received" }),
+            expect.objectContaining({ type: "rejected" }),
+          ],
+          sourceId: "42",
+          status: "rejected",
+        }),
+      ])
+    }
+    finally {
+      info.mockRestore()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 })
 
