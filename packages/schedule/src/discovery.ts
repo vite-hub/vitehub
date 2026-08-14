@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import {
   createDirectoryDefinitionSource,
@@ -62,13 +62,25 @@ export function discoverScheduleDefinitions(options:
   const serverRoots = resolveDefinitionScanRoots(options.serverRootDir || options.rootDir, options.scanDirs)
   const serverScanDirs = options.serverDirs ?? serverRoots.map(root => resolve(root, "server"))
 
+  for (const directory of serverScanDirs) {
+    if (roots.every((root) => {
+      const path = relative(resolve(root), resolve(directory))
+      return path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)
+    })) {
+      roots.push(directory)
+    }
+  }
+
   return mergeDefinitions(
     "schedule",
     discoverDefinitions("schedule", [
       createSuffixDefinitionSource("vite-suffix", roots, scheduleSuffixPattern, normalizeSuffixScheduleName, {
         createDefinition: createDiscoveredScheduleDefinition("vite-suffix"),
       }),
-    ]),
+    ]).filter(definition => !serverScanDirs.some((directory) => {
+      const path = relative(resolve(directory, "schedules"), definition.handler)
+      return path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+    })),
     discoverDefinitions("schedule", [
       createDirectoryDefinitionSource("server-schedules", serverScanDirs, "schedules", {
         createDefinition: createDiscoveredScheduleDefinition("server-schedules"),
