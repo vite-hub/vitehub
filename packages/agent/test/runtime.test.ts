@@ -8040,11 +8040,14 @@ describe("agent message protocol", () => {
   it("falls back when a title condition exceeds its timeout", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
+    const aborted = vi.fn()
     const agent = defineAgent({
       capabilities: [title({
         execute: () => "unreachable",
         timeoutMs: 10,
-        when: () => new Promise(() => {}),
+        when: ({ input }) => new Promise(() => {
+          input.abortSignal?.addEventListener("abort", aborted, { once: true })
+        }),
       })],
       driver: { run: () => ({ text: "ok" }) },
       hooks: { "agent:finish": finish },
@@ -8054,6 +8057,7 @@ describe("agent message protocol", () => {
       messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
     })
 
+    expect(aborted).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
   })
 

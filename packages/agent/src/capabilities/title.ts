@@ -383,7 +383,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
 
   if (options.when) {
     try {
-      if (!await raceTimeout(Promise.resolve(options.when(templateInput)))) return skippedTitleGeneration
+      if (!await raceTimeout(Promise.resolve(options.when({ ...templateInput, input: timedInput.input })))) return skippedTitleGeneration
     }
     catch (error) {
       return recoverGeneration(error)
