@@ -20,6 +20,7 @@ export interface AgentChannelDeliveryWorkflowBinding {
 }
 
 export interface AgentChannelDeliveryTracker {
+  claimed: boolean
   delivery: AgentChannelDelivery
   duplicate: boolean
   event(input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent>
@@ -145,6 +146,7 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
 
 function tracker(state: StateAdapter, delivery: AgentChannelDelivery, duplicate: boolean): AgentChannelDeliveryTracker {
   const value: AgentChannelDeliveryTracker = {
+    claimed: false,
     delivery,
     duplicate,
     event: async (input) => await appendEvent(state, delivery, input),

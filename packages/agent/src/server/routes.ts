@@ -863,7 +863,7 @@ async function steerQueuedWebhookDelivery(
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
   fallback: (reserved?: boolean) => Promise<Response>,
-): Promise<{ queued: boolean, response: Response } | undefined> {
+): Promise<{ queued: boolean, response: Response, settlement?: Promise<boolean> } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
   const duplicateResponse = (claim: unknown) => claim === "queued"
@@ -948,6 +948,7 @@ async function steerQueuedWebhookDelivery(
         }
         if (accepted) {
           keepLockUntilInvocationSettles = true
+          const deliverySettlement = active.result.then(() => true, () => false)
           const settlement = active.result
             .then(async () => {
               const completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
@@ -965,7 +966,7 @@ async function steerQueuedWebhookDelivery(
             })
             .catch(() => {})
           waitUntil?.(settlement)
-          return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
+          return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }), settlement: deliverySettlement }
         }
         stopDeliveryHeartbeat()
         await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
@@ -3210,6 +3211,7 @@ async function handleChatSdkMessage(
     scope: `${state.keyPrefix}${thread.id}`,
     sourceId: deliverySourceValue(message.id) || randomToken(),
   })
+  delivery.claimed = true
   context = withAgentChannelDelivery(context, delivery)
   thread = observeChatThread(thread, delivery)
   let input: AgentChatMessageTriggerInput | undefined
@@ -4459,7 +4461,15 @@ export function createChannelWebhookRouteHandler(
               })
               if (outcome) {
                 if (outcome.queued) registerQueue(backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
-                await channelDelivery.event({ type: outcome.queued ? "queued" : outcome.response.ok ? "completed" : "rejected", runId: invocation.run?.runId })
+                if (outcome.settlement) {
+                  await recordChannelDeliveryEvidence(channelDelivery, { type: "queued", runId: invocation.run?.runId })
+                  context.waitUntil(outcome.settlement.then(async (completed) => {
+                    await recordChannelDeliveryEvidence(channelDelivery, completed
+                      ? { type: "completed", runId: invocation.run?.runId }
+                      : { type: "retrying", runId: invocation.run?.runId })
+                  }))
+                }
+                else await recordChannelDeliveryEvidence(channelDelivery, { type: outcome.queued ? "queued" : outcome.response.ok ? "completed" : "rejected", runId: invocation.run?.runId })
                 return outcome.response
               }
             }
@@ -4520,8 +4530,8 @@ export function createChannelWebhookRouteHandler(
             handlerOptions.capabilities,
             routeAgentIdentity(handlerOptions),
           ), channelDelivery)
-          await channelDelivery.event({ type: "accepted", runId: invocation.run?.runId })
-          await channelDelivery.event({ type: "invocation.started", runId: invocation.run?.runId })
+          await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted", runId: invocation.run?.runId })
+          await recordChannelDeliveryEvidence(channelDelivery, { type: "invocation.started", runId: invocation.run?.runId })
           const ownershipAbort = webhookLock ? new AbortController() : undefined
           let stopHeartbeat: (() => void) | undefined
           if (webhookLock && webhookState && ownershipAbort) {
@@ -4620,6 +4630,9 @@ export function createChannelWebhookRouteHandler(
           const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline, chatDeliveryState)
           webhookDeadlineAbort?.signal.throwIfAborted()
           const response = await handler(request, { waitUntil: context.waitUntil })
+          if (!channelDelivery.claimed) {
+            await recordChannelDeliveryEvidence(channelDelivery, { type: "completed" })
+          }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
             await context.flushWaitUntil?.()
           }
