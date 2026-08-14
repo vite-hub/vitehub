@@ -70,8 +70,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   let reconnectAbort: AbortController | undefined
   let reconnectGeneration = 0
   let disposed = false
-  let prepareReplay: () => UI_MESSAGE | undefined = () => undefined
-  let replayPartial: { chatId: string, message: UI_MESSAGE } | undefined
+  let prepareReplay: (messageId: string | undefined) => void = () => {}
   const chat = useAiChat<UI_MESSAGE>(() => {
     const { api, credentials, fetch, headers, onData, resume: _resume, transport, ...init } = currentOptions.value
     const route = api ?? agentChatRoute(agent.name)
@@ -105,23 +104,30 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       const generation = ++reconnectGeneration
       reconnectAbort?.abort()
       reconnectAbort = new AbortController()
-      const partial = prepareReplay()
-      if (partial && replayPartial?.chatId !== request.chatId) replayPartial = { chatId: request.chatId, message: partial }
-      let stream: Awaited<ReturnType<typeof reconnectToStream>>
-      try {
-        stream = await reconnectToStream(request)
-      }
-      catch (error) {
-        if (generation === reconnectGeneration && replayPartial?.chatId === request.chatId) {
-          chat.messages.value = [...chat.messages.value, replayPartial.message]
-          replayPartial = undefined
-        }
-        throw error
-      }
+      const stream = await reconnectToStream(request)
       if (generation !== reconnectGeneration) return null
-      if (!stream && replayPartial?.chatId === request.chatId) chat.messages.value = [...chat.messages.value, replayPartial.message]
-      replayPartial = undefined
-      return stream
+      if (!stream) return null
+      const reader = stream.getReader()
+      const first = await reader.read()
+      if (generation !== reconnectGeneration) {
+        await reader.cancel()
+        return null
+      }
+      if (first.done) return null
+      prepareReplay(first.value.type === "start" ? first.value.messageId : undefined)
+      return new ReadableStream({
+        cancel(reason) {
+          return reader.cancel(reason)
+        },
+        start(controller) {
+          controller.enqueue(first.value)
+        },
+        async pull(controller) {
+          const chunk = await reader.read()
+          if (chunk.done) controller.close()
+          else controller.enqueue(chunk.value)
+        },
+      })
     }
     return {
       ...init,
@@ -140,12 +146,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       transport: transport ?? defaultTransport,
     }
   })
-  prepareReplay = () => {
-    const partial = chat.messages.value.at(-1)
-    if (partial?.role === "assistant") {
-      chat.messages.value = chat.messages.value.slice(0, -1)
-      return partial
-    }
+  prepareReplay = (messageId) => {
+    if (!messageId) return
+    const messages = chat.messages.value
+    const partial = messages.at(-1)
+    const replay = { id: messageId, parts: [], role: "assistant" } as unknown as UI_MESSAGE
+    chat.messages.value = partial?.role === "assistant" && partial.id === messageId
+      ? [...messages.slice(0, -1), replay]
+      : [...messages, replay]
   }
   if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   onScopeDispose(() => {

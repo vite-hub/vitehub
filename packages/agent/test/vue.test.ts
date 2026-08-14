@@ -302,6 +302,29 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("preserves a previous assistant turn when reconnecting to a newer invocation", async () => {
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ messageId: "assistant-2", type: "start" })
+          writer.write({ id: "text-2", type: "text-start" })
+          writer.write({ delta: "New answer", id: "text-2", type: "text-delta" })
+          writer.write({ id: "text-2", type: "text-end" })
+          writer.write({ type: "finish" })
+        },
+      }),
+    })))
+    const previous = { id: "assistant-1", parts: [{ text: "Previous answer", type: "text" as const }], role: "assistant" as const }
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", messages: [previous], resume: true }))!
+
+    await vi.waitFor(() => expect(chat.messages.value).toHaveLength(2))
+    expect(chat.messages.value[0]).toEqual(previous)
+    expect(chat.messages.value[1]).toMatchObject({ id: "assistant-2", parts: [{ text: "New answer", type: "text" }] })
+    scope.stop()
+  })
+
   it("aborts a pending reconnect on scope disposal without deleting the server run", async () => {
     vi.stubGlobal("window", {})
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => await new Promise<Response>((_resolve, reject) => {

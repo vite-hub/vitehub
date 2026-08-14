@@ -3902,6 +3902,7 @@ interface ResumableChatRun {
   reader?: ReadableStreamDefaultReader<Uint8Array>
   ready: Promise<void>
   requestSequence: number
+  replaySubscribers: number
   resolveReady: () => void
   released: boolean
   setupError?: unknown
@@ -3922,8 +3923,36 @@ const resumableChatMaxOwnerTombstones = 100
 const resumableChatMaxTombstones = 10_000
 
 function resumableChatResponse(run: ResumableChatRun): Response {
-  if (!run.done && run.subscribers.size >= resumableChatMaxSubscribers) {
+  if (run.subscribers.size + run.replaySubscribers >= resumableChatMaxSubscribers) {
     return createJsonErrorResponse(429, "Resumable web chat has too many live subscribers. Try again later.")
+  }
+  if (run.done) {
+    const chunks = run.chunks
+    let chunkIndex = 0
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      run.replaySubscribers--
+    }
+    run.replaySubscribers++
+    return new Response(new ReadableStream<Uint8Array>({
+      cancel: release,
+      pull(controller) {
+        const chunk = chunks[chunkIndex++]
+        if (chunk) {
+          controller.enqueue(chunk)
+          return
+        }
+        release()
+        if (run.error) controller.error(run.error)
+        else controller.close()
+      },
+    }), {
+      headers: run.headers,
+      status: run.status,
+      statusText: run.statusText,
+    })
   }
   let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined
   return new Response(new ReadableStream<Uint8Array>({
@@ -4341,6 +4370,7 @@ export function createChannelChatRouteHandler(
           ready,
           released: false,
           requestSequence,
+          replaySubscribers: 0,
           resolveReady,
           status: 200,
           statusText: "",
@@ -4445,7 +4475,7 @@ export function createChannelChatRouteHandler(
       let liveSubscribers = 0
       for (const run of resumableRuns.values()) {
         if (!run.done) activeRuns++
-        liveSubscribers += run.subscribers.size
+        liveSubscribers += run.subscribers.size + run.replaySubscribers
       }
       return {
         activeRuns,
