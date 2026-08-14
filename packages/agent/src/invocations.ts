@@ -478,7 +478,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
           })()
           context.waitUntil(terminalRetry)
-          if (context.run?.origin?.startsWith("workflow:")) await terminalRetry
         },
         async running() {
           if (finished) return

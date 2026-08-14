@@ -58,10 +58,6 @@ function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRunt
   return "unknown"
 }
 
-function waitUntil(promise: Promise<unknown>): void {
-  void Promise.resolve(promise).catch(() => {})
-}
-
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
 function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): boolean {
@@ -194,6 +190,10 @@ export async function runAgentWorkflowDefinition<
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
+  const waitUntilTasks: Array<Promise<void>> = []
+  const waitUntil = (promise: Promise<unknown>): void => {
+    waitUntilTasks.push(Promise.resolve(promise).then(() => {}, () => {}))
+  }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
@@ -213,11 +213,14 @@ export async function runAgentWorkflowDefinition<
     waitUntil,
   } as never)
 
-  return await portableWorkflowResult(await runAgentInline(
+  const result = await runAgentInline(
     agent,
     runtimeContext,
     payload.resolvedInvoker
       ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
       : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
-  ))
+  )
+  const portableResult = await portableWorkflowResult(result)
+  for (let index = 0; index < waitUntilTasks.length; index++) await waitUntilTasks[index]
+  return portableResult
 }

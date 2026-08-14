@@ -11357,6 +11357,30 @@ describe("agent message protocol", () => {
       }, async () => result)).resolves.not.toHaveProperty("raw.initialResponseMessages")
     })
 
+    it("owns deferred recovery for Workflow runs with source origins", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const recovery = deferred<void>()
+      let completed = false
+      const result = runAgentWorkflowDefinition({} as never, {
+        id: "source-run",
+        name: "source-run",
+        payload: { run: { origin: "portal", runId: "source-run" } },
+        provider: "vercel",
+      }, async (_agent, context) => {
+        expect(context.run?.origin).toBe("portal")
+        context.waitUntil(recovery.promise)
+        return "done"
+      }).then((value) => {
+        completed = true
+        return value
+      })
+
+      await Promise.resolve()
+      expect(completed).toBe(false)
+      recovery.resolve()
+      await expect(result).resolves.toBe("done")
+    })
+
     it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
