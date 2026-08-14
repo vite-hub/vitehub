@@ -3711,6 +3711,11 @@ describe("server helpers", () => {
         name: "reply.png",
         size: 5,
         type: "image",
+      }, {
+        mimeType: "text/plain",
+        name: "oversized-reply.log",
+        size: 8 * 1024 * 1024 + 1,
+        type: "file",
       }],
       author: {
         fullName: "Previous author",
@@ -3756,7 +3761,7 @@ describe("server helpers", () => {
         metadata: expect.objectContaining({
           chat: expect.objectContaining({
             replyTo: {
-              attachmentCount: 1,
+              attachmentCount: 2,
               author: {
                 fullName: "Previous author",
                 isBot: true,
@@ -3773,7 +3778,7 @@ describe("server helpers", () => {
         parts: [
           expect.objectContaining({
             data: expect.objectContaining({
-              attachmentCount: 1,
+              attachmentCount: 2,
               author: expect.objectContaining({ userId: "previous-author" }),
               dateSent: "2026-06-10T11:30:00.000Z",
               kind: "reply_to_message",
@@ -3804,6 +3809,45 @@ describe("server helpers", () => {
         ],
       })],
     }))
+  })
+
+  it("ignores unsupported current content even when it replies to a message", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const replyTo = new Message({
+      attachments: [],
+      author: { fullName: "Previous author", isBot: false, isMe: false, userId: "previous-author", userName: "previous" },
+      formatted: { children: [], type: "root" },
+      id: "reply-message",
+      metadata: { dateSent: new Date("2026-06-10T11:30:00.000Z"), edited: false },
+      raw: {},
+      text: "previous message",
+      threadId: "telegram:456",
+    })
+    const adapter = createTestChatAdapter({ replyTo })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: { support: testTelegram(telegram, { adapter: () => adapter as never }) },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 43,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092801,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          location: { latitude: 1, longitude: 2 },
+          message_id: 9,
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).not.toHaveBeenCalled()
   })
 
   it("filters adapter messages before Agent invocation", async () => {

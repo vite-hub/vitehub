@@ -2413,10 +2413,10 @@ async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversi
 
 async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts = await chatMessageParts(message, options)
-  if (!message.replyTo) return parts
+  if (!parts.length || !message.replyTo) return parts
   const replyContext = chatReplyMetadata(message)!
   delete replyContext.text
-  const replyParts = (await chatMessageParts(message.replyTo, options)).map((part, index) => ({
+  const replyParts = (await chatMessageParts(message.replyTo)).map((part, index) => ({
     ...(part.type === "text" ? { data: { text: part.text }, type: "data-chat-reply-text" as const } : part),
     id: `reply-${part.id || index + 1}`,
   }))
