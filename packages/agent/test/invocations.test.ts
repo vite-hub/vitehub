@@ -9,6 +9,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
 import type { AgentInvocationStore } from "../src/server.ts"
+import type { Client } from "@libsql/client"
 
 function runtime(runId: string, annotations?: Record<string, boolean | number | string | null>) {
   return {
@@ -120,6 +121,51 @@ describe("Agent Invocations", () => {
     await expect(runAgent(agent, runtime("run-1"), {})).resolves.toBe("done")
   })
 
+  it("normalizes limits while preserving opaque custom-store cursors", async () => {
+    const list = vi.fn(() => ({ cursor: "next/token", invocations: [] }))
+    const store: AgentInvocationStore = {
+      create: input => ({ ...input, cursor: "created/token" }),
+      get: () => undefined,
+      list,
+      update: () => undefined,
+    }
+    const invocations = defineAgentInvocations({ store })
+
+    await expect(invocations.list({ cursor: "opaque/token", limit: 1000 })).resolves.toMatchObject({
+      cursor: "next/token",
+    })
+    expect(list).toHaveBeenCalledWith({ cursor: "opaque/token", limit: 100 })
+  })
+
+  it("keeps terminal records immutable when an invocation id is reused", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const completed = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
+    const failed = defineAgent({ driver: { run: () => { throw new Error("retry failed") } }, invocations, runtime: false })
+
+    await runAgent(completed, runtime("delivery-1"), {})
+    const original = await invocations.get("delivery-1")
+    await expect(runAgent(failed, runtime("delivery-1"), {})).rejects.toThrow("retry failed")
+    expect(await invocations.get("delivery-1")).toEqual(original)
+  })
+
+  it("bounds dynamic summary metadata without truncating invocation identity", async () => {
+    const oversized = "x".repeat(700)
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ driver: { run: () => { throw new Error(oversized) } }, invocations, runtime: false })
+    const context = {
+      ...runtime(oversized),
+      run: { channelId: oversized, origin: oversized, runId: oversized, threadId: oversized },
+    }
+
+    await expect(runAgent(agent, context, {})).rejects.toThrow(oversized)
+    const record = await invocations.get(oversized)
+    expect(record?.id).toMatch(/^sha256_[\da-f]{64}$/)
+    expect(record?.channelId).toHaveLength(512)
+    expect(record?.origin).toHaveLength(512)
+    expect(record?.threadId).toHaveLength(512)
+    expect(record?.error?.message).toHaveLength(512)
+  })
+
   it("persists records through the libSQL SQLite adapter", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-"))
     const url = `file:${join(directory, "invocations.sqlite")}`
@@ -152,6 +198,38 @@ describe("Agent Invocations", () => {
     finally {
       writerClient.close()
       readerClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("retries libSQL initialization after a transient failure", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-retry-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    let fail = true
+    const flakyClient = new Proxy(client, {
+      get(target, property) {
+        if (property === "execute") {
+          return (...args: Parameters<Client["execute"]>) => {
+            if (fail) {
+              fail = false
+              throw new Error("database temporarily unavailable")
+            }
+            return target.execute(...args)
+          }
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const invocations = defineAgentInvocations({
+      store: createLibsqlAgentInvocationStore({ client: flakyClient }),
+    })
+    try {
+      await expect(invocations.get("run-1")).rejects.toThrow("temporarily unavailable")
+      await expect(invocations.get("run-1")).resolves.toBeUndefined()
+    }
+    finally {
+      client.close()
       await rm(directory, { force: true, recursive: true })
     }
   })

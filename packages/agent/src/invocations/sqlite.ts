@@ -64,7 +64,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   const table = tableName(options.tablePrefix)
   let initialized: Promise<void> | undefined
   const initialize = async () => {
-    initialized ||= (async () => {
+    if (!initialized) initialized = (async () => {
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table} (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
@@ -72,7 +72,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         record TEXT NOT NULL
       )`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
-    })()
+    })().catch((error) => {
+      initialized = undefined
+      throw error
+    })
     await initialized
   }
   const read = async (id: string): Promise<AgentInvocationRecord | undefined> => {

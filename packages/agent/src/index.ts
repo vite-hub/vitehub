@@ -3973,6 +3973,7 @@ async function executeAgentInvocation<
         )
       : undefined
     if (preparedInvocation?.handledResponse) {
+      await invocationJournal?.running()
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
     }
     release = definition

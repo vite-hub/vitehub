@@ -12,6 +12,7 @@ const MAX_LIST_LIMIT = 100
 const MAX_ANNOTATIONS = 32
 const MAX_ANNOTATION_KEY_LENGTH = 64
 const MAX_ANNOTATION_STRING_LENGTH = 512
+const MAX_METADATA_STRING_LENGTH = 512
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -132,13 +133,23 @@ function normalizeLimit(limit: number | undefined): number {
   return Math.min(limit, MAX_LIST_LIMIT)
 }
 
-function normalizeCursor(cursor: string | undefined): string | undefined {
+function normalizeBuiltInCursor(cursor: string | undefined): string | undefined {
   if (cursor === undefined) return
   const value = Number(cursor)
   if (!Number.isSafeInteger(value) || value < 1 || String(value) !== cursor) {
     throw new TypeError("[vitehub] Agent Invocation cursor is invalid.")
   }
   return cursor
+}
+
+function boundedString(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
+}
+
+async function boundedIdentity(value: string): Promise<string> {
+  if (value.length <= MAX_METADATA_STRING_LENGTH) return value
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
+  return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 function assertInvocationId(id: string): void {
@@ -159,8 +170,11 @@ function assertStore(store: AgentInvocationStore | undefined): asserts store is 
 
 function errorDetails(error: unknown): AgentInvocationRecord["error"] | undefined {
   if (error === undefined) return
-  if (error instanceof Error) return { message: error.message || error.name, ...(error.name ? { name: error.name } : {}) }
-  return { message: typeof error === "string" ? error : "Agent Invocation failed." }
+  if (error instanceof Error) return {
+    message: boundedString(error.message || error.name)!,
+    ...(error.name ? { name: boundedString(error.name) } : {}),
+  }
+  return { message: boundedString(typeof error === "string" ? error : "Agent Invocation failed.")! }
 }
 
 function terminalStatus(status: AgentInvocationRecordStatus): boolean {
@@ -171,6 +185,7 @@ export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
+  if (terminalStatus(record.status)) return record
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
@@ -204,10 +219,11 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     },
     list(options = {}) {
       const limit = normalizeLimit(options.limit)
+      const cursor = normalizeBuiltInCursor(options.cursor)
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
-      const before = options.cursor === undefined ? Number.POSITIVE_INFINITY : Number(options.cursor)
+      const before = cursor === undefined ? Number.POSITIVE_INFINITY : Number(cursor)
       const candidates = [...records.values()]
         .filter(record => Number(record.cursor) < before && (!statuses || statuses.has(record.status)))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
@@ -259,7 +275,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       context: AgentRuntimeContext<TRuntimeConfig>,
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
-      const traceId = context.trace?.id || runId
+      const recordId = await boundedIdentity(runId)
+      const traceId = await boundedIdentity(context.trace?.id || runId)
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
@@ -272,20 +289,20 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const now = new Date().toISOString()
       await write(() => store.create({
-        ...(context.agentIdentity?.name ? { agentName: context.agentIdentity.name } : {}),
+        ...(context.agentIdentity?.name ? { agentName: boundedString(context.agentIdentity.name) } : {}),
         ...(annotations ? { annotations } : {}),
-        ...(context.run?.channelId ? { channelId: context.run.channelId } : {}),
+        ...(context.run?.channelId ? { channelId: boundedString(context.run.channelId) } : {}),
         createdAt: now,
-        id: runId,
+        id: recordId,
         observations: [],
-        ...(context.run?.origin ? { origin: context.run.origin } : {}),
+        ...(context.run?.origin ? { origin: boundedString(context.run.origin) } : {}),
         status: "pending",
-        ...(context.run?.threadId ? { threadId: context.run.threadId } : {}),
+        ...(context.run?.threadId ? { threadId: boundedString(context.run.threadId) } : {}),
         traceId,
         updatedAt: now,
       }))
       const baseTraceLog = context.traceLog || createTraceEventLog()
-      const observe = (observation: TraceEventLogEntry) => write(() => store.update(runId, {
+      const observe = (observation: TraceEventLogEntry) => write(() => store.update(recordId, {
         observation,
         timestamp: observation.timestamp,
       }))
@@ -299,7 +316,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         async finish(status, error) {
           if (finished) return
           finished = true
-          await write(() => store.update(runId, {
+          await write(() => store.update(recordId, {
             ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
             status,
             timestamp: new Date().toISOString(),
@@ -307,7 +324,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         async running() {
           if (finished) return
-          await write(() => store.update(runId, {
+          await write(() => store.update(recordId, {
             status: "running",
             timestamp: new Date().toISOString(),
           }))
@@ -316,11 +333,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id) {
       assertInvocationId(id)
-      return await store.get(id)
+      return await store.get(await boundedIdentity(id))
     },
     async list(options = {}) {
-      normalizeLimit(options.limit)
-      return await store.list({ ...options, cursor: normalizeCursor(options.cursor) })
+      return await store.list({ ...options, limit: normalizeLimit(options.limit) })
     },
   }
   return invocations
