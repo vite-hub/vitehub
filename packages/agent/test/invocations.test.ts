@@ -90,6 +90,9 @@ describe("Agent Invocations", () => {
 
     await runAgent(agent, runtime("bounded-observations"), {})
 
+    await vi.waitFor(async () => {
+      expect(await invocations.getByRunId("bounded-observations")).toMatchObject({ status: "completed" })
+    }, { timeout: 2_000 })
     const record = await invocations.getByRunId("bounded-observations")
     expect(record).toMatchObject({ status: "completed" })
     expect(record?.observations).toHaveLength(256)

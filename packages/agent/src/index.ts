@@ -844,7 +844,7 @@ async function runAgentAsWorkflow<
     ? await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: run.id },
-    }, { agentName: agent.name, deferClaim: true })
+    }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
     : undefined
   return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
 }

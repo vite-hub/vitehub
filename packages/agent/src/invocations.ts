@@ -19,7 +19,8 @@ const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const CLAIM_LEASE_MS = 30_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
-const TERMINAL_WRITE_ATTEMPTS = 3
+const TERMINAL_RETRY_INTERVAL_MS = 1_000
+const TERMINAL_RETRY_TIMEOUT_MS = 60_000
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -75,7 +76,7 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
-  claim(id: string, claimId: string, leaseMs: number): MaybePromise<boolean>
+  claim(id: string, claimId: string, leaseMs: number, force?: boolean): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
@@ -97,7 +98,7 @@ export interface AgentInvocations {
 interface BoundAgentInvocations extends AgentInvocations {
   [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
     context: AgentRuntimeContext<TRuntimeConfig>,
-    options?: { agentName?: string, deferClaim?: boolean },
+    options?: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean },
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
 }
 
@@ -264,9 +265,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
   const records = new Map<string, AgentInvocationRecord>()
   let cursor = 0
   return {
-    claim(id, claimId, leaseMs) {
+    claim(id, claimId, leaseMs, force) {
       const claim = claims.get(id)
-      if (!records.has(id) || (claim && claim.claimId !== claimId && claim.expiresAt > Date.now())) return false
+      if (!records.has(id) || (!force && claim && claim.claimId !== claimId && claim.expiresAt > Date.now())) return false
       claims.set(id, { claimId, expiresAt: Date.now() + leaseMs })
       return true
     },
@@ -340,7 +341,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     [agentInvocationsBrand]: true,
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
-      bindOptions: { agentName?: string, deferClaim?: boolean } = {},
+      bindOptions: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean } = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
       const agentName = context.agentIdentity?.name || bindOptions.agentName
@@ -352,6 +353,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let finished = false
       let ownsRecord = false
       let observationCount = 0
+      let created = false
+      let createInput: AgentInvocationStoreCreateInput
+      let terminalRetry: Promise<void> | undefined
       let heartbeat: ReturnType<typeof setInterval> | undefined
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
@@ -363,8 +367,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         const unref = (heartbeat as unknown as { unref?: () => void }).unref
         if (unref) unref.call(heartbeat)
       }
-      const renew = async (): Promise<boolean> => {
-        try { ownsRecord = await store.claim(recordId, claimId, CLAIM_LEASE_MS) }
+      const ensureCreated = async (): Promise<boolean> => {
+        if (created) return true
+        try {
+          const result = await store.create(createInput)
+          observationCount = result.record.observations.length
+          created = true
+        }
+        catch {}
+        return created
+      }
+      const renew = async (force = false): Promise<boolean> => {
+        if (!await ensureCreated()) return false
+        try { ownsRecord = await store.claim(recordId, claimId, CLAIM_LEASE_MS, force) }
         catch { ownsRecord = false }
         if (ownsRecord) startHeartbeat()
         else stopHeartbeat()
@@ -378,8 +393,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         await writes
       }
       const now = new Date().toISOString()
-      try {
-        const result = await store.create({
+      createInput = {
           ...(agentName ? { agentName: boundedString(agentName) } : {}),
           ...(annotations ? { annotations } : {}),
           ...(context.run?.channelId ? { channelId: boundedString(context.run.channelId) } : {}),
@@ -391,16 +405,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...(context.run?.threadId ? { threadId: boundedString(context.run.threadId) } : {}),
           traceId,
           updatedAt: now,
-        })
-        observationCount = result.record.observations.length
       }
-      catch {}
+      await ensureCreated()
       if (!bindOptions.deferClaim) await renew()
       const baseTraceLog = context.traceLog || createTraceEventLog()
-      const update = async (input: AgentInvocationStoreUpdateInput): Promise<boolean> => {
+      const update = async (input: AgentInvocationStoreUpdateInput, force = false): Promise<boolean> => {
         let updated = false
         await write(async () => {
-          if (!await renew()) return
+          if (!await renew(force)) return
           updated = await store.update(recordId, input, claimId) !== undefined
         })
         return updated
@@ -425,19 +437,32 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         async finish(status, error) {
           if (finished) return
-          let updated = false
-          for (let attempt = 0; attempt < TERMINAL_WRITE_ATTEMPTS && !updated; attempt++) {
-            updated = await update({
+          const finishInput: AgentInvocationStoreUpdateInput = {
               ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
               status,
               timestamp: new Date().toISOString(),
-            })
           }
-          if (!updated) return
-          finished = true
-          stopHeartbeat()
-          if (ownsRecord) await write(() => store.release(recordId, claimId))
-          ownsRecord = false
+          const finishOnce = async () => {
+            if (finished || !await update(finishInput, bindOptions.terminalTakeover)) return false
+            finished = true
+            stopHeartbeat()
+            if (ownsRecord) await write(() => store.release(recordId, claimId))
+            ownsRecord = false
+            return true
+          }
+          if (await finishOnce() || terminalRetry) return
+          terminalRetry = (async () => {
+            const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
+            while (!finished && Date.now() < deadline) {
+              await new Promise<void>((resolve) => {
+                const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
+                const unref = (timer as unknown as { unref?: () => void }).unref
+                if (unref) unref.call(timer)
+              })
+              await finishOnce()
+            }
+          })()
+          context.waitUntil(terminalRetry)
         },
         async running() {
           if (finished) return
@@ -466,7 +491,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
 export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeConfig>(
   invocations: AgentInvocations | undefined,
   context: AgentRuntimeContext<TRuntimeConfig>,
-  options?: { agentName?: string, deferClaim?: boolean },
+  options?: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean },
 ): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!invocations) return
   const bind = (invocations as Partial<BoundAgentInvocations>)[bindAgentInvocationsSymbol]

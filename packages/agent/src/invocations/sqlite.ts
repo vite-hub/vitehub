@@ -93,14 +93,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     return row ? deserialize(row.record, row.sequence) : undefined
   }
   return {
-    async claim(id, claimId, leaseMs) {
+    async claim(id, claimId, leaseMs, force) {
       await initialize()
       const result = await client.execute({
-        args: [id, claimId, leaseMs, id],
+        args: [id, claimId, leaseMs, id, force ? 1 : 0],
         sql: `INSERT INTO ${table}_claims (id, claim_id, expires_at)
           SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
           ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, expires_at = excluded.expires_at
-          WHERE ${table}_claims.claim_id = excluded.claim_id
+          WHERE ? = 1 OR ${table}_claims.claim_id = excluded.claim_id
             OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
       })
       return result.rowsAffected > 0
