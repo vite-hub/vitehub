@@ -320,8 +320,12 @@ describe("Agent Vue clients", () => {
 
   it("preserves partial content when a newer reconnect supersedes a pending reconnect", async () => {
     vi.stubGlobal("window", {})
+    let releaseReconnect!: () => void
+    const reconnect = new Promise<Response>((resolve) => {
+      releaseReconnect = () => resolve(new Response(null, { status: 204 }))
+    })
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
-      if (String(input).includes("chat-2")) return new Response(null, { status: 204 })
+      if (String(input).includes("chat-2")) return reconnect
       return await new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
       })
@@ -342,8 +346,22 @@ describe("Agent Vue clients", () => {
       messages: [{ id: "assistant-2", parts: [{ text: "Second partial", type: "text" as const }], role: "assistant" as const }],
     }
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
+    releaseReconnect()
     await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
     expect(chat.messages.value).toEqual(options.value.messages)
+    scope.stop()
+  })
+
+  it("preserves partial content when the current reconnect fails", async () => {
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => new Response("unavailable", { status: 503 })))
+    const messages = [{ id: "assistant-1", parts: [{ text: "Persisted partial", type: "text" as const }], role: "assistant" as const }]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", messages, resume: true }))!
+
+    await vi.waitFor(() => expect(chat.status.value).toBe("error"))
+    expect(chat.messages.value).toEqual(messages)
     scope.stop()
   })
 

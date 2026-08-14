@@ -4117,7 +4117,19 @@ export function createChannelChatRouteHandler(
       let resumableRun: ResumableChatRun | undefined
       if (invocationKey && latestKey && resumable) {
         if (resumableRuns.size >= resumableChatMaxRuns) {
-          throw createRouteError(429, "Resumable web chat has too many retained runs. Try again later.")
+          for (const [retainedKey, retainedRun] of resumableRuns) {
+            if (!retainedRun.done) continue
+            resumableRuns.delete(retainedKey)
+            for (const [retainedLatestKey, latestRun] of latestResumableRuns) {
+              if (latestRun === retainedRun) latestResumableRuns.delete(retainedLatestKey)
+            }
+            retainedRun.chunks = []
+            retainedRun.bufferedBytes = 0
+            break
+          }
+        }
+        if (resumableRuns.size >= resumableChatMaxRuns) {
+          throw createRouteError(429, "Resumable web chat has too many active runs. Try again later.")
         }
         const resumableInvocationKey = invocationKey
         const resumableLatestKey = latestKey
@@ -4167,6 +4179,8 @@ export function createChannelChatRouteHandler(
                   resumableRun.bufferedBytes -= value.byteLength
                   if (resumableRuns.get(resumableInvocationKey) === resumableRun) resumableRuns.delete(resumableInvocationKey)
                   if (latestResumableRuns.get(resumableLatestKey) === resumableRun) latestResumableRuns.delete(resumableLatestKey)
+                  resumableRun.chunks = []
+                  resumableRun.bufferedBytes = 0
                   const error = new Error("[vitehub] Resumable web chat exceeded the retained replay limit.")
                   closeResumableChatRun(resumableRun, error)
                   await resumableRun.reader!.cancel(error).catch(() => undefined)
@@ -4182,7 +4196,7 @@ export function createChannelChatRouteHandler(
             }
             finally {
               const cleanup = setTimeout(() => {
-                resumableRuns.delete(resumableInvocationKey)
+                if (resumableRuns.get(resumableInvocationKey) === resumableRun) resumableRuns.delete(resumableInvocationKey)
                 if (latestResumableRuns.get(resumableLatestKey) === resumableRun) latestResumableRuns.delete(resumableLatestKey)
               }, 600_000)
               cleanup.unref?.()

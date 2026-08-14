@@ -2,15 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 afterEach(() => vi.useRealTimers())
 
-const chatBody = JSON.stringify({
-  id: "chat-1",
-  messageId: "user-1",
-  messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
-})
-
-function chatRequest(method: "DELETE" | "GET" | "POST", owner = "max"): Request {
+function chatRequest(method: "DELETE" | "GET" | "POST", owner = "max", messageId = "user-1"): Request {
   return new Request(`https://example.com/api/_vitehub/agents/support/chat${method === "POST" ? "" : "?id=chat-1"}`, {
-    ...(method === "POST" ? { body: chatBody } : {}),
+    ...(method === "POST"
+      ? { body: JSON.stringify({ id: "chat-1", messageId, messages: [{ id: messageId, parts: [{ text: "hello", type: "text" }], role: "user" }] }) }
+      : {}),
     headers: { "content-type": "application/json", "x-owner": owner },
     method,
   })
@@ -173,6 +169,7 @@ describe("resumable web chat", () => {
   })
 
   it("fails and cancels a producer that exceeds the retained replay limit", async () => {
+    vi.useFakeTimers()
     const agentModule = await import("../src/index.ts")
     const { defineAgent } = agentModule
     const { webChat } = await import("../src/channels.ts")
@@ -183,7 +180,7 @@ describe("resumable web chat", () => {
       start(controller) {
         controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1))
       },
-    }))).mockResolvedValueOnce(new Response("ok"))
+    }))).mockImplementation(async () => new Response("ok"))
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
@@ -202,8 +199,41 @@ describe("resumable web chat", () => {
       await expect(response.text()).rejects.toThrow("retained replay limit")
       await Promise.all(pending)
       expect(cancel).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(1_000)
       const retry = await handler(chatRequest("POST"), { agentName: "support", waitUntil: promise => pending.push(promise) })
       await expect(retry.text()).resolves.toBe("ok")
+      await vi.advanceTimersByTimeAsync(599_000)
+      const deduplicated = await handler(chatRequest("POST"), { agentName: "support", waitUntil: promise => pending.push(promise) })
+      await expect(deduplicated.text()).resolves.toBe("ok")
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
+  it("evicts completed runs instead of rejecting new traffic at the retained-run limit", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async () => new Response("ok"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      for (let index = 0; index <= 100; index++) {
+        await expect((await handler(chatRequest("POST", "max", `user-${index}`), options)).text()).resolves.toBe("ok")
+      }
+      await Promise.all(pending)
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(101)
+
+      await expect((await handler(chatRequest("POST", "max", "user-100"), options)).text()).resolves.toBe("ok")
+      expect(streamAgentTrigger).toHaveBeenCalledTimes(101)
     }
     finally {
       streamAgentTrigger.mockRestore()

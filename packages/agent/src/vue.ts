@@ -66,7 +66,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     streamedParts.value = []
     if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   })
-  const reconnecting = shallowRef(false)
+  const reconnecting = shallowRef(0)
   let reconnectAbort: AbortController | undefined
   let reconnectGeneration = 0
   let prepareReplay: () => UI_MESSAGE | undefined = () => undefined
@@ -106,7 +106,17 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       reconnectAbort = new AbortController()
       const partial = prepareReplay()
       if (partial && replayPartial?.chatId !== request.chatId) replayPartial = { chatId: request.chatId, message: partial }
-      const stream = await reconnectToStream(request)
+      let stream: Awaited<ReturnType<typeof reconnectToStream>>
+      try {
+        stream = await reconnectToStream(request)
+      }
+      catch (error) {
+        if (generation === reconnectGeneration && replayPartial?.chatId === request.chatId) {
+          chat.messages.value = [...chat.messages.value, replayPartial.message]
+          replayPartial = undefined
+        }
+        throw error
+      }
       if (generation !== reconnectGeneration) return null
       if (!stream && replayPartial?.chatId === request.chatId) chat.messages.value = [...chat.messages.value, replayPartial.message]
       replayPartial = undefined
@@ -157,18 +167,18 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }
 
   async function reconnect(): Promise<void> {
-    reconnecting.value = true
+    reconnecting.value++
     try {
       await chat.resumeStream()
     }
     finally {
-      reconnecting.value = false
+      reconnecting.value--
     }
   }
 
   return {
     ...chat,
-    status: computed(() => reconnecting.value && chat.status.value === "ready" ? "submitted" : chat.status.value),
+    status: computed(() => reconnecting.value > 0 && chat.status.value === "ready" ? "submitted" : chat.status.value),
     stop,
     data: computed(() => createAgentChatData([
       ...chat.messages.value.flatMap(message => message.parts),
