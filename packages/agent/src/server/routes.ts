@@ -4438,6 +4438,7 @@ export function createChannelChatRouteHandler(
       const sessionOptions = chatOptions.sessions
       let approvalTtlMs = agentChatApprovalTtlMs
       let cancelledDuringSessionBoundary = false
+      let refreshSessionBoundary: { key: string, value: string } | undefined
       const manualSessions = sessionOptions === true
         || Boolean(sessionOptions && (sessionOptions.strategy === "manual" || sessionOptions.strategy === "hybrid" || (!sessionOptions.strategy && !sessionOptions.idleTimeoutMs)))
       if (sessionId && manualSessions) {
@@ -4471,7 +4472,8 @@ export function createChannelChatRouteHandler(
             }
             const previous = await state.get<string>(boundaryKey)
             selectedSessionId = previous || selectedSessionId
-            if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
+            if (previous && resumable) refreshSessionBoundary = { key: boundaryKey, value: previous }
+            else if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
             if (!resumableRequestCancelled()) return
             if (!previous && selectedSessionId && await state.get<string>(boundaryKey) === selectedSessionId) {
               await state.delete(boundaryKey)
@@ -4560,6 +4562,9 @@ export function createChannelChatRouteHandler(
           let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
             output: "ui-message-stream",
           }))
+          if (refreshSessionBoundary) {
+            await state.set(refreshSessionBoundary.key, refreshSessionBoundary.value, approvalTtlMs)
+          }
           if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
           const response = normalizeResumableChatStreamResponse(await toAgentChatFetchResponse(result), triggerInput.run?.runId || resumableInvocationKey)
           if (!response.body) throw new Error("[vitehub] Resumable web chat requires a stream response.")
@@ -4591,6 +4596,13 @@ export function createChannelChatRouteHandler(
                     ownerBufferedBytes -= retainedRun.bufferedBytes
                     releaseResumableChatRun(retainedRun)
                     if (ownerBufferedBytes <= resumableChatMaxOwnerBufferedBytes) break
+                  }
+                }
+                if (resumableTotalBufferedBytes > resumableChatMaxTotalBufferedBytes) {
+                  for (const retainedRun of resumableRuns.values()) {
+                    if (retainedRun === resumableRun || !retainedRun.done) continue
+                    releaseResumableChatRun(retainedRun)
+                    if (resumableTotalBufferedBytes <= resumableChatMaxTotalBufferedBytes) break
                   }
                 }
                 if (resumableRun.bufferedBytes > resumableChatMaxBufferedBytes || ownerBufferedBytes > resumableChatMaxOwnerBufferedBytes || resumableTotalBufferedBytes > resumableChatMaxTotalBufferedBytes) {

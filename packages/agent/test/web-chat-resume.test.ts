@@ -1065,6 +1065,7 @@ describe("resumable web chat", () => {
       releaseGet = resolve
     })
     const values = new Map<string, unknown>()
+    let boundarySets = 0
     const state = {
       connect: async () => {},
       delete: async (key: string) => { values.delete(key) },
@@ -1076,6 +1077,7 @@ describe("resumable web chat", () => {
         return values.get(key) as T | undefined
       },
       set: async (key: string, value: unknown) => {
+        if (key.includes(":boundary")) boundarySets++
         values.set(key, value)
         if (key.includes(":boundary")) await setReady
       },
@@ -1119,14 +1121,17 @@ describe("resumable web chat", () => {
     expect([...values.keys()]).toEqual([expect.stringContaining(":boundary")])
     expect(run).toHaveBeenCalledOnce()
 
-    values.clear()
+    const boundaryKey = [...values.keys()].find(key => key.includes(":boundary"))!
+    const existingBoundary = values.get(boundaryKey)
+    const setsBeforeCancelledContinuation = boundarySets
     blockBoundaryGet = true
     const cancelledContinuation = handler(await sessionRequest("user-4", "continue"), options)
     await vi.waitFor(() => expect(getBlocked).toBe(true))
     await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
     releaseGet()
     await expect(cancelledContinuation).resolves.toMatchObject({ status: 204 })
-    expect([...values.keys()]).not.toEqual(expect.arrayContaining([expect.stringContaining(":boundary")]))
+    expect(values.get(boundaryKey)).toBe(existingBoundary)
+    expect(boundarySets).toBe(setsBeforeCancelledContinuation)
     expect(run).toHaveBeenCalledOnce()
   })
 
