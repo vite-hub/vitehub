@@ -6,13 +6,14 @@ import {
   useAgentInvocations,
   useChat,
   type AgentChatInit,
+  type AgentChatReactiveInit,
   type AgentClient,
   type AgentInvocationRequester,
 } from "../src/vue.ts"
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { ChatTransport, UIMessage } from "ai"
-import type { ComputedRef, ShallowRef } from "vue"
+import type { ComputedRef, MaybeRefOrGetter, ShallowRef } from "vue"
 import type { AgentInvocationSummary } from "../src/invocations.ts"
 
 describe("Agent Vue client types", () => {
@@ -27,8 +28,18 @@ describe("Agent Vue client types", () => {
 
     expectTypeOf(chat.id).toEqualTypeOf<ComputedRef<string>>()
     expectTypeOf(chat.messages).toEqualTypeOf<ShallowRef<UIMessage[]>>()
+    expectTypeOf(chat.data).toEqualTypeOf<ComputedRef<import("../src/messages.ts").AgentChatData>>()
     expectTypeOf(chat.status.value).toEqualTypeOf<"submitted" | "streaming" | "ready" | "error">()
     expectTypeOf(chat.sendMessage).toBeFunction()
+    expectTypeOf(useChat).toBeCallableWith(agent, (() => init) satisfies MaybeRefOrGetter<AgentChatReactiveInit>)
+
+    // @ts-expect-error AI SDK constructor-only options cannot update without resetting an active chat.
+    useChat(agent, () => ({ generateId: () => "message-id" }))
+
+    const staticInit: AgentChatInit = { generateId: () => "message-id", id: "support" }
+    useChat(agent, staticInit)
+    // @ts-expect-error Pretyped constructor-only options are also excluded from reactive getters.
+    useChat(agent, () => staticInit)
   })
 
   it("exposes typed invocation list and detail resources", () => {

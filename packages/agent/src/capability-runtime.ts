@@ -1058,13 +1058,14 @@ export async function resolveAgentCapabilities<
           },
         },
         model: {
-          async resolve(model) {
+          async resolve(model, options) {
             const resolver = model ?? invocationOptions.model
             if (resolver === undefined) {
               throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
             }
             const resolverContext = {
               ...metadataContext,
+              ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
               fs: currentWorkspace?.fs,
               runtimeConfig: runtime.runtimeConfig,
               workspace: currentWorkspace,
@@ -1343,13 +1344,17 @@ export async function applyCapabilityToolTransforms(
   return current
 }
 
+const useCurrentRendererResult = Symbol("useCurrentRendererResult")
+
 export async function applyOutputRenderers(
   result: unknown,
   renderers: ResolvedAgentOutputRenderer[] = [],
   providers: ResolvedAgentOutputExtensionProvider[] = [],
   values: Map<string, unknown> = new Map<string, unknown>(),
+  providerResult: unknown = useCurrentRendererResult,
 ): Promise<unknown> {
   let current = result
+  let rendered = false
   let providerIndex = 0
   const extensions = createAgentExtensionReader<AgentOutputExtensionValues>(values)
   const delayedRenderers: Array<{ extensions: AgentOutputExtensions, renderer: ResolvedAgentOutputRenderer }> = []
@@ -1357,7 +1362,10 @@ export async function applyOutputRenderers(
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
       if (values.has(provider.id)) continue
-      const value = await provider.resolve({ extensions, result: current })
+      const value = await provider.resolve({
+        extensions,
+        result: providerResult === useCurrentRendererResult || rendered ? current : providerResult,
+      })
       if (value !== undefined) values.set(provider.id, value)
     }
     if (renderer.order === "last") {
@@ -1368,6 +1376,7 @@ export async function applyOutputRenderers(
       continue
     }
     current = await renderer(current, extensions)
+    rendered = true
   }
   for (const delayed of delayedRenderers) {
     current = await delayed.renderer(current, delayed.extensions)

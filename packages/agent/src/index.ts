@@ -2310,19 +2310,23 @@ function withEagerUiMessageStreamUsageExtensions<
   rendered: unknown,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): unknown {
-  if (!isUIMessageStreamResult(rendered)) return rendered
-  const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
-  return cloneWithPropertyDescriptors(rendered, {
-    toUIMessageStream: {
-      configurable: true,
-      enumerable: false,
-      value: (...args: unknown[]) => toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
-        toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)),
-        context,
-        rendered,
-      )),
-    },
-  })
+  if (isUIMessageStreamResult(rendered)) {
+    const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+    return cloneWithPropertyDescriptors(rendered, {
+      toUIMessageStream: {
+        configurable: true,
+        enumerable: false,
+        value: (...args: unknown[]) => toReadableAsyncIterableStream(withEagerStreamUsageExtensions(
+          toReadableAsyncIterableStream(toUIMessageStream.apply(rendered, args)),
+          context,
+          rendered,
+        )),
+      },
+    })
+  }
+  return isAsyncIterable(rendered)
+    ? withEagerStreamUsageExtensions(rendered, context, rendered)
+    : rendered
 }
 
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
@@ -3813,9 +3817,11 @@ async function executeAgentInvocationWithCapacityLease<
           capacityRendered = uiMessageSource.stream
         }
       }
-      const enrichedRendered = isAsyncIterable(capacityRendered)
-        ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
-        : withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
+      const enrichedRendered = isUIMessageStreamResult(capacityRendered)
+        ? withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
+        : isAsyncIterable(capacityRendered)
+          ? withEagerStreamUsageExtensions(capacityRendered, invocation, rendered)
+          : capacityRendered
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
         const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -3924,9 +3930,10 @@ async function executeAgentInvocationWithCapacityLease<
           const projection = typeof definition?.uiMessageStream === "function"
             ? await definition.uiMessageStream(invocation)
             : definition?.uiMessageStream
-          const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions({
+          const renderedResponseStream = await applyOutputRenderers({
             toUIMessageStream: () => uiMessageStreamFromResponse(response),
-          }, invocation)
+          }, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions, response)
+          const enrichedResponseStream = withEagerUiMessageStreamUsageExtensions(renderedResponseStream, invocation)
           const finalized = await finalizeUiMessageStreamOutput(enrichedResponseStream, shouldHoldInvocationOutput(), async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
               await lifecycle.finish({

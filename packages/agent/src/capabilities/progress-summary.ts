@@ -5,6 +5,7 @@ import { toAgentUiMessageStreamResponse } from "../http-response.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
@@ -231,7 +232,11 @@ async function generateWithDriver(
   if (driver.kind === "harness") {
     const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
     const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
-    return await resultText(await createHarnessAgentAdapter({ ...resolvedDriver, instructions } as never).generate(runContext as never))
+    return await resultText(await createHarnessAgentAdapter({
+      ...resolvedDriver,
+      harness: quietExpectedAuxiliaryHarnessCancellation(resolvedDriver.harness as object),
+      instructions,
+    } as never).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   return await resultText(await createAiSdkAdapter({
@@ -364,6 +369,7 @@ function createProgressSummaryState(
   let running = false
   let closed = false
   let scheduled = false
+  let streamStarted = false
   let latest: ReturnType<typeof progressData> | undefined
   let timer: ReturnType<typeof setInterval> | undefined
   const abortSignal = context.abortSignal ?? context.input.get().abortSignal
@@ -377,7 +383,8 @@ function createProgressSummaryState(
     scheduled = false
     abortSignal?.removeEventListener("abort", close)
   }
-  abortSignal?.addEventListener("abort", close, { once: true })
+  if (abortSignal?.aborted) close()
+  else abortSignal?.addEventListener("abort", close, { once: true })
 
   const reportError = (error: unknown) => {
     console.warn("[vitehub] progressSummary() generation failed.")
@@ -415,8 +422,8 @@ function createProgressSummaryState(
       elapsedMs: Date.now() - startedAt,
       input: {
         ...inputValue,
-        abortSignal: inputValue.abortSignal
-          ? AbortSignal.any([inputValue.abortSignal, generationAbort.signal])
+        abortSignal: abortSignal
+          ? AbortSignal.any([abortSignal, generationAbort.signal])
           : generationAbort.signal,
       },
       messages,
@@ -431,7 +438,9 @@ function createProgressSummaryState(
         if (summary === previous) return
         previous = summary
         latest = progressData(summary, currentRevision)
-        for (const controller of controllers) controller.enqueue(latest)
+        if (intervalMs === 0 || streamStarted) {
+          for (const controller of controllers) controller.enqueue(latest)
+        }
       })
       .catch((error) => {
         if (!closed && !generationAbort.signal.aborted) reportError(error)
@@ -454,12 +463,15 @@ function createProgressSummaryState(
   }
 
   const observe = (chunk: unknown) => {
+    if (closed) return
     const event = normalizeUiMessageStreamChunk(chunk)
     const type = eventType(event)
-    if (type === "finish") {
+    if (type === "finish" || (type === "error" && (!isRecord(event) || event.recoverable !== true))) {
       close()
       return
     }
+    const startStream = !streamStarted
+    streamStarted = true
     const phasedReasoning = isRecord(event)
       && event.phase === "reasoning"
       && (type === "text-start" || type === "text-delta")
@@ -491,13 +503,11 @@ function createProgressSummaryState(
       if (name) completedTools.push(name)
       dirty = true
     }
+    if (startStream) {
+      startGeneration()
+      if (intervalMs !== 0) timer = setInterval(startGeneration, intervalMs)
+    }
     if (intervalMs === 0) scheduleEventDriven()
-  }
-
-  if (intervalMs === 0) scheduleEventDriven()
-  else {
-    startGeneration()
-    timer = setInterval(startGeneration, intervalMs)
   }
 
   return {

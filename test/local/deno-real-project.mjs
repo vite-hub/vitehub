@@ -127,7 +127,6 @@ async function writeFixtureFiles(overrides) {
     "  agent: {",
     "    runtime: \"deno\",",
     "    providers: { state: { provider: \"memory\" } },",
-    "    routes: { chat: true },",
     "  },",
     "  build: { outDir: \"dist/client\" },",
     "  fmt: {},",

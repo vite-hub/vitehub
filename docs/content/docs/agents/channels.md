@@ -33,7 +33,7 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 ## Connect a web chat
 
-Enable the generated dispatcher with `routes.chat` on `hubAgent()`. Only Agents with a route-enabled `webChat()` Channel answer it.
+`webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.
 
 ```ts [vite.config.ts]
 import { hubAgent } from '@vite-hub/agent/vite'
@@ -41,7 +41,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    hubAgent({ routes: { chat: true } }),
+    hubAgent(),
   ],
 })
 ```
