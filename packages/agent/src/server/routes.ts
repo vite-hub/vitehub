@@ -122,12 +122,14 @@ export interface AgentChannelChatRouteInspection {
   maxTotalPendingCancellations: number
   maxTotalPendingClaims: number
   maxTotalPendingLookups: number
+  maxTotalPendingOwnerResolutions: number
   maxRunsPerOwner: number
   maxSubscribersPerRun: number
   maxTotalRuns: number
   pendingCancellations: number
   pendingClaims: number
   pendingLookups: number
+  pendingOwnerResolutions: number
   retainedRuns: number
 }
 
@@ -3953,10 +3955,12 @@ const resumableChatMaxPendingClaims = 100
 const resumableChatMaxTotalPendingClaims = 10_000
 const resumableChatMaxPendingLookups = 100
 const resumableChatMaxTotalPendingLookups = 10_000
+const resumableChatMaxTotalPendingOwnerResolutions = 10_000
 const resumableChatMaxOwnerTombstones = 100
 const resumableChatMaxTombstones = 10_000
 
 function resumableChatResponse(run: ResumableChatRun): Response {
+  if (run.released) return new Response(null, { status: 204 })
   if (run.subscribers.size + run.replaySubscribers >= resumableChatMaxSubscribers) {
     return createJsonErrorResponse(429, "Resumable web chat has too many live subscribers. Try again later.")
   }
@@ -4110,6 +4114,7 @@ export function createChannelChatRouteHandler(
   let resumableClaimWaiterCount = 0
   const resumableLookupOwners = new Map<string, number>()
   let resumableLookupCount = 0
+  let resumableOwnerResolutionCount = 0
   const resumableOwnerBufferedBytes = new Map<string, number>()
   let resumableTotalBufferedBytes = 0
   type ResumableClaimSetup = { cancel: () => void, owner: string, promise: Promise<void>, sequence: number }
@@ -4117,6 +4122,30 @@ export function createChannelChatRouteHandler(
   const resumableClaimSetupsByChat = new Map<string, Set<ResumableClaimSetup>>()
   const resumableCancellationTombstones = new Map<string, { cleanup: ReturnType<typeof setTimeout>, owner: string, sequence: number }>()
   let resumableRequestSequence = 0
+  const resolveResumableOwner = async (
+    resumable: AgentChannelChatRouteResumableOptions<unknown>,
+    input: Parameters<typeof resumableChatOwner>[1],
+    signal: AbortSignal,
+  ): Promise<string | undefined> => {
+    if (resumableOwnerResolutionCount >= resumableChatMaxTotalPendingOwnerResolutions) {
+      throw createRouteError(429, "Resumable web chat has reached its owner resolution capacity. Try again later.")
+    }
+    resumableOwnerResolutionCount++
+    let removeAbortListener = () => {}
+    try {
+      const aborted = new Promise<undefined>((resolve) => {
+        if (signal.aborted) return resolve(undefined)
+        const abort = () => resolve(undefined)
+        signal.addEventListener("abort", abort, { once: true })
+        removeAbortListener = () => signal.removeEventListener("abort", abort)
+      })
+      return await Promise.race([resumableChatOwner(resumable, input), aborted])
+    }
+    finally {
+      removeAbortListener()
+      resumableOwnerResolutionCount--
+    }
+  }
   const withResumableSessionBoundaryWrite = async <T>(key: string, write: () => Promise<T>): Promise<T> => {
     const predecessor = resumableSessionBoundaryWrites.get(key) || Promise.resolve()
     let release!: () => void
@@ -4191,14 +4220,15 @@ export function createChannelChatRouteHandler(
           request,
         })
         if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
-        const owner = await resumableChatOwner(resumable, {
+        const owner = await resolveResumableOwner(resumable!, {
           agentName,
           auth,
           body,
           event: handlerOptions.event,
           rawBody: "",
           request,
-        })
+        }, request.signal)
+        if (!owner) return new Response(null, { status: 204 })
         const key = resumableChatKey(agentName, routeOptions.channelId, owner, id)
         if (request.method === "DELETE") {
           if (!setResumableCancellationTombstone(key, owner, requestSequence)) {
@@ -4283,7 +4313,8 @@ export function createChannelChatRouteHandler(
         trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined,
       )
       const inputContext = { agentName, auth: auth as never, body, event: handlerOptions.event, input: trustedInput, rawBody: parsed.rawBody, request }
-      const owner = resumes ? await resumableChatOwner(resumable!, inputContext) : undefined
+      const owner = resumes ? await resolveResumableOwner(resumable!, inputContext, request.signal) : undefined
+      if (resumes && !owner) return new Response(null, { status: 204 })
       const admittedInput = mergeAgentChannelChatRouteInput(
         trustedInput,
         await routeOptions.admission?.context?.(inputContext),
@@ -4706,12 +4737,14 @@ export function createChannelChatRouteHandler(
         maxTotalPendingCancellations: resumableChatMaxTombstones,
         maxTotalPendingClaims: resumableChatMaxTotalPendingClaims,
         maxTotalPendingLookups: resumableChatMaxTotalPendingLookups,
+        maxTotalPendingOwnerResolutions: resumableChatMaxTotalPendingOwnerResolutions,
         maxRunsPerOwner: resumableChatMaxRuns,
         maxSubscribersPerRun: resumableChatMaxSubscribers,
         maxTotalRuns: resumableChatMaxTotalRuns,
         pendingCancellations: resumableCancellationTombstones.size,
         pendingClaims: resumableClaimSetups.size + resumableClaimWaiterCount,
         pendingLookups: resumableLookupCount,
+        pendingOwnerResolutions: resumableOwnerResolutionCount,
         retainedRuns: resumableRuns.size - activeRuns,
       }
     },

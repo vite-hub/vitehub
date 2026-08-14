@@ -31,8 +31,10 @@ describe("resumable web chat", () => {
       bufferedBytes: expect.any(Number),
       maxBufferedBytesPerOwner: 64 * 1024 * 1024,
       maxRunsPerOwner: 100,
+      maxTotalPendingOwnerResolutions: 10_000,
       maxTotalRuns: 10_000,
       pendingClaims: 0,
+      pendingOwnerResolutions: 0,
       retainedRuns: 1,
     })
   })
@@ -452,6 +454,23 @@ describe("resumable web chat", () => {
     controllers.forEach(controller => controller.abort())
     await Promise.all(lookups)
     expect(handler.inspect()).toMatchObject({ pendingLookups: 0 })
+  })
+
+  it("releases pending owner resolution capacity when a lookup aborts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: async () => await new Promise<string>(() => {}) } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const controller = new AbortController()
+    const lookup = handler(new Request(chatRequest("GET"), { signal: controller.signal }), { agentName: "support" })
+    await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingOwnerResolutions: 1 }))
+
+    controller.abort()
+    await expect(lookup).resolves.toMatchObject({ status: 204 })
+    expect(handler.inspect()).toMatchObject({ pendingOwnerResolutions: 0 })
   })
 
   it("normalizes resumable UI streams to a stable leading message identity", async () => {
