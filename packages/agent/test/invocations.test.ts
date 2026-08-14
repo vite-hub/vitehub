@@ -211,6 +211,21 @@ describe("Agent Invocations", () => {
     await expect(invocations.list()).resolves.toMatchObject({ invocations: [{}, {}] })
   })
 
+  it("encodes Agent Definition and run identities without delimiter collisions", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const first = defineAgent({ name: "a\0b", driver: { run: () => "first" }, invocations, runtime: false })
+    const second = defineAgent({ name: "a", driver: { run: () => "second" }, invocations, runtime: false })
+
+    await Promise.all([
+      runAgent(first, runtime("c"), {}),
+      runAgent(second, runtime("b\0c"), {}),
+    ])
+
+    await expect(invocations.getByRunId("c", "a\0b")).resolves.toMatchObject({ agentName: "a\0b" })
+    await expect(invocations.getByRunId("b\0c", "a")).resolves.toMatchObject({ agentName: "a" })
+    await expect(invocations.list()).resolves.toMatchObject({ invocations: [{}, {}] })
+  })
+
   it("bounds dynamic summary metadata without truncating invocation identity", async () => {
     const oversized = "x".repeat(700)
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -304,7 +319,10 @@ describe("Agent Invocations", () => {
       const clock = vi.spyOn(Date, "now").mockReturnValue(localNow + 60_000)
       await expect(store.claim("invocation-1", "second", 30_000)).resolves.toBe(false)
       clock.mockRestore()
-      await store.release("invocation-1", "first")
+      await client.execute({
+        args: ["invocation-1"],
+        sql: "UPDATE vitehub_agent_invocations_claims SET expires_at = 0 WHERE id = ?",
+      })
       await expect(store.claim("invocation-1", "second", 30_000)).resolves.toBe(true)
       await expect(store.update("invocation-1", {
         status: "failed",

@@ -201,7 +201,7 @@ async function boundedIdentity(value: string): Promise<string> {
 }
 
 function invocationIdentity(runId: string, agentName?: string): string {
-  return `${agentName || ""}\0${runId}`
+  return JSON.stringify([agentName ?? null, runId])
 }
 
 function assertInvocationId(id: string): void {
