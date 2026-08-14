@@ -75,7 +75,7 @@ afterAll(async () => {
   if (consumerRoot) await rm(consumerRoot, { force: true, recursive: true })
 })
 
-it("accepts a newer Chat SDK adapter from the published package", { timeout: 25_000 }, async () => {
+it("accepts the pinned Chat SDK adapter from the published package", { timeout: 25_000 }, async () => {
   try {
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", consumerRoot!], {
       cwd: packageRoot,
