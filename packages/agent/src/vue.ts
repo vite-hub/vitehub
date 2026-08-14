@@ -62,8 +62,8 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   options: AgentChatInit<UI_MESSAGE> | MaybeRefOrGetter<AgentChatReactiveInit<UI_MESSAGE>> = {},
 ): AgentChatHelpers<UI_MESSAGE> {
   const initialOptions = toValue(options)
-  const currentOptions = shallowRef(initialOptions)
-  const liveOptions = shallowRef(initialOptions)
+  const constructorOptions = shallowRef(initialOptions)
+  const latestOptions = shallowRef(initialOptions)
   const validateOptions = (value: AgentChatInit<UI_MESSAGE> | AgentChatReactiveInit<UI_MESSAGE>) => {
     if (value.resume && !value.id?.trim()) {
       throw new TypeError("[vitehub] Resumable web chat requires a stable id.")
@@ -72,7 +72,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
     }
   }
-  validateOptions(currentOptions.value)
+  validateOptions(constructorOptions.value)
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
   const reconnecting = shallowRef(0)
   let reconnectAbort: AbortController | undefined
@@ -80,8 +80,8 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   let disposed = false
   let prepareReplay: (messageId: string | undefined) => void = () => {}
   const resolveTransport = () => {
-    if (liveOptions.value.transport) return liveOptions.value.transport
-    const { api, credentials, fetch, headers } = liveOptions.value
+    if (latestOptions.value.transport) return latestOptions.value.transport
+    const { api, credentials, fetch, headers } = latestOptions.value
     const route = api ?? agentChatRoute(agent.name)
     const defaultTransport = new DefaultChatTransport<UI_MESSAGE>({
       api: route,
@@ -90,7 +90,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
         const request = fetch ?? globalThis.fetch
         const controller = requestInit?.method === "GET" ? reconnectAbort : undefined
         const headers = new Headers(requestInit?.headers)
-        if (requestInit?.method === "POST" && liveOptions.value.resume) {
+        if (requestInit?.method === "POST" && latestOptions.value.resume) {
           headers.set("x-vitehub-resumable", "true")
         }
         return request(input, {
@@ -176,7 +176,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     ),
   }
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api: _api, credentials: _credentials, fetch: _fetch, headers: _headers, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = currentOptions.value
+    const { api: _api, credentials: _credentials, fetch: _fetch, headers: _headers, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
     return {
       ...init,
       onData(part) {
@@ -189,21 +189,21 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
         else if (part.type.startsWith("data-")) {
           streamedParts.value = streamedParts.value.filter(streamed => streamed.type !== part.type)
         }
-        liveOptions.value.onData?.(part)
+        latestOptions.value.onData?.(part)
       },
-      onError: error => liveOptions.value.onError?.(error),
-      onFinish: result => liveOptions.value.onFinish?.(result),
-      onToolCall: result => liveOptions.value.onToolCall?.(result),
-      sendAutomaticallyWhen: result => liveOptions.value.sendAutomaticallyWhen?.(result) ?? false,
+      onError: error => latestOptions.value.onError?.(error),
+      onFinish: result => latestOptions.value.onFinish?.(result),
+      onToolCall: result => latestOptions.value.onToolCall?.(result),
+      sendAutomaticallyWhen: result => latestOptions.value.sendAutomaticallyWhen?.(result) ?? false,
       transport,
     }
   })
   watch(() => toValue(options), (next, previous) => {
     validateOptions(next)
-    const prior = liveOptions.value
-    liveOptions.value = next
+    const prior = latestOptions.value
+    latestOptions.value = next
     if (next.id !== previous.id || next.resume !== previous.resume) {
-      currentOptions.value = next
+      constructorOptions.value = next
       streamedParts.value = []
       if (next.resume && "window" in globalThis) queueMicrotask(reconnect)
       else {
@@ -233,7 +233,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       ? [...messages.slice(0, -1), replay]
       : [...messages, replay]
   }
-  if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
+  if (constructorOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   onScopeDispose(() => {
     disposed = true
     reconnectGeneration++
@@ -243,7 +243,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
 
   async function stop(): Promise<void> {
     reconnectAbort?.abort()
-    const cancellationOptions = liveOptions.value
+    const cancellationOptions = latestOptions.value
     const cancellationId = chat.id.value
     const cancellation = cancellationOptions.resume && !cancellationOptions.transport && "window" in globalThis
       ? Promise.all([
