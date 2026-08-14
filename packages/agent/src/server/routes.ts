@@ -110,6 +110,22 @@ export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOp
   event?: unknown
 }
 
+export interface AgentChannelChatRouteInspection {
+  activeRuns: number
+  bufferedBytes: number
+  maxBufferedBytesPerOwner: number
+  maxRunsPerOwner: number
+  maxTotalRuns: number
+  pendingCancellations: number
+  pendingClaims: number
+  retainedRuns: number
+}
+
+export interface AgentChannelChatRouteHandler {
+  (request: Request, options?: AgentChannelChatRouteRequestOptions): Promise<Response>
+  inspect(): AgentChannelChatRouteInspection
+}
+
 export interface AgentChannelChatRouteStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
   value: T
@@ -3952,7 +3968,7 @@ function resumableChatKey(agentName: string, channelId: string | undefined, owne
 export function createChannelChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
-): (request: Request, options?: AgentChannelChatRouteRequestOptions) => Promise<Response> {
+): AgentChannelChatRouteHandler {
   const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
   const resumableRuns = new Map<string, ResumableChatRun>()
   const latestResumableRuns = new Map<string, ResumableChatRun>()
@@ -3984,7 +4000,7 @@ export function createChannelChatRouteHandler(
     run.chunks = []
     run.bufferedBytes = 0
   }
-  return async (request, handlerOptions = {}) => {
+  const handler = async (request: Request, handlerOptions: AgentChannelChatRouteRequestOptions = {}) => {
     const requestSequence = ++resumableRequestSequence
     let releaseResumableClaim: (() => void) | undefined
     const resumable = routeOptions.resumable
@@ -4172,6 +4188,10 @@ export function createChannelChatRouteHandler(
       }
       let resumableRun: ResumableChatRun | undefined
       if (invocationKey && latestKey && resumable) {
+        if ((resumableCancellationTombstones.get(latestKey)?.sequence || 0) > requestSequence) {
+          releaseResumableClaim?.()
+          return new Response(null, { status: 204 })
+        }
         const ownerRuns = () => [...resumableRuns.values()].filter(run => run.owner === owner)
         if (ownerRuns().length >= resumableChatMaxRuns) {
           for (const retainedRun of resumableRuns.values()) {
@@ -4209,7 +4229,8 @@ export function createChannelChatRouteHandler(
           subscribers: new Set(),
         }
         resumableRuns.set(resumableInvocationKey, resumableRun)
-        latestResumableRuns.set(resumableLatestKey, resumableRun)
+        const latestRun = latestResumableRuns.get(resumableLatestKey)
+        if (!latestRun || latestRun.requestSequence < requestSequence) latestResumableRuns.set(resumableLatestKey, resumableRun)
         releaseResumableClaim?.()
 
         try {
@@ -4294,6 +4315,26 @@ export function createChannelChatRouteHandler(
       return agentChatFetchErrorResponse(error)
     }
   }
+  return Object.assign(handler, {
+    inspect(): AgentChannelChatRouteInspection {
+      let activeRuns = 0
+      let bufferedBytes = 0
+      for (const run of resumableRuns.values()) {
+        if (!run.done) activeRuns++
+        bufferedBytes += run.bufferedBytes
+      }
+      return {
+        activeRuns,
+        bufferedBytes,
+        maxBufferedBytesPerOwner: resumableChatMaxOwnerBufferedBytes,
+        maxRunsPerOwner: resumableChatMaxRuns,
+        maxTotalRuns: resumableChatMaxTotalRuns,
+        pendingCancellations: resumableCancellationTombstones.size,
+        pendingClaims: resumableClaimSetups.size,
+        retainedRuns: resumableRuns.size - activeRuns,
+      }
+    },
+  })
 }
 
 export function createChannelWebhookRouteHandler(

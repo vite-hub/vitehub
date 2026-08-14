@@ -13,6 +13,30 @@ function chatRequest(method: "DELETE" | "GET" | "POST", owner = "max", messageId
 }
 
 describe("resumable web chat", () => {
+  it("exposes bounded process-local route state for inspection", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "done" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+
+    await expect((await handler(chatRequest("POST"), { agentName: "support", waitUntil: promise => pending.push(promise) })).text()).resolves.toContain("done")
+    await Promise.all(pending)
+
+    expect(handler.inspect()).toMatchObject({
+      activeRuns: 0,
+      bufferedBytes: expect.any(Number),
+      maxBufferedBytesPerOwner: 64 * 1024 * 1024,
+      maxRunsPerOwner: 100,
+      maxTotalRuns: 10_000,
+      pendingClaims: 0,
+      retainedRuns: 1,
+    })
+  })
+
   it("drops completed runs after the retention timeout and across handler restarts", async () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
@@ -111,6 +135,51 @@ describe("resumable web chat", () => {
     const otherOwnerPromise = handler(chatRequest("GET", "other"), options)
     await vi.advanceTimersByTimeAsync(3_000)
     expect((await otherOwnerPromise).status).toBe(204)
+  })
+
+  it("keeps the newest POST as the latest replay when an older setup finishes later", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseOlder!: () => void
+    const olderSetup = new Promise<void>((resolve) => {
+      releaseOlder = resolve
+    })
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async (_agent, _context, _trigger, input) => {
+      return new Response((input as { run?: { messageId?: string } }).run?.messageId === "user-new" ? "new" : "old")
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: {
+              authenticate: () => ({ owner: "max" }),
+              async context({ body }) {
+                if (body.messageId === "user-old") await olderSetup
+              },
+            },
+            resumable: { owner: ({ auth }) => auth.owner },
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      const older = handler(chatRequest("POST", "max", "user-old"), options)
+      await Promise.resolve()
+      await expect((await handler(chatRequest("POST", "max", "user-new"), options)).text()).resolves.toBe("new")
+      releaseOlder()
+      await expect((await older).text()).resolves.toBe("old")
+      await Promise.all(pending)
+      await expect((await handler(chatRequest("GET"), options)).text()).resolves.toBe("new")
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
   })
 
   it("starts a new invocation when the AI SDK regenerates a retained message", async () => {
