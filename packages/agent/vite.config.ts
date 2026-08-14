@@ -19,7 +19,7 @@ export default defineConfig({
     },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/, /^eve\/extension$/],
+      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/],
       neverBundle: [
         "vite",
         "esbuild",

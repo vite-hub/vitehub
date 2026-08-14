@@ -226,9 +226,6 @@
     "askweb": {
       "optional": true
     },
-    "eve": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     },
