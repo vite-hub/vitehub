@@ -4111,7 +4111,9 @@ export function createChannelChatRouteHandler(
   let resumableLookupCount = 0
   const resumableOwnerBufferedBytes = new Map<string, number>()
   let resumableTotalBufferedBytes = 0
-  const latestResumableClaimSetups = new Map<string, { cancel: () => void, owner: string, promise: Promise<void>, sequence: number }>()
+  type ResumableClaimSetup = { cancel: () => void, owner: string, promise: Promise<void>, sequence: number }
+  const latestResumableClaimSetups = new Map<string, ResumableClaimSetup>()
+  const resumableClaimSetupsByChat = new Map<string, Set<ResumableClaimSetup>>()
   const resumableCancellationTombstones = new Map<string, { cleanup: ReturnType<typeof setTimeout>, owner: string, sequence: number }>()
   let resumableRequestSequence = 0
   const setResumableCancellationTombstone = (key: string, owner: string, sequence: number): boolean => {
@@ -4196,8 +4198,9 @@ export function createChannelChatRouteHandler(
             void run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
             run.resolveReady()
           }
-          const setup = latestResumableClaimSetups.get(key)
-          if (setup && setup.sequence <= requestSequence) setup.cancel()
+          for (const setup of resumableClaimSetupsByChat.get(key) || []) {
+            if (setup.sequence <= requestSequence) setup.cancel()
+          }
           return new Response(null, { status: 204 })
         }
         const pendingSetup = latestResumableClaimSetups.get(key)
@@ -4371,13 +4374,20 @@ export function createChannelChatRouteHandler(
             const waiters = resumableClaimWaiterResolves.get(invocationKey)
             resumableClaimWaiterResolves.delete(invocationKey)
             for (const resolve of waiters || []) resolve()
-            if (latestResumableClaimSetups.get(latestKey!)?.promise === setup) latestResumableClaimSetups.delete(latestKey!)
+            const chatSetups = resumableClaimSetupsByChat.get(latestKey!)
+            chatSetups?.delete(claimSetup)
+            if (!chatSetups?.size) resumableClaimSetupsByChat.delete(latestKey!)
+            if (latestResumableClaimSetups.get(latestKey!) === claimSetup) latestResumableClaimSetups.delete(latestKey!)
             resolveSetup()
             releaseResumableClaim = undefined
           }
+          const claimSetup: ResumableClaimSetup = { cancel: () => releaseResumableClaim?.(), owner: owner!, promise: setup, sequence: requestSequence }
+          const chatSetups = resumableClaimSetupsByChat.get(latestKey!) || new Set<ResumableClaimSetup>()
+          resumableClaimSetupsByChat.set(latestKey!, chatSetups)
+          chatSetups.add(claimSetup)
           const latestSetup = latestResumableClaimSetups.get(latestKey!)
           if (!latestSetup || latestSetup.sequence < requestSequence) {
-            latestResumableClaimSetups.set(latestKey!, { cancel: () => releaseResumableClaim?.(), owner: owner!, promise: setup, sequence: requestSequence })
+            latestResumableClaimSetups.set(latestKey!, claimSetup)
           }
           break
         }

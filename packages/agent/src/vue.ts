@@ -201,13 +201,22 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
 
   async function stop(): Promise<void> {
     reconnectAbort?.abort()
+    const cancellationOptions = currentOptions.value
+    const cancellationId = chat.id.value
+    const cancellation = cancellationOptions.resume && !cancellationOptions.transport && "window" in globalThis
+      ? Promise.all([
+          cancellationOptions.api ?? agentChatRoute(agent.name),
+          cancellationOptions.fetch ?? globalThis.fetch,
+          resolveTransportOption(cancellationOptions.credentials),
+          resolveTransportOption(cancellationOptions.headers),
+        ] as const)
+      : undefined
     await chat.stop()
-    if (!currentOptions.value.resume || currentOptions.value.transport || !("window" in globalThis)) return
-    const { api, credentials, fetch: request = globalThis.fetch, headers } = currentOptions.value
-    const route = api ?? agentChatRoute(agent.name)
-    const response = await request(`${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(chat.id.value)}`, {
-      credentials: await resolveTransportOption(credentials) ?? "same-origin",
-      headers: await resolveTransportOption(headers),
+    if (!cancellation) return
+    const [cancellationRoute, cancellationRequest, cancellationCredentials, cancellationHeaders] = await cancellation
+    const response = await cancellationRequest(`${cancellationRoute}${cancellationRoute.includes("?") ? "&" : "?"}id=${encodeURIComponent(cancellationId)}`, {
+      credentials: cancellationCredentials ?? "same-origin",
+      headers: cancellationHeaders,
       method: "DELETE",
     })
     if (!response.ok) throw new Error(`[vitehub] Resumable web chat cancellation failed with ${response.status} ${response.statusText || "Unknown Error"}.`)

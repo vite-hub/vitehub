@@ -472,6 +472,42 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("keeps cancellation tied to the chat options captured when stop starts", async () => {
+    vi.stubGlobal("window", {})
+    let releaseHeaders!: () => void
+    const headersReady = new Promise<void>((resolve) => {
+      releaseHeaders = resolve
+    })
+    let headerCalls = 0
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const options = ref({
+      api: "/old-chat",
+      fetch,
+      headers: async () => {
+        if (++headerCalls > 1) await headersReady
+        return { authorization: "Bearer old" }
+      },
+      id: "chat-1",
+      resume: true as const,
+    })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    const stopping = chat.stop()
+    options.value = { ...options.value, api: "/new-chat", id: "chat-2" }
+    await nextTick()
+    releaseHeaders()
+    await stopping
+
+    expect(fetch).toHaveBeenLastCalledWith("/old-chat?id=chat-1", {
+      credentials: "same-origin",
+      headers: { authorization: "Bearer old" },
+      method: "DELETE",
+    })
+    scope.stop()
+  })
+
   it("rejects explicit resumable chat cancellation when the server does not accept DELETE", async () => {
     vi.stubGlobal("window", {})
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => new Response(null, { status: init?.method === "DELETE" ? 429 : 204 }))
