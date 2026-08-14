@@ -466,7 +466,7 @@ function createProgressSummaryState(
     if (closed) return
     const event = normalizeUiMessageStreamChunk(chunk)
     const type = eventType(event)
-    if (type === "error" || type === "finish") {
+    if (type === "finish" || (type === "error" && (!isRecord(event) || event.recoverable !== true))) {
       close()
       return
     }

@@ -744,12 +744,13 @@ function statefulTextDelta(): (value: unknown) => string {
 }
 
 function isTerminal(value: unknown): boolean {
-  const type = toAgentStreamEvent(value)?.type
-  return type === "error" || type === "finish"
+  const event = toAgentStreamEvent(value)
+  return event?.type === "finish" || (event?.type === "error" && event.recoverable !== true)
 }
 
 function isFailure(value: unknown): boolean {
-  return toAgentStreamEvent(value)?.type === "error"
+  const event = toAgentStreamEvent(value)
+  return event?.type === "error" && event.recoverable !== true
 }
 
 function withTitleEvent(result: AsyncIterable<StreamEvent>, title: TitleResolution): AsyncIterable<StreamEvent> {

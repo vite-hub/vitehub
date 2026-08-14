@@ -8795,6 +8795,35 @@ describe("agent message protocol", () => {
     await expect(reader.read()).rejects.toThrow("provider failed")
   })
 
+  it("generates a UI title after a recoverable error", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => "Recovered title" })],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
+              controller.enqueue({ delta: "Recovered response", id: "text-1", type: "text-delta" })
+              controller.enqueue({ finishReason: "stop", type: "finish" })
+              controller.close()
+            },
+          }),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(events).toContainEqual({
+      data: { title: "Recovered title", type: "title" },
+      id: "title",
+      type: "data-title",
+    })
+  })
+
   it("prefers decorated UI message streams for hybrid async iterable results", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const iterated = vi.fn()
@@ -9822,6 +9851,31 @@ describe("agent message protocol", () => {
     await expect.poll(() => execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ activeTools: ["inventory search"] }))
     expect(execute).toHaveBeenCalledOnce()
     await reader.cancel()
+  })
+
+  it("continues progress generation after a recoverable error", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn((_input: { activeTools: string[] }) => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            async start(controller) {
+              controller.enqueue({ errorText: "temporary failure", recoverable: true, type: "error" })
+              controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+              await new Promise(resolve => setTimeout(resolve, 10))
+              controller.close()
+            },
+          }),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    for await (const _event of stream) {}
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ activeTools: ["inventory search"] }))
   })
 
   it("generates the initial progress summary after streaming starts without waiting for the revision interval", async () => {
