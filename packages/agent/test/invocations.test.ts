@@ -54,6 +54,7 @@ describe("Agent Invocations", () => {
     const listed = await invocations.list()
     expect(listed.invocations).toHaveLength(1)
     expect(listed.invocations[0]).not.toHaveProperty("observations")
+    await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
   it("records cancellation while an invocation waits for driver capacity", async () => {
@@ -146,6 +147,7 @@ describe("Agent Invocations", () => {
         "agent.invocation.start",
         "agent.invocation.finish",
       ])
+      await expect(restored.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
     }
     finally {
       writerClient.close()

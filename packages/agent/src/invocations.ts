@@ -132,6 +132,15 @@ function normalizeLimit(limit: number | undefined): number {
   return Math.min(limit, MAX_LIST_LIMIT)
 }
 
+function normalizeCursor(cursor: string | undefined): string | undefined {
+  if (cursor === undefined) return
+  const value = Number(cursor)
+  if (!Number.isSafeInteger(value) || value < 1 || String(value) !== cursor) {
+    throw new TypeError("[vitehub] Agent Invocation cursor is invalid.")
+  }
+  return cursor
+}
+
 function assertInvocationId(id: string): void {
   if (typeof id !== "string" || !id.trim()) {
     throw new TypeError("[vitehub] Agent Invocations require a non-empty invocation id.")
@@ -311,7 +320,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async list(options = {}) {
       normalizeLimit(options.limit)
-      return await store.list(options)
+      return await store.list({ ...options, cursor: normalizeCursor(options.cursor) })
     },
   }
   return invocations
