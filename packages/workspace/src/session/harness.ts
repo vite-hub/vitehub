@@ -1,28 +1,27 @@
-import { posix } from "node:path"
-import { gzipSync } from "node:zlib"
-import { lookup } from "mrmime"
+import { Buffer } from "node:buffer"
+import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
-import { contentToBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
+import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { resolveWorkspaceAutoCommit } from "../core/rules.ts"
-import type {
-  ReadonlyWorkspaceFacade,
-  WritableWorkspaceFacade,
-} from "../core/use.ts"
 import { isMissingWorkspacePathError } from "./scope.ts"
+
+import type { ExecutionAuthority } from "@vite-hub/runtime"
+import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "../core/use.ts"
 import type {
-  MkdirOptions,
   WorkspaceDefinition,
   WorkspaceDiff,
-  WorkspaceEntry,
   WorkspaceMaterializeSourcesOptions,
   WorkspacePrepareSessionProgressEvent,
   WorkspaceSession,
+  WorkspaceSessionHost,
+  WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "../core/types.ts"
 
 export interface HarnessSandboxSession {
   readBinaryFile?(options: { abortSignal?: AbortSignal, path: string }): PromiseLike<Uint8Array | null>
-  run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr: string, stdout: string }>
+  run(options: { abortSignal?: AbortSignal, command: string, env?: Record<string, string>, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string, stdout?: string }>
+  workspaceHost?: WorkspaceSessionHost
   writeBinaryFile(options: { abortSignal?: AbortSignal, content: Uint8Array, path: string }): PromiseLike<void>
 }
 
@@ -35,6 +34,7 @@ export interface PrepareHarnessWorkspaceSessionOptions {
   abortSignal?: AbortSignal
   commit?: (diff: WorkspaceDiff) => { message?: string } | false | null | undefined
   definition?: WorkspaceDefinition
+  executionAuthority?: ExecutionAuthority
   ignoreWriteBackPaths?: readonly string[]
   onMaterializeProgress?: WorkspaceMaterializeSourcesOptions["onProgress"]
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
@@ -45,18 +45,11 @@ export interface PrepareHarnessWorkspaceSessionOptions {
 }
 
 type WorkspaceFacade = ReadonlyWorkspaceFacade | WritableWorkspaceFacade
-type InitialFile = { content: Uint8Array, mediaType?: string, symlinkTarget?: string }
-type InitialTree = {
-  archiveDirectories: Set<string>
-  directories: Set<string>
-  files: Map<string, InitialFile>
-}
 type SourceMaterializer = (options?: WorkspaceMaterializeSourcesOptions) => Promise<unknown>
-type WorkspaceFsWithSources = { materializeSources?: SourceMaterializer }
-type PrepareProgressReporter = PrepareHarnessWorkspaceSessionOptions["onProgress"]
-const archivePath = ".vitehub-workspace.tar.gz"
-const tarBlockSize = 512
-const workspaceReadConcurrency = 16
+type WorkspaceFsWithSession = {
+  materializeSources?: SourceMaterializer
+  startSession?: (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
+}
 
 function isWritableWorkspaceFacade(workspace: WorkspaceFacade): workspace is WritableWorkspaceFacade {
   return "startSession" in workspace && typeof workspace.startSession === "function"
@@ -66,153 +59,54 @@ function workspaceSourceMaterializer(workspace: WorkspaceFacade): SourceMaterial
   if ("materializeSources" in workspace && typeof workspace.materializeSources === "function") {
     return options => workspace.materializeSources(options)
   }
-
-  const materializeSources = (workspace.fs as WorkspaceFsWithSources).materializeSources
-  if (typeof materializeSources === "function") {
-    return options => materializeSources(options)
-  }
+  const materializeSources = (workspace.fs as WorkspaceFsWithSession).materializeSources
+  if (typeof materializeSources === "function") return options => materializeSources(options)
 }
 
-function sandboxPath(root: string, path: string) {
-  return posix.join(root, path)
+function workspaceSessionStarter(workspace: WorkspaceFacade) {
+  if (isWritableWorkspaceFacade(workspace)) return workspace.startSession.bind(workspace)
+  const startSession = (workspace.fs as WorkspaceFsWithSession).startSession
+  if (!startSession) throw new Error("[vitehub] Harness Workspace materialization requires Workspace Session support.")
+  return startSession
 }
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`
 }
 
-function isGeneratedSourceDescriptorPath(path: string): boolean {
-  return path === ".vitehub" || path === ".vitehub/sources" || /^\.vitehub\/sources\/[^/]+\.json$/.test(path)
-}
-
-function normalizeHarnessWorkspacePath(path = "") {
-  const descriptorPath = normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })
-  if (isGeneratedSourceDescriptorPath(descriptorPath)) return descriptorPath
-  return normalizeSafeWorkspacePath(path, { allowEmpty: true })
-}
-
 function normalizeSessionPaths(paths?: readonly string[]): string[] | undefined {
   if (paths === undefined) return undefined
-  const normalized = [...new Set((paths || []).map(normalizeHarnessWorkspacePath))]
+  const normalized = [...new Set(paths.map(path => normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })))]
   if (normalized.includes("")) return undefined
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
-function isIgnoredWriteBackPath(path: string, ignoreWriteBackPaths: Set<string>) {
-  for (const ignoredPath of ignoreWriteBackPaths) {
-    if (path === ignoredPath || path.startsWith(`${ignoredPath}/`)) return true
-  }
-  return false
-}
-
-function isIgnoredWriteBackParent(path: string, ignoreWriteBackPaths: Set<string>) {
-  for (const ignoredPath of ignoreWriteBackPaths) {
-    if (ignoredPath.startsWith(`${path}/`)) return true
-  }
-  return false
-}
-
-async function runSandbox(
-  sandbox: HarnessSandboxSession,
-  options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string },
-) {
-  const result = await sandbox.run(options)
-  if (result.exitCode !== 0) {
-    throw new Error(`[vitehub] Failed to prepare Harness Workspace Session: ${result.stderr || "sandbox command failed"}`)
-  }
-  return result
-}
-
 async function withPrepareProgress<T>(
-  onProgress: PrepareProgressReporter | undefined,
+  onProgress: PrepareHarnessWorkspaceSessionOptions["onProgress"],
   event: Pick<WorkspacePrepareSessionProgressEvent, "id" | "label"> & { data?: Record<string, unknown> },
   fn: () => Promise<T>,
-): Promise<T> {
+) {
   const startedAt = Date.now()
   await onProgress?.({ data: event.data, id: event.id, label: event.label, status: "started" })
   try {
     const result = await fn()
-    await onProgress?.({
-      data: event.data,
-      durationMs: Date.now() - startedAt,
-      id: event.id,
-      label: event.label,
-      status: "completed",
-    })
+    await onProgress?.({ data: event.data, durationMs: Date.now() - startedAt, id: event.id, label: event.label, status: "completed" })
     return result
   }
   catch (error) {
-    await onProgress?.({
-      data: {
-        ...event.data,
-        error: error instanceof Error ? error.message : String(error),
-      },
-      durationMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-      id: event.id,
-      label: event.label,
-      status: "failed",
-    })
+    const message = error instanceof Error ? error.message : String(error)
+    await onProgress?.({ data: { ...event.data, error: message }, durationMs: Date.now() - startedAt, error: message, id: event.id, label: event.label, status: "failed" })
     throw error
   }
-}
-
-function workspaceFiles(entries: WorkspaceEntry[]) {
-  return entries
-    .filter(entry => entry.type === "file")
-    .sort((left, right) => left.path.localeCompare(right.path))
-}
-
-function workspaceDirectories(entries: WorkspaceEntry[]) {
-  return entries
-    .filter(entry => entry.type === "directory")
-    .map(entry => entry.path)
-    .sort((left, right) => left.localeCompare(right))
-}
-
-function addParentDirectories(directories: Set<string>, path: string) {
-  let directory = posix.dirname(path)
-  while (directory && directory !== ".") {
-    directories.add(directory)
-    directory = posix.dirname(directory)
-  }
-}
-
-async function forEachConcurrent<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>) {
-  let index = 0
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (index < items.length) {
-      const item = items[index++]
-      if (item !== undefined) await fn(item)
-    }
-  }))
-}
-
-async function workspaceEntries(workspace: WorkspaceFacade, paths: string[] | undefined) {
-  if (paths && !paths.length) return []
-  if (!paths) return await workspace.fs.list("", { recursive: true })
-
-  const entries = new Map<string, WorkspaceEntry>()
-  for (const path of paths) {
-    const stat = await workspace.fs.stat(path).catch(() => undefined)
-    if (!stat) continue
-    entries.set(stat.path, stat)
-    if (stat.type === "directory") {
-      for (const entry of await workspace.fs.list(path, { recursive: true })) entries.set(entry.path, entry)
-    }
-  }
-  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
 }
 
 async function materializeWorkspaceSourcesForSession(
   workspace: WorkspaceFacade,
   paths: string[] | undefined,
-  options: Pick<WorkspaceMaterializeSourcesOptions, "abortSignal" | "onProgress"> = {},
+  options: Pick<WorkspaceMaterializeSourcesOptions, "abortSignal" | "onProgress">,
 ) {
   const materialize = workspaceSourceMaterializer(workspace)
-  if (!materialize) return
-
-  if (paths && !paths.length) return
+  if (!materialize || (paths && !paths.length)) return
   await Promise.all((paths || [""]).map(async (path) => {
     await materialize({ ...options, path }).catch((error) => {
       if (path && isMissingWorkspacePathError(error)) return
@@ -221,320 +115,81 @@ async function materializeWorkspaceSourcesForSession(
   }))
 }
 
-function bytesEqual(left: Uint8Array | undefined, right: Uint8Array) {
-  if (!left || left.byteLength !== right.byteLength) return false
-  for (let index = 0; index < left.byteLength; index++) {
-    if (left[index] !== right[index]) return false
-  }
-  return true
-}
-
-function pathsFromFindOutput(stdout: string) {
-  return stdout
-    .split("\n")
-    .map(path => path.trim())
-    .filter(Boolean)
-    .map(path => path.replace(/^\.\//, ""))
-    .filter(path => path && path !== ".")
-    .sort((left, right) => left.localeCompare(right))
-}
-
-async function resetSandboxWorkDir(
-  sandbox: HarnessSandboxSession,
-  sessionWorkDir: string,
-  abortSignal: AbortSignal | undefined,
-) {
-  const workDir = posix.normalize(sessionWorkDir)
-  const parent = posix.dirname(workDir)
-  const name = posix.basename(workDir)
-  await sandbox.writeBinaryFile({
-    abortSignal,
-    content: new Uint8Array(),
-    path: sandboxPath(parent, ".vitehub-reset"),
-  })
-  await runSandbox(sandbox, {
-    abortSignal,
-    command: `rm -rf -- ${shellQuote(name)} && mkdir -p -- ${shellQuote(name)} && rm -f -- ${shellQuote(".vitehub-reset")}`,
-    workingDirectory: parent,
-  })
-}
-
-function paddedTarContent(content: Uint8Array) {
-  const padding = content.byteLength % tarBlockSize
-    ? tarBlockSize - (content.byteLength % tarBlockSize)
-    : 0
-  if (!padding) return Buffer.from(content)
-  return Buffer.concat([Buffer.from(content), Buffer.alloc(padding)])
-}
-
-function splitTarPath(path: string): { name: string, prefix?: string } {
-  if (Buffer.byteLength(path) <= 100) return { name: path }
-  const parts = path.split("/")
-  for (let index = 1; index < parts.length; index++) {
-    const prefix = parts.slice(0, index).join("/")
-    const name = parts.slice(index).join("/")
-    if (Buffer.byteLength(prefix) <= 155 && Buffer.byteLength(name) <= 100)
-      return { name, prefix }
-  }
-  throw new Error(`[vitehub] Harness Workspace Session path is too long for tar transfer: ${path}`)
-}
-
-function writeTarString(header: Buffer, offset: number, length: number, value: string) {
-  const bytes = Buffer.from(value)
-  bytes.copy(header, offset, 0, Math.min(bytes.byteLength, length))
-}
-
-function writeTarOctal(header: Buffer, offset: number, length: number, value: number) {
-  const text = value.toString(8).padStart(length - 1, "0").slice(-(length - 1))
-  header.write(text, offset, length - 1, "ascii")
-  header[offset + length - 1] = 0
-}
-
-function tarHeader(path: string, options: { linkName?: string, mode: number, size: number, type: "directory" | "file" | "symlink" }) {
-  const header = Buffer.alloc(tarBlockSize)
-  const { name, prefix } = splitTarPath(path)
-  if (options.linkName && Buffer.byteLength(options.linkName) > 100)
-    throw new Error(`[vitehub] Harness Workspace Session symlink target is too long for tar transfer: ${path}`)
-  writeTarString(header, 0, 100, name)
-  writeTarOctal(header, 100, 8, options.mode)
-  writeTarOctal(header, 108, 8, 0)
-  writeTarOctal(header, 116, 8, 0)
-  writeTarOctal(header, 124, 12, options.size)
-  writeTarOctal(header, 136, 12, 0)
-  header.fill(0x20, 148, 156)
-  header[156] = options.type === "directory" ? 0x35 : options.type === "symlink" ? 0x32 : 0x30
-  if (options.linkName) writeTarString(header, 157, 100, options.linkName)
-  writeTarString(header, 257, 6, "ustar")
-  writeTarString(header, 263, 2, "00")
-  if (prefix) writeTarString(header, 345, 155, prefix)
-  let checksum = 0
-  for (const byte of header) checksum += byte
-  header.write(checksum.toString(8).padStart(6, "0"), 148, 6, "ascii")
-  header[154] = 0
-  header[155] = 0x20
-  return header
-}
-
-function createWorkspaceTarGz(directories: Iterable<string>, files: Map<string, InitialFile>) {
-  const blocks: Buffer[] = []
-  for (const directory of [...directories].sort((left, right) => left.localeCompare(right))) {
-    const path = directory.endsWith("/") ? directory : `${directory}/`
-    blocks.push(tarHeader(path, { mode: 0o755, size: 0, type: "directory" }))
-  }
-  for (const [path, file] of [...files.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    if (file.symlinkTarget) {
-      blocks.push(tarHeader(path, { linkName: file.symlinkTarget, mode: 0o777, size: 0, type: "symlink" }))
-      continue
+function parseHostEntries(stdout: string): WorkspaceSessionHostFileEntry[] {
+  return stdout.split("\n").filter(Boolean).map((line) => {
+    const [type, size, encoded] = line.split("\t")
+    if ((type !== "directory" && type !== "file" && type !== "symlink") || !encoded) {
+      throw new Error("[vitehub] Harness Workspace host returned an invalid file entry.")
     }
-    blocks.push(tarHeader(path, { mode: 0o644, size: file.content.byteLength, type: "file" }))
-    blocks.push(paddedTarContent(file.content))
+    return {
+      path: Buffer.from(encoded, "base64").toString("utf8"),
+      ...(size ? { size: Number(size) } : {}),
+      type,
+    }
+  })
+}
+
+function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): WorkspaceSessionHost {
+  const sandbox = options.session
+  if (sandbox.workspaceHost) {
+    return {
+      executionAuthority: options.executionAuthority || sandbox.workspaceHost.executionAuthority,
+      files: sandbox.workspaceHost.files,
+      exec: (command, args, execOptions) => sandbox.workspaceHost!.exec(command, args, execOptions),
+    }
   }
-  blocks.push(Buffer.alloc(tarBlockSize * 2))
-  return gzipSync(Buffer.concat(blocks))
-}
-
-async function extractWorkspaceArchive(
-  sandbox: HarnessSandboxSession,
-  sessionWorkDir: string,
-  initialTree: InitialTree,
-  directories: Set<string>,
-  abortSignal: AbortSignal | undefined,
-) {
-  if (!initialTree.files.size && !directories.size) return
-  const path = sandboxPath(sessionWorkDir, archivePath)
-  await sandbox.writeBinaryFile({
-    abortSignal,
-    content: createWorkspaceTarGz(directories, initialTree.files),
-    path,
-  })
-  await runSandbox(sandbox, {
-    abortSignal,
-    command: `tar -xzf ${shellQuote(archivePath)} && rm ${shellQuote(archivePath)}`,
-    workingDirectory: sessionWorkDir,
-  })
-}
-
-async function initializeSandboxGitBaseline(
-  sandbox: HarnessSandboxSession,
-  sessionWorkDir: string,
-  abortSignal: AbortSignal | undefined,
-) {
-  await runSandbox(sandbox, {
-    abortSignal,
-    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign --no-verify -qm workspace-baseline || true; fi",
-    workingDirectory: sessionWorkDir,
-  })
-}
-
-async function listSandboxPaths(
-  sandbox: HarnessSandboxSession,
-  sessionWorkDir: string,
-  type: "d" | "f" | "l",
-  abortSignal: AbortSignal | undefined,
-) {
-  const result = await runSandbox(sandbox, {
-    abortSignal,
-    command: `find . -type ${type} -print`,
-    workingDirectory: sessionWorkDir,
-  })
-  return new Set(pathsFromFindOutput(result.stdout))
-}
-
-async function readSandboxSymlinkTarget(
-  sandbox: HarnessSandboxSession,
-  sessionWorkDir: string,
-  path: string,
-  abortSignal: AbortSignal | undefined,
-) {
-  const result = await runSandbox(sandbox, {
-    abortSignal,
-    command: `readlink -- ${shellQuote(path)}`,
-    workingDirectory: sessionWorkDir,
-  })
-  return result.stdout.replace(/\n$/, "")
-}
-
-async function copyWorkspaceToSandbox(
-  workspace: WorkspaceFacade,
-  sandbox: HarnessSandboxSession,
-  sessionWorkDir: string,
-  abortSignal: AbortSignal | undefined,
-  paths: string[] | undefined,
-  onMaterializeProgress: WorkspaceMaterializeSourcesOptions["onProgress"] | undefined,
-  onProgress: PrepareProgressReporter | undefined,
-) {
-  await withPrepareProgress(onProgress, {
-    data: { paths: paths ?? null },
-    id: "workspace.prepare.materialize",
-    label: "Materializing workspace sources",
-  }, async () => {
-    await materializeWorkspaceSourcesForSession(workspace, paths, {
-      ...(abortSignal ? { abortSignal } : {}),
-      ...(onMaterializeProgress ? { onProgress: onMaterializeProgress } : {}),
+  const run = async (command: string, args: readonly string[] = [], runOptions: { cwd?: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal } = {}) => {
+    const result = await sandbox.run({
+      abortSignal: runOptions.signal || options.abortSignal,
+      command: [command, ...args].map(shellQuote).join(" "),
+      ...(runOptions.cwd ? { workingDirectory: runOptions.cwd } : {}),
+      ...(runOptions.env ? { env: { ...runOptions.env } } : {}),
     })
-  })
-  const entries = await withPrepareProgress(onProgress, {
-    data: { paths: paths ?? null },
-    id: "workspace.prepare.entries",
-    label: "Resolving workspace entries",
-  }, async () => await workspaceEntries(workspace, paths))
-  const directoriesToCreate = new Set(workspaceDirectories(entries))
-  const initialTree: InitialTree = {
-    archiveDirectories: directoriesToCreate,
-    directories: new Set(workspaceDirectories(entries)),
-    files: new Map(),
+    return { code: result.exitCode, stderr: result.stderr || "", stdout: result.stdout || "" }
   }
-  const files = workspaceFiles(entries)
-  for (const entry of files) addParentDirectories(directoriesToCreate, entry.path)
-  await withPrepareProgress(onProgress, {
-    data: { files: files.length },
-    id: "workspace.prepare.read-files",
-    label: "Reading workspace files",
-  }, async () => {
-    await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
-      const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
-      const bytes = contentToBytes(content)
-      initialTree.files.set(entry.path, {
-        content: bytes,
-        mediaType: entry.mediaType,
-        symlinkTarget: entry.metadata?.gitMode === "120000"
-          ? typeof entry.metadata.symlinkTarget === "string" ? entry.metadata.symlinkTarget : new TextDecoder().decode(bytes)
-          : undefined,
-      })
-    })
-  })
-  await withPrepareProgress(onProgress, {
-    id: "workspace.prepare.reset-sandbox",
-    label: "Resetting sandbox workspace",
-  }, async () => {
-    await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
-  })
-  await withPrepareProgress(onProgress, {
-    data: { directories: directoriesToCreate.size, files: initialTree.files.size },
-    id: "workspace.prepare.extract-archive",
-    label: "Extracting workspace archive",
-  }, async () => {
-    await extractWorkspaceArchive(sandbox, sessionWorkDir, initialTree, directoriesToCreate, abortSignal)
-  })
+
+  return {
+    executionAuthority: options.executionAuthority || unknownExecutionAuthority,
+    files: {
+      async exists(path) {
+        return (await run("sh", ["-c", `test -e "$1" || test -L "$1"`, "sh", path])).code === 0
+      },
+      async list(path, listOptions) {
+        const depth = listOptions?.recursive ? "" : " -maxdepth 1"
+        const command = `find "$1" -mindepth 1${depth} -exec sh -c 'for path do if [ -L "$path" ]; then type=symlink; size=; elif [ -d "$path" ]; then type=directory; size=; else type=file; size=$(wc -c < "$path") || exit $?; fi; encoded=$(printf %s "$path" | base64 | tr -d "\\n") || exit $?; printf "%s\\t%s\\t%s\\n" "$type" "$size" "$encoded"; done' sh {} +`
+        const result = await run("sh", ["-c", command, "sh", path])
+        if (result.code !== 0) throw new Error(`[vitehub] Failed to list Harness Workspace host: ${result.stderr || "find failed"}`)
+        return parseHostEntries(result.stdout)
+      },
+      async mkdir(path, mkdirOptions) {
+        const result = await run("mkdir", [...(mkdirOptions?.recursive ? ["-p"] : []), "--", path])
+        if (result.code !== 0) throw new Error(`[vitehub] Failed to create Harness Workspace directory: ${result.stderr || "mkdir failed"}`)
+      },
+      async read(path) {
+        if (!sandbox.readBinaryFile) throw new Error("[vitehub] Harness Workspace Session requires sandbox.readBinaryFile.")
+        return await sandbox.readBinaryFile({ abortSignal: options.abortSignal, path })
+      },
+      async remove(path, removeOptions) {
+        const result = removeOptions?.recursive
+          ? await run("rm", ["-rf", "--", path])
+          : await run("rm", ["-f", "--", path])
+        if (result.code !== 0) throw new Error(`[vitehub] Failed to remove Harness Workspace path: ${result.stderr || "remove failed"}`)
+      },
+      async write(path, content) {
+        await sandbox.writeBinaryFile({ abortSignal: options.abortSignal, content, path })
+      },
+    },
+    exec: run,
+  }
+}
+
+async function initializeSandboxGitBaseline(session: WorkspaceSession, onProgress: PrepareHarnessWorkspaceSessionOptions["onProgress"]) {
   await withPrepareProgress(onProgress, {
     id: "workspace.prepare.git-status",
     label: "Preparing workspace status",
   }, async () => {
-    await initializeSandboxGitBaseline(sandbox, sessionWorkDir, abortSignal)
+    await session.exec("sh", ["-c", "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign --no-verify -qm workspace-baseline || true; fi"])
   })
-  return initialTree
-}
-
-async function copySandboxChangesToWorkspace(
-  session: WorkspaceSession,
-  definition: WorkspaceDefinition | undefined,
-  sandbox: HarnessSandboxSession,
-  sessionWorkDir: string,
-  initialTree: InitialTree,
-  abortSignal: AbortSignal | undefined,
-  ignoreWriteBackPaths: Set<string>,
-  commit: PrepareHarnessWorkspaceSessionOptions["commit"],
-  onWriteBack: PrepareHarnessWorkspaceSessionOptions["onWriteBack"],
-) {
-  if (!sandbox.readBinaryFile) {
-    throw new Error("[vitehub] Harness Workspace Session write mode requires sandbox.readBinaryFile.")
-  }
-
-  const ignoredWriteBackPaths = new Set([...ignoreWriteBackPaths, ".git"])
-  const sandboxDirectories = await listSandboxPaths(sandbox, sessionWorkDir, "d", abortSignal)
-  const sandboxFiles = await listSandboxPaths(sandbox, sessionWorkDir, "f", abortSignal)
-  const sandboxSymlinks = await listSandboxPaths(sandbox, sessionWorkDir, "l", abortSignal)
-  const sandboxFileEntries = new Set([...sandboxFiles, ...sandboxSymlinks])
-  for (const path of initialTree.files.keys()) {
-    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
-    if (!sandboxFileEntries.has(path)) await session.rm(path, { force: true })
-  }
-  for (const path of [...initialTree.directories].sort((left, right) => right.length - left.length)) {
-    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
-    if (isIgnoredWriteBackParent(path, ignoredWriteBackPaths)) continue
-    if (!sandboxDirectories.has(path)) await session.rm(path, { force: true, recursive: true })
-  }
-  for (const path of sandboxDirectories) {
-    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
-    if (!initialTree.directories.has(path) && isIgnoredWriteBackParent(path, ignoredWriteBackPaths)) continue
-    if (initialTree.archiveDirectories.has(path)) continue
-    await session.mkdir(path, { recursive: true } satisfies MkdirOptions)
-  }
-  for (const path of sandboxFiles) {
-    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
-    const initial = initialTree.files.get(path)
-    const content = await sandbox.readBinaryFile({
-      abortSignal,
-      path: sandboxPath(sessionWorkDir, path),
-    })
-    if (!content || (!initial?.symlinkTarget && bytesEqual(initial?.content, content))) continue
-    await session.writeFile(path, content, {
-      mediaType: initial?.mediaType || lookup(path) || undefined,
-    })
-  }
-  for (const path of sandboxSymlinks) {
-    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
-    const initial = initialTree.files.get(path)
-    const target = await readSandboxSymlinkTarget(sandbox, sessionWorkDir, path, abortSignal)
-    if (initial?.symlinkTarget === target) continue
-    await session.writeFile(path, contentToBytes(target), {
-      metadata: { gitMode: "120000" },
-    })
-  }
-
-  const diff = await session.diff()
-  if (!diff.entries.length) return
-  if (commit) {
-    const commitOptions = commit(diff)
-    if (!commitOptions) return
-    await session.commit({ message: commitOptions.message || "harness-workspace-session" })
-    await onWriteBack?.(diff)
-    return
-  }
-  const autoCommit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
-  if (definition && !autoCommit) return
-  await session.commit({ message: autoCommit?.message || "harness-workspace-session" })
-  await onWriteBack?.(diff)
 }
 
 export async function prepareHarnessWorkspaceSession(
@@ -542,45 +197,53 @@ export async function prepareHarnessWorkspaceSession(
   options: PrepareHarnessWorkspaceSessionOptions,
 ): Promise<HarnessWorkspaceSession> {
   const paths = normalizeSessionPaths(options.paths)
-  const ignoreWriteBackPaths = new Set((options.ignoreWriteBackPaths || []).map(normalizeHarnessWorkspacePath))
-  const initialTree = await copyWorkspaceToSandbox(workspace, options.session, options.sessionWorkDir, options.abortSignal, paths, options.onMaterializeProgress, options.onProgress)
-  const sessionOptions: WorkspaceSessionOptions | undefined = paths ? { paths } : undefined
-  const workspaceSession = isWritableWorkspaceFacade(workspace) && (paths === undefined || paths.length)
-    ? await withPrepareProgress(options.onProgress, {
-        data: { paths: paths ?? null },
-        id: "workspace.prepare.start-session",
-        label: "Starting workspace write session",
-      }, async () => await workspace.startSession(sessionOptions))
-    : undefined
+  await withPrepareProgress(options.onProgress, {
+    data: { paths: paths ?? null },
+    id: "workspace.prepare.materialize",
+    label: "Materializing workspace sources",
+  }, async () => await materializeWorkspaceSourcesForSession(workspace, paths, {
+    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+    ...(options.onMaterializeProgress ? { onProgress: options.onMaterializeProgress } : {}),
+  }))
+
+  const session = await withPrepareProgress(options.onProgress, {
+    data: { paths: paths ?? null },
+    id: "workspace.prepare.start-session",
+    label: "Starting workspace session",
+  }, async () => await workspaceSessionStarter(workspace)({
+    abortSignal: options.abortSignal,
+    host: harnessWorkspaceHost(options),
+    onProgress: options.onProgress,
+    paths,
+    target: options.sessionWorkDir,
+    writeBack: { exclude: options.ignoreWriteBackPaths },
+  }))
+  await initializeSandboxGitBaseline(session, options.onProgress)
 
   return {
     async close(error?: unknown) {
       try {
-        if (!error && workspaceSession) {
-          await copySandboxChangesToWorkspace(
-            workspaceSession,
-            options.definition,
-            options.session,
-            options.sessionWorkDir,
-            initialTree,
-            options.abortSignal,
-            ignoreWriteBackPaths,
-            options.commit,
-            options.onWriteBack,
-          )
+        if (error || !isWritableWorkspaceFacade(workspace)) return
+        const diff = await session.diff()
+        if (!diff.entries.length) return
+        if (options.commit) {
+          const commit = options.commit(diff)
+          if (!commit) return
+          await session.commit({ message: commit.message || "harness-workspace-session" })
+          await options.onWriteBack?.(diff)
+          return
         }
+        const autoCommit = options.definition ? resolveWorkspaceAutoCommit(options.definition, diff) : undefined
+        if (options.definition && !autoCommit) return
+        await session.commit({ message: autoCommit?.message || "harness-workspace-session" })
+        await options.onWriteBack?.(diff)
       }
       finally {
-        await workspaceSession?.close()
+        await session.close()
       }
     },
     async refreshGitBaseline() {
-      await withPrepareProgress(options.onProgress, {
-        id: "workspace.prepare.git-status",
-        label: "Preparing workspace status",
-      }, async () => {
-        await initializeSandboxGitBaseline(options.session, options.sessionWorkDir, options.abortSignal)
-      })
+      await initializeSandboxGitBaseline(session, options.onProgress)
     },
   }
 }

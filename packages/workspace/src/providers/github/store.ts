@@ -10,12 +10,14 @@ import {
 } from "../../core/path.ts";
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
 import { workspaceStoreTarget } from "../../storage/target.ts";
+import { workspaceRevisionMaterializer } from "../../storage/materialization.ts";
 import {
   commitGitHubChanges,
   createGitHubBlob,
   createGitHubFileUpdate,
   gitBlobSha,
   joinGitPath,
+  readGitHubArchive,
   readGitHubRawFile,
   readGitHubBranchState,
   requireGitHubOption,
@@ -132,6 +134,7 @@ function gitSymlinkTargetFromBytes(bytes: Uint8Array): string {
 
 class GitHubWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined;
+  #archive: { bytes: Uint8Array; revision: string } | undefined;
   #baselineRefSha: string | undefined;
   #baselineTreeSha: string | undefined;
   #branch: string;
@@ -161,6 +164,40 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   [workspaceStoreTarget]() {
     return { provider: "github" as const, branch: this.#branch, repository: this.#repository };
   }
+
+  [workspaceRevisionMaterializer] = {
+    currentRevision: async (options?: { abortSignal?: AbortSignal; refresh?: boolean }) => {
+      options?.abortSignal?.throwIfAborted();
+      await this.#mutate(async () => await this.#ensure({ refresh: options?.refresh !== false }));
+      return this.#baselineRefSha!;
+    },
+    materializeRevision: async (options?: { abortSignal?: AbortSignal; paths?: readonly string[] }) => {
+      await this.#mutate(async () => await this.#ensure({ refresh: true }));
+      const revision = this.#baselineRefSha!;
+      const paths = options?.paths;
+      const files = [...this.#remoteFiles.keys()].filter(path =>
+        !isReservedWorkspacePath(path) && (!paths || paths.some(root => path === root || path.startsWith(`${root}/`))),
+      ).length;
+      if (!this.#dirty && paths === undefined && this.#archive?.revision !== revision) {
+        this.#archive = {
+          bytes: await readGitHubArchive({
+            ref: revision,
+            repository: this.#repository,
+            signal: options?.abortSignal,
+            token: this.#token,
+          }),
+          revision,
+        };
+      }
+      return {
+        ...(!this.#dirty && paths === undefined ? { archive: this.#archive!.bytes } : {}),
+        files,
+        paths,
+        revision,
+        root: this.#root,
+      };
+    },
+  };
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path);
@@ -344,7 +381,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         [...remote.files].map(([path, entry]) => [path, githubRemoteFile(path, entry)]),
       );
       this.#baseline = await createSnapshotFromEntries(
-        await this.#listEntries("", { recursive: true }),
+        await this.#listEntries("", { recursive: true }, false),
         "github-workspace-store-rebase",
       );
 
@@ -440,7 +477,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return await this.#mutate(async () => {
       await this.#ensure({ refresh: true });
       const from = options.from || this.#baseline;
-      const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }));
+      const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }, false));
       return diffSnapshots(from, to);
     });
   }
@@ -478,6 +515,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async #load(): Promise<void> {
+    const previousFiles = this.#files;
     const remote = await readGitHubBranchState({
       branch: this.#branch,
       kind: "store",
@@ -490,18 +528,21 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#remoteFiles = remote.files;
     if (!this.#dirty) {
       this.#files = new Map(
-        [...remote.files].map(([path, entry]) => [
-          path,
-          {
+        [...remote.files].map(([path, entry]) => {
+          const previous = previousFiles.get(path);
+          return [path, {
+            ...(previous && previous.gitSha === entry.sha && gitHubFileMode(previous.metadata) === (entry.mode || "100644")
+              ? { bytes: previous.bytes }
+              : {}),
             gitSha: entry.sha!,
             metadata: gitHubFileMetadata(entry),
             path,
             size: entry.size,
-          },
-        ]),
+          }];
+        }),
       );
       this.#baseline = await createSnapshotFromEntries(
-        await this.#listEntries("", { recursive: true }),
+        await this.#listEntries("", { recursive: true }, false),
         "github-workspace-store-load",
       );
     }
@@ -559,7 +600,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     };
   }
 
-  async #listEntries(prefix: string, options: ListOptions): Promise<WorkspaceEntry[]> {
+  async #listEntries(prefix: string, options: ListOptions, resolveSymlinks = true): Promise<WorkspaceEntry[]> {
     const entries = new Map<string, WorkspaceEntry>();
     for (const file of this.#files.values()) {
       if (isReservedWorkspacePath(file.path)) continue;
@@ -568,7 +609,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
           entries.set(dir, { path: dir, type: "directory" });
       }
       if (this.#entryInPrefix(file.path, prefix, options))
-        entries.set(file.path, await this.#fileEntry(file));
+        entries.set(file.path, await this.#fileEntry(file, resolveSymlinks));
     }
     return [...entries.values()].sort((a, b) => a.path.localeCompare(b.path));
   }
@@ -580,11 +621,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return options.recursive || !path.slice(prefix.length + 1).includes("/");
   }
 
-  async #fileEntry(file: GitHubWorkspaceStoreFile): Promise<WorkspaceEntry> {
+  async #fileEntry(file: GitHubWorkspaceStoreFile, resolveSymlinks = true): Promise<WorkspaceEntry> {
     return {
       digest: file.gitSha,
       mediaType: file.mediaType,
-      metadata: await this.#fileMetadata(file),
+      metadata: resolveSymlinks ? await this.#fileMetadata(file) : file.metadata,
       path: file.path,
       size: file.size,
       type: "file",

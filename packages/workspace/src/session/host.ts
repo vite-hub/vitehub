@@ -1,10 +1,14 @@
+import { randomUUID } from "node:crypto"
 import { posix } from "node:path"
 import { normalizeExecutionAuthority } from "@vite-hub/runtime"
 
-import { workspaceError } from "../core/errors.ts"
+import { workspaceConflict, workspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
+import { resolveWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
+
+import type { WorkspaceRevisionMaterialization } from "../storage/materialization.ts"
 
 import type {
   ReadFileOptions,
@@ -20,8 +24,60 @@ import type {
   WorkspaceSessionHost,
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
+  WorkspaceSnapshot,
+  WorkspacePrepareSessionProgressEvent,
   WorkspaceSessionWriteFileOptions,
 } from "../core/types.ts"
+
+type PrepareProgressReporter = WorkspaceSessionOptions["onProgress"]
+const publicationQueues = new WeakMap<object, Promise<void>>()
+
+async function withWorkspacePublication<T>(key: object, publish: () => Promise<T>): Promise<T> {
+  const previous = publicationQueues.get(key) || Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>((resolve) => { release = resolve })
+  publicationQueues.set(key, current)
+  await previous
+  try {
+    return await publish()
+  }
+  finally {
+    release()
+    if (publicationQueues.get(key) === current) publicationQueues.delete(key)
+  }
+}
+
+async function withPrepareProgress<T>(
+  onProgress: PrepareProgressReporter,
+  event: Pick<WorkspacePrepareSessionProgressEvent, "id" | "label"> & { data?: Record<string, unknown> },
+  fn: () => Promise<T>,
+) {
+  const startedAt = Date.now()
+  await onProgress?.({ data: event.data, id: event.id, label: event.label, status: "started" })
+  try {
+    const result = await fn()
+    await onProgress?.({
+      data: event.data,
+      durationMs: Date.now() - startedAt,
+      id: event.id,
+      label: event.label,
+      status: "completed",
+    })
+    return result
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await onProgress?.({
+      data: { ...event.data, error: message },
+      durationMs: Date.now() - startedAt,
+      error: message,
+      id: event.id,
+      label: event.label,
+      status: "failed",
+    })
+    throw error
+  }
+}
 
 function normalizeTarget(target = "/workspace") {
   const normalized = posix.resolve("/", target.replace(/\\/g, "/"))
@@ -34,8 +90,14 @@ function normalizeSearchRoot(path: string) {
   return normalized === "." ? "" : normalizeSafeWorkspacePath(normalized, { allowEmpty: true })
 }
 
+function normalizeReadableSessionPath(path: string) {
+  const normalized = normalizeSafeWorkspacePath(path, { allowReserved: true })
+  if (/^\.vitehub\/sources\/[^/]+\.json$/.test(normalized)) return normalized
+  return normalizeSafeWorkspacePath(path)
+}
+
 function toHostPath(root: string, path = "") {
-  const normalized = normalizeSafeWorkspacePath(path, { allowEmpty: true })
+  const normalized = normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })
   return normalized ? posix.join(root, normalized) : root
 }
 
@@ -56,7 +118,7 @@ function fromHostPath(root: string, path: string) {
   if (!normalizedPath.startsWith(`${normalizedRoot}/`)) {
     throw workspaceError(`[vitehub] Workspace host returned a path outside ${root}: ${path}.`)
   }
-  return normalizeWorkspacePath(normalizedPath.slice(normalizedRoot.length + 1))
+  return normalizeSafeWorkspacePath(normalizedPath.slice(normalizedRoot.length + 1), { allowReserved: true })
 }
 
 function isGitSymlinkEntry(entry: WorkspaceEntry): boolean {
@@ -76,6 +138,42 @@ function isSafeHostSymlink(root: string, path: string, target: string) {
   if (posix.isAbsolute(target)) return false
   const resolved = posix.resolve(posix.dirname(toHostPath(root, path)), target)
   return resolved === root || resolved.startsWith(`${root}/`)
+}
+
+async function isHostPath(host: WorkspaceSessionHost, path: string, flag: "-d" | "-L") {
+  return (await host.exec("test", [flag, path])).code === 0
+}
+
+async function assertHostWorkspaceRoot(host: WorkspaceSessionHost, root: string) {
+  if (await isHostPath(host, root, "-L") || !await isHostPath(host, root, "-d"))
+    throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
+}
+
+async function ensureHostWorkspaceRoot(host: WorkspaceSessionHost, root: string) {
+  const symlink = await isHostPath(host, root, "-L")
+  const directory = !symlink && await isHostPath(host, root, "-d")
+  if (directory) return false
+  if (symlink || await host.files.exists(root)) await host.files.remove(root, { recursive: false })
+  await host.files.mkdir(root, { recursive: true })
+  await assertHostWorkspaceRoot(host, root)
+  return true
+}
+
+async function removeHostSymlinkAncestors(host: WorkspaceSessionHost, root: string, path: string) {
+  let ancestor = root
+  for (const component of fromHostPath(root, path).split("/").slice(0, -1)) {
+    ancestor = posix.join(ancestor, component)
+    if (!await isHostPath(host, ancestor, "-L")) continue
+    await host.files.remove(ancestor, { recursive: false })
+    if (await isHostPath(host, ancestor, "-L"))
+      throw workspaceError(`[vitehub] Failed to remove Workspace symlink ancestor: ${ancestor}.`)
+    return
+  }
+}
+
+async function removeHostPath(host: WorkspaceSessionHost, root: string, path: string, recursive: boolean) {
+  await removeHostSymlinkAncestors(host, root, path)
+  await host.files.remove(path, { recursive: await isHostPath(host, path, "-L") ? false : recursive })
 }
 
 async function assertNoHostSymlinkParent(host: WorkspaceSessionHost, root: string, target: string) {
@@ -112,24 +210,33 @@ async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, p
 }
 
 async function writeHostSymlink(host: WorkspaceSessionHost, root: string, path: string, target: string) {
-  await host.files.remove(path).catch(() => undefined)
+  await removeHostPath(host, root, path, false)
   const result = await host.exec("ln", ["-s", target, fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
     throw workspaceError(`[vitehub] Failed to create workspace symlink: ${path}. ${result.stderr || "ln failed"}`)
 }
 
 async function readHostFile(host: WorkspaceSessionHost, root: string, path: string): Promise<WorkspaceFile | undefined> {
+  await assertHostWorkspaceRoot(host, root)
   if (!await host.files.exists(path)) return undefined
   const content = await host.files.read(path)
   return content ? { content, path: fromHostPath(root, path) } : undefined
 }
 
-async function listHostEntries(host: WorkspaceSessionHost, root: string, path = "", recursive = false): Promise<WorkspaceEntry[]> {
-  const entries = await host.files.list(toHostPath(root, path), { recursive })
-  const resolved = await Promise.all(entries.map(async (entry) => {
-    const workspaceEntry = toWorkspaceEntry(root, entry)
+async function listHostEntries(
+  host: WorkspaceSessionHost,
+  root: string,
+  path = "",
+  recursive = false,
+  include?: (entry: WorkspaceEntry) => boolean,
+): Promise<WorkspaceEntry[]> {
+  await assertHostWorkspaceRoot(host, root)
+  const entries = (await host.files.list(toHostPath(root, path), { recursive }))
+    .map(entry => toWorkspaceEntry(root, entry))
+    .filter(entry => !include || include(entry))
+  const resolved = await Promise.all(entries.map(async (workspaceEntry) => {
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
-    const executable = await host.exec("test", ["-x", fromHostPath(root, entry.path)], { cwd: root })
+    const executable = await host.exec("test", ["-x", workspaceEntry.path], { cwd: root })
     return executable.code === 0
       ? { ...workspaceEntry, metadata: { ...workspaceEntry.metadata, gitMode: "100755" } }
       : workspaceEntry
@@ -150,7 +257,16 @@ async function snapshotHost(host: WorkspaceSessionHost, root: string, name?: str
 }
 
 async function captureHostState(host: WorkspaceSessionHost, root: string, name?: string) {
+  if (await isHostPath(host, root, "-L"))
+    throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
+  if (!await host.files.exists(root)) {
+    return { contents: new Map<string, Uint8Array | string>(), snapshot: await createSnapshotFromEntries([], name) }
+  }
   const entries = await listHostEntries(host, root, "", true)
+  return await captureHostEntriesState(host, root, entries, name)
+}
+
+async function captureHostEntriesState(host: WorkspaceSessionHost, root: string, entries: WorkspaceEntry[], name?: string) {
   const contents = new Map<string, Uint8Array | string>()
   const files = await Promise.all(entries.map(async (entry) => {
     if (entry.type !== "file") return entry
@@ -168,6 +284,49 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
   return { contents, snapshot: await createSnapshotFromEntries(files, name) }
 }
 
+function isInsideExcludedWriteBackPath(path: string, excluded: readonly string[]) {
+  return excluded.some(item => path === item || path.startsWith(`${item}/`))
+}
+
+async function captureExcludedHostState(host: WorkspaceSessionHost, root: string, excluded: readonly string[]) {
+  if (await isHostPath(host, root, "-L"))
+    throw workspaceError(`[vitehub] Workspace host root must be a directory: ${root}.`)
+  if (!await host.files.exists(root)) return await captureHostEntriesState(host, root, [], "host-excluded")
+  const entries = await listHostEntries(host, root, "", true, entry => isInsideExcludedWriteBackPath(entry.path, excluded))
+  return await captureHostEntriesState(host, root, entries, "host-excluded")
+}
+
+async function restoreExcludedHostState(
+  host: WorkspaceSessionHost,
+  root: string,
+  excluded: readonly string[],
+  state: Awaited<ReturnType<typeof captureExcludedHostState>>,
+) {
+  const roots = excluded.filter((path, index) => !excluded.some((parent, parentIndex) => parentIndex !== index && path.startsWith(`${parent}/`)))
+  for (const path of roots.sort((left, right) => right.length - left.length)) {
+    await removeHostPath(host, root, toHostPath(root, path), true)
+  }
+
+  const entries = Object.entries(state.snapshot.entries)
+    .sort(([left], [right]) => left.split("/").length - right.split("/").length)
+  for (const [path, entry] of entries) {
+    const target = toHostPath(root, path)
+    await removeHostSymlinkAncestors(host, root, target)
+    if (entry.type === "directory") {
+      await host.files.mkdir(target, { recursive: true })
+      continue
+    }
+    const content = state.contents.get(path)
+    if (content === undefined) continue
+    await ensureHostParent(host, target)
+    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content))
+    else {
+      await host.files.write(target, contentToBytes(content))
+      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
+    }
+  }
+}
+
 async function restoreAttachedHost(
   host: WorkspaceSessionHost,
   root: string,
@@ -175,8 +334,9 @@ async function restoreAttachedHost(
   state: Awaited<ReturnType<typeof captureHostState>>,
 ) {
   const changed = [...new Set(diff.entries.map(entry => entry.path))]
-  for (const path of changed.sort((left, right) => right.length - left.length))
-    await host.files.remove(toHostPath(root, path), { recursive: true }).catch(() => undefined)
+  for (const path of changed.sort((left, right) => right.length - left.length)) {
+    await removeHostPath(host, root, toHostPath(root, path), true)
+  }
 
   const baselineEntries = changed
     .map(path => [path, state.snapshot.entries[path]] as const)
@@ -184,6 +344,7 @@ async function restoreAttachedHost(
     .sort(([left], [right]) => left.split("/").length - right.split("/").length)
   for (const [path, entry] of baselineEntries) {
     const target = toHostPath(root, path)
+    await removeHostSymlinkAncestors(host, root, target)
     if (entry.type === "directory") {
       await host.files.mkdir(target, { recursive: true })
       continue
@@ -200,13 +361,27 @@ async function restoreAttachedHost(
 }
 
 async function resetHostWorkspaceRoot(host: WorkspaceSessionHost, root: string) {
-  await host.files.remove(root, { recursive: true }).catch(() => undefined)
-  await host.files.mkdir(root, { recursive: true })
+  if (await ensureHostWorkspaceRoot(host, root)) return
+  for (const entry of await host.files.list(root)) {
+    await removeHostPath(host, root, entry.path, true)
+  }
+}
+
+function isExcludedWriteBackPath(path: string, excluded: readonly string[]) {
+  return excluded.some(item => path === item || path.startsWith(`${item}/`) || item.startsWith(`${path}/`))
+}
+
+function filterWriteBackDiff(diff: WorkspaceDiff, excluded: readonly string[]): WorkspaceDiff {
+  return {
+    ...diff,
+    entries: diff.entries.filter(entry => !isExcludedWriteBackPath(entry.path, excluded)),
+  }
 }
 
 function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {
-  const paths = [...new Set((options?.paths || []).map(path => normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })))]
-  if (!paths.length || paths.includes("")) return undefined
+  if (options?.paths === undefined) return undefined
+  const paths = [...new Set(options.paths.map(path => normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })))]
+  if (paths.includes("")) return undefined
   return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
@@ -229,34 +404,156 @@ async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOp
   return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
 }
 
+async function extractRevisionArchive(
+  host: WorkspaceSessionHost,
+  root: string,
+  materialization: WorkspaceRevisionMaterialization & { archive: Uint8Array },
+  signal?: AbortSignal,
+) {
+  const stagingRoot = posix.join(root, `.vitehub-workspace-${randomUUID()}`)
+  const archive = posix.join(stagingRoot, "revision.tar.gz")
+  const staging = posix.join(stagingRoot, "extracted")
+  await host.files.mkdir(stagingRoot, { recursive: true })
+  await host.files.write(archive, materialization.archive)
+  await host.files.mkdir(staging, { recursive: true })
+  try {
+    const extracted = await host.exec("tar", ["-xzf", archive, "-C", staging], { signal })
+    if (extracted.code !== 0) {
+      throw workspaceError(`[vitehub] Failed to extract Workspace revision ${materialization.revision}: ${extracted.stderr || "tar failed"}`)
+    }
+    const roots = (await host.files.list(staging)).filter(entry => entry.type === "directory")
+    if (roots.length !== 1) {
+      throw workspaceError(`[vitehub] Workspace revision archive must contain one repository root.`)
+    }
+    const archiveRoot = normalizeSafeWorkspacePath(materialization.root, { allowEmpty: true, allowReserved: true })
+    let source = roots[0]!.path
+    let validSource = true
+    for (const component of archiveRoot.split("/").filter(Boolean)) {
+      source = posix.join(source, component)
+      if ((await host.exec("test", ["-L", source], { signal })).code === 0) {
+        throw workspaceError(`[vitehub] Workspace revision archive root must not contain symlinks: ${materialization.root}.`)
+      }
+      if ((await host.exec("test", ["-d", source], { signal })).code !== 0) {
+        validSource = false
+        break
+      }
+    }
+    if (!validSource && materialization.files > 0) {
+      throw workspaceError(`[vitehub] Workspace revision archive is missing ${materialization.root || "its repository root"}.`)
+    }
+    if (!validSource) return
+    const paths = materialization.paths
+    if (!paths) {
+      const copied = await host.exec("cp", ["-a", `${source}/.`, root], { signal })
+      if (copied.code !== 0) {
+        throw workspaceError(`[vitehub] Failed to materialize Workspace revision ${materialization.revision}: ${copied.stderr || "copy failed"}`)
+      }
+    }
+    else {
+      for (const path of paths) {
+        const selected = posix.join(source, path)
+        if (!await host.files.exists(selected)) continue
+        const destination = toHostPath(root, posix.dirname(path) === "." ? "" : posix.dirname(path))
+        await host.files.mkdir(destination, { recursive: true })
+        const copied = await host.exec("cp", ["-a", selected, destination], { signal })
+        if (copied.code !== 0) {
+          throw workspaceError(`[vitehub] Failed to materialize Workspace revision ${materialization.revision}: ${copied.stderr || "copy failed"}`)
+        }
+      }
+    }
+  }
+  finally {
+    await removeHostPath(host, root, stagingRoot, true)
+  }
+}
+
+async function sanitizeHostSymlinks(host: WorkspaceSessionHost, root: string) {
+  const symlinks = (await listHostEntries(host, root, "", true)).filter(isGitSymlinkEntry)
+  for (const entry of symlinks) {
+    const path = toHostPath(root, entry.path)
+    const target = await readHostSymlinkTarget(host, root, path)
+    if (isSafeHostSymlink(root, entry.path, target)) continue
+    await host.files.remove(path, { recursive: false })
+    await host.files.write(path, contentToBytes(target))
+  }
+}
+
 async function materializeWorkspace(workspace: Workspace, host: WorkspaceSessionHost, root: string, options?: WorkspaceSessionOptions) {
-  await resetHostWorkspaceRoot(host, root)
-  const entries = await sessionEntries(workspace, options)
+  const paths = normalizeSessionPaths(options)
+  const materializer = resolveWorkspaceRevisionMaterializer(workspace)
+  const revision = materializer
+    ? await withPrepareProgress(options?.onProgress, {
+        data: { paths: paths ?? null },
+        id: "workspace.prepare.revision",
+        label: "Resolving workspace revision",
+      }, async () => await materializer.materializeRevision({
+        abortSignal: options?.abortSignal,
+        paths,
+      }))
+    : undefined
+  await withPrepareProgress(options?.onProgress, {
+    id: "workspace.prepare.reset-sandbox",
+    label: "Resetting sandbox workspace",
+  }, async () => await resetHostWorkspaceRoot(host, root))
+  if (revision?.archive) {
+    await withPrepareProgress(options?.onProgress, {
+      data: {
+        bytes: revision.archive.byteLength,
+        files: revision.files,
+        revision: revision.revision,
+      },
+      id: "workspace.prepare.extract-archive",
+      label: "Extracting workspace revision",
+    }, async () => await extractRevisionArchive(host, root, { ...revision, archive: revision.archive! }, options?.abortSignal))
+    await Promise.all([
+      removeHostPath(host, root, toHostPath(root, ".git"), true),
+      removeHostPath(host, root, toHostPath(root, ".vitehub"), true),
+    ])
+    await sanitizeHostSymlinks(host, root)
+    return { revision: revision.revision, snapshot: await snapshotHost(host, root, "host-open") }
+  }
+  const entries = await withPrepareProgress(options?.onProgress, {
+    data: { paths: paths ?? null },
+    id: "workspace.prepare.entries",
+    label: "Resolving workspace entries",
+  }, async () => await sessionEntries(workspace, options))
   const symlinks = new Set(entries.filter(isGitSymlinkEntry).map(entry => entry.path))
   const nested = entries.find(entry => hasSymlinkParent(entry.path, symlinks))
   if (nested)
     throw workspaceError(`[vitehub] Workspace path crosses a symlink parent: ${nested.path}.`)
   for (const entry of entries.filter(entry => entry.type === "directory"))
     await host.files.mkdir(toHostPath(root, entry.path), { recursive: true })
-  for (const entry of entries) {
-    if (entry.type !== "file") continue
-    const target = toHostPath(root, entry.path)
-    await ensureHostParent(host, target)
-    if (isGitSymlinkEntry(entry)) {
-      const symlinkTarget = typeof entry.metadata?.symlinkTarget === "string"
-        ? entry.metadata.symlinkTarget
-        : new TextDecoder().decode(contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
-      if (isSafeHostSymlink(root, entry.path, symlinkTarget))
-        await writeHostSymlink(host, root, target, symlinkTarget)
-      else
-        await host.files.write(target, contentToBytes(symlinkTarget))
+  await withPrepareProgress(options?.onProgress, {
+    data: {
+      bytes: entries.reduce((total, entry) => total + (entry.size || 0), 0),
+      files: entries.filter(entry => entry.type === "file").length,
+    },
+    id: "workspace.prepare.read-files",
+    label: "Reading workspace files",
+  }, async () => {
+    for (const entry of entries) {
+      if (entry.type !== "file") continue
+      const target = toHostPath(root, entry.path)
+      await ensureHostParent(host, target)
+      if (isGitSymlinkEntry(entry)) {
+        const symlinkTarget = typeof entry.metadata?.symlinkTarget === "string"
+          ? entry.metadata.symlinkTarget
+          : new TextDecoder().decode(contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
+        if (isSafeHostSymlink(root, entry.path, symlinkTarget))
+          await writeHostSymlink(host, root, target, symlinkTarget)
+        else
+          await host.files.write(target, contentToBytes(symlinkTarget))
+      }
+      else {
+        await host.files.write(target, contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
+        if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
+      }
     }
-    else {
-      await host.files.write(target, contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
-      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
-    }
+  })
+  if (revision && await materializer?.currentRevision({ abortSignal: options?.abortSignal }) !== revision.revision) {
+    throw workspaceConflict(`[vitehub] Workspace revision changed while this Session materialized: ${revision.revision}.`)
   }
-  return await snapshotHost(host, root, "host-open")
+  return { revision: revision?.revision, snapshot: await snapshotHost(host, root, "host-open") }
 }
 
 async function commitHostChanges(
@@ -298,7 +595,7 @@ async function commitHostChanges(
       })
     }
   }
-  await workspace.snapshot({ name: message || "host-commit" })
+  return await workspace.snapshot({ name: message || "host-commit" })
 }
 
 export async function createHostedWorkspaceSession(
@@ -315,9 +612,20 @@ export async function createHostedWorkspaceSession(
   }
   const root = normalizeTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
+  const excludedWriteBackPaths = [
+    ".agent-runs",
+    ".git",
+    ".vitehub",
+    ...(options.writeBack?.exclude || []).map(path => normalizeSafeWorkspacePath(path, { allowReserved: true })),
+  ]
   let closed = false
   let attachedState = options.attach ? await captureHostState(host, root, "host-attach") : undefined
-  let baseline = attachedState?.snapshot || await materializeWorkspace(workspace, host, root, options)
+  const materialization: { revision?: string, snapshot: WorkspaceSnapshot } = attachedState
+    ? { snapshot: attachedState.snapshot }
+    : await materializeWorkspace(workspace, host, root, options)
+  let baseline = materialization.snapshot
+  let baseRevision = materialization.revision
+  const excludedState = options.attach ? undefined : await captureExcludedHostState(host, root, excludedWriteBackPaths)
   const mediaTypes = new Map<string, string>()
 
   function assertOpen() {
@@ -326,14 +634,14 @@ export async function createHostedWorkspaceSession(
 
   async function currentDiff() {
     assertOpen()
-    return diffSnapshots(baseline, await snapshotHost(host, root))
+    return filterWriteBackDiff(diffSnapshots(baseline, await snapshotHost(host, root)), excludedWriteBackPaths)
   }
 
   return {
     executionAuthority,
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, readOptions?: TOptions): Promise<ReadFileResult<TOptions>> {
       assertOpen()
-      const target = toHostPath(root, assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths, { masked: true }))
+      const target = toHostPath(root, assertPathInSessionScope(normalizeReadableSessionPath(path), sessionPaths, { masked: true }))
       const file = await readHostFile(host, root, target)
       if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, readOptions)
@@ -343,7 +651,7 @@ export async function createHostedWorkspaceSession(
       const target = toHostPath(root, assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths))
       await assertNoHostSymlinkParent(host, root, target)
       await ensureHostParent(host, target)
-      await host.files.remove(target, { recursive: true }).catch(() => undefined)
+      await removeHostPath(host, root, target, true)
       const symlinkTarget = writeOptions?.metadata?.gitMode === "120000"
         ? new TextDecoder().decode(contentToBytes(content))
         : undefined
@@ -372,7 +680,7 @@ export async function createHostedWorkspaceSession(
       const workspacePath = assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths)
       const target = toHostPath(root, workspacePath)
       await assertNoHostSymlinkParent(host, root, target)
-      await host.files.remove(target, { recursive: rmOptions?.recursive })
+      await removeHostPath(host, root, target, Boolean(rmOptions?.recursive))
       mediaTypes.delete(normalizeWorkspacePath(workspacePath))
     },
     async list(path = "", listOptions = {}) {
@@ -419,12 +727,24 @@ export async function createHostedWorkspaceSession(
       const diff = await currentDiff()
       if (!diff.entries.length) return
       assertDiffInsideSessionPaths(diff, sessionPaths)
-      await commitHostChanges(host, root, workspace, diff, mediaTypes, commitOptions?.message)
-      if (options.attach) {
-        attachedState = await captureHostState(host, root, commitOptions?.message || "host-commit")
-        baseline = attachedState.snapshot
-      }
-      else baseline = await snapshotHost(host, root, commitOptions?.message || "host-commit")
+      const revisionMaterializer = resolveWorkspaceRevisionMaterializer(workspace)
+      await withWorkspacePublication(revisionMaterializer || workspace, async () => {
+        if (baseRevision && await revisionMaterializer?.currentRevision({ abortSignal: options.abortSignal }) !== baseRevision) {
+          throw workspaceConflict(`[vitehub] Workspace revision changed after this Session materialized: ${baseRevision}.`)
+        }
+        await commitHostChanges(host, root, workspace, diff, mediaTypes, commitOptions?.message)
+        if (baseRevision) {
+          baseRevision = await revisionMaterializer!.currentRevision({
+            abortSignal: options.abortSignal,
+            refresh: false,
+          })
+        }
+        if (options.attach) {
+          attachedState = await captureHostState(host, root, commitOptions?.message || "host-commit")
+          baseline = attachedState.snapshot
+        }
+        else baseline = await snapshotHost(host, root, commitOptions?.message || "host-commit")
+      })
     },
     async exec(command, args = [], execOptions = {}) {
       assertOpen()
@@ -438,12 +758,19 @@ export async function createHostedWorkspaceSession(
     },
     async close() {
       if (closed) return
+      await ensureHostWorkspaceRoot(host, root)
+      const rootExists = true
+      let diff: WorkspaceDiff | undefined
       if (options.attach && attachedState) {
-        const diff = filterSessionDiff(diffSnapshots(baseline, await snapshotHost(host, root)), sessionPaths)
-        await restoreAttachedHost(host, root, diff, attachedState)
+        const attachedDiff = filterSessionDiff(diffSnapshots(baseline, await snapshotHost(host, root)), sessionPaths)
+        await restoreAttachedHost(host, root, attachedDiff, attachedState)
+      }
+      else if (rootExists && excludedState) {
+        await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
+        diff = await currentDiff()
       }
       closed = true
-      if (!options.attach) await materializeWorkspace(workspace, host, root, options)
+      if (rootExists && diff?.entries.length) await materializeWorkspace(workspace, host, root, options)
     },
   }
 }

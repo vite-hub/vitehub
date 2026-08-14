@@ -9,6 +9,7 @@ const harnessRemoveDirectory = Symbol.for("vitehub.harnessRemoveDirectory")
 
 type BoxHarnessSandboxSession = HarnessV1NetworkSandboxSession & {
   [harnessRemoveDirectory](path: string): Promise<void>
+  workspaceHost: BoxSession
 }
 
 function streamFromBytes(bytes: Uint8Array) {
@@ -95,6 +96,7 @@ function adaptBoxSession(session: BoxSession): BoxHarnessSandboxSession {
     restricted() {
       return this
     },
+    workspaceHost: session,
     async run({ abortSignal, command, env, workingDirectory }: { abortSignal?: AbortSignal, command: string, env?: Record<string, string>, workingDirectory?: string }) {
       const result = await session.exec("sh", ["-lc", command], {
         cwd: resolvePath(session, workingDirectory || session.cwd),

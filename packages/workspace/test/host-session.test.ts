@@ -1,11 +1,107 @@
-import { posix } from "node:path"
-import { describe, expect, it } from "vitest"
+import { execFile } from "node:child_process"
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, posix } from "node:path"
+import { promisify } from "node:util"
+import { describe, expect, it, vi } from "vitest"
 import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
+import { fetch as fetchSource } from "../src/sources/fetch.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts"
 
 import type { WorkspaceSessionHost, WorkspaceSessionHostFileEntry } from "../src/core/types.ts"
+import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts"
+
+const execFileAsync = promisify(execFile)
+
+function localHost(): WorkspaceSessionHost {
+  return {
+    executionAuthority: unknownExecutionAuthority,
+    files: {
+      async exists(path) {
+        return await stat(path).then(() => true, () => false)
+      },
+      async list(path, options) {
+        const entries: WorkspaceSessionHostFileEntry[] = []
+        async function visit(root: string) {
+          for (const entry of await readdir(root, { withFileTypes: true })) {
+            const path = join(root, entry.name)
+            const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
+            entries.push({ path, ...(type === "file" ? { size: (await stat(path)).size } : {}), type })
+            if (options?.recursive && type === "directory") await visit(path)
+          }
+        }
+        await visit(path)
+        return entries
+      },
+      async mkdir(path, options) {
+        await mkdir(path, { recursive: options?.recursive })
+      },
+      async read(path) {
+        return await readFile(path).catch(() => null)
+      },
+      async remove(path, options) {
+        await rm(path, { force: true, recursive: options?.recursive })
+      },
+      async write(path, content) {
+        await mkdir(posix.dirname(path), { recursive: true })
+        await writeFile(path, content)
+      },
+    },
+    async exec(command, args = [], options = {}) {
+      try {
+        const result = await execFileAsync(command, [...args], {
+          cwd: options.cwd,
+          env: options.env ? { ...process.env, ...options.env } : process.env,
+          signal: options.signal,
+          timeout: options.timeout,
+        })
+        return { code: 0, stderr: result.stderr, stdout: result.stdout }
+      }
+      catch (error) {
+        const failure = error as Error & { code?: number, stderr?: string, stdout?: string }
+        return { code: typeof failure.code === "number" ? failure.code : 1, stderr: failure.stderr || failure.message, stdout: failure.stdout || "" }
+      }
+    },
+  }
+}
+
+async function revisionArchive() {
+  const source = await mkdtemp(join(tmpdir(), "vitehub-revision-source-"))
+  const root = join(source, "repo-base", ".vitehub", "workspaces", "docs")
+  await mkdir(join(root, "scripts"), { recursive: true })
+  await mkdir(join(root, ".git"), { recursive: true })
+  await mkdir(join(root, ".vitehub", "meta"), { recursive: true })
+  await mkdir(join(root, ".vitehub-revision"), { recursive: true })
+  await writeFile(join(root, "README.md"), "# Docs\n")
+  await writeFile(join(root, ".git", "config"), "internal")
+  await writeFile(join(root, ".vitehub", "meta", "state.json"), "{}")
+  await writeFile(join(root, ".vitehub-revision", "kept.txt"), "kept")
+  await writeFile(join(root, ".vitehub-revision.tar.gz"), "kept archive name")
+  await writeFile(join(root, "scripts", "run.sh"), "#!/bin/sh\n")
+  await execFileAsync("chmod", ["+x", join(root, "scripts", "run.sh")])
+  await symlink("README.md", join(root, "CLAUDE.md"))
+  await symlink("../../../../outside", join(root, "UNSAFE.md"))
+  const archive = join(source, "revision.tar.gz")
+  await execFileAsync("tar", ["-czf", archive, "-C", source, "repo-base"])
+  return { bytes: new Uint8Array(await readFile(archive)), source }
+}
+
+async function symlinkRootRevisionArchive() {
+  const source = await mkdtemp(join(tmpdir(), "vitehub-revision-source-"))
+  const root = join(source, "repo-base", ".vitehub", "workspaces")
+  const outside = join(source, "outside")
+  await mkdir(root, { recursive: true })
+  await mkdir(outside, { recursive: true })
+  await writeFile(join(outside, "secret.txt"), "host secret")
+  await symlink(outside, join(root, "docs"))
+  const archive = join(source, "revision.tar.gz")
+  await execFileAsync("tar", ["-czf", archive, "-C", source, "repo-base"])
+  return { bytes: new Uint8Array(await readFile(archive)), source }
+}
 
 function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): boolean, readText(path: string): string | undefined } {
   const files = new Map<string, Uint8Array>()
@@ -74,13 +170,13 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
         files.delete(target)
         executables.delete(target)
         symlinks.delete(target)
-        for (const file of [...files.keys()]) {
+        for (const file of files.keys()) {
           if (file.startsWith(`${target}/`)) files.delete(file)
         }
-        for (const directory of [...directories]) {
+        for (const directory of directories) {
           if (directory === target || directory.startsWith(`${target}/`)) directories.delete(directory)
         }
-        for (const link of [...symlinks.keys()]) {
+        for (const link of symlinks.keys()) {
           if (link.startsWith(`${target}/`)) symlinks.delete(link)
         }
       },
@@ -105,8 +201,15 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
         files.delete(target)
         return { code: 0, stderr: "", stdout: "" }
       }
-      if (command === "test" && args[0] === "-x")
-        return { code: executables.has(normalize(commandPath(args[1] || ""))) ? 0 : 1, stderr: "", stdout: "" }
+      if (command === "test") {
+        const target = normalize(commandPath(args[1] || ""))
+        const matches = args[0] === "-x"
+          ? executables.has(target)
+          : args[0] === "-L"
+            ? symlinks.has(target)
+            : args[0] === "-d" && directories.has(target)
+        return { code: matches ? 0 : 1, stderr: "", stdout: "" }
+      }
       if (command === "chmod" && args[0] === "+x") {
         executables.add(normalize(commandPath(args[1] || "")))
         return { code: 0, stderr: "", stdout: "" }
@@ -129,6 +232,367 @@ function workspace() {
 }
 
 describe("workspace host sessions", () => {
+  it("extracts a pinned revision archive with root, mode, symlink, and progress semantics", async () => {
+    const docs = workspace()
+    const archive = await revisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    const target = join(targetParent, "workspace")
+    const progress: Array<{ data?: Record<string, unknown>, id: string, status: string }> = []
+    let materializations = 0
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        materializations++
+        return {
+          archive: archive.bytes,
+          files: 6,
+          revision: "0123456789012345678901234567890123456789",
+          root: ".vitehub/workspaces/docs",
+        }
+      },
+    }
+
+    try {
+      const session = await docs.startSession({
+        host: localHost(),
+        onProgress: (event) => { progress.push(event) },
+        target,
+      })
+      await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
+      await expect(session.readFile("UNSAFE.md")).resolves.toBe("../../../../outside")
+      await expect(session.readFile(".vitehub-revision/kept.txt")).resolves.toBe("kept")
+      await expect(session.readFile(".vitehub-revision.tar.gz")).resolves.toBe("kept archive name")
+      await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ".git/config" }),
+        expect.objectContaining({ path: ".vitehub/meta/state.json" }),
+      ]))
+      await expect(session.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ metadata: { gitMode: "120000" }, path: "CLAUDE.md" }),
+        expect.objectContaining({ metadata: { gitMode: "100755" }, path: "scripts/run.sh" }),
+      ]))
+      await session.commit({ message: "unchanged" })
+      await session.close()
+
+      expect(materializations).toBe(1)
+      expect(progress).toContainEqual(expect.objectContaining({
+        data: { bytes: archive.bytes.byteLength, files: 6, revision: "0123456789012345678901234567890123456789" },
+        id: "workspace.prepare.extract-archive",
+        status: "completed",
+      }))
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a pinned revision archive whose declared root is missing", async () => {
+    const docs = workspace()
+    const archive = await revisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: archive.bytes,
+          files: 1,
+          revision: "0123456789012345678901234567890123456789",
+          root: "missing",
+        }
+      },
+    }
+
+    try {
+      await expect(docs.startSession({ host: localHost(), target: join(targetParent, "workspace") }))
+        .rejects.toThrow("Workspace revision archive is missing missing")
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a pinned revision whose configured root is a symlink", async () => {
+    const docs = workspace()
+    const archive = await symlinkRootRevisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    const target = join(targetParent, "workspace")
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: archive.bytes,
+          files: 1,
+          revision: "0123456789012345678901234567890123456789",
+          root: ".vitehub/workspaces/docs",
+        }
+      },
+    }
+
+    try {
+      await expect(docs.startSession({ host: localHost(), target }))
+        .rejects.toThrow("Workspace revision archive root must not contain symlinks")
+      await expect(stat(join(target, "secret.txt"))).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps descriptor and live Source files on the source-aware fallback", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
+      headers: { "content-type": "application/json" },
+    }))
+    const store = createMemoryWorkspaceStore() as ReturnType<typeof createMemoryWorkspaceStore> & WorkspaceRevisionMaterializerCarrier
+    let archiveMaterializations = 0
+    store[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        archiveMaterializations++
+        throw new Error("source-aware Workspace used its Store archive")
+      },
+    }
+    const docs = createWorkspace({
+      ...defineWorkspace({
+        sources: {
+          request: fetchSource({ url: "https://status.example.com/request" }),
+          status: fetchSource({ url: "https://status.example.com/live", workspacePath: "status.json" }),
+        },
+        store,
+      }),
+      name: "docs",
+    })
+
+    const session = await docs.startSession({ host: memoryHost() })
+    await expect(session.readFile("status.json")).resolves.toContain('"status": "ok"')
+    await expect(session.readFile(".vitehub/sources/request.json")).resolves.toContain("status.example.com/request")
+    expect(archiveMaterializations).toBe(0)
+    await session.close()
+    vi.restoreAllMocks()
+  })
+
+  it("rejects one concurrent publication after its pinned revision becomes stale", async () => {
+    const definition = { ...defineWorkspace({ store: { provider: "memory" } }), name: "docs" }
+    const firstWorkspace = createWorkspace(definition)
+    const secondWorkspace = createWorkspace(definition)
+    const archive = await revisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    let revision = "0123456789012345678901234567890123456789"
+    const materializer = {
+      async currentRevision() {
+        return revision
+      },
+      async materializeRevision(options?: { paths?: readonly string[] }) {
+        return {
+          ...(options?.paths ? {} : { archive: archive.bytes }),
+          files: 6,
+          paths: options?.paths,
+          revision,
+          root: ".vitehub/workspaces/docs",
+        }
+      },
+    }
+    ;(firstWorkspace as typeof firstWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
+    ;(secondWorkspace as typeof secondWorkspace & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = materializer
+    const snapshot = firstWorkspace.snapshot.bind(firstWorkspace)
+    firstWorkspace.snapshot = async (options) => {
+      await new Promise(resolve => setTimeout(resolve, 20))
+      const result = await snapshot(options)
+      revision = result.id
+      return result
+    }
+
+    try {
+      await firstWorkspace.writeFile("README.md", "# Docs\n")
+      const first = await firstWorkspace.startSession({ host: localHost(), paths: ["README.md"], target: join(targetParent, "first") })
+      const second = await secondWorkspace.startSession({ host: localHost(), paths: ["README.md"], target: join(targetParent, "second") })
+      await first.writeFile("README.md", "first")
+      await second.writeFile("README.md", "second")
+
+      const firstPublication = first.commit({ message: "first" })
+      await new Promise(resolve => setTimeout(resolve, 1))
+      const publications = await Promise.allSettled([
+        firstPublication,
+        second.commit({ message: "second" }),
+      ])
+      expect(publications.filter(result => result.status === "fulfilled")).toHaveLength(1)
+      expect(publications.find(result => result.status === "rejected")).toMatchObject({
+        reason: { code: "WORKSPACE_CONFLICT" },
+      })
+      await first.writeFile("README.md", "again")
+      await expect(first.commit({ message: "again" })).resolves.toBeUndefined()
+      await first.close()
+      await second.close()
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps the provider revision after a no-op publication", async () => {
+    const docs = workspace()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
+    let revision = "0123456789012345678901234567890123456789"
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return revision
+      },
+      async materializeRevision() {
+        return { files: 0, revision, root: "" }
+      },
+    }
+    const snapshot = docs.snapshot.bind(docs)
+    let publications = 0
+    docs.snapshot = async (options) => {
+      const result = await snapshot(options)
+      if (++publications > 1) revision = result.id
+      return result
+    }
+
+    try {
+      const session = await docs.startSession({ host: localHost(), target: join(targetParent, "workspace") })
+      await session.mkdir("empty")
+      await expect(session.commit({ message: "empty directory" })).resolves.toBeUndefined()
+      await session.writeFile("result.txt", "done")
+      await expect(session.commit({ message: "file" })).resolves.toBeUndefined()
+      await expect(docs.readFile("result.txt")).resolves.toBe("done")
+      await session.close()
+    }
+    finally {
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("does not follow a symlinked excluded ancestor during cleanup", async () => {
+    const docs = workspace()
+    await docs.writeFile("skills/foo/skill.md", "persisted")
+    await docs.snapshot({ name: "baseline" })
+    const host = localHost()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-session-target-"))
+    const target = join(targetParent, "workspace")
+    const outside = join(targetParent, "outside")
+    await mkdir(outside)
+    await writeFile(join(outside, "sentinel.txt"), "outside")
+
+    try {
+      const session = await docs.startSession({
+        host,
+        target,
+        writeBack: { exclude: ["skills/foo"] },
+      })
+      await host.exec("rm", ["-rf", join(target, "skills")])
+      await host.exec("ln", ["-s", outside, join(target, "skills")])
+      await session.close()
+
+      await expect(readFile(join(outside, "sentinel.txt"), "utf8")).resolves.toBe("outside")
+      await expect(readFile(join(target, "skills/foo/skill.md"), "utf8")).resolves.toBe("persisted")
+    }
+    finally {
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("does not follow a symlinked attached ancestor during cleanup", async () => {
+    const docs = workspace()
+    const host = localHost()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-session-target-"))
+    const target = join(targetParent, "workspace")
+    const outside = join(targetParent, "outside")
+    await mkdir(join(target, "skills/foo"), { recursive: true })
+    await writeFile(join(target, "skills/foo/skill.md"), "attached")
+    await mkdir(outside)
+    await writeFile(join(outside, "sentinel.txt"), "outside")
+
+    try {
+      const session = await docs.startSession({ attach: true, host, target })
+      await host.exec("rm", ["-rf", join(target, "skills")])
+      await host.exec("ln", ["-s", outside, join(target, "skills")])
+      await session.close()
+
+      await expect(readFile(join(outside, "sentinel.txt"), "utf8")).resolves.toBe("outside")
+      await expect(readFile(join(target, "skills/foo/skill.md"), "utf8")).resolves.toBe("attached")
+    }
+    finally {
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("replaces a symlinked Workspace root without touching its target", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    const host = localHost()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-session-target-"))
+    const target = join(targetParent, "workspace")
+    const outside = join(targetParent, "outside")
+    await mkdir(outside)
+    await writeFile(join(outside, "sentinel.txt"), "outside")
+
+    try {
+      const session = await docs.startSession({ host, target })
+      await expect(host.exec("rm", ["-rf", target])).resolves.toMatchObject({ code: 0 })
+      await expect(host.exec("ln", ["-s", outside, target])).resolves.toMatchObject({ code: 0 })
+      await expect(host.exec("test", ["-L", target])).resolves.toMatchObject({ code: 0 })
+      await session.close()
+
+      await expect(readFile(join(outside, "sentinel.txt"), "utf8")).resolves.toBe("outside")
+      expect((await stat(target)).isDirectory()).toBe(true)
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
+    }
+    finally {
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
+  it("excludes framework-owned runtime roots from hosted session write-back", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const session = await docs.startSession({ host })
+
+    await session.exec("write", [".agent-runs/trace.json", "trace"])
+    await session.exec("write", [".vitehub/runtime.json", "runtime"])
+    await session.exec("write", ["result.txt", "done"])
+    await expect(session.diff()).resolves.toMatchObject({ entries: [{ path: "result.txt", type: "added" }] })
+    await session.commit({ message: "result" })
+    await session.close()
+
+    expect(host.readText("/workspace/.agent-runs/trace.json")).toBeUndefined()
+    expect(host.readText("/workspace/.vitehub/runtime.json")).toBeUndefined()
+    await expect(docs.readFile("result.txt")).resolves.toBe("done")
+    await expect(docs.exists(".agent-runs/trace.json")).resolves.toBe(false)
+    await expect(docs.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".vitehub/runtime.json" }),
+    ]))
+  })
+
+  it("preserves an excluded subtree when its parent is removed", async () => {
+    const docs = workspace()
+    await docs.writeFile("skills/persisted/skill.md", "persisted")
+    await docs.writeFile("skills/transient.md", "transient")
+    await docs.snapshot({ name: "baseline" })
+    const session = await docs.startSession({
+      host: memoryHost(),
+      writeBack: { exclude: ["skills/persisted"] },
+    })
+
+    await session.rm("skills", { recursive: true })
+    await session.commit({ message: "remove transient skills" })
+    await session.close()
+
+    await expect(docs.readFile("skills/persisted/skill.md")).resolves.toBe("persisted")
+    await expect(docs.exists("skills/transient.md")).resolves.toBe(false)
+  })
+
   it("discards an uncommitted basic session overlay", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "before")
