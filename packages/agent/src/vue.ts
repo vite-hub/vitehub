@@ -2,11 +2,13 @@ import { useChat as useAiChat } from "@ai-sdk/vue"
 import { DefaultChatTransport } from "ai"
 import { computed, onScopeDispose, shallowRef, toValue, watch } from "vue"
 
+import { updateAgentChatStreamedParts } from "./internal/chat-data.ts"
 import { defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.ts"
 import { createAgentChatData } from "./messages.ts"
 
 import type { UseChatHelpers } from "@ai-sdk/vue"
 import type { ChatInit, HttpChatTransportInitOptions, UIMessage } from "ai"
+import type { AgentChatStreamedPart } from "./internal/chat-data.ts"
 import type { AgentChatData } from "./messages.ts"
 import type { ComputedRef, MaybeRefOrGetter } from "vue"
 
@@ -73,7 +75,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     }
   }
   validateOptions(constructorOptions.value)
-  const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
+  const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
   const reconnecting = shallowRef(0)
   let reconnectAbort: AbortController | undefined
   let reconnectGeneration = 0
@@ -180,15 +182,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     return {
       ...init,
       onData(part) {
-        if (part.type.startsWith("data-") && (part as { transient?: boolean }).transient === true) {
-          streamedParts.value = [
-            ...streamedParts.value.filter(streamed => streamed.type !== part.type),
-            part,
-          ]
-        }
-        else if (part.type.startsWith("data-")) {
-          streamedParts.value = streamedParts.value.filter(streamed => streamed.type !== part.type)
-        }
+        streamedParts.value = updateAgentChatStreamedParts(streamedParts.value, part)
         latestOptions.value.onData?.(part)
       },
       onError: error => latestOptions.value.onError?.(error),
