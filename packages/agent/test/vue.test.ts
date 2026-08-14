@@ -2,6 +2,7 @@ import { effectScope, nextTick, ref } from "vue"
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { updateAgentChatStreamedParts } from "../src/internal/chat-data.ts"
 import { useAgent, useChat } from "../src/vue.ts"
 
 import type { ChatTransport, UIMessage } from "ai"
@@ -9,6 +10,23 @@ import type { ChatTransport, UIMessage } from "ai"
 afterEach(() => vi.unstubAllGlobals())
 
 describe("Agent Vue clients", () => {
+  it("bounds retained transient chat data by part type", () => {
+    const retained = Array.from({ length: 100 }, (_, revision) => revision + 1).reduce(
+      (parts, revision) => updateAgentChatStreamedParts(parts, {
+        data: { revision },
+        transient: true,
+        type: "data-progress-summary",
+      }),
+      [] as ReturnType<typeof updateAgentChatStreamedParts>,
+    )
+
+    expect(retained).toEqual([{
+      data: { revision: 100 },
+      transient: true,
+      type: "data-progress-summary",
+    }])
+  })
+
   it("sends Agent chat requests to the generated route and streams reactive messages", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({

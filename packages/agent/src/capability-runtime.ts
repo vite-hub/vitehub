@@ -1353,6 +1353,7 @@ export async function applyOutputRenderers(
   providerResult: unknown = useCurrentRendererResult,
 ): Promise<unknown> {
   let current = result
+  let rendered = false
   let providerIndex = 0
   const extensions = createAgentExtensionReader<AgentOutputExtensionValues>(values)
   const delayedRenderers: Array<{ extensions: AgentOutputExtensions, renderer: ResolvedAgentOutputRenderer }> = []
@@ -1362,7 +1363,7 @@ export async function applyOutputRenderers(
       if (values.has(provider.id)) continue
       const value = await provider.resolve({
         extensions,
-        result: providerResult === useCurrentRendererResult ? current : providerResult,
+        result: providerResult === useCurrentRendererResult || rendered ? current : providerResult,
       })
       if (value !== undefined) values.set(provider.id, value)
     }
@@ -1374,6 +1375,7 @@ export async function applyOutputRenderers(
       continue
     }
     current = await renderer(current, extensions)
+    rendered = true
   }
   for (const delayed of delayedRenderers) {
     current = await delayed.renderer(current, delayed.extensions)

@@ -464,18 +464,18 @@ function createProgressSummaryState(
 
   const observe = (chunk: unknown) => {
     if (closed) return
+    const event = normalizeUiMessageStreamChunk(chunk)
+    const type = eventType(event)
+    if (type === "finish") {
+      close()
+      return
+    }
     if (!streamStarted) {
       streamStarted = true
       if (intervalMs !== 0) {
         startGeneration()
         timer = setInterval(startGeneration, intervalMs)
       }
-    }
-    const event = normalizeUiMessageStreamChunk(chunk)
-    const type = eventType(event)
-    if (type === "finish") {
-      close()
-      return
     }
     const phasedReasoning = isRecord(event)
       && event.phase === "reasoning"

@@ -9073,6 +9073,29 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("does not start interval progress for a terminal-only stream", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Unused progress")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ finishReason: "stop", type: "finish" })
+              controller.close()
+            },
+          }),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    for await (const _chunk of stream) {}
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("starts progress after delayed Harness setup reaches the HTTP UI stream", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
@@ -10160,20 +10183,36 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const providerResult = vi.fn()
+    const downstreamProviderResult = vi.fn()
     const agent = defineAgent({
-      capabilities: [defineCapability({
-        id: "response-metadata",
-        output(context) {
-          context.output.provide(({ result }: { result: unknown }) => {
-            providerResult(result)
-            return { status: result instanceof Response ? result.status : undefined }
-          })
-          context.output.render((result, renderContext) => {
-            expect(renderContext.output.extensions.get("response-metadata", "status")).toBe(201)
-            return result
-          })
-        },
-      })],
+      capabilities: [
+        defineCapability({
+          id: "response-metadata",
+          output(context) {
+            context.output.provide(({ result }: { result: unknown }) => {
+              providerResult(result)
+              return { status: result instanceof Response ? result.status : undefined }
+            })
+            context.output.render((result, renderContext) => {
+              expect(renderContext.output.extensions.get("response-metadata", "status")).toBe(201)
+              return { ...(result as object), decorated: true }
+            })
+          },
+        }),
+        defineCapability({
+          id: "rendered-response",
+          output(context) {
+            context.output.provide(({ result }: { result: unknown }) => {
+              downstreamProviderResult(result)
+              return { decorated: (result as { decorated?: unknown }).decorated === true }
+            })
+            context.output.render((result, renderContext) => {
+              expect(renderContext.output.extensions.get("rendered-response", "decorated")).toBe(true)
+              return result
+            })
+          },
+        }),
+      ],
       driver: {
         run: () => createAgentUIMessageStreamResponse({
           headers: { "content-length": "999", "x-agent": "custom" },
@@ -10205,6 +10244,7 @@ describe("agent message protocol", () => {
     expect(response.headers.get("x-agent")).toBe("custom")
     expect(response.headers.has("content-length")).toBe(false)
     expect(providerResult).toHaveBeenCalledWith(expect.any(Response))
+    expect(downstreamProviderResult).toHaveBeenCalledWith(expect.objectContaining({ decorated: true }))
     expect(finish).not.toHaveBeenCalled()
     const body = await response.text()
     expect(body).not.toContain("private")

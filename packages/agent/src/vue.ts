@@ -3,11 +3,13 @@ import { DefaultChatTransport } from "ai"
 import { computed, onScopeDispose, shallowRef, toValue, watch } from "vue"
 
 import { defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.ts"
+import { updateAgentChatStreamedParts } from "./internal/chat-data.ts"
 import { createAgentChatData } from "./messages.ts"
 
 import type { UseChatHelpers } from "@ai-sdk/vue"
 import type { ChatInit, UIMessage } from "ai"
 import type { AgentChatData } from "./messages.ts"
+import type { AgentChatStreamedPart } from "./internal/chat-data.ts"
 import type { ComputedRef, MaybeRefOrGetter } from "vue"
 
 declare const __VITEHUB_APP_BASE_URL__: string
@@ -58,7 +60,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const initialOptions = toValue(options)
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
-  const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
+  const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
   const resolveTransport = () => latestOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
     api: latestOptions.value.api ?? agentChatRoute(agent.name),
   })
@@ -75,15 +77,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     return {
       ...init,
       onData(part) {
-        if (part.type.startsWith("data-") && (part as { transient?: boolean }).transient === true) {
-          streamedParts.value = [
-            ...streamedParts.value.filter(streamed => streamed.type !== part.type),
-            part,
-          ]
-        }
-        else if (part.type.startsWith("data-")) {
-          streamedParts.value = streamedParts.value.filter(streamed => streamed.type !== part.type)
-        }
+        streamedParts.value = updateAgentChatStreamedParts(streamedParts.value, part)
         latestOptions.value.onData?.(part)
       },
       onError: error => latestOptions.value.onError?.(error),
