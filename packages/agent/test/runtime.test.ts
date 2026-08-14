@@ -11308,6 +11308,50 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("journals non-queued Workflow runs before the Agent worker starts", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        workflow: async () => ({
+          createWorkflow: () => ({
+            getRun: async (id: string) => ({ id, provider: "openworkflow", status: "failed" }),
+            run: async () => ({ id: "running-before-worker", provider: "openworkflow", status: "running" }),
+          }),
+        }) as never,
+      })
+      try {
+        const run = await runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          runtime: workflow("non-queued-agent"),
+        }), {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string, status: string }
+
+        expect(run.status).not.toBe("queued")
+        await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "pending" })
+        await Promise.all(waitUntilTasks)
+        await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "failed" })
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("does not serialize abort signals into Agent Workflow payloads", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
