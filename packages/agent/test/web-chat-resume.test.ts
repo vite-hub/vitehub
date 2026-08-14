@@ -224,6 +224,46 @@ describe("resumable web chat", () => {
     }
   })
 
+  it("cancels the retained run immediately while an older replacement claim is pending", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseReplacement!: () => void
+    const replacement = new Promise<void>((resolve) => {
+      releaseReplacement = resolve
+    })
+    let invocations = 0
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockResolvedValue(new Response("old"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+      invoker: {
+        async resolve() {
+          if (++invocations === 2) await replacement
+          return { id: "max" }
+        },
+      },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (promise: Promise<unknown>) => pending.push(promise) }
+
+    try {
+      await expect((await handler(chatRequest("POST", "max", "user-old"), options)).text()).resolves.toBe("old")
+      await Promise.all(pending.splice(0))
+      const newer = handler(chatRequest("POST", "max", "user-new"), options)
+      await vi.waitFor(() => expect(invocations).toBe(2))
+      await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+      expect(handler.inspect()).toMatchObject({ activeRuns: 0, retainedRuns: 0 })
+      releaseReplacement()
+      await expect(newer).resolves.toMatchObject({ status: 204 })
+      expect(streamAgentTrigger).toHaveBeenCalledOnce()
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
   it("starts a new invocation when the AI SDK regenerates a retained message", async () => {
     const agentModule = await import("../src/index.ts")
     const { defineAgent } = agentModule
@@ -591,11 +631,11 @@ describe("resumable web chat", () => {
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     let invocationSignal!: AbortSignal
+    const lateStreamCancel = vi.fn()
     const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async (_agent, context) => {
       invocationSignal = (context as { request: Request }).request.signal
       await new Promise<void>((resolve) => invocationSignal.addEventListener("abort", () => resolve(), { once: true }))
-      invocationSignal.throwIfAborted()
-      return new Response("unreachable")
+      return new Response(new ReadableStream({ cancel: lateStreamCancel }))
     })
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
@@ -608,7 +648,8 @@ describe("resumable web chat", () => {
       await vi.waitFor(() => expect(streamAgentTrigger).toHaveBeenCalledOnce())
       await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
       expect(invocationSignal.aborted).toBe(true)
-      await expect(post).resolves.toMatchObject({ status: 500 })
+      await expect(post).resolves.toMatchObject({ status: 204 })
+      expect(lateStreamCancel).toHaveBeenCalledWith("Cancelled by the web chat client.")
     }
     finally {
       streamAgentTrigger.mockRestore()

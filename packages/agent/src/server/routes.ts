@@ -4060,6 +4060,15 @@ export function createChannelChatRouteHandler(
           }
         }
         let run = latestResumableRuns.get(key)
+        if (request.method === "DELETE") {
+          if (run && run.requestSequence <= requestSequence) {
+            releaseResumableChatRun(run)
+            closeResumableChatRun(run)
+            run.abortController.abort("Cancelled by the web chat client.")
+            await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+          }
+          return new Response(null, { status: 204 })
+        }
         const pendingSetup = latestResumableClaimSetups.get(key)
         if (pendingSetup && (!run || pendingSetup.sequence > run.requestSequence)) {
           if (!await waitForResumableChatSetup(pendingSetup.promise)) return new Response(null, { status: 204 })
@@ -4067,14 +4076,6 @@ export function createChannelChatRouteHandler(
         }
         run ||= await waitForResumableChatRun(latestResumableRuns, key)
         if (!run) return new Response(null, { status: 204 })
-        if (request.method === "DELETE" && run.requestSequence > requestSequence) return new Response(null, { status: 204 })
-        if (request.method === "DELETE") {
-          releaseResumableChatRun(run)
-          closeResumableChatRun(run)
-          run.abortController.abort("Cancelled by the web chat client.")
-          await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
-          return new Response(null, { status: 204 })
-        }
         await run.ready
         if (run.setupError) throw run.setupError
         const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
@@ -4276,6 +4277,10 @@ export function createChannelChatRouteHandler(
           if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
           const response = await toAgentChatFetchResponse(result)
           if (!response.body) throw new Error("[vitehub] Resumable web chat requires a stream response.")
+          if (resumableRun.done || resumableRun.abortController.signal.aborted) {
+            await response.body.cancel("Cancelled by the web chat client.").catch(() => undefined)
+            return new Response(null, { status: 204 })
+          }
 
           const headers = new Headers(response.headers)
           headers.set("x-vitehub-run-id", triggerInput.run?.runId || "")
