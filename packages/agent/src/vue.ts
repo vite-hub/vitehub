@@ -67,9 +67,51 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   })
   const reconnecting = shallowRef(false)
+  let reconnectAbort: AbortController | undefined
+  let reconnectGeneration = 0
+  let prepareReplay: () => UI_MESSAGE | undefined = () => undefined
+  let replayPartial: { chatId: string, message: UI_MESSAGE } | undefined
   const chat = useAiChat<UI_MESSAGE>(() => {
     const { api, credentials, fetch, headers, onData, resume: _resume, transport, ...init } = currentOptions.value
     const route = api ?? agentChatRoute(agent.name)
+    const defaultTransport = new DefaultChatTransport<UI_MESSAGE>({
+      api: route,
+      credentials,
+      fetch(input, requestInit) {
+        const request = fetch ?? globalThis.fetch
+        const controller = requestInit?.method === "GET" ? reconnectAbort : undefined
+        return request(input, {
+          ...requestInit,
+          ...(controller ? { signal: controller.signal } : {}),
+        }).catch((error) => {
+          if (controller?.signal.aborted) {
+            return new Response(null, { status: 204 })
+          }
+          throw error
+        })
+      },
+      headers,
+      prepareReconnectToStreamRequest({ credentials, headers, id }) {
+        return {
+          api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
+          credentials,
+          headers,
+        }
+      },
+    })
+    const reconnectToStream = defaultTransport.reconnectToStream.bind(defaultTransport)
+    defaultTransport.reconnectToStream = async (request) => {
+      const generation = ++reconnectGeneration
+      reconnectAbort?.abort()
+      reconnectAbort = new AbortController()
+      const partial = prepareReplay()
+      if (partial && replayPartial?.chatId !== request.chatId) replayPartial = { chatId: request.chatId, message: partial }
+      const stream = await reconnectToStream(request)
+      if (generation !== reconnectGeneration) return null
+      if (!stream && replayPartial?.chatId === request.chatId) chat.messages.value = [...chat.messages.value, replayPartial.message]
+      replayPartial = undefined
+      return stream
+    }
     return {
       ...init,
       onData(part) {
@@ -84,27 +126,25 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
         }
         liveOptions.value.onData?.(part)
       },
-      transport: transport ?? new DefaultChatTransport<UI_MESSAGE>({
-        api: route,
-        credentials,
-        fetch,
-        headers,
-        prepareReconnectToStreamRequest({ credentials, headers, id }) {
-          return {
-            api: `${route}${route.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`,
-            credentials,
-            headers,
-          }
-        },
-      }),
+      transport: transport ?? defaultTransport,
     }
   })
+  prepareReplay = () => {
+    const partial = chat.messages.value.at(-1)
+    if (partial?.role === "assistant") {
+      chat.messages.value = chat.messages.value.slice(0, -1)
+      return partial
+    }
+  }
   if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
   onScopeDispose(() => {
-    if (!currentOptions.value.resume) void chat.stop()
+    reconnectGeneration++
+    reconnectAbort?.abort()
+    void chat.stop()
   }, true)
 
   async function stop(): Promise<void> {
+    reconnectAbort?.abort()
     await chat.stop()
     if (!currentOptions.value.resume || currentOptions.value.transport || !("window" in globalThis)) return
     const { api, credentials, fetch: request = globalThis.fetch, headers } = currentOptions.value

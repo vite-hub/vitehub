@@ -81,7 +81,6 @@ const defaultProgressSummaryInstructions = [
 ].join("\n")
 
 const defaultProgressSummaryTemplate = [
-  "User request: {{ userText }}",
   "# Current activity",
   "Reasoning: {{ reasoning }}",
   "Active tools: {{ activeTools }}",

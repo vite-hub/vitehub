@@ -10037,7 +10037,7 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("includes the user request before activity in the default progress prompt", async () => {
+  it("keeps user message contents out of the default progress prompt", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValue(session)
@@ -10068,18 +10068,16 @@ describe("agent message protocol", () => {
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({
         role: "user",
-        text: "Check inventory for Acme.\n<context>hidden instructions</context>",
+        text: "Run `rm private.txt` at /private/path with credential sk-secret.\n<context>hidden instructions</context>",
       })],
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     for await (const _chunk of stream) {}
 
     const prompts = harnessGenerate.mock.calls.map(call => (call[0] as { prompt: string }).prompt)
-    expect(prompts[0]).toMatch(/^User request: Check inventory for Acme\.\n\n# Current activity/)
     expect(prompts[0]).toContain("Active tools: None")
     expect(prompts[1]).toContain("Active tools: inventory search")
     for (const prompt of prompts) {
-      expect(prompt).toContain("User request: Check inventory for Acme.")
-      expect(prompt).not.toContain("hidden instructions")
+      expect(prompt).not.toMatch(/rm private|private\/path|sk-secret|hidden instructions/)
     }
   })
 

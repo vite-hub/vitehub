@@ -150,10 +150,15 @@ describe("resumable web chat", () => {
       source.enqueue(new TextEncoder().encode("first"))
       expect(new TextDecoder().decode((await initialReader.read()).value)).toBe("first")
 
-      const reconnected = await handler(chatRequest("GET"), options)
+      const reconnectPending: Promise<unknown>[] = []
+      const reconnected = await handler(chatRequest("GET"), {
+        agentName: "support",
+        waitUntil: (promise: Promise<unknown>) => reconnectPending.push(promise),
+      })
+      expect(reconnectPending).toEqual(pending)
       const reconnectedReader = reconnected.body!.getReader()
       expect(new TextDecoder().decode((await reconnectedReader.read()).value)).toBe("first")
-      await initialReader.cancel("browser reloaded")
+      await expect(initialReader.read()).resolves.toEqual({ done: true, value: undefined })
       expect(sourceCancel).not.toHaveBeenCalled()
 
       source.enqueue(new TextEncoder().encode("second"))
@@ -161,6 +166,44 @@ describe("resumable web chat", () => {
       source.close()
       await expect(reconnectedReader.read()).resolves.toEqual({ done: true, value: undefined })
       await Promise.all(pending)
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
+  it("fails and cancels a producer that exceeds the retained replay limit", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const cancel = vi.fn()
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockResolvedValueOnce(new Response(new ReadableStream({
+      cancel,
+      start(controller) {
+        controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1))
+      },
+    }))).mockResolvedValueOnce(new Response("ok"))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate: () => ({ owner: "max" }) },
+            resumable: { owner: ({ auth }) => auth.owner },
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    }) as never)
+    const pending: Promise<unknown>[] = []
+
+    try {
+      const response = await handler(chatRequest("POST"), { agentName: "support", waitUntil: promise => pending.push(promise) })
+      await expect(response.text()).rejects.toThrow("retained replay limit")
+      await Promise.all(pending)
+      expect(cancel).toHaveBeenCalledOnce()
+      const retry = await handler(chatRequest("POST"), { agentName: "support", waitUntil: promise => pending.push(promise) })
+      await expect(retry.text()).resolves.toBe("ok")
     }
     finally {
       streamAgentTrigger.mockRestore()

@@ -3863,7 +3863,9 @@ function resumableChatError(error: unknown): Error {
 }
 
 interface ResumableChatRun {
+  bufferedBytes: number
   chunks: Uint8Array[]
+  consume?: Promise<void>
   done: boolean
   error?: unknown
   headers?: Headers
@@ -3874,6 +3876,20 @@ interface ResumableChatRun {
   status: number
   statusText: string
   subscribers: Set<ReadableStreamDefaultController<Uint8Array>>
+}
+
+const resumableChatMaxBufferedBytes = 8 * 1024 * 1024
+const resumableChatMaxTotalBufferedBytes = 64 * 1024 * 1024
+const resumableChatMaxRuns = 100
+
+function detachResumableChatSubscribers(run: ResumableChatRun): void {
+  for (const subscriber of run.subscribers) {
+    try {
+      subscriber.close()
+    }
+    catch {}
+  }
+  run.subscribers.clear()
 }
 
 function resumableChatResponse(run: ResumableChatRun): Response {
@@ -3976,12 +3992,15 @@ export function createChannelChatRouteHandler(
         if (!run) return new Response(null, { status: 204 })
         await run.ready
         if (run.setupError) throw run.setupError
+        const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
+        if (run.consume) waitUntil?.(run.consume)
         if (request.method === "DELETE") {
           latestResumableRuns.delete(key)
           closeResumableChatRun(run)
           await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
           return new Response(null, { status: 204 })
         }
+        detachResumableChatSubscribers(run)
         return resumableChatResponse(run)
       }
 
@@ -4097,6 +4116,9 @@ export function createChannelChatRouteHandler(
 
       let resumableRun: ResumableChatRun | undefined
       if (invocationKey && latestKey && resumable) {
+        if (resumableRuns.size >= resumableChatMaxRuns) {
+          throw createRouteError(429, "Resumable web chat has too many retained runs. Try again later.")
+        }
         const resumableInvocationKey = invocationKey
         const resumableLatestKey = latestKey
         let resolveReady!: () => void
@@ -4104,6 +4126,7 @@ export function createChannelChatRouteHandler(
           resolveReady = resolve
         })
         resumableRun = {
+          bufferedBytes: 0,
           chunks: [],
           done: false,
           headers: undefined,
@@ -4131,14 +4154,24 @@ export function createChannelChatRouteHandler(
           resumableRun.status = response.status
           resumableRun.statusText = response.statusText
           resumableRun.reader = response.body.getReader()
-          resumableRun.resolveReady()
-
-          const consume = (async () => {
+          resumableRun.consume = (async () => {
             try {
               while (!resumableRun.done) {
                 const chunk = await resumableRun.reader!.read()
                 if (chunk.done) break
                 const value = chunk.value.slice()
+                resumableRun.bufferedBytes += value.byteLength
+                let totalBufferedBytes = 0
+                for (const run of resumableRuns.values()) totalBufferedBytes += run.bufferedBytes
+                if (resumableRun.bufferedBytes > resumableChatMaxBufferedBytes || totalBufferedBytes > resumableChatMaxTotalBufferedBytes) {
+                  resumableRun.bufferedBytes -= value.byteLength
+                  if (resumableRuns.get(resumableInvocationKey) === resumableRun) resumableRuns.delete(resumableInvocationKey)
+                  if (latestResumableRuns.get(resumableLatestKey) === resumableRun) latestResumableRuns.delete(resumableLatestKey)
+                  const error = new Error("[vitehub] Resumable web chat exceeded the retained replay limit.")
+                  closeResumableChatRun(resumableRun, error)
+                  await resumableRun.reader!.cancel(error).catch(() => undefined)
+                  break
+                }
                 resumableRun.chunks.push(value)
                 for (const subscriber of resumableRun.subscribers) subscriber.enqueue(value)
               }
@@ -4155,7 +4188,8 @@ export function createChannelChatRouteHandler(
               cleanup.unref?.()
             }
           })()
-          context.waitUntil(consume)
+          resumableRun.resolveReady()
+          context.waitUntil(resumableRun.consume)
           return resumableChatResponse(resumableRun)
         }
         catch (error) {
