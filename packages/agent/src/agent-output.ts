@@ -512,7 +512,7 @@ export function toAgentStreamEvent(
   return undefined
 }
 
-export const agentStreamErrorSymbol = Symbol("vitehub.agent-stream-error")
+export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
 async function* streamChunksToEvents(
   chunks: AsyncIterable<unknown>,
