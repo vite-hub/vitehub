@@ -34,7 +34,7 @@ export default defineConfig({
           sandbox: preset === "vercel" || preset === "cloudflare",
         }
       : {
-          agent: { routes: { chat: true } },
+          agent: true,
           workflow: true,
           workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE !== "1",
         }),

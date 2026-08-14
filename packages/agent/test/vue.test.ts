@@ -1,7 +1,8 @@
-import { effectScope } from "vue"
+import { effectScope, nextTick, ref } from "vue"
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { updateAgentChatStreamedParts } from "../src/internal/chat-data.ts"
 import { useAgent, useChat } from "../src/vue.ts"
 
 import type { ChatTransport, UIMessage } from "ai"
@@ -9,6 +10,23 @@ import type { ChatTransport, UIMessage } from "ai"
 afterEach(() => vi.unstubAllGlobals())
 
 describe("Agent Vue clients", () => {
+  it("bounds retained transient chat data by part type", () => {
+    const retained = Array.from({ length: 100 }, (_, revision) => revision + 1).reduce(
+      (parts, revision) => updateAgentChatStreamedParts(parts, {
+        data: { revision },
+        transient: true,
+        type: "data-progress-summary",
+      }),
+      [] as ReturnType<typeof updateAgentChatStreamedParts>,
+    )
+
+    expect(retained).toEqual([{
+      data: { revision: 100 },
+      transient: true,
+      type: "data-progress-summary",
+    }])
+  })
+
   it("sends Agent chat requests to the generated route and streams reactive messages", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({
@@ -42,6 +60,121 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("keeps active chat state and stop ownership across same-id reactive updates", async () => {
+    let finish!: () => void
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => createUIMessageStreamResponse({
+      stream: createUIMessageStream(String(input) === "/chat/first"
+        ? {
+            async execute() {
+              await finished
+            },
+          }
+        : { execute() {} }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const api = ref("/chat/first")
+    const messages = ref<UIMessage[]>([])
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), () => ({
+      api: api.value,
+      id: "chat-1",
+      messages: messages.value,
+    })))!
+
+    const request = chat.sendMessage({ text: "Hello" })
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    messages.value = [...chat.messages.value]
+    api.value = "/chat/second"
+    await nextTick()
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(chat.status.value).toBe("submitted")
+    expect(chat.messages.value).toHaveLength(1)
+    chat.stop()
+    finish()
+    await request
+    expect(chat.status.value).toBe("ready")
+    await chat.sendMessage({ text: "Again" })
+    expect(fetch).toHaveBeenLastCalledWith("/chat/second", expect.anything())
+    scope.stop()
+  })
+
+  it("applies same-id reactive configuration and message replacements", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({ execute() {} }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const api = ref("/chat/first")
+    const messages = ref<UIMessage[]>([])
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), () => ({
+      api: api.value,
+      id: "chat-1",
+      messages: messages.value,
+    })))!
+
+    messages.value = [{ id: "replacement", parts: [{ text: "Restored", type: "text" }], role: "user" }]
+    api.value = "/chat/second"
+    await nextTick()
+    expect(chat.messages.value).toEqual(messages.value)
+
+    await chat.sendMessage({ text: "Continue" })
+    expect(fetch).toHaveBeenCalledWith("/chat/second", expect.anything())
+    scope.stop()
+  })
+
+  it("derives reactive data from persistent and transient data parts", async () => {
+    const onData = vi.fn()
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ data: { title: "Provisional" }, id: "title", transient: true, type: "data-title" })
+          writer.write({ data: { revision: 1, summary: "Checking inventory" }, transient: true, type: "data-progress-summary" })
+          writer.write({ data: { revision: 2, summary: "Inventory checked" }, transient: true, type: "data-progress-summary" })
+          writer.write({ data: { title: "Inventory health" }, id: "title", type: "data-title" })
+        },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { onData }))!
+
+    await chat.sendMessage({ text: "Check inventory" })
+
+    expect(chat.data.value.get("title", "title")).toBe("Inventory health")
+    expect(chat.data.value.get("progress-summary")).toEqual({ revision: 2, summary: "Inventory checked" })
+    expect(chat.data.value.entries()).toHaveLength(2)
+    expect(onData).toHaveBeenCalledTimes(4)
+
+    chat.messages.value = []
+    expect(chat.data.value.get("title")).toBeUndefined()
+    expect(chat.data.value.get("progress-summary")).toEqual({ revision: 2, summary: "Inventory checked" })
+    scope.stop()
+  })
+
+  it("clears provisional data through the serialized UI transport", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ data: { title: "Provisional" }, id: "title", transient: true, type: "data-title" })
+          writer.write({ data: null, id: "title", type: "data-title" })
+        },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support")))!
+
+    await chat.sendMessage({ text: "Check inventory" })
+
+    expect(chat.status.value).toBe("ready")
+    expect(chat.data.value.get("title")).toBeUndefined()
+    scope.stop()
+  })
+
   it("prefers an explicit transport over the API option", async () => {
     const sendMessages = vi.fn(async () => new ReadableStream({
       start(controller) {
@@ -64,18 +197,17 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
-  it("derives the API from the configured generated chat route", async () => {
-    vi.stubGlobal("__VITEHUB_AGENT_CHAT_ROUTE__", "chat/[agent]")
+  it("uses an explicit API instead of the conventional generated route", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({ execute() {} }),
     }))
     vi.stubGlobal("fetch", fetch)
     const scope = effectScope()
-    const chat = scope.run(() => useChat(useAgent("team/review")))!
+    const chat = scope.run(() => useChat(useAgent("team/review"), { api: "/chat/team-review" }))!
 
     await chat.sendMessage({ text: "Hello" })
 
-    expect(fetch).toHaveBeenCalledWith("/chat/team%2Freview", expect.anything())
+    expect(fetch).toHaveBeenCalledWith("/chat/team-review", expect.anything())
     scope.stop()
   })
 
@@ -91,17 +223,6 @@ describe("Agent Vue clients", () => {
     await chat.sendMessage({ text: "Hello" })
 
     expect(fetch).toHaveBeenCalledWith("/portal/api/_vitehub/agents/support/chat", expect.anything())
-    scope.stop()
-  })
-
-  it("rejects an implicit API when the generated chat route is disabled", () => {
-    vi.stubGlobal("__VITEHUB_AGENT_CHAT_ROUTE__", false)
-    const scope = effectScope()
-
-    expect(() => scope.run(() => useChat(useAgent("support")))).toThrow(
-      "useChat() requires an Agent chat route. Enable routes.chat or pass api or transport explicitly.",
-    )
-    expect(() => scope.run(() => useChat(useAgent("support"), { api: "/chat/support" }))).not.toThrow()
     scope.stop()
   })
 
