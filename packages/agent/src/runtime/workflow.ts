@@ -8,7 +8,7 @@ import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtim
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
-import { agentChannelDeliveryWorkflowContextKey, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliveryWorkflowContextKey, resumeWorkflowAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type {
   AgentHostIdentity,
@@ -215,7 +215,7 @@ export async function runAgentWorkflowDefinition<
 
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
-    ? await (await import("../server/routes.ts")).resumeWorkflowAgentChannelDelivery(
+    ? await resumeWorkflowAgentChannelDelivery(
         agent as never,
         runtimeContext as never,
         channelDeliveryBinding,

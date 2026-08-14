@@ -7,6 +7,7 @@ const maximumEvents = 256
 const maximumDeliveries = 10_000
 const indexKey = "deliveries:index"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
+let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 
 export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
@@ -22,6 +23,12 @@ export interface AgentChannelDeliveryTracker {
   duplicate: boolean
   event(input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent>
 }
+
+type AgentChannelDeliveryWorkflowResolver = (
+  agent: unknown,
+  context: AgentRuntimeContext,
+  binding: AgentChannelDeliveryWorkflowBinding,
+) => Promise<AgentChannelDeliveryTracker | undefined>
 
 function deliveryRecordKey(deliveryId: string): string {
   return `deliveries:${deliveryId}`
@@ -96,6 +103,18 @@ function tracker(state: StateAdapter, delivery: AgentChannelDelivery, duplicate:
 
 export function activeAgentChannelDelivery(deliveryId: string): AgentChannelDeliveryTracker | undefined {
   return activeDeliveries.get(deliveryId)
+}
+
+export function setAgentChannelDeliveryWorkflowResolver(resolver: AgentChannelDeliveryWorkflowResolver): void {
+  workflowResolver = resolver
+}
+
+export async function resumeWorkflowAgentChannelDelivery(
+  agent: unknown,
+  context: AgentRuntimeContext,
+  binding: AgentChannelDeliveryWorkflowBinding,
+): Promise<AgentChannelDeliveryTracker | undefined> {
+  return activeAgentChannelDelivery(binding.deliveryId) || await workflowResolver?.(agent, context, binding)
 }
 
 export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<AgentChannelDelivery, "id" | "receivedAt">): Promise<AgentChannelDeliveryTracker> {

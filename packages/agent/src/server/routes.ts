@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { activeAgentChannelDelivery, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -2233,13 +2233,11 @@ async function resolveChatState(
   return { state, titleKeyPrefix: stateKeyPrefix }
 }
 
-export async function resumeWorkflowAgentChannelDelivery(
+async function resolveWorkflowAgentChannelDelivery(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
   binding: AgentChannelDeliveryWorkflowBinding,
 ): Promise<AgentChannelDeliveryTracker | undefined> {
-  const active = activeAgentChannelDelivery(binding.deliveryId)
-  if (active) return active
   const registration = {
     channelId: binding.channelId,
     id: binding.channelId,
@@ -2254,6 +2252,12 @@ export async function resumeWorkflowAgentChannelDelivery(
   await state.state.connect()
   return await resumeAgentChannelDelivery(state.state, binding.deliveryId)
 }
+
+setAgentChannelDeliveryWorkflowResolver(async (agent, context, binding) => await resolveWorkflowAgentChannelDelivery(
+  agent as AgentInput<ViteAgentRouteRuntimeContext>,
+  context as ViteAgentRouteRuntimeContext,
+  binding,
+))
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {
   return isRecord(options) ? options[key] as T | undefined : undefined
