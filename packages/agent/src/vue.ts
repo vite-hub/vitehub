@@ -56,11 +56,11 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   options: AgentChatInit<UI_MESSAGE> | MaybeRefOrGetter<AgentChatReactiveInit<UI_MESSAGE>> = {},
 ): AgentChatHelpers<UI_MESSAGE> {
   const initialOptions = toValue(options)
-  const currentOptions = shallowRef(initialOptions)
-  const liveOptions = shallowRef(initialOptions)
+  const constructorOptions = shallowRef(initialOptions)
+  const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
-  const resolveTransport = () => liveOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
-    api: liveOptions.value.api ?? agentChatRoute(agent.name),
+  const resolveTransport = () => latestOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
+    api: latestOptions.value.api ?? agentChatRoute(agent.name),
   })
   const transport = {
     reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
@@ -71,7 +71,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     ),
   }
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = currentOptions.value
+    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
     return {
       ...init,
       onData(part) {
@@ -84,20 +84,20 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
         else if (part.type.startsWith("data-")) {
           streamedParts.value = streamedParts.value.filter(streamed => streamed.type !== part.type)
         }
-        liveOptions.value.onData?.(part)
+        latestOptions.value.onData?.(part)
       },
-      onError: error => liveOptions.value.onError?.(error),
-      onFinish: result => liveOptions.value.onFinish?.(result),
-      onToolCall: result => liveOptions.value.onToolCall?.(result),
-      sendAutomaticallyWhen: result => liveOptions.value.sendAutomaticallyWhen?.(result) ?? false,
+      onError: error => latestOptions.value.onError?.(error),
+      onFinish: result => latestOptions.value.onFinish?.(result),
+      onToolCall: result => latestOptions.value.onToolCall?.(result),
+      sendAutomaticallyWhen: result => latestOptions.value.sendAutomaticallyWhen?.(result) ?? false,
       transport,
     }
   })
   watch(() => toValue(options), (next, previous) => {
-    const prior = liveOptions.value
-    liveOptions.value = next
+    const prior = latestOptions.value
+    latestOptions.value = next
     if (next.id !== previous.id) {
-      currentOptions.value = next
+      constructorOptions.value = next
       streamedParts.value = []
       return
     }
