@@ -124,8 +124,15 @@ export async function validateAgentOutput<TOutput>(
 }
 
 export function supportsJsonSchema(schema: StandardSchemaV1): schema is StandardSchemaV1 & StandardJSONSchemaV1 {
-  return typeof (schema["~standard"] as { jsonSchema?: unknown }).jsonSchema === "object"
-    && typeof (schema["~standard"] as { jsonSchema?: { input?: unknown } }).jsonSchema?.input === "function"
+  const jsonSchema = (schema["~standard"] as { jsonSchema?: { input?: unknown } }).jsonSchema
+  if (typeof jsonSchema !== "object" || typeof jsonSchema.input !== "function") return false
+  try {
+    jsonSchema.input({ target: "draft-07" })
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 export function agentOutputInstructions(output: AgentOutputDefinition | undefined): string | undefined {

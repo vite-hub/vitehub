@@ -1666,6 +1666,30 @@ describe("agent message protocol", () => {
     })
     await expect(runAgent(validationOnlyAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
     expect(agentSettings.at(-1)).not.toHaveProperty("output")
+
+    const unsupportedTargetAgent = defineAgent({
+      driver: {
+        model: {} as never,
+        output: {
+          schema: {
+            "~standard": {
+              jsonSchema: {
+                input: () => {
+                  throw new Error("draft-07 is not supported")
+                },
+                output: () => ({ type: "object" }),
+              },
+              validate: (value: unknown) => ({ value: value as { title: string } }),
+              vendor: "vitehub-test",
+              version: 1 as const,
+            },
+          },
+        },
+      },
+      runtime: false,
+    })
+    await expect(runAgent(unsupportedTargetAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toEqual({ title: "Weekly sync" })
+    expect(agentSettings.at(-1)).not.toHaveProperty("output")
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
