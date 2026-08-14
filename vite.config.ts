@@ -31,6 +31,6 @@ export default defineConfig({
       workflow: false,
       workspace: false,
     }),
-    nitro(),
+    nitro({ serverDir: true }),
   ],
 })
