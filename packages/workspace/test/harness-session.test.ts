@@ -181,6 +181,38 @@ describe("Harness Workspace Session", () => {
     }
   })
 
+  it("restores a canceled acquisition after the sandbox reset", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    const sandbox = localSandbox()
+    const root = await sandbox.root
+    const target = join(root, "workspace")
+    const controller = new AbortController()
+    await mkdir(join(target, ".agent-runs"), { recursive: true })
+    await writeFile(join(target, ".agent-runs", "trace.json"), "before")
+
+    try {
+      await expect(prepareHarnessWorkspaceSession(facade(docs) as never, {
+        abortSignal: controller.signal,
+        onProgress(event) {
+          if (event.id === "workspace.prepare.reset-sandbox" && event.status === "completed") {
+            controller.abort(new Error("invocation canceled"))
+            throw new Error("invocation canceled")
+          }
+        },
+        session: sandbox.session,
+        sessionWorkDir: target,
+      })).rejects.toThrow("invocation canceled")
+
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
+      await expect(readFile(join(target, ".agent-runs", "trace.json"), "utf8")).resolves.toBe("before")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("closes and restores a Session when Git baseline initialization fails", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "authoritative")

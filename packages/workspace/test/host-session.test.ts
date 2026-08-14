@@ -826,6 +826,60 @@ describe("workspace host sessions", () => {
     expect(materializeRevision).toHaveBeenLastCalledWith(expect.objectContaining({ abortSignal: undefined }))
   })
 
+  it("restores excluded state when authoritative close rematerialization fails", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    let materializations = 0
+    await host.files.mkdir("/workspace/.agent-runs", { recursive: true })
+    await host.files.write("/workspace/.agent-runs/trace.json", new TextEncoder().encode("before"))
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        if (materializations++) throw new Error("revision unavailable")
+        return { files: 1, revision: "0123456789012345678901234567890123456789", root: "" }
+      },
+    }
+
+    const session = await docs.startSession({ host })
+    await session.writeFile("README.md", "discarded")
+    await session.writeFile(".agent-runs/trace.json", "invocation")
+    await expect(session.close()).rejects.toThrow("revision unavailable")
+
+    expect(host.readText("/workspace/.agent-runs/trace.json")).toBe("before")
+  })
+
+  it("bounds executable-mode probes while snapshotting large hosts", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const exec = host.exec.bind(host)
+    let active = 0
+    let maximum = 0
+    host.exec = async (command, args, options) => {
+      if (command !== "test" || args?.[0] !== "-x") return await exec(command, args, options)
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      try {
+        return await exec(command, args, options)
+      }
+      finally {
+        active--
+      }
+    }
+    for (let index = 0; index < 40; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+
+    const session = await docs.startSession({ host })
+    await session.close()
+
+    expect(maximum).toBeGreaterThan(1)
+    expect(maximum).toBeLessThanOrEqual(16)
+  })
+
   it("keeps unsafe symlinks inert and rejects writes through symlink parents", async () => {
     const docs = workspace()
     const host = memoryHost()

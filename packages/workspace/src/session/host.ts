@@ -30,6 +30,19 @@ import type {
 } from "../core/types.ts"
 
 const publicationQueues = new WeakMap<object, Promise<void>>()
+const hostInspectionConcurrency = 16
+
+async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, visit: (value: T) => Promise<U>) {
+  const results = new Array<U>(values.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++
+      results[index] = await visit(values[index]!)
+    }
+  }))
+  return results
+}
 
 async function withWorkspacePublication<T>(key: object, publish: () => Promise<T>): Promise<T> {
   const previous = publicationQueues.get(key) || Promise.resolve()
@@ -201,13 +214,13 @@ async function listHostEntries(
   const entries = (await host.files.list(toHostPath(root, path), { recursive }))
     .map(entry => toWorkspaceEntry(root, entry))
     .filter(entry => !include || include(entry))
-  const resolved = await Promise.all(entries.map(async (workspaceEntry) => {
+  const resolved = await mapWithConcurrency(entries, hostInspectionConcurrency, async (workspaceEntry) => {
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
     const executable = await host.exec("test", ["-x", workspaceEntry.path], { cwd: root })
     return executable.code === 0
       ? { ...workspaceEntry, metadata: { ...workspaceEntry.metadata, gitMode: "100755" } }
       : workspaceEntry
-  }))
+  })
   return resolved
     .filter(entry => entry.path && entry.path !== ".git" && !entry.path.startsWith(".git/"))
     .sort((left, right) => left.path.localeCompare(right.path))
@@ -634,6 +647,7 @@ export async function createHostedWorkspaceSession(
   catch (error) {
     if (attachedState) throw error
     try {
+      host.detachAbortSignal?.()
       await materializeWorkspace(workspace, host, root, {
         ...options,
         abortSignal: undefined,
@@ -799,6 +813,7 @@ export async function createHostedWorkspaceSession(
     },
     async close() {
       if (closed) return
+      host.detachAbortSignal?.()
       await ensureHostWorkspaceRoot(host, root)
       let diff: WorkspaceDiff | undefined
       if (options.attach && attachedState) {
@@ -809,14 +824,29 @@ export async function createHostedWorkspaceSession(
       else {
         diff = await currentDiff()
       }
-      if (diff?.entries.length) {
-        await materializeWorkspace(workspace, host, root, {
-          ...options,
-          abortSignal: undefined,
-          onProgress: undefined,
-        })
+      let restoreError: unknown
+      try {
+        if (diff?.entries.length) {
+          await materializeWorkspace(workspace, host, root, {
+            ...options,
+            abortSignal: undefined,
+            onProgress: undefined,
+          })
+        }
       }
-      if (!options.attach) await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
+      catch (error) {
+        restoreError = error
+      }
+      try {
+        if (!options.attach) await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
+      }
+      catch (excludedError) {
+        if (restoreError) {
+          throw new AggregateError([restoreError, excludedError], "[vitehub] Workspace Session restoration and excluded-state restoration failed.")
+        }
+        throw excludedError
+      }
+      if (restoreError) throw restoreError
       closed = true
     },
   }

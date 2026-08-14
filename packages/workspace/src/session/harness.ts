@@ -121,6 +121,9 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): {
       detachAbortSignal() {},
       host: {
         executionAuthority: options.executionAuthority || sandbox.workspaceHost.executionAuthority,
+        ...(sandbox.workspaceHost.detachAbortSignal
+          ? { detachAbortSignal: sandbox.workspaceHost.detachAbortSignal.bind(sandbox.workspaceHost) }
+          : {}),
         files: sandbox.workspaceHost.files,
         exec: (command, args, execOptions) => sandbox.workspaceHost!.exec(command, args, execOptions),
       },
@@ -139,6 +142,9 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): {
 
   const host: WorkspaceSessionHost = {
     executionAuthority: options.executionAuthority || unknownExecutionAuthority,
+    detachAbortSignal() {
+      abortSignal = undefined
+    },
     files: {
       async exists(path) {
         return (await run("sh", ["-c", `test -e "$1" || test -L "$1"`, "sh", path])).code === 0
@@ -181,12 +187,16 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): {
   }
 }
 
-async function initializeSandboxGitBaseline(session: WorkspaceSession, onProgress: PrepareHarnessWorkspaceSessionOptions["onProgress"]) {
+async function initializeSandboxGitBaseline(
+  session: WorkspaceSession,
+  onProgress: PrepareHarnessWorkspaceSessionOptions["onProgress"],
+  abortSignal?: AbortSignal,
+) {
   await withWorkspaceProgress(onProgress, {
     id: "workspace.prepare.git-status",
     label: "Preparing workspace status",
   }, async () => {
-    await session.exec("sh", ["-c", "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign --no-verify -qm workspace-baseline || true; fi"])
+    await session.exec("sh", ["-c", "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign --no-verify -qm workspace-baseline || true; fi"], { abortSignal })
   })
 }
 
@@ -223,7 +233,7 @@ export async function prepareHarnessWorkspaceSession(
       return session
     })
     if (!session) throw new Error("[vitehub] Harness Workspace Session did not start.")
-    await initializeSandboxGitBaseline(session, options.onProgress)
+    await initializeSandboxGitBaseline(session, options.onProgress, options.abortSignal)
   }
   catch (error) {
     if (!session) throw error
@@ -263,7 +273,7 @@ export async function prepareHarnessWorkspaceSession(
       }
     },
     async refreshGitBaseline() {
-      await initializeSandboxGitBaseline(activeSession, options.onProgress)
+      await initializeSandboxGitBaseline(activeSession, options.onProgress, options.abortSignal)
     },
   }
 }
