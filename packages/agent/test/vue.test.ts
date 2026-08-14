@@ -365,6 +365,24 @@ describe("Agent Vue clients", () => {
     expect(fetch.mock.calls[0]?.[1]?.method).toBe("GET")
   })
 
+  it("aborts a pending reconnect when reactive options disable resume", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const options = ref({ id: "chat-1", resume: true as boolean })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options as never))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    options.value = { ...options.value, resume: false }
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    expect(fetch).toHaveBeenCalledOnce()
+    scope.stop()
+  })
+
   it("does not start a queued reconnect after same-tick scope disposal", async () => {
     vi.stubGlobal("window", {})
     const fetch = vi.fn<typeof globalThis.fetch>()
@@ -503,6 +521,33 @@ describe("Agent Vue clients", () => {
     expect(fetch).toHaveBeenLastCalledWith("/old-chat?id=chat-1", {
       credentials: "same-origin",
       headers: { authorization: "Bearer old" },
+      method: "DELETE",
+    })
+    scope.stop()
+  })
+
+  it("refreshes reactive transport options without changing resume identity", async () => {
+    vi.stubGlobal("window", {})
+    const oldFetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const newFetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const options = ref({
+      fetch: oldFetch,
+      headers: { authorization: "Bearer old" },
+      id: "chat-1",
+      resume: true as const,
+    })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    await vi.waitFor(() => expect(oldFetch).toHaveBeenCalledOnce())
+
+    options.value = { ...options.value, fetch: newFetch, headers: { authorization: "Bearer new" } }
+    await nextTick()
+    await chat.stop()
+
+    expect(newFetch).toHaveBeenCalledOnce()
+    expect(newFetch).toHaveBeenCalledWith("/api/_vitehub/agents/support/chat?id=chat-1", {
+      credentials: "same-origin",
+      headers: { authorization: "Bearer new" },
       method: "DELETE",
     })
     scope.stop()

@@ -62,23 +62,34 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const initialOptions = toValue(options)
   const currentOptions = shallowRef(initialOptions)
   const liveOptions = shallowRef(initialOptions)
-  if (currentOptions.value.resume && !currentOptions.value.id?.trim()) {
-    throw new TypeError("[vitehub] Resumable web chat requires a stable id.")
-  }
-  if (currentOptions.value.resume && currentOptions.value.transport) {
-    throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
-  }
-  const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
-  watch([() => toValue(options).id, () => toValue(options).resume], () => {
-    currentOptions.value = toValue(options)
-    if (currentOptions.value.resume && !currentOptions.value.id?.trim()) {
+  const validateOptions = (value: AgentChatInit<UI_MESSAGE>) => {
+    if (value.resume && !value.id?.trim()) {
       throw new TypeError("[vitehub] Resumable web chat requires a stable id.")
     }
-    if (currentOptions.value.resume && currentOptions.value.transport) {
+    if (value.resume && value.transport) {
       throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
     }
+  }
+  validateOptions(currentOptions.value)
+  const streamedParts = shallowRef<Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }>>([])
+  watch([
+    () => toValue(options).api,
+    () => toValue(options).credentials,
+    () => toValue(options).fetch,
+    () => toValue(options).headers,
+  ], ([api, credentials, fetch, headers]) => {
+    currentOptions.value = { ...currentOptions.value, api, credentials, fetch, headers }
+  })
+  watch([() => toValue(options).id, () => toValue(options).resume], ([, resume]) => {
+    const value = toValue(options)
+    validateOptions(value)
+    currentOptions.value = value
     streamedParts.value = []
-    if (currentOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
+    if (resume && "window" in globalThis) queueMicrotask(reconnect)
+    else {
+      reconnectGeneration++
+      reconnectAbort?.abort()
+    }
   })
   const reconnecting = shallowRef(0)
   let reconnectAbort: AbortController | undefined
