@@ -603,7 +603,7 @@ export async function createHostedWorkspaceSession(
     : await materializeWorkspace(workspace, host, root, options)
   let baseline = materialization.snapshot
   let baseRevision = materialization.revision
-  const excludedState = options.attach ? undefined : await captureExcludedHostState(host, root, excludedWriteBackPaths)
+  const excludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
   const mediaTypes = new Map<string, string>()
 
   function assertOpen() {
@@ -754,8 +754,9 @@ export async function createHostedWorkspaceSession(
       if (options.attach && attachedState) {
         const attachedDiff = filterSessionDiff(diffSnapshots(baseline, await snapshotHost(host, root)), sessionPaths)
         await restoreAttachedHost(host, root, attachedDiff, attachedState)
+        await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
       }
-      else if (excludedState) {
+      else {
         await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
         diff = await currentDiff()
       }

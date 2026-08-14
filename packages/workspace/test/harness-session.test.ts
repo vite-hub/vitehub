@@ -206,6 +206,31 @@ describe("Harness Workspace Session", () => {
     }
   })
 
+  it("closes an acquired Session when completed progress reporting fails", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    const sandbox = localSandbox()
+    const root = await sandbox.root
+    const target = join(root, "workspace")
+
+    try {
+      await expect(prepareHarnessWorkspaceSession(facade(docs) as never, {
+        onProgress(event) {
+          if (event.id === "workspace.prepare.start-session" && event.status === "completed") {
+            throw new Error("progress unavailable")
+          }
+        },
+        session: sandbox.session,
+        sessionWorkDir: target,
+      })).rejects.toThrow("progress unavailable")
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("keeps an explicitly empty Session scope empty", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "hidden")

@@ -798,6 +798,24 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/partial.txt")).toBeUndefined()
   })
 
+  it("restores excluded host state after an attached commit", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.mkdir("/workspace/.agent-runs", { recursive: true })
+    await host.files.write("/workspace/.agent-runs/trace.json", new TextEncoder().encode("before"))
+
+    const session = await docs.startSession({ attach: true, host })
+    await session.writeFile(".agent-runs/trace.json", "invocation")
+    await session.writeFile("result.txt", "committed")
+    await session.commit({ message: "result" })
+    await session.close()
+
+    expect(host.readText("/workspace/.agent-runs/trace.json")).toBe("before")
+    expect(host.readText("/workspace/result.txt")).toBe("committed")
+    await expect(docs.exists(".agent-runs/trace.json")).resolves.toBe(false)
+    await expect(docs.readFile("result.txt")).resolves.toBe("committed")
+  })
+
   it("keeps concurrent host changes outside an attached session scope", async () => {
     const docs = workspace()
     const host = memoryHost()

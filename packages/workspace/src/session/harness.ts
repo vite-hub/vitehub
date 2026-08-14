@@ -205,22 +205,28 @@ export async function prepareHarnessWorkspaceSession(
   }))
 
   const sessionHost = harnessWorkspaceHost(options)
-  const session = await withWorkspaceProgress(options.onProgress, {
-    data: { paths: paths ?? null },
-    id: "workspace.prepare.start-session",
-    label: "Starting workspace session",
-  }, async () => await workspaceSessionStarter(workspace)({
-    abortSignal: options.abortSignal,
-    host: sessionHost.host,
-    onProgress: options.onProgress,
-    paths,
-    target: options.sessionWorkDir,
-    writeBack: { exclude: options.ignoreWriteBackPaths },
-  }))
+  let session: WorkspaceSession | undefined
   try {
+    await withWorkspaceProgress(options.onProgress, {
+      data: { paths: paths ?? null },
+      id: "workspace.prepare.start-session",
+      label: "Starting workspace session",
+    }, async () => {
+      session = await workspaceSessionStarter(workspace)({
+        abortSignal: options.abortSignal,
+        host: sessionHost.host,
+        onProgress: options.onProgress,
+        paths,
+        target: options.sessionWorkDir,
+        writeBack: { exclude: options.ignoreWriteBackPaths },
+      })
+      return session
+    })
+    if (!session) throw new Error("[vitehub] Harness Workspace Session did not start.")
     await initializeSandboxGitBaseline(session, options.onProgress)
   }
   catch (error) {
+    if (!session) throw error
     sessionHost.detachAbortSignal()
     try {
       await session.close()
@@ -230,32 +236,34 @@ export async function prepareHarnessWorkspaceSession(
     }
     throw error
   }
+  const activeSession = session
+  if (!activeSession) throw new Error("[vitehub] Harness Workspace Session did not start.")
 
   return {
     async close(error?: unknown) {
       try {
         if (error || !isWritableWorkspaceFacade(workspace)) return
-        const diff = await session.diff()
+        const diff = await activeSession.diff()
         if (!diff.entries.length) return
         if (options.commit) {
           const commit = options.commit(diff)
           if (!commit) return
-          await session.commit({ message: commit.message || "harness-workspace-session" })
+          await activeSession.commit({ message: commit.message || "harness-workspace-session" })
           await options.onWriteBack?.(diff)
           return
         }
         const autoCommit = options.definition ? resolveWorkspaceAutoCommit(options.definition, diff) : undefined
         if (options.definition && !autoCommit) return
-        await session.commit({ message: autoCommit?.message || "harness-workspace-session" })
+        await activeSession.commit({ message: autoCommit?.message || "harness-workspace-session" })
         await options.onWriteBack?.(diff)
       }
       finally {
         sessionHost.detachAbortSignal()
-        await session.close()
+        await activeSession.close()
       }
     },
     async refreshGitBaseline() {
-      await initializeSandboxGitBaseline(session, options.onProgress)
+      await initializeSandboxGitBaseline(activeSession, options.onProgress)
     },
   }
 }
