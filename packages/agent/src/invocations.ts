@@ -330,12 +330,17 @@ function journalTraceLog(
   traceLog: TraceEventLog,
   observe: (entry: TraceEventLogEntry) => Promise<void>,
 ): TraceEventLog {
+  let lastSequence = 0
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
+      const sequence = Number.isSafeInteger(entry.sequence) && entry.sequence > 0
+        ? entry.sequence
+        : lastSequence + 1
+      lastSequence = Math.max(lastSequence, sequence)
       const safeEntry = {
         ...await createTraceEventLog().append(entry),
-        sequence: entry.sequence,
+        sequence,
       }
       await observe(safeEntry)
       return entry

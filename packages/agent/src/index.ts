@@ -4107,9 +4107,8 @@ async function reconcileQueuedWorkflowJournal<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
 ): Promise<void> {
   if (!started.invocationJournal) return
-  const deadline = Date.now() + 60_000
   let run = started.run
-  while ((run.status === "queued" || run.status === "running" || run.status === "unknown") && Date.now() < deadline) {
+  while (run.status === "queued" || run.status === "running" || run.status === "unknown") {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1_000)
       const unref = (timer as unknown as { unref?: () => void }).unref

@@ -97,6 +97,32 @@ describe("Agent Invocations", () => {
     }))
   })
 
+  it("normalizes invalid custom trace sequences before journal storage", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const entries: Array<Record<string, unknown>> = []
+    const traceLog = {
+      append: vi.fn(async (event: Record<string, unknown>) => {
+        const entry = { ...event, sequence: entries.length ? Number.POSITIVE_INFINITY : Number.NaN }
+        entries.push(entry)
+        return entry
+      }),
+      entries: () => entries,
+    }
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({ name: "custom", type: "run" })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, { ...runtime("custom-sequence"), traceLog } as never, {})
+    const observations = (await invocations.getByRunId("custom-sequence"))?.observations || []
+    expect(observations.map(observation => observation.sequence)).toEqual([1, 2, 3])
+    expect(observations.every(observation => Number.isSafeInteger(observation.sequence))).toBe(true)
+  })
+
   it("stops observation writes at the durable cap and retries terminal writes", async () => {
     const memory = createMemoryAgentInvocationStore()
     let terminalFailures = 1
