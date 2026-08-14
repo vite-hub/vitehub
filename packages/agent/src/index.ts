@@ -2474,7 +2474,7 @@ async function finishStreamAgentInvocation<
     }
     finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
     finishResult = context.output
-      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal), { allowMaterializedObject: finishResult !== result })
+      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal, undefined, context.output), { allowMaterializedObject: finishResult !== result })
       : resultWithUsageRecord(finishResult, usageRecord)
   }
   catch (finishError) {
@@ -3021,6 +3021,7 @@ async function materializeAgentStructuredOutput(
   result: unknown,
   abortSignal?: AbortSignal,
   onEvent?: AgentOutputEventObserver,
+  output?: AgentOutputDefinition,
 ): Promise<unknown> {
   let streamResult = result
   const streamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
@@ -3073,7 +3074,10 @@ async function materializeAgentStructuredOutput(
   }) as AsyncIterable<StreamEvent>
   for await (const event of events) {
     onEvent?.(event)
-    if (event.type === "error") throw new Error(event.error)
+    if (event.type === "error") {
+      if (output && text) await validateAgentOutput(output, text)
+      throw new Error(event.error)
+    }
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
   }
@@ -3629,6 +3633,7 @@ async function executeAgentInvocationWithCapacityLease<
             final,
             invocation.input.abortSignal,
             invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
+            invocation.output,
           )
         : final
       const resolvedUsageRecord = options.renderOutput && invocation.output
