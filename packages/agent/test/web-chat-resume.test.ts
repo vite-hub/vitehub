@@ -618,6 +618,40 @@ describe("resumable web chat", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("bounds DELETE while a known POST claim remains stalled", async () => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseInvoker!: () => void
+    const invoker = new Promise<void>((resolve) => {
+      releaseInvoker = resolve
+    })
+    let resolving = false
+    const run = vi.fn(() => "unused")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run },
+      invoker: {
+        async resolve() {
+          resolving = true
+          await invoker
+          return { id: "max" }
+        },
+      },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    const post = handler(chatRequest("POST"), options)
+    await vi.waitFor(() => expect(resolving).toBe(true))
+    const cancellation = handler(chatRequest("DELETE"), options)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect((await cancellation).status).toBe(204)
+    releaseInvoker()
+    expect((await post).status).toBe(204)
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("does not cancel a newer POST that registers during DELETE lookup", async () => {
     vi.useFakeTimers()
     const agentModule = await import("../src/index.ts")

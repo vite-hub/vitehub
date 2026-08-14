@@ -3965,6 +3965,17 @@ async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key:
   }
 }
 
+async function waitForResumableChatSetup(setup: Promise<void>): Promise<boolean> {
+  let settled = false
+  void setup.then(() => {
+    settled = true
+  })
+  for (let attempt = 0; attempt < 30 && !settled; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  return settled
+}
+
 function resumableChatKey(agentName: string, channelId: string | undefined, owner: string, chatId: string, messageId?: string): string {
   return JSON.stringify([agentName, channelId || "http", owner, chatId, ...(messageId ? [messageId] : [])])
 }
@@ -4045,7 +4056,7 @@ export function createChannelChatRouteHandler(
         let run = latestResumableRuns.get(key)
         const pendingSetup = latestResumableClaimSetups.get(key)
         if (pendingSetup && (!run || pendingSetup.sequence > run.requestSequence)) {
-          await pendingSetup.promise
+          if (!await waitForResumableChatSetup(pendingSetup.promise)) return new Response(null, { status: 204 })
           run = latestResumableRuns.get(key)
         }
         run ||= await waitForResumableChatRun(latestResumableRuns, key)
@@ -4127,7 +4138,10 @@ export function createChannelChatRouteHandler(
             resolveSetup = resolve
           })
           resumableClaimSetups.set(invocationKey, setup)
-          latestResumableClaimSetups.set(latestKey!, { promise: setup, sequence: requestSequence })
+          const latestSetup = latestResumableClaimSetups.get(latestKey!)
+          if (!latestSetup || latestSetup.sequence < requestSequence) {
+            latestResumableClaimSetups.set(latestKey!, { promise: setup, sequence: requestSequence })
+          }
           releaseResumableClaim = () => {
             if (resumableClaimSetups.get(invocationKey) === setup) resumableClaimSetups.delete(invocationKey)
             if (latestResumableClaimSetups.get(latestKey!)?.promise === setup) latestResumableClaimSetups.delete(latestKey!)
