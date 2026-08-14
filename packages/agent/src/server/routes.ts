@@ -2416,17 +2416,16 @@ async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rej
   if (!parts.length || !message.replyTo) return parts
   const replyContext = chatReplyMetadata(message)!
   delete replyContext.text
-  const replyParts = (await chatMessageParts(message.replyTo)).flatMap((part, index) => {
+  const replyParts: MessagePart[] = []
+  for (const [index, part] of (await chatMessageParts(message.replyTo)).entries()) {
     if (part.type === "text") {
-      return [{ data: { text: part.text }, id: `reply-${part.id || index + 1}`, type: "data-chat-reply-text" as const }]
+      replyParts.push({ data: { text: part.text }, id: `reply-${part.id || index + 1}`, type: "data-chat-reply-text" })
+      continue
     }
-    if (isAttachmentPart(part) && typeof part.fetchData === "function") {
-      const { fetchData: _fetchData, ...reference } = part
-      if (!reference.data && !reference.url) return []
-      return [{ ...reference, id: `reply-${part.id || index + 1}` }]
-    }
-    return [{ ...part, id: `reply-${part.id || index + 1}` }]
-  })
+    if (!isAttachmentPart(part)) continue
+    const { fetchData: _fetchData, ...attachment } = part
+    replyParts.push({ data: { attachment }, id: `reply-${part.id || index + 1}`, type: "data-chat-reply-attachment" })
+  }
   return [
     { data: { ...replyContext, kind: "reply_to_message" }, id: "reply-context", type: "data-chat-reply-context" },
     ...replyParts,

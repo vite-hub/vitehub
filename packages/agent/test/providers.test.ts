@@ -3721,6 +3721,7 @@ describe("server helpers", () => {
         type: "file",
       }, {
         fetchData: staleReplyFetch,
+        fetchMetadata: { fileId: "stale-reply" },
         mimeType: "image/png",
         name: "stale-reply.png",
         type: "image",
@@ -3802,12 +3803,29 @@ describe("server helpers", () => {
             type: "data-chat-reply-text",
           }),
           expect.objectContaining({
-            data: expect.any(Blob),
+            data: {
+              attachment: expect.objectContaining({
+                data: expect.any(Blob),
+                mediaType: "image/png",
+                name: "reply.png",
+                size: 5,
+                type: "image",
+              }),
+            },
             id: "reply-attachment-1",
-            mediaType: "image/png",
-            name: "reply.png",
-            size: 5,
-            type: "image",
+            type: "data-chat-reply-attachment",
+          }),
+          expect.objectContaining({
+            data: {
+              attachment: expect.objectContaining({
+                fetchMetadata: { fileId: "stale-reply" },
+                mediaType: "image/png",
+                name: "stale-reply.png",
+                type: "image",
+              }),
+            },
+            id: "reply-attachment-3",
+            type: "data-chat-reply-attachment",
           }),
           expect.objectContaining({
             data: { kind: "user_message", messageId: "8" },
