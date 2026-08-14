@@ -158,22 +158,23 @@ describe("createCrabboxRuntime", () => {
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
       const session = await boxProvider(box).createSession()
-      const spawnOrphan = async (argument: string, cwd?: string) => {
+      const spawnOrphan = async (argument: string, cwd?: string, boxRoot?: string) => {
         const result = await session.run({
-          command: `node -e 'const { spawn } = require("node:child_process"); const cwd = process.argv[2] || undefined; const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { cwd, detached: true, env: { ...process.env, PWD: cwd || process.env.PWD }, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${argument}' '${cwd || ""}'`,
+          command: `node -e 'const { spawn } = require("node:child_process"); const cwd = process.argv[2] || undefined; const env = { PATH: process.env.PATH, PWD: cwd || "/", ...(process.argv[3] ? { BOX_ROOT: process.argv[3] } : {}) }; const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { cwd, detached: true, env, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${argument}' '${cwd || ""}' '${boxRoot || ""}'`,
         })
         expect(result.exitCode).toBe(0)
         return Number(result.stdout.trim())
       }
       const ownedPid = await spawnOrphan(`${session.root}/owned`)
       const cwdOwnedPid = await spawnOrphan("unmarked", session.root)
+      await session.run({ command: `mkdir -p -- '${session.root}.other'` })
+      const envOwnedPid = await spawnOrphan("unmarked", `${session.root}.other`, session.root)
       const treePidFile = `${session.root}/tree-child.pid`
       const tree = await session.run({
         command: `node -e 'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "const { spawn } = require(\\"node:child_process\\"); const child = spawn(process.execPath, [\\"-e\\", \\"setInterval(() => {}, 60000)\\"], { stdio: \\"ignore\\" }); require(\\"node:fs\\").writeFileSync(process.argv[1], String(child.pid)); setInterval(() => {}, 60000)", process.argv[1]], { cwd: process.argv[2], detached: true, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${treePidFile}' '${session.root}'`,
       })
       const treeParentPid = Number(tree.stdout.trim())
       const treeChildPid = Number(await vi.waitFor(async () => await readFile(treePidFile, "utf8")))
-      await session.run({ command: `mkdir -p -- '${session.root}.other'` })
       const unrelatedPid = await spawnOrphan(`${session.root}.other/keep`, `${session.root}.other`)
 
       try {
@@ -181,6 +182,7 @@ describe("createCrabboxRuntime", () => {
           await expect(readFile(`/proc/${ownedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${cwdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${treeParentPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${envOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${unrelatedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
         })
         await session.destroy()
@@ -192,6 +194,8 @@ describe("createCrabboxRuntime", () => {
           expect(cwdStatus === undefined || /^State:\s+Z/m.test(cwdStatus)).toBe(true)
           const treeChildStatus = await readFile(`/proc/${treeChildPid}/status`, "utf8").catch(() => undefined)
           expect(treeChildStatus === undefined || /^State:\s+Z/m.test(treeChildStatus)).toBe(true)
+          const envStatus = await readFile(`/proc/${envOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(envStatus === undefined || /^State:\s+Z/m.test(envStatus)).toBe(true)
         })
         expect(() => process.kill(unrelatedPid, 0)).not.toThrow()
       }
@@ -201,6 +205,7 @@ describe("createCrabboxRuntime", () => {
         try { process.kill(cwdOwnedPid, "SIGKILL") } catch {}
         try { process.kill(treeParentPid, "SIGKILL") } catch {}
         try { process.kill(treeChildPid, "SIGKILL") } catch {}
+        try { process.kill(envOwnedPid, "SIGKILL") } catch {}
       }
     })
   }, 30_000)
