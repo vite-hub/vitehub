@@ -4216,8 +4216,8 @@ export function createChannelChatRouteHandler(
           messages: authorized.messages,
         }
       }
-      await delivery.event({ type: "accepted", runId: triggerInput.run?.runId })
-      await delivery.event({ type: "invocation.started", runId: triggerInput.run?.runId })
+      await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: triggerInput.run?.runId })
+      await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: triggerInput.run?.runId })
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
@@ -4226,8 +4226,8 @@ export function createChannelChatRouteHandler(
     }
     catch (error) {
       if (delivery) {
-        await delivery.event({ error: channelDeliveryError(error), type: "invocation.failed" })
-        await delivery.event({ error: channelDeliveryError(error), type: "failed" })
+        await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "invocation.failed" })
+        await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed" })
       }
       return agentChatFetchErrorResponse(error)
     }
@@ -4422,9 +4422,11 @@ export function createChannelWebhookRouteHandler(
           const input = await createAgentWebhookTriggerInput(request, registration)
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
-            await channelDelivery.event({ type: "accepted" })
+            await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
             await context.flushWaitUntil?.()
-            await channelDelivery.event({ type: "completed" })
+            await recordChannelDeliveryEvidence(channelDelivery, {
+              type: invocation.response.ok ? "completed" : invocation.response.status >= 500 ? "failed" : "rejected",
+            })
             return invocation.response
           }
           if (invocation.webhook?.busy === "steer" && (invocation.webhook.concurrencyKey === undefined || invocation.webhook.concurrencyLimit === undefined)) {
