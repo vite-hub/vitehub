@@ -249,7 +249,7 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
 
 async function captureHostEntriesState(host: WorkspaceSessionHost, root: string, entries: WorkspaceEntry[], name?: string) {
   const contents = new Map<string, Uint8Array | string>()
-  const files = await Promise.all(entries.map(async (entry) => {
+  const files = await mapWithConcurrency(entries, hostInspectionConcurrency, async (entry) => {
     if (entry.type !== "file") return entry
     const content = isGitSymlinkEntry(entry)
       ? await readHostSymlinkTarget(host, root, toHostPath(root, entry.path))
@@ -261,7 +261,7 @@ async function captureHostEntriesState(host: WorkspaceSessionHost, root: string,
       digest: await sha256(content),
       size: contentToBytes(content).byteLength,
     }
-  }))
+  })
   return { contents, snapshot: await createSnapshotFromEntries(files, name) }
 }
 
@@ -526,11 +526,14 @@ async function materializeWorkspace(
       id: "workspace.prepare.extract-archive",
       label: "Extracting workspace revision",
     }, async () => await extractRevisionArchive(host, root, { ...revision, archive: revision.archive! }, options?.abortSignal))
+    abortSignal?.throwIfAborted()
     await Promise.all([
       removeHostPath(host, root, toHostPath(root, ".git"), true),
       removeHostPath(host, root, toHostPath(root, ".vitehub"), true),
     ])
+    abortSignal?.throwIfAborted()
     await sanitizeHostSymlinks(host, root)
+    abortSignal?.throwIfAborted()
     return { revision: revision.revision, snapshot: await snapshotHost(host, root, "host-open") }
   }
   const entries = await withWorkspaceProgress(options?.onProgress, {

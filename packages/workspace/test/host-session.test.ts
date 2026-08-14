@@ -324,6 +324,48 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("restores the host when preparation is canceled after revision extraction", async () => {
+    const docs = workspace()
+    const archive = await revisionArchive()
+    const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-canceled-"))
+    const target = join(targetParent, "workspace")
+    const abort = new AbortController()
+    await mkdir(join(target, ".agent-runs"), { recursive: true })
+    await writeFile(join(target, ".agent-runs", "trace.json"), "before")
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        return {
+          archive: archive.bytes,
+          files: 6,
+          revision: "0123456789012345678901234567890123456789",
+          root: ".vitehub/workspaces/docs",
+        }
+      },
+    }
+
+    try {
+      await expect(docs.startSession({
+        abortSignal: abort.signal,
+        host: localHost(),
+        onProgress(event) {
+          if (event.id === "workspace.prepare.extract-archive" && event.status === "completed") abort.abort()
+        },
+        target,
+      })).rejects.toThrow()
+      await expect(readFile(join(target, ".agent-runs", "trace.json"), "utf8")).resolves.toBe("before")
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
+    }
+    finally {
+      await rm(archive.source, { force: true, recursive: true })
+      await rm(targetParent, { force: true, recursive: true })
+    }
+  })
+
   it("restores pre-existing excluded state when revision extraction fails after reset", async () => {
     const docs = workspace()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-failure-"))
@@ -372,6 +414,34 @@ describe("workspace host sessions", () => {
     })).rejects.toThrow()
 
     expect(host.readText("/workspace/README.md")).toBe("authoritative")
+  })
+
+  it("bounds host file reads while capturing Session state", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    for (let index = 0; index < 40; index++)
+      await docs.writeFile(`files/${index}.txt`, `file ${index}`)
+    await docs.snapshot({ name: "baseline" })
+    const read = host.files.read.bind(host.files)
+    let active = 0
+    let maximum = 0
+    host.files.read = async (path) => {
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      try {
+        return await read(path)
+      }
+      finally {
+        active--
+      }
+    }
+
+    const session = await docs.startSession({ host })
+    await session.close()
+
+    expect(maximum).toBeGreaterThan(1)
+    expect(maximum).toBeLessThanOrEqual(16)
   })
 
   it("restores the host when post-materialization excluded-state capture fails", async () => {
