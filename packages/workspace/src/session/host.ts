@@ -476,9 +476,15 @@ async function sanitizeHostSymlinks(host: WorkspaceSessionHost, root: string) {
   }
 }
 
-async function materializeWorkspace(workspace: Workspace, host: WorkspaceSessionHost, root: string, options?: WorkspaceSessionOptions) {
+async function materializeWorkspace(
+  workspace: Workspace,
+  host: WorkspaceSessionHost,
+  root: string,
+  options?: WorkspaceSessionOptions,
+  useRevisionMaterializer = true,
+) {
   const paths = normalizeSessionPaths(options)
-  const materializer = resolveWorkspaceRevisionMaterializer(workspace)
+  const materializer = useRevisionMaterializer ? resolveWorkspaceRevisionMaterializer(workspace) : undefined
   const revision = materializer
     ? await withWorkspaceProgress(options?.onProgress, {
         data: { paths: paths ?? null },
@@ -628,6 +634,11 @@ export async function createHostedWorkspaceSession(
   catch (error) {
     if (attachedState) throw error
     try {
+      await materializeWorkspace(workspace, host, root, {
+        ...options,
+        abortSignal: undefined,
+        onProgress: undefined,
+      }, false)
       await restoreExcludedHostState(host, root, excludedWriteBackPaths, existingExcludedState)
     }
     catch (restoreError) {

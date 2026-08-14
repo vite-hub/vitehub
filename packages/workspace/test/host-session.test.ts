@@ -330,6 +330,8 @@ describe("workspace host sessions", () => {
     const target = join(targetParent, "workspace")
     await mkdir(join(target, ".agent-runs"), { recursive: true })
     await writeFile(join(target, ".agent-runs", "trace.json"), "before")
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
     ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
       async currentRevision() {
         return "0123456789012345678901234567890123456789"
@@ -347,6 +349,7 @@ describe("workspace host sessions", () => {
     try {
       await expect(docs.startSession({ host: localHost(), target })).rejects.toThrow("Failed to inspect Workspace revision")
       await expect(readFile(join(target, ".agent-runs", "trace.json"), "utf8")).resolves.toBe("before")
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
     }
     finally {
       await rm(targetParent, { force: true, recursive: true })
