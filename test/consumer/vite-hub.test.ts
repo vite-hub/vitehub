@@ -457,7 +457,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([
         writeFile(join(appDir, "app/app.vue"), `
           <script setup lang="ts">
-          const chat = useChat(useAgent("contract"), { resume: true })
+          const chat = useChat(useAgent("contract"), { id: "packed-contract", resume: true })
           const title = computed(() => chat.data.value.get("title", "title"))
           </script>
           <template><main>{{ title }}</main></template>
