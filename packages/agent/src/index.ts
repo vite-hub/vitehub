@@ -160,6 +160,7 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentStaticCapabilitiesList,
+  IsTypedAgentStaticCapabilitiesList,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -1465,7 +1466,9 @@ type ValidateStaticAgentCapability<TCapability> =
 type ValidateStaticAgentCapabilities<TCapabilities> =
   TCapabilities extends readonly unknown[]
     ? number extends TCapabilities["length"]
-      ? readonly ValidateStaticAgentCapability<TCapabilities[number]>[]
+      ? IsTypedAgentStaticCapabilitiesList<TCapabilities> extends true
+        ? TCapabilities
+        : readonly ValidateStaticAgentCapability<TCapabilities[number]>[]
       : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
     : TCapabilities
 

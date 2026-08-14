@@ -879,6 +879,7 @@ export type AgentCapabilityInput<
 > = AgentCapabilityDefinition<TRuntimeConfig, Name>
 
 type AgentExtensionMount = object
+declare const agentStaticCapabilitiesListBrand: unique symbol
 
 export type AgentCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -888,7 +889,12 @@ export type AgentCapabilitiesList<
 export type AgentStaticCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentExtensionMount)[]
+> = readonly (AgentCapabilityInput<TRuntimeConfig, Name> | AgentExtensionMount)[] & {
+  readonly [agentStaticCapabilitiesListBrand]?: true
+}
+
+export type IsTypedAgentStaticCapabilitiesList<T> =
+  typeof agentStaticCapabilitiesListBrand extends keyof T ? true : false
 
 export interface AgentCapabilitiesResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

@@ -11,6 +11,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
+import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import githubExtension from "@github-tools/eve-extension"
@@ -74,6 +75,12 @@ describe("agent public types", () => {
     defineAgent({
       // @ts-expect-error readonly open arrays still validate every Capability
       capabilities: readonlyArbitraryCapabilities,
+      driver: { run: () => "ok" },
+    })
+
+    const typedExtensionCapabilities: AgentCapabilitiesInput = [githubExtension({ preset: "code-review" })]
+    defineAgent({
+      capabilities: typedExtensionCapabilities,
       driver: { run: () => "ok" },
     })
   })
