@@ -19,7 +19,7 @@ import { agentOutputEventObserverContextKey } from "../internal/agent-output-eve
 import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
-import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
+import { createAgentUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext, resolveAgentTriggerInvocationResult, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
@@ -110,6 +110,37 @@ export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOp
   event?: unknown
 }
 
+export interface AgentChannelChatRouteInspection {
+  activeRuns: number
+  bufferedBytes: number
+  liveSubscribers: number
+  maxPendingAdmissionSetupsPerOwner: number
+  maxBufferedBytesPerOwner: number
+  maxPendingCancellationsPerOwner: number
+  maxPendingClaimsPerOwner: number
+  maxPendingLookupsPerOwner: number
+  maxTotalBufferedBytes: number
+  maxTotalPendingAdmissionSetups: number
+  maxTotalPendingCancellations: number
+  maxTotalPendingClaims: number
+  maxTotalPendingLookups: number
+  maxTotalPendingOwnerResolutions: number
+  maxRunsPerOwner: number
+  maxSubscribersPerRun: number
+  maxTotalRuns: number
+  pendingCancellations: number
+  pendingAdmissionSetups: number
+  pendingClaims: number
+  pendingLookups: number
+  pendingOwnerResolutions: number
+  retainedRuns: number
+}
+
+export interface AgentChannelChatRouteHandler {
+  (request: Request, options?: AgentChannelChatRouteRequestOptions): Promise<Response>
+  inspect(): AgentChannelChatRouteInspection
+}
+
 export interface AgentChannelChatRouteStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
   value: T
@@ -162,12 +193,23 @@ export interface AgentChannelChatRouteInputOptions {
   trust?: readonly AgentChannelChatRouteTrustedInputField[]
 }
 
+export interface AgentChannelChatRouteResumableContext<TAuth = unknown>
+  extends AgentChannelChatRouteAdmissionContext {
+  auth: Exclude<TAuth, false>
+}
+
+export interface AgentChannelChatRouteResumableOptions<TAuth = unknown> {
+  owner: (context: AgentChannelChatRouteResumableContext<TAuth>) => MaybePromise<string>
+  /** Streams stay in one handler process; use shared run storage when restarts or replicas must resume. */
+}
+
 export interface AgentChannelChatRouteHandlerOptions<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown> {
   admission?: AgentChannelChatRouteAdmissionOptions<TBody, TAuth>
   channelId?: string
   input?: AgentChannelChatRouteInputOptions
   mapInput?: (context: AgentChannelChatRouteMapInputContext<TBody, TAuth>) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
   origin?: string
+  resumable?: AgentChannelChatRouteResumableOptions<TAuth>
 }
 
 type AgentDefinitionWithCapabilities = {
@@ -416,11 +458,12 @@ function createRuntimeContext(
   }) as ViteAgentRouteRuntimeContext
 }
 
-function createRuntimeRequest(request: Request, body?: string): Request {
+function createRuntimeRequest(request: Request, body?: string, signal = request.signal): Request {
   return new Request(request.url, {
     ...(body ? { body } : {}),
     headers: request.headers,
     method: request.method,
+    signal,
   })
 }
 
@@ -3559,6 +3602,7 @@ function resolveAgentChannelChatRouteHandlerOptions(
     admission: options.admission ?? channelOptions?.admission,
     input: options.input ?? channelOptions?.input,
     mapInput: options.mapInput ?? channelOptions?.mapInput,
+    resumable: options.resumable ?? channelOptions?.resumable,
   }
 }
 
@@ -3845,25 +3889,409 @@ function agentChatFetchErrorResponse(error: unknown): Response {
   return toHttpErrorResponse(error, error instanceof TypeError ? 400 : 500)!
 }
 
+function resumableChatError(error: unknown): Error {
+  if (error instanceof Error) return error
+  return new Error(typeof error === "string" && error ? error : "[vitehub] Resumable web chat failed.", { cause: error })
+}
+
+function normalizeResumableChatStreamResponse(response: Response, messageId: string): Response {
+  if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) return response
+  let started = false
+  const stream = uiMessageStreamFromResponse(response as Response & { body: ReadableStream<Uint8Array> }).pipeThrough(new TransformStream<unknown, unknown>({
+    transform(part, controller) {
+      if (isRecord(part) && part.type === "start") {
+        started = true
+        controller.enqueue({ ...part, messageId })
+        return
+      }
+      if (!started) {
+        started = true
+        controller.enqueue({ messageId, type: "start" })
+      }
+      controller.enqueue(part)
+    },
+  }))
+  const headers = new Headers(response.headers)
+  headers.delete("content-encoding")
+  headers.delete("content-length")
+  return createAgentUIMessageStreamResponse({
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+    stream,
+  })
+}
+
+interface ResumableChatRun {
+  abortController: AbortController
+  bufferedBytes: number
+  cancelled: boolean
+  chunks: Uint8Array[]
+  cleanup?: ReturnType<typeof setTimeout>
+  consume?: Promise<void>
+  done: boolean
+  error?: unknown
+  headers?: Headers
+  invocationKey: string
+  latestKey: string
+  owner: string
+  reader?: ReadableStreamDefaultReader<Uint8Array>
+  ready: Promise<void>
+  requestSequence: number
+  replaySubscribers: number
+  replaySubscriberReleases: Set<() => void>
+  resolveReady: () => void
+  released: boolean
+  setupError?: unknown
+  status: number
+  statusText: string
+  subscribers: Set<ReadableStreamDefaultController<Uint8Array>>
+}
+
+const resumableChatMaxBufferedBytes = 8 * 1024 * 1024
+const resumableChatMaxOwnerBufferedBytes = 64 * 1024 * 1024
+const resumableChatMaxTotalBufferedBytes = 512 * 1024 * 1024
+const resumableChatMaxRuns = 100
+const resumableChatMaxSubscribers = 100
+const resumableChatMaxTotalRuns = 10_000
+const resumableChatMaxPendingClaims = 100
+const resumableChatMaxTotalPendingClaims = 10_000
+const resumableChatMaxPendingLookups = 100
+const resumableChatMaxTotalPendingLookups = 10_000
+const resumableChatMaxTotalPendingOwnerResolutions = 10_000
+const resumableChatMaxOwnerTombstones = 100
+const resumableChatMaxTombstones = 10_000
+
+function resumableChatResponse(run: ResumableChatRun): Response {
+  if (run.released) return new Response(null, { status: 204 })
+  if (run.subscribers.size + run.replaySubscribers >= resumableChatMaxSubscribers) {
+    return createJsonErrorResponse(429, "Resumable web chat has too many live subscribers. Try again later.")
+  }
+  if (run.done) {
+    let chunks = run.chunks
+    let chunkIndex = 0
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      run.replaySubscribers--
+      run.replaySubscriberReleases.delete(terminate)
+      chunks = []
+    }
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+    const terminate = () => {
+      release()
+      try {
+        streamController?.error(new Error("[vitehub] Resumable web chat replay was released before delivery completed."))
+      }
+      catch {}
+    }
+    run.replaySubscribers++
+    run.replaySubscriberReleases.add(terminate)
+    return new Response(new ReadableStream<Uint8Array>({
+      cancel: release,
+      start(controller) {
+        streamController = controller
+      },
+      pull(controller) {
+        const chunk = chunks[chunkIndex++]
+        if (chunk) {
+          controller.enqueue(chunk)
+          return
+        }
+        release()
+        if (run.error) controller.error(run.error)
+        else controller.close()
+      },
+    }), {
+      headers: run.headers,
+      status: run.status,
+      statusText: run.statusText,
+    })
+  }
+  let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of run.chunks) controller.enqueue(chunk)
+      if (run.error) controller.error(run.error)
+      else if (run.done) controller.close()
+      else {
+        subscriber = controller
+        run.subscribers.add(controller)
+      }
+    },
+    cancel() {
+      if (subscriber) run.subscribers.delete(subscriber)
+    },
+  }), {
+    headers: run.headers,
+    status: run.status,
+    statusText: run.statusText,
+  })
+}
+
+async function resumableChatOwner(
+  config: AgentChannelChatRouteResumableOptions | undefined,
+  context: AgentChannelChatRouteResumableContext,
+): Promise<string> {
+  if (!config || typeof config !== "object" || typeof config.owner !== "function") {
+    throw new TypeError("[vitehub] Resumable web chat requires route.resumable.owner().")
+  }
+  const owner = await config.owner(context)
+  if (typeof owner !== "string" || !owner.trim()) {
+    throw new TypeError("[vitehub] Resumable web chat owner must be a non-empty string.")
+  }
+  return owner
+}
+
+function closeResumableChatRun(run: ResumableChatRun, error?: unknown): void {
+  if (run.done) return
+  run.done = true
+  run.error = error
+  for (const subscriber of run.subscribers) {
+    if (error) subscriber.error(error)
+    else subscriber.close()
+  }
+  run.subscribers.clear()
+}
+
+async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key: string, signal: AbortSignal): Promise<ResumableChatRun | undefined> {
+  for (let attempt = 0; attempt < 30 && !signal.aborted; attempt++) {
+    const run = runs.get(key)
+    if (run) return run
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(finish, 100)
+      function finish() {
+        clearTimeout(timeout)
+        signal.removeEventListener("abort", finish)
+        resolve()
+      }
+      signal.addEventListener("abort", finish, { once: true })
+    })
+  }
+}
+
+async function waitForResumableChatSetup(setup: Promise<void>, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return false
+  return await Promise.race([
+    setup.then(() => true),
+    new Promise<false>((resolve) => signal.addEventListener("abort", () => resolve(false), { once: true })),
+  ])
+}
+
+async function waitForResumableChatReady(ready: Promise<void>, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return false
+  return await Promise.race([
+    ready.then(() => true),
+    new Promise<false>((resolve) => signal.addEventListener("abort", () => resolve(false), { once: true })),
+  ])
+}
+
+function resumableChatKey(agentName: string, channelId: string | undefined, owner: string, chatId: string, messageId?: string): string {
+  return JSON.stringify([agentName, channelId || "http", owner, chatId, ...(messageId ? [messageId] : [])])
+}
+
 export function createChannelChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
-): (request: Request, options?: AgentChannelChatRouteRequestOptions) => Promise<Response> {
+): AgentChannelChatRouteHandler {
   const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
-  return async (request, handlerOptions = {}) => {
-    if (request.method !== "POST") {
+  const resumableRuns = new Map<string, ResumableChatRun>()
+  const latestResumableRuns = new Map<string, ResumableChatRun>()
+  const resumableClaimSetups = new Map<string, Promise<void>>()
+  const resumableClaimOwners = new Map<string, string>()
+  const resumableClaimWaiters = new Map<string, number>()
+  const resumableClaimWaiterResolves = new Map<string, Set<() => void>>()
+  const resumableSessionBoundaryWrites = new Map<string, Promise<void>>()
+  let resumableClaimWaiterCount = 0
+  const resumableLookupOwners = new Map<string, number>()
+  let resumableLookupCount = 0
+  let resumableOwnerResolutionCount = 0
+  const resumableAdmissionSetupOwners = new Map<string, number>()
+  let resumableAdmissionSetupCount = 0
+  const resumableOwnerBufferedBytes = new Map<string, number>()
+  let resumableTotalBufferedBytes = 0
+  type ResumableClaimSetup = { cancel: () => void, owner: string, promise: Promise<void>, sequence: number }
+  const latestResumableClaimSetups = new Map<string, ResumableClaimSetup>()
+  const resumableClaimSetupsByChat = new Map<string, Set<ResumableClaimSetup>>()
+  const resumableCancellationTombstones = new Map<string, { cleanup: ReturnType<typeof setTimeout>, owner: string, sequence: number }>()
+  let resumableRequestSequence = 0
+  const resolveResumableOwner = async (
+    resumable: AgentChannelChatRouteResumableOptions<unknown>,
+    input: Parameters<typeof resumableChatOwner>[1],
+    signal: AbortSignal,
+  ): Promise<string | undefined> => {
+    if (signal.aborted) return undefined
+    if (resumableOwnerResolutionCount >= resumableChatMaxTotalPendingOwnerResolutions) {
+      throw createRouteError(429, "Resumable web chat has reached its owner resolution capacity. Try again later.")
+    }
+    resumableOwnerResolutionCount++
+    let removeAbortListener = () => {}
+    const owner = resumableChatOwner(resumable, input).finally(() => {
+      removeAbortListener()
+      resumableOwnerResolutionCount--
+    })
+    const aborted = new Promise<undefined>((resolve) => {
+      const abort = () => resolve(undefined)
+      signal.addEventListener("abort", abort, { once: true })
+      removeAbortListener = () => signal.removeEventListener("abort", abort)
+    })
+    return await Promise.race([owner, aborted])
+  }
+  const withResumableSessionBoundaryWrite = async <T>(key: string, write: () => Promise<T>): Promise<T> => {
+    const predecessor = resumableSessionBoundaryWrites.get(key) || Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    resumableSessionBoundaryWrites.set(key, current)
+    await predecessor.catch(() => undefined)
+    try {
+      return await write()
+    }
+    finally {
+      release()
+      if (resumableSessionBoundaryWrites.get(key) === current) resumableSessionBoundaryWrites.delete(key)
+    }
+  }
+  const setResumableCancellationTombstone = (key: string, owner: string, sequence: number): boolean => {
+    const existing = resumableCancellationTombstones.get(key)
+    if (existing && existing.sequence >= sequence) return true
+    if (existing) clearTimeout(existing.cleanup)
+    else if ([...resumableCancellationTombstones.values()].filter(tombstone => tombstone.owner === owner).length >= resumableChatMaxOwnerTombstones) return false
+    else if (resumableCancellationTombstones.size >= resumableChatMaxTombstones) return false
+    const tombstone = {
+      cleanup: setTimeout(() => {
+        if (resumableCancellationTombstones.get(key) === tombstone) resumableCancellationTombstones.delete(key)
+      }, 600_000),
+      owner,
+      sequence,
+    }
+    tombstone.cleanup.unref?.()
+    resumableCancellationTombstones.set(key, tombstone)
+    return true
+  }
+  const releaseResumableChatRun = (run: ResumableChatRun): void => {
+    if (run.released) return
+    run.released = true
+    if (run.cleanup) {
+      clearTimeout(run.cleanup)
+      run.cleanup = undefined
+    }
+    if (resumableRuns.get(run.invocationKey) === run) resumableRuns.delete(run.invocationKey)
+    if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
+    for (const release of run.replaySubscriberReleases) release()
+    resumableTotalBufferedBytes -= run.bufferedBytes
+    const ownerBufferedBytes = (resumableOwnerBufferedBytes.get(run.owner) || 0) - run.bufferedBytes
+    if (ownerBufferedBytes) resumableOwnerBufferedBytes.set(run.owner, ownerBufferedBytes)
+    else resumableOwnerBufferedBytes.delete(run.owner)
+    run.chunks = []
+    run.bufferedBytes = 0
+  }
+  const handler = async (request: Request, handlerOptions: AgentChannelChatRouteRequestOptions = {}) => {
+    const requestSequence = ++resumableRequestSequence
+    let releaseResumableClaim: (() => void) | undefined
+    const resumable = routeOptions.resumable
+    if (request.method !== "POST" && (!resumable || (request.method !== "GET" && request.method !== "DELETE"))) {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
     }
 
     try {
+      if (request.method !== "POST") {
+        const id = optionalBodyString(new URL(request.url).searchParams.get("id") || undefined, "id")
+        if (!id) throw createRouteBodyError("Resumable agent chat requires an id query parameter.")
+        const body = { id }
+        const agentIdentity = routeAgentIdentity(handlerOptions)
+        const agentName = agentIdentity?.name || "agent"
+        const auth = await routeOptions.admission?.authenticate?.({
+          agentName,
+          body,
+          event: handlerOptions.event,
+          rawBody: "",
+          request,
+        })
+        if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
+        const owner = await resolveResumableOwner(resumable!, {
+          agentName,
+          auth,
+          body,
+          event: handlerOptions.event,
+          rawBody: "",
+          request,
+        }, request.signal)
+        if (!owner) return new Response(null, { status: 204 })
+        const key = resumableChatKey(agentName, routeOptions.channelId, owner, id)
+        if (request.method === "DELETE") {
+          for (const activeRun of [...resumableRuns.values()]) {
+            if (activeRun.latestKey !== key || activeRun.requestSequence > requestSequence) continue
+            releaseResumableChatRun(activeRun)
+            activeRun.cancelled = true
+            closeResumableChatRun(activeRun)
+            activeRun.abortController.abort("Cancelled by the web chat client.")
+            void activeRun.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+            activeRun.resolveReady()
+          }
+          for (const setup of resumableClaimSetupsByChat.get(key) || []) {
+            if (setup.sequence <= requestSequence) setup.cancel()
+          }
+          if (!setResumableCancellationTombstone(key, owner, requestSequence)) {
+            throw createRouteError(429, "Resumable web chat has too many pending cancellations. Try again later.")
+          }
+          return new Response(null, { status: 204 })
+        }
+        let run = latestResumableRuns.get(key)
+        const pendingSetup = latestResumableClaimSetups.get(key)
+        const waitsForSetup = Boolean(pendingSetup && (!run || pendingSetup.sequence > run.requestSequence))
+        const waitsForReady = Boolean(run && !run.consume && !run.done && !run.setupError)
+        if (waitsForSetup || waitsForReady || !run) {
+          if ((resumableLookupOwners.get(owner) || 0) >= resumableChatMaxPendingLookups) {
+            throw createRouteError(429, "Resumable web chat has too many pending lookups. Try again later.")
+          }
+          if (resumableLookupCount >= resumableChatMaxTotalPendingLookups) {
+            throw createRouteError(429, "Resumable web chat has reached its pending lookup capacity. Try again later.")
+          }
+          resumableLookupOwners.set(owner, (resumableLookupOwners.get(owner) || 0) + 1)
+          resumableLookupCount++
+          try {
+            if (waitsForSetup) {
+              if (!await waitForResumableChatSetup(pendingSetup!.promise, request.signal)) return new Response(null, { status: 204 })
+              run = latestResumableRuns.get(key)
+            }
+            run ||= await waitForResumableChatRun(latestResumableRuns, key, request.signal)
+            if (run && !run.consume && !run.done && !run.setupError && !await waitForResumableChatReady(run.ready, request.signal)) {
+              return new Response(null, { status: 204 })
+            }
+          }
+          finally {
+            const lookups = (resumableLookupOwners.get(owner) || 1) - 1
+            if (lookups) resumableLookupOwners.set(owner, lookups)
+            else resumableLookupOwners.delete(owner)
+            resumableLookupCount--
+          }
+        }
+        if (!run) return new Response(null, { status: 204 })
+        await run.ready
+        if (run.cancelled) return new Response(null, { status: 204 })
+        if (run.setupError) throw run.setupError
+        const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
+        if (run.consume) waitUntil?.(run.consume)
+        return resumableChatResponse(run)
+      }
+
       const parsed = await parseAgentChannelChatRouteBody(request)
       const agentIdentity = routeAgentIdentity(handlerOptions)
       const agentName = agentIdentity?.name || "agent"
       const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, event: handlerOptions.event, rawBody: parsed.rawBody, request })
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
+      const resumes = Boolean(resumable && request.headers.get("x-vitehub-resumable") === "true")
+      const resumableChatId = optionalBodyString(body.id, "id")
+      if (resumes && !resumableChatId) {
+        throw createRouteBodyError("Resumable agent chat requires a stable id.")
+      }
+      const resumableAbortController = resumes ? new AbortController() : undefined
       const context = createRuntimeContext(
-        createRuntimeRequest(request, parsed.rawBody),
+        createRuntimeRequest(request, parsed.rawBody, resumableAbortController?.signal),
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
@@ -3878,15 +4306,174 @@ export function createChannelChatRouteHandler(
         trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined,
       )
       const inputContext = { agentName, auth: auth as never, body, event: handlerOptions.event, input: trustedInput, rawBody: parsed.rawBody, request }
-      const admittedInput = mergeAgentChannelChatRouteInput(
-        trustedInput,
-        await routeOptions.admission?.context?.(inputContext),
-      )
-      let triggerInput = mergeAgentChannelChatRouteInput(
-        admittedInput,
-        await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
-      )
+      const owner = resumes ? await resolveResumableOwner(resumable!, inputContext, request.signal) : undefined
+      if (resumes && !owner) return new Response(null, { status: 204 })
+      if (resumes && (resumableAdmissionSetupOwners.get(owner!) || 0) >= resumableChatMaxPendingClaims) {
+        throw createRouteError(429, "Resumable web chat has too many pending admission setups. Try again later.")
+      }
+      if (resumes && resumableAdmissionSetupCount >= resumableChatMaxTotalPendingClaims) {
+        throw createRouteError(429, "Resumable web chat has reached its setup capacity. Try again later.")
+      }
+      if (resumes) {
+        resumableAdmissionSetupOwners.set(owner!, (resumableAdmissionSetupOwners.get(owner!) || 0) + 1)
+        resumableAdmissionSetupCount++
+      }
+      let triggerInput: AgentChatMessageTriggerInput
+      try {
+        const admittedInput = mergeAgentChannelChatRouteInput(
+          trustedInput,
+          await routeOptions.admission?.context?.(inputContext),
+        )
+        triggerInput = mergeAgentChannelChatRouteInput(
+          admittedInput,
+          await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
+        )
+      }
+      finally {
+        if (resumes) {
+          const pending = (resumableAdmissionSetupOwners.get(owner!) || 1) - 1
+          if (pending) resumableAdmissionSetupOwners.set(owner!, pending)
+          else resumableAdmissionSetupOwners.delete(owner!)
+          resumableAdmissionSetupCount--
+        }
+      }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
+      const chatId = resumableChatId || "default"
+      const latestKey = owner ? resumableChatKey(agentName, routeOptions.channelId, owner, chatId) : undefined
+      const regenerationClaimId = optionalBodyString(request.headers.get("x-vitehub-claim-id") || undefined, "x-vitehub-claim-id")
+      if (resumes && body.trigger === "regenerate-message" && !regenerationClaimId) {
+        throw createRouteBodyError("Resumable regeneration requires an x-vitehub-claim-id header.")
+      }
+      const invocationKey = latestKey
+        ? resumableChatKey(
+            agentName,
+            routeOptions.channelId,
+            owner!,
+            chatId,
+            body.trigger === "regenerate-message" ? `regenerate:${regenerationClaimId}` : triggerInput.run?.messageId || "default",
+          )
+        : undefined
+      if (invocationKey) {
+        while (true) {
+          if ((resumableCancellationTombstones.get(latestKey!)?.sequence || 0) > requestSequence) {
+            return new Response(null, { status: 204 })
+          }
+          const existingRun = resumableRuns.get(invocationKey)
+          if (existingRun) {
+            if (!existingRun.consume && !existingRun.done && !existingRun.setupError) {
+              const ownerPendingClaims = [...resumableClaimOwners.values()].filter(claimOwner => claimOwner === owner).length
+                + (resumableClaimWaiters.get(owner!) || 0)
+              if (ownerPendingClaims >= resumableChatMaxPendingClaims || resumableClaimSetups.size + resumableClaimWaiterCount >= resumableChatMaxTotalPendingClaims) {
+                throw createRouteError(429, "Resumable web chat has too many pending claims. Try again later.")
+              }
+              resumableClaimWaiters.set(owner!, (resumableClaimWaiters.get(owner!) || 0) + 1)
+              resumableClaimWaiterCount++
+              try {
+                if (!await waitForResumableChatReady(existingRun.ready, request.signal)) return new Response(null, { status: 204 })
+              }
+              finally {
+                const waiters = (resumableClaimWaiters.get(owner!) || 1) - 1
+                if (waiters) resumableClaimWaiters.set(owner!, waiters)
+                else resumableClaimWaiters.delete(owner!)
+                resumableClaimWaiterCount--
+              }
+            }
+            if (existingRun.cancelled) return new Response(null, { status: 204 })
+            if (existingRun.setupError) throw existingRun.setupError
+            return resumableChatResponse(existingRun)
+          }
+          const pendingSetup = resumableClaimSetups.get(invocationKey)
+          if (pendingSetup) {
+            const ownerPendingClaims = [...resumableClaimOwners.values()].filter(claimOwner => claimOwner === owner).length
+              + (resumableClaimWaiters.get(owner!) || 0)
+            if (ownerPendingClaims >= resumableChatMaxPendingClaims) {
+              throw createRouteError(429, "Resumable web chat has too many pending claims. Try again later.")
+            }
+            if (resumableClaimSetups.size + resumableClaimWaiterCount >= resumableChatMaxTotalPendingClaims) {
+              throw createRouteError(429, "Resumable web chat has reached its pending claim capacity. Try again later.")
+            }
+            resumableClaimWaiters.set(owner!, (resumableClaimWaiters.get(owner!) || 0) + 1)
+            resumableClaimWaiterCount++
+            try {
+              await new Promise<void>((resolve) => {
+                const waiters = resumableClaimWaiterResolves.get(invocationKey) || new Set<() => void>()
+                resumableClaimWaiterResolves.set(invocationKey, waiters)
+                const finish = () => {
+                  request.signal.removeEventListener("abort", finish)
+                  waiters.delete(finish)
+                  if (!waiters.size && resumableClaimWaiterResolves.get(invocationKey) === waiters) {
+                    resumableClaimWaiterResolves.delete(invocationKey)
+                  }
+                  resolve()
+                }
+                waiters.add(finish)
+                if (request.signal.aborted) finish()
+                else request.signal.addEventListener("abort", finish, { once: true })
+              })
+              if (request.signal.aborted) return new Response(null, { status: 204 })
+            }
+            finally {
+              const waiters = (resumableClaimWaiters.get(owner!) || 1) - 1
+              if (waiters) resumableClaimWaiters.set(owner!, waiters)
+              else resumableClaimWaiters.delete(owner!)
+              resumableClaimWaiterCount--
+            }
+            continue
+          }
+          let resolveSetup!: () => void
+          const setup = new Promise<void>((resolve) => {
+            resolveSetup = resolve
+          })
+          const ownerPendingClaims = [...resumableClaimOwners.values()].filter(claimOwner => claimOwner === owner).length
+            + (resumableClaimWaiters.get(owner!) || 0)
+          if (ownerPendingClaims >= resumableChatMaxPendingClaims) {
+            throw createRouteError(429, "Resumable web chat has too many pending claims. Try again later.")
+          }
+          if (resumableClaimSetups.size + resumableClaimWaiterCount >= resumableChatMaxTotalPendingClaims) {
+            throw createRouteError(429, "Resumable web chat has reached its pending claim capacity. Try again later.")
+          }
+          resumableClaimSetups.set(invocationKey, setup)
+          resumableClaimOwners.set(invocationKey, owner!)
+          let claimSettled = false
+          const settleResumableClaim = () => {
+            const waiters = resumableClaimWaiterResolves.get(invocationKey)
+            resumableClaimWaiterResolves.delete(invocationKey)
+            for (const resolve of waiters || []) resolve()
+            if (claimSettled) return
+            claimSettled = true
+            const chatSetups = resumableClaimSetupsByChat.get(latestKey!)
+            chatSetups?.delete(claimSetup)
+            if (!chatSetups?.size) resumableClaimSetupsByChat.delete(latestKey!)
+            if (latestResumableClaimSetups.get(latestKey!) === claimSetup) latestResumableClaimSetups.delete(latestKey!)
+            resolveSetup()
+          }
+          releaseResumableClaim = () => {
+            settleResumableClaim()
+            if (resumableClaimSetups.get(invocationKey) === setup) {
+              resumableClaimSetups.delete(invocationKey)
+              resumableClaimOwners.delete(invocationKey)
+            }
+            releaseResumableClaim = undefined
+          }
+          const claimSetup: ResumableClaimSetup = {
+            cancel() {
+              resumableAbortController?.abort("Cancelled by the web chat client.")
+              settleResumableClaim()
+            },
+            owner: owner!,
+            promise: setup,
+            sequence: requestSequence,
+          }
+          const chatSetups = resumableClaimSetupsByChat.get(latestKey!) || new Set<ResumableClaimSetup>()
+          resumableClaimSetupsByChat.set(latestKey!, chatSetups)
+          chatSetups.add(claimSetup)
+          const latestSetup = latestResumableClaimSetups.get(latestKey!)
+          if (!latestSetup || latestSetup.sequence < requestSequence) {
+            latestResumableClaimSetups.set(latestKey!, claimSetup)
+          }
+          break
+        }
+      }
       const invokerInput = createChatMessageTriggerInput(chatOptions, triggerInput).input
       const invoker = await resolveAgentInvoker(
         (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -3906,10 +4493,20 @@ export function createChannelChatRouteHandler(
         id: routeOptions.channelId || "http",
         provider: routeOptions.origin || "http",
       }
+      const resumableRequestCancelled = () => Boolean(
+        resumableAbortController?.signal.aborted
+        || (latestKey && (resumableCancellationTombstones.get(latestKey)?.sequence || 0) > requestSequence),
+      )
+      if (resumableRequestCancelled()) {
+        releaseResumableClaim?.()
+        return new Response(null, { status: 204 })
+      }
       const { state } = await resolveChatState(chatOptions, context, registration, handlerOptions)
       await state.connect()
       const sessionOptions = chatOptions.sessions
       let approvalTtlMs = agentChatApprovalTtlMs
+      let cancelledDuringSessionBoundary = false
+      let refreshSessionBoundary: { key: string, value: string } | undefined
       const manualSessions = sessionOptions === true
         || Boolean(sessionOptions && (sessionOptions.strategy === "manual" || sessionOptions.strategy === "hybrid" || (!sessionOptions.strategy && !sessionOptions.idleTimeoutMs)))
       if (sessionId && manualSessions) {
@@ -3920,15 +4517,46 @@ export function createChannelChatRouteHandler(
           : agentChatApprovalTtlMs
         if (triggerInput.session?.action === "new") {
           selectedSessionId = `${manualId}:manual:${randomToken()}`
+          await withResumableSessionBoundaryWrite(boundaryKey, async () => {
+            if (resumableRequestCancelled()) {
+              cancelledDuringSessionBoundary = true
+              return
+            }
+            const previous = await state.get<string>(boundaryKey)
+            await state.set(boundaryKey, selectedSessionId!, approvalTtlMs)
+            if (!resumableRequestCancelled()) return
+            if (await state.get<string>(boundaryKey) === selectedSessionId) {
+              if (previous) await state.set(boundaryKey, previous, approvalTtlMs)
+              else await state.delete(boundaryKey)
+            }
+            cancelledDuringSessionBoundary = true
+          })
         }
         else {
-          selectedSessionId = await state.get<string>(boundaryKey) || selectedSessionId
+          await withResumableSessionBoundaryWrite(boundaryKey, async () => {
+            if (resumableRequestCancelled()) {
+              cancelledDuringSessionBoundary = true
+              return
+            }
+            const previous = await state.get<string>(boundaryKey)
+            selectedSessionId = previous || selectedSessionId
+            if (previous && resumes) refreshSessionBoundary = { key: boundaryKey, value: previous }
+            else if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
+            if (!resumableRequestCancelled()) return
+            if (!previous && selectedSessionId && await state.get<string>(boundaryKey) === selectedSessionId) {
+              await state.delete(boundaryKey)
+            }
+            cancelledDuringSessionBoundary = true
+          })
         }
-        if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
       }
       const approvalSessionId = sessionId && selectedSessionId
         ? `${sessionId}:chat-session:${selectedSessionId}`
         : sessionId
+      if (cancelledDuringSessionBoundary || resumableRequestCancelled()) {
+        releaseResumableClaim?.()
+        return new Response(null, { status: 204 })
+      }
       if (approvalSessionId) {
         const persistApprovedTools = invoker.kind !== "anonymous"
         if (!persistApprovedTools && triggerInput.messages.some(message => message.parts?.some(part => uiApprovalPart(part)?.record.state === "approval-responded"))) {
@@ -3947,6 +4575,159 @@ export function createChannelChatRouteHandler(
           messages: authorized.messages,
         }
       }
+      let resumableRun: ResumableChatRun | undefined
+      if (invocationKey && latestKey && resumable) {
+        if ((resumableCancellationTombstones.get(latestKey)?.sequence || 0) > requestSequence) {
+          releaseResumableClaim?.()
+          return new Response(null, { status: 204 })
+        }
+        const ownerRuns = () => [...resumableRuns.values()].filter(run => run.owner === owner)
+        if (ownerRuns().length >= resumableChatMaxRuns) {
+          for (const retainedRun of resumableRuns.values()) {
+            if (!retainedRun.done || retainedRun.owner !== owner) continue
+            releaseResumableChatRun(retainedRun)
+            break
+          }
+        }
+        if (ownerRuns().length >= resumableChatMaxRuns) {
+          throw createRouteError(429, "Resumable web chat has too many active runs. Try again later.")
+        }
+        if (resumableRuns.size >= resumableChatMaxTotalRuns) {
+          for (const retainedRun of resumableRuns.values()) {
+            if (!retainedRun.done) continue
+            releaseResumableChatRun(retainedRun)
+            break
+          }
+        }
+        if (resumableRuns.size >= resumableChatMaxTotalRuns) {
+          throw createRouteError(429, "Resumable web chat has reached its process capacity. Try again later.")
+        }
+        const resumableInvocationKey = invocationKey
+        const resumableLatestKey = latestKey
+        let resolveReady!: () => void
+        const ready = new Promise<void>((resolve) => {
+          resolveReady = resolve
+        })
+        resumableRun = {
+          abortController: resumableAbortController!,
+          bufferedBytes: 0,
+          cancelled: false,
+          chunks: [],
+          done: false,
+          headers: undefined,
+          invocationKey: resumableInvocationKey,
+          latestKey: resumableLatestKey,
+          owner: owner!,
+          ready,
+          released: false,
+          requestSequence,
+          replaySubscribers: 0,
+          replaySubscriberReleases: new Set(),
+          resolveReady,
+          status: 200,
+          statusText: "",
+          subscribers: new Set(),
+        }
+        resumableRuns.set(resumableInvocationKey, resumableRun)
+        const latestRun = latestResumableRuns.get(resumableLatestKey)
+        if (!latestRun || latestRun.requestSequence < requestSequence) latestResumableRuns.set(resumableLatestKey, resumableRun)
+        releaseResumableClaim?.()
+
+        let setupResponse: Response | undefined
+        try {
+          let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
+            output: "ui-message-stream",
+          }))
+          if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
+          setupResponse = await toAgentChatFetchResponse(result)
+          if (refreshSessionBoundary) {
+            await withResumableSessionBoundaryWrite(refreshSessionBoundary.key, async () => {
+              if (await state.get<string>(refreshSessionBoundary!.key) === refreshSessionBoundary!.value) {
+                await state.set(refreshSessionBoundary!.key, refreshSessionBoundary!.value, approvalTtlMs)
+              }
+            })
+          }
+          const response = normalizeResumableChatStreamResponse(setupResponse, triggerInput.run?.runId || resumableInvocationKey)
+          if (!response.body) throw new Error("[vitehub] Resumable web chat requires a stream response.")
+          if (resumableRun.done || resumableRun.abortController.signal.aborted) {
+            await response.body.cancel("Cancelled by the web chat client.").catch(() => undefined)
+            return new Response(null, { status: 204 })
+          }
+
+          const headers = new Headers(response.headers)
+          headers.set("x-vitehub-run-id", triggerInput.run?.runId || "")
+          headers.delete("content-length")
+          resumableRun.headers = headers
+          resumableRun.status = response.status
+          resumableRun.statusText = response.statusText
+          resumableRun.reader = response.body.getReader()
+          resumableRun.consume = (async () => {
+            try {
+              while (!resumableRun.done) {
+                const chunk = await resumableRun.reader!.read()
+                if (chunk.done) break
+                const value = chunk.value.slice()
+                resumableRun.bufferedBytes += value.byteLength
+                resumableTotalBufferedBytes += value.byteLength
+                let ownerBufferedBytes = (resumableOwnerBufferedBytes.get(resumableRun.owner) || 0) + value.byteLength
+                resumableOwnerBufferedBytes.set(resumableRun.owner, ownerBufferedBytes)
+                if (ownerBufferedBytes > resumableChatMaxOwnerBufferedBytes) {
+                  for (const retainedRun of resumableRuns.values()) {
+                    if (retainedRun === resumableRun || !retainedRun.done || retainedRun.owner !== resumableRun.owner) continue
+                    ownerBufferedBytes -= retainedRun.bufferedBytes
+                    releaseResumableChatRun(retainedRun)
+                    if (ownerBufferedBytes <= resumableChatMaxOwnerBufferedBytes) break
+                  }
+                }
+                if (resumableTotalBufferedBytes > resumableChatMaxTotalBufferedBytes) {
+                  for (const retainedRun of resumableRuns.values()) {
+                    if (retainedRun === resumableRun || !retainedRun.done) continue
+                    releaseResumableChatRun(retainedRun)
+                    if (resumableTotalBufferedBytes <= resumableChatMaxTotalBufferedBytes) break
+                  }
+                }
+                if (resumableRun.bufferedBytes > resumableChatMaxBufferedBytes || ownerBufferedBytes > resumableChatMaxOwnerBufferedBytes || resumableTotalBufferedBytes > resumableChatMaxTotalBufferedBytes) {
+                  releaseResumableChatRun(resumableRun)
+                  const error = new Error("[vitehub] Resumable web chat exceeded the retained replay limit.")
+                  closeResumableChatRun(resumableRun, error)
+                  await resumableRun.reader!.cancel(error).catch(() => undefined)
+                  break
+                }
+                resumableRun.chunks.push(value)
+                for (const subscriber of resumableRun.subscribers) subscriber.enqueue(value)
+              }
+              closeResumableChatRun(resumableRun)
+            }
+            catch (error) {
+              closeResumableChatRun(resumableRun, resumableChatError(error))
+            }
+            finally {
+              const retainedRun = resumableRun!
+              if (!retainedRun.released) {
+                retainedRun.cleanup = setTimeout(() => releaseResumableChatRun(retainedRun), 600_000)
+                retainedRun.cleanup.unref?.()
+              }
+            }
+          })()
+          resumableRun.resolveReady()
+          context.waitUntil(resumableRun.consume)
+          return resumableChatResponse(resumableRun)
+        }
+        catch (error) {
+          resumableRun.abortController.abort(error)
+          await setupResponse?.body?.cancel(error).catch(() => undefined)
+          if (resumableRun.cancelled) {
+            resumableRun.resolveReady()
+            return new Response(null, { status: 204 })
+          }
+          resumableRun.setupError = resumableChatError(error)
+          closeResumableChatRun(resumableRun, resumableRun.setupError)
+          resumableRun.resolveReady()
+          releaseResumableChatRun(resumableRun)
+          throw error
+        }
+      }
+
       let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
@@ -3954,9 +4735,45 @@ export function createChannelChatRouteHandler(
       return await toAgentChatFetchResponse(result)
     }
     catch (error) {
+      releaseResumableClaim?.()
       return agentChatFetchErrorResponse(error)
     }
   }
+  return Object.assign(handler, {
+    inspect(): AgentChannelChatRouteInspection {
+      let activeRuns = 0
+      let liveSubscribers = 0
+      for (const run of resumableRuns.values()) {
+        if (!run.done) activeRuns++
+        liveSubscribers += run.subscribers.size + run.replaySubscribers
+      }
+      return {
+        activeRuns,
+        bufferedBytes: resumableTotalBufferedBytes,
+        liveSubscribers,
+        maxPendingAdmissionSetupsPerOwner: resumableChatMaxPendingClaims,
+        maxBufferedBytesPerOwner: resumableChatMaxOwnerBufferedBytes,
+        maxPendingCancellationsPerOwner: resumableChatMaxOwnerTombstones,
+        maxPendingClaimsPerOwner: resumableChatMaxPendingClaims,
+        maxPendingLookupsPerOwner: resumableChatMaxPendingLookups,
+        maxTotalBufferedBytes: resumableChatMaxTotalBufferedBytes,
+        maxTotalPendingAdmissionSetups: resumableChatMaxTotalPendingClaims,
+        maxTotalPendingCancellations: resumableChatMaxTombstones,
+        maxTotalPendingClaims: resumableChatMaxTotalPendingClaims,
+        maxTotalPendingLookups: resumableChatMaxTotalPendingLookups,
+        maxTotalPendingOwnerResolutions: resumableChatMaxTotalPendingOwnerResolutions,
+        maxRunsPerOwner: resumableChatMaxRuns,
+        maxSubscribersPerRun: resumableChatMaxSubscribers,
+        maxTotalRuns: resumableChatMaxTotalRuns,
+        pendingCancellations: resumableCancellationTombstones.size,
+        pendingAdmissionSetups: resumableAdmissionSetupCount,
+        pendingClaims: resumableClaimSetups.size + resumableClaimWaiterCount,
+        pendingLookups: resumableLookupCount,
+        pendingOwnerResolutions: resumableOwnerResolutionCount,
+        retainedRuns: resumableRuns.size - activeRuns,
+      }
+    },
+  })
 }
 
 export function createChannelWebhookRouteHandler(

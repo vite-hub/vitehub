@@ -177,6 +177,30 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("rejects a custom transport for resumable chat", () => {
+    vi.stubGlobal("window", {})
+    const transport = { reconnectToStream: async () => null, sendMessages: async () => null } as never
+    const scope = effectScope()
+
+    expect(() => scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true, transport } as never))).toThrow("does not support a custom transport")
+    scope.stop()
+  })
+
+  it("requires a stable ID and reacts when resume is enabled", async () => {
+    vi.stubGlobal("window", {})
+    const scope = effectScope()
+    expect(() => scope.run(() => useChat(useAgent("support"), { resume: true } as never))).toThrow("requires a stable id")
+
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const options = ref({ id: "chat-1", resume: false })
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    options.value.resume = true
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(chat.status.value).toBe("ready")
+    scope.stop()
+  })
+
   it("uses an explicit API instead of the conventional generated route", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
       stream: createUIMessageStream({ execute() {} }),
@@ -229,5 +253,367 @@ describe("Agent Vue clients", () => {
 
     expect(aborted).toBe(true)
     expect(chat.status.value).toBe("ready")
+  })
+
+  it("reports submitted while a resumed stream reconnects without cancelling on disposal", async () => {
+    vi.stubGlobal("window", {})
+    let releaseReconnect!: () => void
+    const reconnect = new Promise<Response>((resolve) => {
+      releaseReconnect = () => resolve(new Response(null, { status: 204 }))
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(() => reconnect)
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(chat.status.value).toBe("submitted")
+    expect(fetch).toHaveBeenCalledWith("/api/_vitehub/agents/support/chat?id=chat-1", expect.anything())
+    releaseReconnect()
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    scope.stop()
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("reports submitted while reconnecting after a partial assistant message", async () => {
+    vi.stubGlobal("window", {})
+    let releaseReconnect!: () => void
+    const reconnect = new Promise<Response>((resolve) => {
+      releaseReconnect = () => resolve(new Response(null, { status: 204 }))
+    })
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(() => reconnect))
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "assistant-1", parts: [{ text: "Partial", type: "text" }], role: "assistant" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
+    releaseReconnect()
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    scope.stop()
+  })
+
+  it("replaces persisted partial assistant content with the retained full replay", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ messageId: "assistant-1", type: "start" })
+          writer.write({ id: "text-1", type: "text-start" })
+          writer.write({ delta: "Partial answer", id: "text-1", type: "text-delta" })
+          writer.write({ id: "text-1", type: "text-end" })
+          writer.write({ type: "finish" })
+        },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      id: "chat-1",
+      messages: [{ id: "assistant-1", parts: [{ text: "Partial", type: "text" }], role: "assistant" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(chat.messages.value[0]?.parts).toContainEqual(expect.objectContaining({ text: "Partial answer", type: "text" })))
+    expect(chat.messages.value).toHaveLength(1)
+    expect(chat.messages.value[0]?.id).toBe("assistant-1")
+    scope.stop()
+  })
+
+  it("preserves a previous assistant turn when reconnecting to a newer invocation", async () => {
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ messageId: "assistant-2", type: "start" })
+          writer.write({ id: "text-2", type: "text-start" })
+          writer.write({ delta: "New answer", id: "text-2", type: "text-delta" })
+          writer.write({ id: "text-2", type: "text-end" })
+          writer.write({ type: "finish" })
+        },
+      }),
+    })))
+    const previous = { id: "assistant-1", parts: [{ text: "Previous answer", type: "text" as const }], role: "assistant" as const }
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", messages: [previous], resume: true }))!
+
+    await vi.waitFor(() => expect(chat.messages.value).toHaveLength(2))
+    expect(chat.messages.value[0]).toEqual(previous)
+    expect(chat.messages.value[1]).toMatchObject({ id: "assistant-2", parts: [{ text: "New answer", type: "text" }] })
+    scope.stop()
+  })
+
+  it("aborts a pending reconnect on scope disposal without deleting the server run", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true }))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    scope.stop()
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(fetch.mock.calls[0]?.[1]?.method).toBe("GET")
+  })
+
+  it("aborts a pending reconnect when reactive options disable resume", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const options = ref({ id: "chat-1", resume: true as boolean })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options as never))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    options.value = { ...options.value, resume: false }
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    expect(fetch).toHaveBeenCalledOnce()
+    scope.stop()
+  })
+
+  it("does not start a queued reconnect after same-tick scope disposal", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true }))
+
+    scope.stop()
+    await Promise.resolve()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("preserves partial content when a newer reconnect supersedes a pending reconnect", async () => {
+    vi.stubGlobal("window", {})
+    let releaseReconnect!: () => void
+    const reconnect = new Promise<Response>((resolve) => {
+      releaseReconnect = () => resolve(new Response(null, { status: 204 }))
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (String(input).includes("chat-2")) return reconnect
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+      })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const options = ref({
+      id: "chat-1",
+      messages: [{ id: "assistant-1", parts: [{ text: "First partial", type: "text" as const }], role: "assistant" as const }],
+      resume: true,
+    })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    options.value = {
+      ...options.value,
+      id: "chat-2",
+      messages: [{ id: "assistant-2", parts: [{ text: "Second partial", type: "text" as const }], role: "assistant" as const }],
+    }
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(chat.status.value).toBe("submitted"))
+    releaseReconnect()
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(chat.messages.value).toEqual(options.value.messages)
+    scope.stop()
+  })
+
+  it("ignores a superseded reconnect body abort while the next chat reconnects", async () => {
+    vi.stubGlobal("window", {})
+    const options = ref({ id: "chat-1", resume: true })
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (String(input).includes("chat-2")) return new Response(null, { status: 204 })
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"messageId":"assistant-1","type":"start"}\n\n'))
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")))
+        },
+      }), { headers: { "content-type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" } })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    options.value = { id: "chat-2", resume: true }
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(chat.error.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it("does not report an aborted reconnect body as an error after stop", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 })
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"messageId":"assistant-1","type":"start"}\n\n'))
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")))
+        },
+      }), { headers: { "content-type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" } })
+    })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { fetch, id: "chat-1", resume: true }))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    await chat.stop()
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(chat.error.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it("preserves partial content when the current reconnect fails", async () => {
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => new Response("unavailable", { status: 503 })))
+    const messages = [{ id: "assistant-1", parts: [{ text: "Persisted partial", type: "text" as const }], role: "assistant" as const }]
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", messages, resume: true }))!
+
+    await vi.waitFor(() => expect(chat.status.value).toBe("error"))
+    expect(chat.messages.value).toEqual(messages)
+    scope.stop()
+  })
+
+  it("sends explicit resumable chat cancellation through DELETE", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), {
+      api: "/api/_vitehub/agents/support/chat?id=stale&view=full#section",
+      credentials: "include",
+      headers: async () => ({ authorization: "Bearer token" }),
+      id: "chat-1",
+      messages: [{ id: "user-1", parts: [{ text: "Hello", type: "text" }], role: "user" }],
+      resume: true,
+    }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await chat.stop()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-1&view=full#section", {
+      credentials: "include",
+      headers: { authorization: "Bearer token" },
+      method: "DELETE",
+    })
+    scope.stop()
+  })
+
+  it("marks resumable POST requests for detached server cancellation", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { fetch, id: "chat-1", resume: true }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await chat.sendMessage({ text: "Hello" })
+    const post = fetch.mock.calls.find(([, init]) => init?.method === "POST")
+    expect(new Headers(post?.[1]?.headers).get("x-vitehub-resumable")).toBe("true")
+    scope.stop()
+  })
+
+  it("keeps cancellation tied to the chat options captured when stop starts", async () => {
+    vi.stubGlobal("window", {})
+    let releaseHeaders!: () => void
+    const headersReady = new Promise<void>((resolve) => {
+      releaseHeaders = resolve
+    })
+    let headerCalls = 0
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const options = ref({
+      api: "/old-chat",
+      fetch,
+      headers: async () => {
+        if (++headerCalls > 1) await headersReady
+        return { authorization: "Bearer old" }
+      },
+      id: "chat-1",
+      resume: true as const,
+    })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    const stopping = chat.stop()
+    options.value = { ...options.value, api: "/new-chat", id: "chat-2" }
+    await nextTick()
+    releaseHeaders()
+    await stopping
+
+    expect(fetch).toHaveBeenLastCalledWith("/old-chat?id=chat-1", {
+      credentials: "same-origin",
+      headers: { authorization: "Bearer old" },
+      method: "DELETE",
+    })
+    scope.stop()
+  })
+
+  it("refreshes reactive transport options without changing resume identity", async () => {
+    vi.stubGlobal("window", {})
+    const oldFetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const newFetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const options = ref({
+      fetch: oldFetch,
+      headers: { authorization: "Bearer old" },
+      id: "chat-1",
+      resume: true as const,
+    })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
+    await vi.waitFor(() => expect(oldFetch).toHaveBeenCalledOnce())
+    chat.messages.value = [{ id: "user-1", parts: [{ text: "Keep me", type: "text" }], role: "user" }]
+
+    options.value = { ...options.value, fetch: newFetch, headers: { authorization: "Bearer new" } }
+    await nextTick()
+    expect(chat.messages.value).toEqual([{ id: "user-1", parts: [{ text: "Keep me", type: "text" }], role: "user" }])
+    await chat.stop()
+
+    expect(newFetch).toHaveBeenCalledOnce()
+    expect(newFetch).toHaveBeenCalledWith("/api/_vitehub/agents/support/chat?id=chat-1", {
+      credentials: "same-origin",
+      headers: { authorization: "Bearer new" },
+      method: "DELETE",
+    })
+    scope.stop()
+  })
+
+  it("rejects explicit resumable chat cancellation when the server does not accept DELETE", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => new Response(null, { status: init?.method === "DELETE" ? 429 : 204 }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await expect(chat.stop()).rejects.toThrow("cancellation failed with 429")
+    scope.stop()
+  })
+
+  it("rejects explicit resumable chat cancellation when DELETE cannot reach the server", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === "DELETE") throw new TypeError("network unavailable")
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { id: "chat-1", resume: true }))!
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await expect(chat.stop()).rejects.toThrow("network unavailable")
+    scope.stop()
   })
 })

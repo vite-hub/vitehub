@@ -1391,6 +1391,14 @@ describe("agent public types", () => {
             input: {
               trust: ["meta", "user", "session", "timeout"],
             },
+            resumable: {
+              owner({ auth, body, request }) {
+                expectTypeOf(auth.invokerProfileId).toEqualTypeOf<string>()
+                expectTypeOf(body.id).toEqualTypeOf<string | undefined>()
+                expectTypeOf(request).toEqualTypeOf<Request>()
+                return auth.invokerProfileId
+              },
+            },
           },
         }),
       },

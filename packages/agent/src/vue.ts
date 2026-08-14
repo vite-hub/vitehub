@@ -2,14 +2,14 @@ import { useChat as useAiChat } from "@ai-sdk/vue"
 import { DefaultChatTransport } from "ai"
 import { computed, onScopeDispose, shallowRef, toValue, watch } from "vue"
 
-import { defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.ts"
 import { updateAgentChatStreamedParts } from "./internal/chat-data.ts"
+import { defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.ts"
 import { createAgentChatData } from "./messages.ts"
 
 import type { UseChatHelpers } from "@ai-sdk/vue"
-import type { ChatInit, UIMessage } from "ai"
-import type { AgentChatData } from "./messages.ts"
+import type { ChatInit, HttpChatTransportInitOptions, UIMessage } from "ai"
 import type { AgentChatStreamedPart } from "./internal/chat-data.ts"
+import type { AgentChatData } from "./messages.ts"
 import type { ComputedRef, MaybeRefOrGetter } from "vue"
 
 declare const __VITEHUB_APP_BASE_URL__: string
@@ -18,11 +18,17 @@ export interface AgentClient {
   readonly name: string
 }
 
-export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE> & {
-  api?: string
-}
+type AgentChatInitBase<UI_MESSAGE extends UIMessage> = Omit<ChatInit<UI_MESSAGE>, "id" | "transport">
+  & Pick<HttpChatTransportInitOptions<UI_MESSAGE>, "api" | "credentials" | "fetch" | "headers">
 
-export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Omit<
+export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = AgentChatInitBase<UI_MESSAGE> & (
+  | { id: string, resume: true, transport?: never }
+  | { id?: string, resume?: false, transport?: ChatInit<UI_MESSAGE>["transport"] }
+)
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
+export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = DistributiveOmit<
   AgentChatInit<UI_MESSAGE>,
   "dataPartSchemas" | "generateId" | "messageMetadataSchema"
 > & {
@@ -45,6 +51,17 @@ function agentChatRoute(name: string): string {
   return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
 }
 
+function agentChatRouteWithId(route: string, id: string): string {
+  const hashIndex = route.indexOf("#")
+  const hash = hashIndex < 0 ? "" : route.slice(hashIndex)
+  const requestRoute = hashIndex < 0 ? route : route.slice(0, hashIndex)
+  const queryIndex = requestRoute.indexOf("?")
+  const path = queryIndex < 0 ? requestRoute : requestRoute.slice(0, queryIndex)
+  const query = new URLSearchParams(queryIndex < 0 ? "" : requestRoute.slice(queryIndex + 1))
+  query.set("id", id)
+  return `${path}?${query}${hash}`
+}
+
 export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   agent: AgentClient,
   options?: AgentChatInit<UI_MESSAGE>,
@@ -60,10 +77,110 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const initialOptions = toValue(options)
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
+  const validateOptions = (value: AgentChatInit<UI_MESSAGE> | AgentChatReactiveInit<UI_MESSAGE>) => {
+    if (value.resume && !value.id?.trim()) {
+      throw new TypeError("[vitehub] Resumable web chat requires a stable id.")
+    }
+    if (value.resume && value.transport) {
+      throw new TypeError("[vitehub] Resumable web chat does not support a custom transport because server cancellation cannot be guaranteed.")
+    }
+  }
+  validateOptions(constructorOptions.value)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
-  const resolveTransport = () => latestOptions.value.transport ?? new DefaultChatTransport<UI_MESSAGE>({
-    api: latestOptions.value.api ?? agentChatRoute(agent.name),
-  })
+  const reconnecting = shallowRef(0)
+  let reconnectAbort: AbortController | undefined
+  let reconnectGeneration = 0
+  let disposed = false
+  let prepareReplay: (messageId: string | undefined) => void = () => {}
+  const resolveTransport = () => {
+    if (latestOptions.value.transport) return latestOptions.value.transport
+    const { api, credentials, fetch, headers } = latestOptions.value
+    const route = api ?? agentChatRoute(agent.name)
+    const defaultTransport = new DefaultChatTransport<UI_MESSAGE>({
+      api: route,
+      credentials,
+      fetch(input, requestInit) {
+        const request = fetch ?? globalThis.fetch
+        const controller = requestInit?.method === "GET" ? reconnectAbort : undefined
+        const headers = new Headers(requestInit?.headers)
+        if (requestInit?.method === "POST" && latestOptions.value.resume) {
+          headers.set("x-vitehub-resumable", "true")
+          headers.set("x-vitehub-claim-id", crypto.randomUUID())
+        }
+        return request(input, {
+          ...requestInit,
+          headers,
+          ...(controller ? { signal: controller.signal } : {}),
+        }).catch((error) => {
+          if (controller?.signal.aborted) {
+            return new Response(null, { status: 204 })
+          }
+          throw error
+        })
+      },
+      headers,
+      prepareReconnectToStreamRequest({ credentials, headers, id }) {
+        return {
+          api: agentChatRouteWithId(route, id),
+          credentials,
+          headers,
+        }
+      },
+    })
+    const reconnectToStream = defaultTransport.reconnectToStream.bind(defaultTransport)
+    defaultTransport.reconnectToStream = async (request) => {
+      const generation = ++reconnectGeneration
+      reconnectAbort?.abort()
+      reconnectAbort = new AbortController()
+      const stream = await reconnectToStream(request)
+      if (generation !== reconnectGeneration) return null
+      if (!stream) return null
+      const reader = stream.getReader()
+      let first: Awaited<ReturnType<typeof reader.read>>
+      try {
+        first = await reader.read()
+      }
+      catch (error) {
+        if (generation !== reconnectGeneration) return null
+        throw error
+      }
+      if (generation !== reconnectGeneration) {
+        await reader.cancel()
+        return null
+      }
+      if (first.done) return null
+      prepareReplay(first.value.type === "start" ? first.value.messageId : undefined)
+      return new ReadableStream({
+        cancel(reason) {
+          return reader.cancel(reason)
+        },
+        start(controller) {
+          controller.enqueue(first.value)
+        },
+        async pull(controller) {
+          let chunk: Awaited<ReturnType<typeof reader.read>>
+          try {
+            chunk = await reader.read()
+          }
+          catch (error) {
+            if (generation !== reconnectGeneration) {
+              controller.close()
+              return
+            }
+            throw error
+          }
+          if (generation !== reconnectGeneration) {
+            await reader.cancel()
+            controller.close()
+            return
+          }
+          if (chunk.done) controller.close()
+          else controller.enqueue(chunk.value)
+        },
+      })
+    }
+    return defaultTransport
+  }
   const transport = {
     reconnectToStream: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["reconnectToStream"]>) => (
       resolveTransport().reconnectToStream(...args)
@@ -73,7 +190,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     ),
   }
   const chat = useAiChat<UI_MESSAGE>(() => {
-    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
+    const { api: _api, credentials: _credentials, fetch: _fetch, headers: _headers, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
     return {
       ...init,
       onData(part) {
@@ -87,12 +204,21 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       transport,
     }
   })
-  watch(() => toValue(options), (next, previous) => {
+  watch(() => {
+    const next = toValue(options)
+    return [next, next.id, next.resume] as const
+  }, ([next, nextId, nextResume], [, previousId, previousResume]) => {
+    validateOptions(next)
     const prior = latestOptions.value
     latestOptions.value = next
-    if (next.id !== previous.id) {
+    if (nextId !== previousId || nextResume !== previousResume) {
       constructorOptions.value = next
       streamedParts.value = []
+      if (next.resume && "window" in globalThis) queueMicrotask(reconnect)
+      else {
+        reconnectGeneration++
+        reconnectAbort?.abort()
+      }
       return
     }
 
@@ -107,14 +233,71 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       }
     }
   })
-  onScopeDispose(chat.stop, true)
+  prepareReplay = (messageId) => {
+    if (!messageId) return
+    const messages = chat.messages.value
+    const partial = messages.at(-1)
+    const replay = { id: messageId, parts: [], role: "assistant" } as unknown as UI_MESSAGE
+    chat.messages.value = partial?.role === "assistant" && partial.id === messageId
+      ? [...messages.slice(0, -1), replay]
+      : [...messages, replay]
+  }
+  if (constructorOptions.value.resume && "window" in globalThis) queueMicrotask(reconnect)
+  onScopeDispose(() => {
+    disposed = true
+    reconnectGeneration++
+    reconnectAbort?.abort()
+    void chat.stop()
+  }, true)
+
+  async function stop(): Promise<void> {
+    reconnectGeneration++
+    reconnectAbort?.abort()
+    const cancellationOptions = latestOptions.value
+    const cancellationId = chat.id.value
+    const cancellation = cancellationOptions.resume && !cancellationOptions.transport && "window" in globalThis
+      ? Promise.all([
+          cancellationOptions.api ?? agentChatRoute(agent.name),
+          cancellationOptions.fetch ?? globalThis.fetch,
+          resolveTransportOption(cancellationOptions.credentials),
+          resolveTransportOption(cancellationOptions.headers),
+        ] as const)
+      : undefined
+    await chat.stop()
+    if (!cancellation) return
+    const [cancellationRoute, cancellationRequest, cancellationCredentials, cancellationHeaders] = await cancellation
+    const response = await cancellationRequest(agentChatRouteWithId(cancellationRoute, cancellationId), {
+      credentials: cancellationCredentials ?? "same-origin",
+      headers: cancellationHeaders,
+      method: "DELETE",
+    })
+    if (!response.ok) throw new Error(`[vitehub] Resumable web chat cancellation failed with ${response.status} ${response.statusText || "Unknown Error"}.`)
+  }
+
+  async function reconnect(): Promise<void> {
+    if (disposed) return
+    reconnecting.value++
+    try {
+      await chat.resumeStream()
+    }
+    finally {
+      reconnecting.value--
+    }
+  }
+
   return {
     ...chat,
+    status: computed(() => reconnecting.value > 0 && chat.status.value === "ready" ? "submitted" : chat.status.value),
+    stop,
     data: computed(() => createAgentChatData([
       ...chat.messages.value.flatMap(message => message.parts),
       ...streamedParts.value,
     ])),
   }
+}
+
+async function resolveTransportOption<T>(value: T | (() => T | PromiseLike<T>) | undefined): Promise<T | undefined> {
+  return typeof value === "function" ? await (value as () => T | PromiseLike<T>)() : value
 }
 
 export type { UseChatHelpers } from "@ai-sdk/vue"
