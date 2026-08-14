@@ -842,7 +842,7 @@ async function runAgentAsWorkflow<
     ? await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: run.id },
-    })
+    }, { agentName: agent.name, deferClaim: true })
     : undefined
   return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
 }
@@ -1442,7 +1442,7 @@ type AgentCapabilitiesOption<
   Name extends WorkspaceName,
   CALL_OPTIONS,
   TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig, Name> | undefined,
-> = TCapabilities | AgentCapabilitiesResolver<
+> = (TCapabilities & ValidateStaticAgentCapabilities<TCapabilities>) | AgentCapabilitiesResolver<
   TRuntimeConfig,
   Name,
   CALL_OPTIONS,
@@ -1450,6 +1450,20 @@ type AgentCapabilitiesOption<
     ? TCapabilities
     : readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
 >
+
+type ValidateStaticAgentCapability<TCapability> =
+  TCapability extends AgentCapabilityDefinition
+    ? TCapability
+    : Extract<keyof TCapability, symbol> extends never
+      ? never
+      : TCapability
+
+type ValidateStaticAgentCapabilities<TCapabilities> =
+  TCapabilities extends readonly unknown[]
+    ? number extends TCapabilities["length"]
+      ? TCapabilities
+      : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
+    : TCapabilities
 
 export interface DefineAgent {
   <
@@ -3958,7 +3972,7 @@ async function executeAgentInvocation<
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
   const invocationJournal = definition
-    ? await bindAgentInvocations((definition as AgentDefinition).invocations, context)
+    ? await bindAgentInvocations((definition as AgentDefinition).invocations, context, { agentName: (definition as AgentDefinition).name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined

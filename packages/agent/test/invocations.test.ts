@@ -107,6 +107,7 @@ describe("Agent Invocations", () => {
   it("never lets journal storage failures change invocation behavior", async () => {
     const failure = new Error("journal unavailable")
     const store: AgentInvocationStore = {
+      claim: () => true,
       create: () => { throw failure },
       get: () => { throw failure },
       list: () => { throw failure },
@@ -124,7 +125,8 @@ describe("Agent Invocations", () => {
   it("normalizes limits while preserving opaque custom-store cursors", async () => {
     const list = vi.fn(() => ({ cursor: "next/token", invocations: [] }))
     const store: AgentInvocationStore = {
-      create: input => ({ ...input, cursor: "created/token" }),
+      claim: () => true,
+      create: input => ({ created: true, record: { ...input, cursor: "created/token" } }),
       get: () => undefined,
       list,
       update: () => undefined,
@@ -148,6 +150,44 @@ describe("Agent Invocations", () => {
     expect(await invocations.getByRunId("delivery-1")).toEqual(original)
   })
 
+  it("keeps concurrent reuse from sharing one active journal", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          calls++
+          if (calls === 1) await gate
+          return "done"
+        },
+      },
+      invocations,
+      runtime: false,
+    })
+
+    const first = runAgent(agent, runtime("delivery-1"), {})
+    await vi.waitFor(async () => expect((await invocations.getByRunId("delivery-1"))?.status).toBe("running"))
+    await expect(runAgent(agent, runtime("delivery-1"), {})).resolves.toBe("done")
+    expect((await invocations.getByRunId("delivery-1"))?.status).toBe("running")
+    release()
+    await expect(first).resolves.toBe("done")
+    expect((await invocations.getByRunId("delivery-1"))?.observations.map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.finish",
+    ])
+  })
+
+  it("uses the Agent Definition name when the host has no identity", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ name: "support", driver: { run: () => "done" }, invocations, runtime: false })
+
+    await runAgent(agent, runtime("run-1"), {})
+
+    expect(await invocations.getByRunId("run-1")).toMatchObject({ agentName: "support" })
+  })
+
   it("bounds dynamic summary metadata without truncating invocation identity", async () => {
     const oversized = "x".repeat(700)
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -164,6 +204,8 @@ describe("Agent Invocations", () => {
     expect(record?.origin).toHaveLength(512)
     expect(record?.threadId).toHaveLength(512)
     expect(record?.error?.message).toHaveLength(512)
+    const errorObservation = record?.observations.find(observation => observation.type === "error")
+    expect(errorObservation?.attributes?.["error.message"]).toHaveLength(512)
   })
 
   it("keeps digest-shaped and oversized source ids independently inspectable", async () => {

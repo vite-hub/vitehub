@@ -17,6 +17,7 @@ export type {
   AgentInvocationsOptions,
   AgentInvocationStore,
   AgentInvocationStoreCreateInput,
+  AgentInvocationStoreCreateResult,
   AgentInvocationStoreUpdateInput,
 } from "./invocations.ts"
 

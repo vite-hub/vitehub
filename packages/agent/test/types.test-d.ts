@@ -50,6 +50,12 @@ describe("agent public types", () => {
       capabilities: [githubExtension({ preset: "code-review" })],
       driver: { run: () => "ok" },
     })
+
+    defineAgent({
+      // @ts-expect-error arbitrary objects are neither Capabilities nor extension mounts
+      capabilities: [{}],
+      driver: { run: () => "ok" },
+    })
   })
 
   it("preserves call options through queued webhook rehydration", () => {

@@ -72,6 +72,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         record TEXT NOT NULL
       )`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
+      await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
+        id TEXT PRIMARY KEY,
+        claim_id TEXT NOT NULL
+      )`)
     })().catch((error) => {
       initialized = undefined
       throw error
@@ -88,15 +92,23 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     return row ? deserialize(row.record, row.sequence) : undefined
   }
   return {
+    async claim(id, claimId) {
+      await initialize()
+      const result = await client.execute({
+        args: [id, claimId, id],
+        sql: `INSERT OR IGNORE INTO ${table}_claims (id, claim_id) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)`,
+      })
+      return result.rowsAffected > 0
+    },
     async create(input: AgentInvocationStoreCreateInput) {
       await initialize()
-      await client.execute({
+      const result = await client.execute({
         args: [input.id, input.status, serialize(input)],
         sql: `INSERT OR IGNORE INTO ${table} (id, status, record) VALUES (?, ?, ?)`,
       })
       const record = await read(input.id)
       if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`)
-      return record
+      return { created: result.rowsAffected > 0, record }
     },
     get: read,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {

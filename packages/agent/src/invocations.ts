@@ -13,6 +13,10 @@ const MAX_ANNOTATIONS = 32
 const MAX_ANNOTATION_KEY_LENGTH = 64
 const MAX_ANNOTATION_STRING_LENGTH = 512
 const MAX_METADATA_STRING_LENGTH = 512
+const MAX_OBSERVATIONS = 256
+const MAX_OBSERVATION_ATTRIBUTES = 32
+const MAX_OBSERVATION_COLLECTION_ITEMS = 32
+const MAX_OBSERVATION_DEPTH = 4
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -55,6 +59,11 @@ export interface AgentInvocationListResult {
 
 export type AgentInvocationStoreCreateInput = Omit<AgentInvocationRecord, "cursor">
 
+export interface AgentInvocationStoreCreateResult {
+  created: boolean
+  record: AgentInvocationRecord
+}
+
 export interface AgentInvocationStoreUpdateInput {
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
@@ -63,7 +72,8 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
-  create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationRecord>
+  claim(id: string, claimId: string): MaybePromise<boolean>
+  create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   update(id: string, input: AgentInvocationStoreUpdateInput): MaybePromise<AgentInvocationRecord | undefined>
@@ -83,6 +93,7 @@ export interface AgentInvocations {
 interface BoundAgentInvocations extends AgentInvocations {
   [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
     context: AgentRuntimeContext<TRuntimeConfig>,
+    options?: { agentName?: string, deferClaim?: boolean },
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
 }
 
@@ -147,6 +158,40 @@ function boundedString(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
 }
 
+function boundedObservationValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return boundedString(value)
+  if (value === null || typeof value === "boolean" || typeof value === "number") return value
+  if (typeof value === "bigint") return boundedString(String(value))
+  if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
+  if (Array.isArray(value)) {
+    return value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).map(item => boundedObservationValue(item, depth + 1))
+  }
+  if (!value || typeof value !== "object") return boundedString(String(value))
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)
+    .map(([key, child]) => [boundedString(key), boundedObservationValue(child, depth + 1)]))
+}
+
+function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
+  const attributes = observation.attributes
+    ? Object.fromEntries(Object.entries(observation.attributes)
+        .slice(0, MAX_OBSERVATION_ATTRIBUTES)
+        .map(([key, value]) => [boundedString(key), boundedObservationValue(value)]))
+    : undefined
+  return {
+    ...observation,
+    name: boundedString(observation.name)!,
+    ...(attributes ? { attributes } : {}),
+    ...(observation.trace
+      ? { trace: {
+          ...observation.trace,
+          id: boundedString(observation.trace.id)!,
+          ...(observation.trace.parentId ? { parentId: boundedString(observation.trace.parentId) } : {}),
+        } }
+      : {}),
+  }
+}
+
 async function boundedIdentity(value: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
   return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
@@ -160,6 +205,7 @@ function assertInvocationId(id: string): void {
 
 function assertStore(store: AgentInvocationStore | undefined): asserts store is AgentInvocationStore {
   if (!store
+    || typeof store.claim !== "function"
     || typeof store.create !== "function"
     || typeof store.get !== "function"
     || typeof store.list !== "function"
@@ -192,7 +238,9 @@ export function applyAgentInvocationStoreUpdate(
   return {
     ...record,
     ...(input.error ? { error: input.error } : {}),
-    ...(input.observation ? { observations: [...record.observations, cloneObservation(input.observation)] } : {}),
+    ...(input.observation && record.observations.length < MAX_OBSERVATIONS
+      ? { observations: [...record.observations, cloneObservation(boundedObservation(input.observation))] }
+      : {}),
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
     ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
     ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
@@ -203,15 +251,21 @@ export function applyAgentInvocationStoreUpdate(
 }
 
 export function createMemoryAgentInvocationStore(): AgentInvocationStore {
+  const claims = new Map<string, string>()
   const records = new Map<string, AgentInvocationRecord>()
   let cursor = 0
   return {
+    claim(id, claimId) {
+      if (!records.has(id) || claims.has(id)) return false
+      claims.set(id, claimId)
+      return true
+    },
     create(input) {
       const existing = records.get(input.id)
-      if (existing) return cloneRecord(existing)
+      if (existing) return { created: false, record: cloneRecord(existing) }
       const record = { ...input, cursor: String(++cursor) }
       records.set(record.id, cloneRecord(record))
-      return cloneRecord(record)
+      return { created: true, record: cloneRecord(record) }
     },
     get(id) {
       const record = records.get(id)
@@ -273,13 +327,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     [agentInvocationsBrand]: true,
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
+      bindOptions: { agentName?: string, deferClaim?: boolean } = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
       const recordId = await boundedIdentity(runId)
+      const claimId = createInvocationId()
       const traceId = await boundedIdentity(context.trace?.id || runId)
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
+      let ownsRecord = false
+      const acquire = async (): Promise<boolean> => {
+        if (ownsRecord) return true
+        try { ownsRecord = await store.claim(recordId, claimId) }
+        catch {}
+        return ownsRecord
+      }
       const write = async (operation: () => MaybePromise<unknown>): Promise<void> => {
         writes = writes.then(async () => {
           try { await operation() }
@@ -288,24 +351,28 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         await writes
       }
       const now = new Date().toISOString()
-      await write(() => store.create({
-        ...(context.agentIdentity?.name ? { agentName: boundedString(context.agentIdentity.name) } : {}),
-        ...(annotations ? { annotations } : {}),
-        ...(context.run?.channelId ? { channelId: boundedString(context.run.channelId) } : {}),
-        createdAt: now,
-        id: recordId,
-        observations: [],
-        ...(context.run?.origin ? { origin: boundedString(context.run.origin) } : {}),
-        status: "pending",
-        ...(context.run?.threadId ? { threadId: boundedString(context.run.threadId) } : {}),
-        traceId,
-        updatedAt: now,
-      }))
+      try {
+        await store.create({
+          ...(context.agentIdentity?.name || bindOptions.agentName ? { agentName: boundedString(context.agentIdentity?.name || bindOptions.agentName) } : {}),
+          ...(annotations ? { annotations } : {}),
+          ...(context.run?.channelId ? { channelId: boundedString(context.run.channelId) } : {}),
+          createdAt: now,
+          id: recordId,
+          observations: [],
+          ...(context.run?.origin ? { origin: boundedString(context.run.origin) } : {}),
+          status: "pending",
+          ...(context.run?.threadId ? { threadId: boundedString(context.run.threadId) } : {}),
+          traceId,
+          updatedAt: now,
+        })
+      }
+      catch {}
+      if (!bindOptions.deferClaim) await acquire()
       const baseTraceLog = context.traceLog || createTraceEventLog()
-      const observe = (observation: TraceEventLogEntry) => write(() => store.update(recordId, {
+      const observe = (observation: TraceEventLogEntry) => ownsRecord ? write(() => store.update(recordId, {
         observation,
         timestamp: observation.timestamp,
-      }))
+      })) : Promise.resolve()
       return {
         context: {
           ...context,
@@ -314,7 +381,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           traceLog: journalTraceLog(baseTraceLog, observe),
         },
         async finish(status, error) {
-          if (finished) return
+          if (finished || !await acquire()) return
           finished = true
           await write(() => store.update(recordId, {
             ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
@@ -323,7 +390,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }))
         },
         async running() {
-          if (finished) return
+          if (finished || !ownsRecord) return
           await write(() => store.update(recordId, {
             status: "running",
             timestamp: new Date().toISOString(),
@@ -349,11 +416,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
 export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeConfig>(
   invocations: AgentInvocations | undefined,
   context: AgentRuntimeContext<TRuntimeConfig>,
+  options?: { agentName?: string, deferClaim?: boolean },
 ): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!invocations) return
   const bind = (invocations as Partial<BoundAgentInvocations>)[bindAgentInvocationsSymbol]
   if (typeof bind !== "function") {
     throw new TypeError("[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations().")
   }
-  return await bind.call(invocations, context) as AgentInvocationJournal<TRuntimeConfig>
+  return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
 }
