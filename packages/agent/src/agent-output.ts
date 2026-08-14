@@ -498,7 +498,9 @@ export function toAgentStreamEvent(
       const reason = typeof request.reason === "string" ? request.reason : undefined
       return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
-    return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" }
+    const event = { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
+    if (value.error instanceof Error) Object.defineProperty(event, agentStreamErrorSymbol, { value: value.error })
+    return event
   }
   if (type === "usage" && isUsageRecord(value.usageRecord)) {
     return { ...optionalMessageId(messageId), type: "usage", usageRecord: value.usageRecord }
@@ -509,6 +511,8 @@ export function toAgentStreamEvent(
   }
   return undefined
 }
+
+export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
 async function* streamChunksToEvents(
   chunks: AsyncIterable<unknown>,

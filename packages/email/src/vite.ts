@@ -111,17 +111,21 @@ function renderConfiguredEmailDefinitionModule(
   driverImport: string,
   runtimeEnvImport: string,
   cloudflare: boolean,
+  cloudflareEmail: boolean,
 ): string {
   return [
     `import createDriver from ${JSON.stringify(driverImport)}`,
     `import { resolveServerEnv } from ${JSON.stringify(runtimeEnvImport)}`,
     ...(cloudflare ? ["import { env as vitehubEmailEnv } from \"cloudflare:workers\""] : []),
+    ...(cloudflareEmail ? ["import { EmailMessage } from \"cloudflare:email\""] : []),
     "",
     `const registry = ${JSON.stringify(definition.options, null, 2)}`,
     "export const definition = {",
     "  driver: () => {",
     `    const options = resolveServerEnv(registry${cloudflare ? ", { env: vitehubEmailEnv }" : ""})`,
-    `    return createDriver(${renderResolvedOptions(definition.options, "options")})`,
+    `    return createDriver(${cloudflareEmail
+      ? `{ ...${renderResolvedOptions(definition.options, "options")}, binding: vitehubEmailEnv.EMAIL, EmailMessage }`
+      : renderResolvedOptions(definition.options, "options")})`,
     "  },",
     "}",
     "export default definition",
@@ -145,17 +149,31 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
-function configureNitroCloudflareWorkers(config: Record<string, unknown>): void {
+function configureNitroCloudflareWorkers(config: Record<string, unknown>, email: boolean): void {
   const nitro = isRecord(config.nitro) ? config.nitro : {}
   const rollupConfig = isRecord(nitro.rollupConfig) ? nitro.rollupConfig : {}
   const cloudflare = isRecord(nitro.cloudflare) ? nitro.cloudflare : {}
   const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
   const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+  const sendEmail = Array.isArray(wrangler.send_email) ? [...wrangler.send_email] : []
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
+  if (email && !sendEmail.some(binding => isRecord(binding) && binding.name === "EMAIL")) sendEmail.push({ name: "EMAIL" })
   config.nitro = {
     ...nitro,
-    cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
-    rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
+    cloudflare: {
+      ...cloudflare,
+      wrangler: {
+        ...wrangler,
+        compatibility_flags: compatibilityFlags,
+        ...(sendEmail.length ? { send_email: sendEmail } : {}),
+      },
+    },
+    rollupConfig: {
+      ...rollupConfig,
+      external: email
+        ? mergeNitroExternal(mergeNitroExternal(rollupConfig.external, "cloudflare:workers"), "cloudflare:email")
+        : mergeNitroExternal(rollupConfig.external, "cloudflare:workers"),
+    },
   }
 }
 
@@ -169,6 +187,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   const runtimeEnvImport = internalOptions.runtimeEnvImport
     ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
   let cloudflare = false
+  const cloudflareEmail = configured.driver === "unemail/driver/cloudflare-email"
   let definition: GeneratedEmailDefinition | undefined
 
   return {
@@ -179,7 +198,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     },
     config(config) {
       cloudflare = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>)) === "cloudflare"
-      if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>)
+      if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       return {
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }
@@ -190,13 +209,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         handler: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs"),
       }
       const entry = definition.handler.replace(/\.mjs$/, ".entry.mjs")
-      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, cloudflare))
+      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, cloudflare, cloudflare && cloudflareEmail))
       try {
         await bundleEsmEntry(entry, definition.handler, {
-          external: cloudflare ? ["cloudflare:workers"] : undefined,
+          external: cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : undefined,
           format: "esm",
           minifyWhitespace: true,
-          platform: "node",
+          platform: cloudflare ? "neutral" : "node",
           rootDir: config.root,
         })
       }

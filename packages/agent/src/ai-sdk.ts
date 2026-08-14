@@ -11,7 +11,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
+import { agentOutputInstructions, agentOutputJsonSchema, normalizeNativeAgentOutputError } from "./internal/agent-structured-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
@@ -1046,7 +1046,8 @@ async function createAgent(
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
 ) {
-  const { ToolLoopAgent, isStepCount, jsonSchema } = await loadAiSdk()
+  const aiSdk = await loadAiSdk()
+  const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
   const execution = options.execution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
@@ -1108,12 +1109,17 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
+  const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
+  const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
 
   return {
     agent: new ToolLoopAgent({
       ...withRuntimeContext(withViteHubTelemetry(settings, context), context),
       instructions,
       model: instrumentedModel as never,
+      ...(outputSchema
+        ? { output: aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) }
+        : {}),
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
@@ -1139,12 +1145,19 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
       const usageCapture = createUsageCapture()
-      const result = withResolvedModelMetadata(withCapturedUsage(await agent.generate({
-        ...callInput,
-        onEnd: usageCapture.onEnd,
-        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-        onStepEnd: usageCapture.onStepEnd,
-      } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
+      let generated: GenerateTextResult<ToolSet, never, never>
+      try {
+        generated = await agent.generate({
+          ...callInput,
+          onEnd: usageCapture.onEnd,
+          onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+          onStepEnd: usageCapture.onStepEnd,
+        } as never) as GenerateTextResult<ToolSet, never, never>
+      }
+      catch (error) {
+        return await normalizeNativeAgentOutputError(context.output, error)
+      }
+      const result = withResolvedModelMetadata(withCapturedUsage(generated, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)

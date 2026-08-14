@@ -28,6 +28,9 @@
       ],
       "@vite-hub/source": [
         "packages/source/src/index.ts"
+      ],
+      "@vite-hub/source/*": [
+        "packages/source/src/*.ts"
       ]
     },
     "rootDir": "..",

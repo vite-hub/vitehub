@@ -3,7 +3,7 @@ import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 import { toAgentRunResult } from "../agent-output.ts"
 
 import type { AgentOutputDefinition } from "../types.ts"
-import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 const agentOutputErrorMessages = {
   AGENT_OUTPUT_INVALID_JSON: "[vitehub] Agent output is not valid JSON.",
@@ -17,6 +17,12 @@ function agentOutputValidationError(code: AgentOutputValidationErrorCode, option
     throw new TypeError("[vitehub] Agent output errors require a known code.")
   }
   return new ViteHubError(code, agentOutputErrorMessages[code], { cause: readErrorCause(options) })
+}
+
+export async function normalizeNativeAgentOutputError(output: AgentOutputDefinition | undefined, error: unknown): Promise<never> {
+  const text = error && typeof error === "object" && "text" in error && typeof error.text === "string" && "name" in error && error.name === "AI_NoObjectGeneratedError" ? error.text : undefined
+  if (output && text !== undefined) await validateAgentOutput(output, text)
+  throw error
 }
 
 function isAgentOutputValidationError(value: unknown): boolean {
@@ -123,20 +129,20 @@ export async function validateAgentOutput<TOutput>(
   return validation.value
 }
 
-function supportsJsonSchema(schema: StandardSchemaV1): schema is StandardSchemaV1 & StandardJSONSchemaV1 {
-  return typeof (schema["~standard"] as { jsonSchema?: unknown }).jsonSchema === "object"
-    && typeof (schema["~standard"] as { jsonSchema?: { input?: unknown } }).jsonSchema?.input === "function"
+export function agentOutputJsonSchema(schema: StandardSchemaV1): Record<string, unknown> | undefined {
+  const jsonSchema = (schema["~standard"] as { jsonSchema?: { input?: unknown } }).jsonSchema
+  if (typeof jsonSchema !== "object" || typeof jsonSchema.input !== "function") return
+  try {
+    return jsonSchema.input({ target: "draft-07" }) as Record<string, unknown>
+  }
+  catch {
+    return
+  }
 }
 
 export function agentOutputInstructions(output: AgentOutputDefinition | undefined): string | undefined {
   if (!output) return
-  let jsonSchema: Record<string, unknown> | undefined
-  if (supportsJsonSchema(output.schema)) {
-    try {
-      jsonSchema = output.schema["~standard"].jsonSchema.input({ target: "draft-07" })
-    }
-    catch {}
-  }
+  const jsonSchema = agentOutputJsonSchema(output.schema)
   return [
     "Return only one valid JSON value for the configured Agent output. Do not wrap it in Markdown or add commentary.",
     ...(jsonSchema ? ["The JSON value must match this schema:", "```json", JSON.stringify(jsonSchema, null, 2), "```"] : []),

@@ -4,16 +4,19 @@ import { fileURLToPath } from "node:url"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
+import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
-type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database"> & {
+type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
+  env?: false | EnvIntegrationOptions & EnvViteConfigOptions
 }
 
 type NuxtLike = {
@@ -70,6 +73,24 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
     }
     if (!existing) imports.push({ from, name })
   }
+}
+
+function isEnvDeclarationNamespace(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).kind !== "env-variable")
+}
+
+function mergeEnvDeclarationNamespaces<T extends Record<string, unknown>>(
+  existing: T | undefined,
+  configured: T,
+): T {
+  const merged = { ...existing }
+  for (const [key, value] of Object.entries(configured)) {
+    const current = merged[key]
+    merged[key] = isEnvDeclarationNamespace(current) && isEnvDeclarationNamespace(value)
+      ? mergeEnvDeclarationNamespaces(current, value)
+      : value
+  }
+  return merged as T
 }
 
 type QueueNitroConfigHandler = (options: {
@@ -220,10 +241,21 @@ type ViteHubNuxtModule = {
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxt): Promise<void> {
   if (!nuxt) return
 
-  const options = {
+  const moduleOptions = {
     ...nuxt.options.vitehub,
     ...inlineOptions,
   } as ViteHubNuxtOptions
+  const configuredEnv = moduleOptions.env
+  const envConfig = configuredEnv && typeof configuredEnv === "object"
+    ? { define: configuredEnv.define, public: configuredEnv.public, server: configuredEnv.server }
+    : undefined
+  const envOptions = configuredEnv && typeof configuredEnv === "object"
+    ? Object.fromEntries(Object.entries(configuredEnv).filter(([key]) => !["define", "public", "server"].includes(key)))
+    : configuredEnv
+  const options = {
+    ...moduleOptions,
+    env: envOptions,
+  } as Parameters<typeof vitehub>[0]
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
@@ -281,10 +313,19 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   ]
 
   nuxt.options.vite ??= {}
-  const viteConfig = nuxt.options.vite as UserConfig & {
+  const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_SERVER_DIRS]?: string[]
+  }
+  if (envConfig && Object.values(envConfig).some(Boolean)) {
+    const existingEnv = viteConfig.env ?? {}
+    viteConfig.env = {
+      ...existingEnv,
+      ...(envConfig.define ? { define: mergeEnvDeclarationNamespaces(existingEnv.define, envConfig.define) } : {}),
+      ...(envConfig.public ? { public: mergeEnvDeclarationNamespaces(existingEnv.public, envConfig.public) } : {}),
+      ...(envConfig.server ? { server: mergeEnvDeclarationNamespaces(existingEnv.server, envConfig.server) } : {}),
+    }
   }
   viteConfig.define = {
     ...viteConfig.define,
@@ -297,7 +338,30 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...plugins.filter(plugin => !existingNames.has(plugin.name)),
     ...existing,
   ] as PluginOption[]
-  nuxt.hook?.("nitro:config", config => applyNitroConfig(installedPlugins, config, nuxt))
+  const envPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
+    api?: { resolveProjectRoot?: (viteRoot: string) => string }
+  } | undefined
+  const configuredEnvProjectRootOption = options.env && typeof options.env === "object"
+    ? options.env.projectRoot
+    : undefined
+  const configuredEnvProjectRoot = configuredEnvProjectRootOption
+    ? resolve(viteRoot, configuredEnvProjectRootOption)
+    : undefined
+  const envProjectRoot = envPlugin?.api?.resolveProjectRoot?.(viteRoot) ?? configuredEnvProjectRoot ?? projectRoot
+  if (envPlugin?.api?.resolveProjectRoot && configuredEnvProjectRoot) {
+    if (configuredEnvProjectRoot !== envProjectRoot) {
+      throw new TypeError(`[vitehub] Env projectRoot ${JSON.stringify(configuredEnvProjectRootOption)} conflicts with the installed Env Vite plugin.`)
+    }
+  }
+  const generatedAliases = {
+    ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
+    "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
+  }
+  nuxt.hook?.("nitro:config", async (config) => {
+    await applyNitroConfig(installedPlugins, config, nuxt)
+    const alias = (config.alias ??= {}) as Record<string, string>
+    for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
+  })
   if (options.agent) addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
   if (options.auth) {
     const envOptions = options.env || {}
@@ -309,6 +373,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       importsFrom: "vite-hub/auth/vue",
       nitro: false,
     }, nuxt)
+  }
+  const nuxtAlias = (nuxt.options.alias ??= {})
+  const nitroAlias = ((nuxt.options.nitro ??= {}).alias ??= {}) as Record<string, string>
+  for (const [name, path] of Object.entries(generatedAliases)) {
+    nuxtAlias[name] ??= path
+    nitroAlias[name] ??= path
   }
   if (options.realtime) {
     addVueImports(nuxt, "vite-hub/realtime", ["defineRealtime"])

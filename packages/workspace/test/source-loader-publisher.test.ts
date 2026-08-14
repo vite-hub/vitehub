@@ -110,7 +110,7 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
       return jsonResponse({ message: "not found" }, apiStatus)
     }
 
-    if (requestUrl === "https://api.github.com/repos/acme/app" || requestUrl === "https://api.github.com/repos/acme/private" || requestUrl === "https://api.github.com/repos/acme/public") {
+    if (/^https:\/\/api\.github\.com\/repos\/acme\/[^/]+$/.test(requestUrl)) {
       return jsonResponse({ default_branch: defaultBranch })
     }
 
@@ -458,7 +458,7 @@ describe("sources, loaders, and publishers", () => {
           cache: { maxAge: 3600 },
           materialize: "lazy",
           mount: "docs",
-          repo: "acme/app",
+          repo: "acme/tree-cache",
           root: "docs",
         }),
       },
@@ -495,7 +495,7 @@ describe("sources, loaders, and publishers", () => {
           cache: { maxAge: 3600 },
           materialize: "lazy",
           mount: "docs",
-          repo: "acme/app",
+          repo: "acme/content-cache",
           root: "docs",
         }),
       },

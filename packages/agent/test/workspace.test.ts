@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
+import { createTraceEventLog, noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
@@ -63,6 +63,7 @@ vi.mock("ai", () => ({
   generateText,
   jsonSchema,
   isStepCount: vi.fn(count => ({ count })),
+  Output: { object: vi.fn(({ schema }) => ({ schema })) },
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
       agentSettings.push(settings)
@@ -582,6 +583,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md", "skills/agent-browser"],
       session: harnessFileSession,
@@ -1865,6 +1867,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce(harnessSession)
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockResolvedValue(true)
+    const traceLog = createTraceEventLog()
 
     const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
@@ -1879,7 +1882,7 @@ describe("defineAgent workspace option", () => {
       },
     }), { workspace: "docs" })
 
-    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+    await expect(runAgent(agent, { ...(context() as unknown as Record<string, unknown>), traceLog } as never, { prompt: "hello" })).resolves.toMatchObject({
       finishReason: "stop",
       text: "ok",
     })
@@ -1888,6 +1891,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
@@ -1907,6 +1911,23 @@ describe("defineAgent workspace option", () => {
     }))
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
+    const onProgress = prepareHarnessWorkspaceSession.mock.calls[0]?.[1]?.onProgress
+    await onProgress?.({
+      data: { bytes: 12, files: 2 },
+      durationMs: 3,
+      id: "workspace.prepare.extract-archive",
+      label: "Extracting workspace revision",
+      status: "completed",
+    })
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        bytes: 12,
+        files: 2,
+        "workspace.durationMs": 3,
+        "workspace.status": "completed",
+      }),
+      name: "workspace.prepare.extract-archive",
+    }))
   })
 
   it("ignores generated harness tool writeback only when harness tools are generated", async () => {
@@ -1935,6 +1956,7 @@ describe("defineAgent workspace option", () => {
 
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       ignoreWriteBackPaths: ["harness-tool.mjs"],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -2042,6 +2064,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: ["AGENTS.md", "CLAUDE.md"],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
@@ -2116,6 +2139,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md", "skills/SKILL.md", "skills/review-browser-evidence/SKILL.md"],
       session: harnessFileSession,
@@ -2169,6 +2193,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["docs", "portal", "AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
@@ -2197,6 +2222,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: undefined,
       session: harnessFileSession,
@@ -2243,6 +2269,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: [""],
       session: harnessFileSession,
@@ -2332,6 +2359,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["docs", "AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
@@ -2366,6 +2394,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
@@ -2409,6 +2438,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md", "summary.md", "artifacts/usage", "artifacts/browser", "pr-diff-summary.md"],
       session: harnessFileSession,
@@ -2455,6 +2485,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md", ".vitehub/sources/public.json"],
       session: harnessFileSession,
@@ -2503,6 +2534,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
@@ -2548,6 +2580,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: [""],
       session: harnessFileSession,
@@ -2648,6 +2681,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md", "skills/agent-browser", ".vitehub/sources/public.json"],
       session: harnessFileSession,
@@ -2697,6 +2731,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: [""],
       session: harnessFileSession,
@@ -2742,6 +2777,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
@@ -2779,6 +2815,7 @@ describe("defineAgent workspace option", () => {
         },
       }),
       ignoreWriteBackPaths: [],
+      onProgress: expect.any(Function),
       onWriteBack: expect.any(Function),
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",

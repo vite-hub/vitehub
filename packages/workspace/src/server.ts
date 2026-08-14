@@ -6,6 +6,7 @@ import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollecti
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
+import { withWorkspaceProgress } from "./session/progress.ts"
 
 import type { H3Event } from "h3"
 import type { WorkspaceCollectionOptions, WorkspaceCollectionQuery, WorkspaceCollectionSort } from "./collections.ts"
@@ -265,32 +266,6 @@ function workspaceSourceMaterializer(input: unknown): WorkspaceSourceMaterialize
     : undefined
 }
 
-async function withWorkspaceDevProgress<T>(
-  onProgress: WorkspaceDevCommandInput["onProgress"] | undefined,
-  event: Pick<WorkspacePrepareSessionProgressEvent, "id" | "label"> & { data?: Record<string, unknown> },
-  fn: () => Promise<T>,
-): Promise<T> {
-  const startedAt = Date.now()
-  await onProgress?.({ data: event.data, id: event.id, label: event.label, status: "started" })
-  try {
-    const result = await fn()
-    await onProgress?.({ data: event.data, durationMs: Date.now() - startedAt, id: event.id, label: event.label, status: "completed" })
-    return result
-  }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    await onProgress?.({
-      data: { ...event.data, error: message },
-      durationMs: Date.now() - startedAt,
-      error: message,
-      id: event.id,
-      label: event.label,
-      status: "failed",
-    })
-    throw error
-  }
-}
-
 async function materializeWorkspaceDevSources(
   workspace: Awaited<ReturnType<typeof resolveWorkspace>>,
   input: WorkspaceDevCommandInput,
@@ -298,7 +273,7 @@ async function materializeWorkspaceDevSources(
   const materialize = workspaceSourceMaterializer(workspace) ?? workspaceSourceMaterializer(workspace.fs)
   if (!materialize) return
   const paths = input.paths?.length ? input.paths : [""]
-  await withWorkspaceDevProgress(input.onProgress, {
+  await withWorkspaceProgress(input.onProgress, {
     data: { paths },
     id: "workspace.dev.materialize",
     label: "Materializing workspace sources",
@@ -426,14 +401,19 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   const startSession = starter?.startSession.bind(starter)
   if (!startSession) throw new Error("Workspace Dev command requires a Workspace Session.")
   await materializeWorkspaceDevSources(workspace, input)
-  const session = await withWorkspaceDevProgress(input.onProgress, {
-    data: { paths: input.paths ?? null },
-    id: "workspace.dev.start-session",
-    label: "Starting workspace session",
-  }, async () => await startSession({ host: input.host, paths: input.paths }))
+  let session: WorkspaceSession | undefined
   const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
   let result
   try {
+    await withWorkspaceProgress(input.onProgress, {
+      data: { paths: input.paths ?? null },
+      id: "workspace.dev.start-session",
+      label: "Starting workspace session",
+    }, async () => {
+      session = await startSession({ abortSignal: input.abortSignal, host: input.host, paths: input.paths })
+      return session
+    })
+    if (!session) throw new Error("Workspace Dev Session did not start.")
     result = input.args
       ? await session.exec(command, input.args, execOptions)
       : await session.exec("sh", ["-lc", command], execOptions)
@@ -444,6 +424,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     }
   }
   catch (error) {
+    if (!session) throw error
     try {
       await session.close()
     }
@@ -452,6 +433,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     }
     throw error
   }
+  if (!session) throw new Error("Workspace Dev Session did not start.")
   await session.close()
   return result
 }

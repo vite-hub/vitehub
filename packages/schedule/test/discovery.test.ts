@@ -77,6 +77,24 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers suffix schedules in a sibling Nuxt server directory", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-nuxt-server-discovery-")
+    const appDir = join(rootDir, "app")
+    const serverDir = join(rootDir, "server")
+    await mkdir(join(serverDir, "schedules"), { recursive: true })
+    await writeFile(join(serverDir, "monthly.schedule.ts"), "export default null\n", "utf8")
+    await writeFile(join(serverDir, "schedules", "daily.schedule.ts"), "export default null\n", "utf8")
+
+    expect(discoverScheduleDefinitions({
+      rootDir: appDir,
+      serverDirs: [serverDir],
+      serverRootDir: rootDir,
+    })).toMatchObject([
+      { name: "daily.schedule", source: "server-schedules" },
+      { name: "monthly", source: "vite-suffix" },
+    ])
+  })
+
   it("does not parse defineSchedule options to override discovery identity", async () => {
     const rootDir = await createTempDir("vitehub-schedule-ignore-inline-id-")
     await writeFile(

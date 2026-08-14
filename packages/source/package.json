@@ -30,6 +30,26 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./file": {
+      "types": "./dist/file.d.ts",
+      "import": "./dist/file.js"
+    },
+    "./github": {
+      "types": "./dist/github.d.ts",
+      "import": "./dist/github.js"
+    },
+    "./glob": {
+      "types": "./dist/glob.d.ts",
+      "import": "./dist/glob.js"
+    },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -39,20 +59,19 @@
     "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "catalog:ai",
     "@vite-hub/runtime": "workspace:*",
-    "effect": "catalog:effect",
-    "mrmime": "catalog:workspace",
-    "ocache": "catalog:unjs",
-    "pathe": "catalog:unjs",
-    "picomatch": "catalog:workspace",
-    "tinyglobby": "catalog:workspace"
+    "effect": "catalog:effect"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "mrmime": "catalog:workspace",
+    "ocache": "catalog:unjs",
+    "picomatch": "catalog:workspace",
     "publint": "catalog:tooling",
+    "tinyglobby": "catalog:workspace",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

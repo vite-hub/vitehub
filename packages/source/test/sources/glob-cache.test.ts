@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { glob as tinyglobby } from "tinyglobby"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { glob } from "../../src/index.ts"
+import { glob } from "../../src/glob.ts"
 
 vi.mock("tinyglobby", () => ({
   glob: vi.fn(async () => ["docs/README.md"]),

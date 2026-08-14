@@ -7,6 +7,7 @@ import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { unknownExecutionAuthority } from "@vite-hub/runtime"
+import { createBoxHarnessSandbox } from "../src/harness/box-sandbox.ts"
 
 const harnessSettings = vi.hoisted(() => [] as Record<string, any>[])
 const harnessObservation = vi.hoisted(() => ({
@@ -113,6 +114,42 @@ afterEach(async () => {
 })
 
 describe("Agent Box", () => {
+  it("closes a late Box acquisition while keeping an acquired session independent", async () => {
+    let resolveOpen!: (session: any) => void
+    const pending = new Promise<any>((resolve) => { resolveOpen = resolve })
+    const close = vi.fn(async () => {})
+    const session = {
+      close,
+      cwd: "/workspace",
+      executionAuthority: unknownExecutionAuthority,
+      files: {},
+      id: "pending",
+      spawn: vi.fn(),
+    }
+    const plan = { executionAuthority: unknownExecutionAuthority, runtime: "test" }
+    const controller = new AbortController()
+    const opening = createBoxHarnessSandbox({
+      open: vi.fn(async () => await pending),
+      plan,
+    } as never).createSession({ abortSignal: controller.signal })
+    controller.abort(new Error("invocation canceled"))
+
+    await expect(opening).rejects.toThrow("invocation canceled")
+    resolveOpen(session)
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+
+    close.mockClear()
+    const activeController = new AbortController()
+    const active = await createBoxHarnessSandbox({
+      open: vi.fn(async () => session),
+      plan,
+    } as never).createSession({ abortSignal: activeController.signal })
+    activeController.abort(new Error("after acquisition"))
+    expect(close).not.toHaveBeenCalled()
+    await active.destroy?.()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("runs workspace commands without rematerializing the live Harness tree", { timeout: 20_000 }, async () => {
     const root = await temporaryRoot()
     const stateRoot = join(root, "state")
@@ -505,6 +542,7 @@ describe("Agent Box", () => {
         }
       },
       async open(_input: unknown, options: { initialize?: (session: any, context: { signal?: AbortSignal }) => Promise<void>, signal?: AbortSignal }) {
+        expect(options.signal).toBeUndefined()
         const session = {
           close: vi.fn(async () => {}),
           cwd: "/workspace",
@@ -518,7 +556,15 @@ describe("Agent Box", () => {
             write: vi.fn(async () => {}),
           },
           id: globalThis.crypto.randomUUID(),
-          async exec(_command: string, args?: readonly string[]) {
+          async exec(command: string, args?: readonly string[]) {
+            if (command === "test") {
+              return {
+                code: args?.[0] === "-d" ? 0 : 1,
+                ok: args?.[0] === "-d",
+                stderr: "",
+                stdout: "",
+              }
+            }
             const script = args?.[1] || ""
             const codexHome = script.match(/export CODEX_HOME="\$HOME\/([^"]+)"/)?.[1]
             if (codexHome) codexHomes.add(codexHome)

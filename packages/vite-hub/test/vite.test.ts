@@ -575,11 +575,49 @@ describe("vitehub", () => {
     expect(existingPrerender).toHaveBeenCalledWith(prerenderConfig)
     expect(prerenderConfig).toMatchObject({
       alias: {
+        "cloudflare:email": expect.stringMatching(/cloudflare-prerender\.mjs$/),
         "cloudflare:workers": expect.stringMatching(/cloudflare-prerender\.mjs$/),
         existing: "/existing",
       },
-      rollupConfig: { external: ["node:fs"] },
     })
+    const external = prerenderConfig.rollupConfig.external as unknown as (source: string) => boolean
+    expect(external("cloudflare:workers")).toBe(false)
+    expect(external("node:fs")).toBe(true)
+  })
+
+  it("aliases every Cloudflare Email runtime import during Nitro prerendering", async () => {
+    const config = await applyDeploymentConfig({ preset: "cloudflare" })
+    const hooks = (config.nitro as { hooks: Record<string, unknown> }).hooks
+    const prerender = hooks["prerender:config"] as (config: Record<string, unknown>) => Promise<void>
+    const prerenderConfig = {
+      rollupConfig: { external: ["cloudflare:email", "cloudflare:workers"] },
+    }
+
+    await prerender(prerenderConfig)
+
+    expect(prerenderConfig).toMatchObject({
+      alias: {
+        "cloudflare:email": expect.stringMatching(/cloudflare-prerender\.mjs$/),
+        "cloudflare:workers": expect.stringMatching(/cloudflare-prerender\.mjs$/),
+      },
+    })
+    const external = prerenderConfig.rollupConfig.external as unknown as (source: string) => boolean
+    expect(external("cloudflare:email")).toBe(false)
+    expect(external("cloudflare:workers")).toBe(false)
+  })
+
+  it("overrides matching regex externals for Cloudflare prerender imports", async () => {
+    const config = await applyDeploymentConfig({ preset: "cloudflare" })
+    const hooks = (config.nitro as { hooks: Record<string, unknown> }).hooks
+    const prerender = hooks["prerender:config"] as (config: Record<string, unknown>) => Promise<void>
+    const prerenderConfig = { rollupConfig: { external: [/^cloudflare:/, /^node:/] } }
+
+    await prerender(prerenderConfig)
+
+    const external = prerenderConfig.rollupConfig.external as unknown as (source: string) => boolean
+    expect(external("cloudflare:email")).toBe(false)
+    expect(external("cloudflare:workers")).toBe(false)
+    expect(external("node:fs")).toBe(true)
   })
 
   it("leaves deployment output to the Nitro module matching the active preset", async () => {

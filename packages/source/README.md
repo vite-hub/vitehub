@@ -18,7 +18,10 @@ pnpm add @vite-hub/source
 
 ```ts
 // server/utils/sources.ts
-import { defineSources, file, github, glob, registerSources, useSource } from "@vite-hub/source"
+import { defineSources, registerSources, useSource } from "@vite-hub/source"
+import { file } from "@vite-hub/source/file"
+import { github } from "@vite-hub/source/github"
+import { glob } from "@vite-hub/source/glob"
 
 registerSources(defineSources({
   docs: glob({ include: "docs/**/*.md" }),

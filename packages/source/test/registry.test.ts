@@ -4,12 +4,12 @@ import {
   clearSources,
   custom,
   defineSources,
-  file,
   registerSource,
   registerSources,
   useSource,
 } from "../src/index.ts"
 import { sourcePathError } from "../src/core/errors.ts"
+import { file } from "../src/file.ts"
 
 afterEach(() => {
   clearSources()

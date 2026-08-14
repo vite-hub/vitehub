@@ -20,7 +20,7 @@ import {
 } from "./delivery-effects.ts"
 import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
+import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   bindMessageChannelInstructions,
@@ -1763,6 +1763,7 @@ function toAgentAdapterRunContext<
     box: context.box,
     instructions: context.instructions,
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
+    nativeStructuredOutput: !context.outputRenderers.length && !context.finalOutputRenderers.length,
     runtime: context.runtimeContext,
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
   }
@@ -2473,7 +2474,7 @@ async function finishStreamAgentInvocation<
     }
     finishResult = await applyFinalOutputRenderers(resolvedResult, context, outputExtensions)
     finishResult = context.output
-      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal), { allowMaterializedObject: finishResult !== result })
+      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal, undefined, context.output), { allowMaterializedObject: finishResult !== result })
       : resultWithUsageRecord(finishResult, usageRecord)
   }
   catch (finishError) {
@@ -3020,6 +3021,7 @@ async function materializeAgentStructuredOutput(
   result: unknown,
   abortSignal?: AbortSignal,
   onEvent?: AgentOutputEventObserver,
+  output?: AgentOutputDefinition,
 ): Promise<unknown> {
   let streamResult = result
   const streamSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
@@ -3072,7 +3074,12 @@ async function materializeAgentStructuredOutput(
   }) as AsyncIterable<StreamEvent>
   for await (const event of events) {
     onEvent?.(event)
-    if (event.type === "error") throw new Error(event.error)
+    if (event.type === "error") {
+      const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
+      const rejectedText = typeof streamError?.text === "string" ? streamError.text : text
+      if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
+      throw streamError ?? new Error(event.error)
+    }
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
   }
@@ -3186,6 +3193,8 @@ async function executeAgentInvocationWithCapacityLease<
   const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
   let result: unknown
   try {
+    const adapterContext = toAgentAdapterRunContext(invocation)
+    if (options.kind === "run" && !options.renderOutput) adapterContext.nativeStructuredOutput = false
     if (customRun) {
       result = await agent.run(invocation)
     }
@@ -3195,10 +3204,10 @@ async function executeAgentInvocationWithCapacityLease<
         invocation.context.get<boolean>(finalChannelOutputContextKey) !== true
         || invocation.context.get<boolean>(progressSummaryOutputContextKey) === true
       )) {
-      result = await adapter.stream(toAgentAdapterRunContext(invocation) as never)
+      result = await adapter.stream(adapterContext as never)
     }
     else {
-      result = await adapter!.generate(toAgentAdapterRunContext(invocation) as never)
+      result = await adapter!.generate(adapterContext as never)
     }
   }
   catch (error) {
@@ -3626,6 +3635,7 @@ async function executeAgentInvocationWithCapacityLease<
             final,
             invocation.input.abortSignal,
             invocation.context.get<AgentOutputEventObserver>(agentOutputEventObserverContextKey),
+            invocation.output,
           )
         : final
       const resolvedUsageRecord = options.renderOutput && invocation.output

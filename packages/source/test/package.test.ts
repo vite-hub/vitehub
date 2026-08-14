@@ -4,6 +4,13 @@ import { verifyBuiltPackageExports } from "../../internal/test-utils/built-packa
 
 describe("@vite-hub/source package contract", () => {
   it("loads documented exports from built package targets", async () => {
-    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/source", ["."])
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/source", [
+      ".",
+      "./file",
+      "./github",
+      "./glob",
+      "./markdown",
+      "./mcp",
+    ])
   })
 })

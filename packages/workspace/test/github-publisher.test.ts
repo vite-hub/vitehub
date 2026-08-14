@@ -194,9 +194,10 @@ describe("GitHub workspace publisher", () => {
       code: "WORKSPACE_FAILED",
       message: "[vitehub] GitHub workspace request failed.",
     })
-    expect(requests.map(request => request.path)).toEqual([
-      "/repos/onmax/repo/git/ref/heads/mirror",
-    ])
+    expect(requests.map(request => request.path)).toEqual(Array.from(
+      { length: 3 },
+      () => "/repos/onmax/repo/git/ref/heads/mirror",
+    ))
   })
 
   it("publishes delete-only snapshots after the last workspace file is removed", async () => {
