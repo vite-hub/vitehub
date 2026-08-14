@@ -4280,6 +4280,10 @@ export function createChannelChatRouteHandler(
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
       const resumes = Boolean(resumable && request.headers.get("x-vitehub-resumable") === "true")
+      const resumableChatId = optionalBodyString(body.id, "id")
+      if (resumes && !resumableChatId) {
+        throw createRouteBodyError("Resumable agent chat requires a stable id.")
+      }
       const resumableAbortController = resumes ? new AbortController() : undefined
       const context = createRuntimeContext(
         createRuntimeRequest(request, parsed.rawBody, resumableAbortController?.signal),
@@ -4299,16 +4303,26 @@ export function createChannelChatRouteHandler(
       const inputContext = { agentName, auth: auth as never, body, event: handlerOptions.event, input: trustedInput, rawBody: parsed.rawBody, request }
       const owner = resumes ? await resolveResumableOwner(resumable!, inputContext, request.signal) : undefined
       if (resumes && !owner) return new Response(null, { status: 204 })
-      const admittedInput = mergeAgentChannelChatRouteInput(
-        trustedInput,
-        await routeOptions.admission?.context?.(inputContext),
-      )
-      let triggerInput = mergeAgentChannelChatRouteInput(
-        admittedInput,
-        await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
-      )
+      if (resumes && resumableOwnerResolutionCount >= resumableChatMaxTotalPendingOwnerResolutions) {
+        throw createRouteError(429, "Resumable web chat has reached its setup capacity. Try again later.")
+      }
+      if (resumes) resumableOwnerResolutionCount++
+      let triggerInput: AgentChatMessageTriggerInput
+      try {
+        const admittedInput = mergeAgentChannelChatRouteInput(
+          trustedInput,
+          await routeOptions.admission?.context?.(inputContext),
+        )
+        triggerInput = mergeAgentChannelChatRouteInput(
+          admittedInput,
+          await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
+        )
+      }
+      finally {
+        if (resumes) resumableOwnerResolutionCount--
+      }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
-      const chatId = optionalBodyString(body.id, "id") || "default"
+      const chatId = resumableChatId || "default"
       const latestKey = owner ? resumableChatKey(agentName, routeOptions.channelId, owner, chatId) : undefined
       const invocationKey = latestKey
         ? resumableChatKey(
