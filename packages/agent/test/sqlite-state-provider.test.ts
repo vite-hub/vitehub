@@ -349,6 +349,7 @@ describe("SQLite Agent State Provider", () => {
     const recovered = await queue.claimWebhookDelivery(delivery.scope)
     expect(recovered?.deliveryId).toBe(delivery.deliveryId)
     expect(recovered?.leaseToken).not.toBe("steer-token")
+    expect(recovered?.attempts).toBe(1)
     await state.disconnect()
   })
 

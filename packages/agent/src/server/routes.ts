@@ -1021,7 +1021,6 @@ async function executeQueuedWebhookDelivery(
     ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
   })
   const stopForLifecycle = () => {
-    stopHeartbeat()
     ownershipAbort.abort(lifecycleSignal.reason)
   }
   if (lifecycleSignal.aborted) stopForLifecycle()
