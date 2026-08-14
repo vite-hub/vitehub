@@ -50,6 +50,7 @@ export default defineConfig({
       "src/eval.ts",
       "src/eve.ts",
       "src/harness/local-sandbox.ts",
+      "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",
       "src/runtime/empty-registry.ts",

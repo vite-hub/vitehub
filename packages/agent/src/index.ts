@@ -45,6 +45,7 @@ import {
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
+import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -187,6 +188,17 @@ import type {
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { Box, BoxRequirement } from "@vite-hub/box"
 import { isHarnessBoxActive, shareBoxSessions } from "./harness/shared-box.ts"
+
+export type {
+  AgentInvocationAnnotationValue,
+  AgentInvocationListOptions,
+  AgentInvocationListResult,
+  AgentInvocationRecord,
+  AgentInvocationRecordStatus,
+  AgentInvocationSummary,
+  AgentInvocations,
+  AgentInvocationStore,
+} from "./invocations.ts"
 
 export type {
   AgentInvocationControlOutcome,
@@ -1139,7 +1151,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { box, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   if (box && driver.kind !== "harness") {
     throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
@@ -1201,6 +1213,7 @@ function defineBaseAgent<
     description,
     hooks,
     invoker,
+    invocations,
     messages,
     name,
     runtime,
@@ -1762,6 +1775,7 @@ type AgentInvocationContext<
   workspaceInstructionBindings?: Record<string, unknown>
   workspaceMaterializationPaths: readonly string[]
   workspaceMode: AgentCapabilityMode
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
 }
 
 function toAgentAdapterRunContext<
@@ -1894,6 +1908,7 @@ async function createAgentInvocationContext<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   invocationKind: "run" | "stream" = "run",
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -2092,6 +2107,7 @@ async function createAgentInvocationContext<
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
       invoker,
+      invocationJournal,
       messages: capabilities.messages,
       modelExecutionInstrumentation: capabilities.registries.modelExecutionInstrumentation,
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
@@ -2160,6 +2176,7 @@ type InvocationRunContext<
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>
   output?: AgentOutputDefinition
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   startTask?: Promise<void>
@@ -2922,9 +2939,17 @@ async function finishAgentInvocation<
     else {
       await traceAgentInvocationError(toTraceContext(context), error)
     }
+    await context.invocationJournal?.finish(
+      failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
+      error,
+    )
   }
   catch (finishError) {
     await traceAgentInvocationError(toTraceContext(context), failed ? error : finishError)
+    await context.invocationJournal?.finish(
+      failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
+      failed ? error : finishError,
+    )
     throw finishError
   }
 }
@@ -3171,6 +3196,7 @@ async function executeAgentInvocationWithCapacityLease<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
   preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
   let adapter: AgentAdapter<CALL_OPTIONS> | undefined
@@ -3186,7 +3212,7 @@ async function executeAgentInvocationWithCapacityLease<
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
-  const invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input, options.kind)
+  const invocation = preparedInvocation ?? await createAgentInvocationContext(definition, context, input, options.kind, invocationJournal)
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
@@ -3924,12 +3950,17 @@ async function executeAgentInvocation<
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
+  const invocationJournal = definition
+    ? await bindAgentInvocations((definition as AgentDefinition).invocations, context)
+    : undefined
+  if (invocationJournal) context = invocationJournal.context
   const preparedInvocation = definition && inspectAgentCapacity(definition)
     ? await createAgentInvocationContext(
         agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
         context,
         input,
         options.kind,
+        invocationJournal,
       )
     : undefined
   if (preparedInvocation?.handledResponse) {
@@ -3945,10 +3976,18 @@ async function executeAgentInvocation<
     if (preparedInvocation) {
       deferPreparedInvocationCloseAfterFailure(preparedInvocation)
     }
+    await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     throw error
   }
   if (!release) {
-    return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation)
+    await invocationJournal?.running()
+    try {
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
+    }
+    catch (error) {
+      await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+      throw error
+    }
   }
 
   let released = false
@@ -3958,6 +3997,7 @@ async function executeAgentInvocation<
     release()
   }
   try {
+    await invocationJournal?.running()
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,
       holdCapacity: true,
@@ -3970,9 +4010,10 @@ async function executeAgentInvocation<
           releaseOnce()
         }
       },
-    }, preparedInvocation)
+    }, preparedInvocation, invocationJournal)
   }
   catch (error) {
+    await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     releaseOnce()
     throw error
   }

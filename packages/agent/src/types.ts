@@ -1,5 +1,6 @@
 import type { Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
+import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { Box, BoxDefinition, BoxRequirement } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
@@ -198,6 +199,7 @@ export interface AgentScheduleInvocationInput {
 }
 
 export interface AgentRunMetadata<TOrigin extends string = string> {
+  annotations?: Record<string, AgentInvocationAnnotationValue>
   channelId?: string
   messageId?: string
   origin?: TOrigin
@@ -1267,6 +1269,7 @@ type AgentSharedSettings<
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
+  invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -1306,6 +1309,7 @@ export interface AgentDefinition<
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
+  invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding

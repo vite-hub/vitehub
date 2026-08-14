@@ -1,9 +1,19 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { useAgent, useChat, type AgentChatInit, type AgentClient } from "../src/vue.ts"
+import {
+  useAgent,
+  useAgentInvocation,
+  useAgentInvocations,
+  useChat,
+  type AgentChatInit,
+  type AgentClient,
+  type AgentInvocationRequester,
+} from "../src/vue.ts"
 
+import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { ChatTransport, UIMessage } from "ai"
 import type { ComputedRef, ShallowRef } from "vue"
+import type { AgentInvocationRecord, AgentInvocationSummary } from "../src/invocations.ts"
 
 describe("Agent Vue client types", () => {
   it("preserves AI SDK Vue message and transport types", () => {
@@ -19,5 +29,20 @@ describe("Agent Vue client types", () => {
     expectTypeOf(chat.messages).toEqualTypeOf<ShallowRef<UIMessage[]>>()
     expectTypeOf(chat.status.value).toEqualTypeOf<"submitted" | "streaming" | "ready" | "error">()
     expectTypeOf(chat.sendMessage).toBeFunction()
+  })
+
+  it("exposes typed invocation list and detail resources", () => {
+    const request = null as unknown as AgentInvocationRequester
+    const list = useAgentInvocations({ immediate: false, request })
+    const detail = useAgentInvocation("inv-1", { immediate: false, request })
+
+    expectTypeOf(list.invocations).toEqualTypeOf<ShallowRef<readonly AgentInvocationSummary[]>>()
+    expectTypeOf(list.cursor).toEqualTypeOf<ShallowRef<string | undefined>>()
+    expectTypeOf(list.refresh).toBeFunction()
+    expectTypeOf(list.stop).toBeFunction()
+    expectTypeOf(detail.invocation).toEqualTypeOf<ShallowRef<AgentInvocationRecord | null>>()
+    expectTypeOf(detail.observations).toEqualTypeOf<ShallowRef<readonly TraceEventLogEntry[]>>()
+    expectTypeOf(detail.refresh).toBeFunction()
+    expectTypeOf(detail.stop).toBeFunction()
   })
 })

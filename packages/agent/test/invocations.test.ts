@@ -1,0 +1,138 @@
+import { createClient } from "@libsql/client"
+import { mkdtemp, rm } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { describe, expect, it, vi } from "vitest"
+
+import { defineAgent, runAgent } from "../src/index.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
+import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
+
+import type { AgentInvocationStore } from "../src/server.ts"
+
+function runtime(runId: string, annotations?: Record<string, boolean | number | string | null>) {
+  return {
+    memo: vi.fn(),
+    run: { annotations, runId },
+    runtime: "unknown" as const,
+    waitUntil: vi.fn(),
+  }
+}
+
+describe("Agent Invocations", () => {
+  it("records safe lifecycle observations while keeping list rows bounded", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { run: () => "done" },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime("run-1", {
+      "github.pull_request.number": 42,
+      "github.repository": "vite-hub/vitehub",
+      "secret key": "omitted",
+    }), {})).resolves.toBe("done")
+
+    const record = await invocations.get("run-1")
+    expect(record).toMatchObject({
+      annotations: {
+        "github.pull_request.number": 42,
+        "github.repository": "vite-hub/vitehub",
+      },
+      id: "run-1",
+      status: "completed",
+      traceId: "run-1",
+    })
+    expect(record?.annotations).not.toHaveProperty("secret key")
+    expect(record?.observations.map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.finish",
+    ])
+    expect(record?.observations.every(event => event.attributes?.prompt === undefined)).toBe(true)
+
+    const listed = await invocations.list()
+    expect(listed.invocations).toHaveLength(1)
+    expect(listed.invocations[0]).not.toHaveProperty("observations")
+  })
+
+  it("records cancellation while an invocation waits for driver capacity", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: {
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        async run() {
+          await gate
+          return "done"
+        },
+      },
+      invocations,
+      runtime: false,
+    })
+    const first = runAgent(agent, runtime("run-1"), {})
+    await vi.waitFor(async () => expect((await invocations.get("run-1"))?.status).toBe("running"))
+    const abort = new AbortController()
+    const second = runAgent(agent, runtime("run-2"), { abortSignal: abort.signal })
+    await vi.waitFor(async () => expect((await invocations.get("run-2"))?.status).toBe("pending"))
+
+    abort.abort(new DOMException("stop", "AbortError"))
+    await expect(second).rejects.toMatchObject({ name: "AbortError" })
+    expect(await invocations.get("run-2")).toMatchObject({ status: "cancelled" })
+    release()
+    await expect(first).resolves.toBe("done")
+  })
+
+  it("never lets journal storage failures change invocation behavior", async () => {
+    const failure = new Error("journal unavailable")
+    const store: AgentInvocationStore = {
+      create: () => { throw failure },
+      get: () => { throw failure },
+      list: () => { throw failure },
+      update: () => { throw failure },
+    }
+    const agent = defineAgent({
+      driver: { run: () => "done" },
+      invocations: defineAgentInvocations({ store }),
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime("run-1"), {})).resolves.toBe("done")
+  })
+
+  it("persists records through the libSQL SQLite adapter", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-"))
+    const url = `file:${join(directory, "invocations.sqlite")}`
+    const writerClient = createClient({ url })
+    const readerClient = createClient({ url })
+    try {
+      const invocations = defineAgentInvocations({
+        store: createLibsqlAgentInvocationStore({ client: writerClient }),
+      })
+      const agent = defineAgent({
+        driver: { run: () => "persisted" },
+        invocations,
+        runtime: false,
+      })
+      await runAgent(agent, runtime("durable-run"), {})
+
+      const restored = defineAgentInvocations({
+        store: createLibsqlAgentInvocationStore({ client: readerClient }),
+      })
+      expect(await restored.get("durable-run")).toMatchObject({
+        id: "durable-run",
+        status: "completed",
+      })
+      expect((await restored.get("durable-run"))?.observations.map(event => event.name)).toEqual([
+        "agent.invocation.start",
+        "agent.invocation.finish",
+      ])
+    }
+    finally {
+      writerClient.close()
+      readerClient.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+})
