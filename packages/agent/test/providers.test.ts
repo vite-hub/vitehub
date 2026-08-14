@@ -3707,6 +3707,9 @@ describe("server helpers", () => {
     const staleReplyFetch = vi.fn(() => {
       throw new Error("stale reply attachment")
     })
+    const staleReplyTextFetch = vi.fn(() => {
+      throw new Error("stale reply text attachment")
+    })
     const replyTo = new Message({
       attachments: [{
         data: new Blob(["image"], { type: "image/png" }),
@@ -3715,6 +3718,7 @@ describe("server helpers", () => {
         size: 5,
         type: "image",
       }, {
+        fetchData: staleReplyTextFetch,
         mimeType: "text/plain",
         name: "oversized-reply.log",
         size: 8 * 1024 * 1024 + 1,
@@ -3766,6 +3770,7 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     expect(ignoredReplyCommand).not.toHaveBeenCalled()
     expect(staleReplyFetch).not.toHaveBeenCalled()
+    expect(staleReplyTextFetch).not.toHaveBeenCalled()
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       messages: [expect.objectContaining({
         metadata: expect.objectContaining({
@@ -3804,14 +3809,28 @@ describe("server helpers", () => {
           }),
           expect.objectContaining({
             data: {
-              attachment: expect.objectContaining({
+              attachment: {
+                id: "attachment-1",
                 mediaType: "image/png",
                 name: "reply.png",
                 size: 5,
                 type: "image",
-              }),
+              },
             },
             id: "reply-attachment-1",
+            type: "data-chat-reply-attachment",
+          }),
+          expect.objectContaining({
+            data: {
+              attachment: {
+                id: "attachment-2",
+                mediaType: "text/plain",
+                name: "oversized-reply.log",
+                size: 8 * 1024 * 1024 + 1,
+                type: "file",
+              },
+            },
+            id: "reply-attachment-2",
             type: "data-chat-reply-attachment",
           }),
           expect.objectContaining({

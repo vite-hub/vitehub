@@ -3589,6 +3589,23 @@ describe("agent message protocol", () => {
     ])).toEqual([
       { content: "{\"city\":\"Seattle\"}", role: "user" },
     ])
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m2",
+        parts: [
+          { data: { text: "quoted reply" }, type: "data-chat-reply-text" },
+          { text: "assistant response", type: "text" },
+        ],
+        role: "assistant",
+      }),
+    ])).toEqual([{
+      content: [
+        { text: "{\"text\":\"quoted reply\"}", type: "text" },
+        { text: "assistant response", type: "text" },
+      ],
+      role: "assistant",
+    }])
   })
 
   it("drops empty ViteHub messages before model conversion", async () => {

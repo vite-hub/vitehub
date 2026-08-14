@@ -16,7 +16,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
-import { isAttachmentData, isAttachmentPart } from "../messages.ts"
+import { isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
@@ -2417,12 +2417,12 @@ async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rej
   const replyContext = chatReplyMetadata(message)!
   delete replyContext.text
   const replyParts: MessagePart[] = []
-  for (const [index, part] of (await chatMessageParts(message.replyTo)).entries()) {
-    if (part.type === "text") {
-      replyParts.push({ data: { text: part.text }, id: `reply-${part.id || index + 1}`, type: "data-chat-reply-text" })
-      continue
-    }
-    if (!isAttachmentPart(part)) continue
+  if (message.replyTo.text) {
+    replyParts.push({ data: { text: message.replyTo.text }, id: "reply-text-0", type: "data-chat-reply-text" })
+  }
+  for (const [index, source] of message.replyTo.attachments.entries()) {
+    const part = attachmentPartFromAttachment(source, index)
+    if (!part) continue
     const { data: _data, fetchData: _fetchData, ...attachment } = part
     replyParts.push({ data: { attachment }, id: `reply-${part.id || index + 1}`, type: "data-chat-reply-attachment" })
   }
