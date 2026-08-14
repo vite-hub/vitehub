@@ -41,9 +41,9 @@ describe("Agent Invocations", () => {
         "github.pull_request.number": 42,
         "github.repository": "vite-hub/vitehub",
       },
-      id: "run-1",
+      id: expect.stringMatching(/^sha256_[\da-f]{64}$/),
       status: "completed",
-      traceId: "run-1",
+      traceId: expect.stringMatching(/^sha256_[\da-f]{64}$/),
     })
     expect(record?.annotations).not.toHaveProperty("secret key")
     expect(record?.observations.map(event => event.name)).toEqual([
@@ -166,6 +166,22 @@ describe("Agent Invocations", () => {
     expect(record?.error?.message).toHaveLength(512)
   })
 
+  it("keeps digest-shaped and oversized source ids independently inspectable", async () => {
+    const oversized = "x".repeat(700)
+    const oversizedDigest = `sha256_${[...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(oversized)))]
+      .map(byte => byte.toString(16).padStart(2, "0")).join("")}`
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ driver: { run: ({ input }) => input.prompt }, invocations, runtime: false })
+
+    await runAgent(agent, runtime(oversized), { prompt: "oversized" })
+    await runAgent(agent, runtime(oversizedDigest), { prompt: "digest-shaped" })
+    const listed = await invocations.list()
+    expect(listed.invocations).toHaveLength(2)
+    expect(new Set(listed.invocations.map(invocation => invocation.id)).size).toBe(2)
+    await expect(Promise.all(listed.invocations.map(invocation => invocations.get(invocation.id))))
+      .resolves.toEqual(expect.arrayContaining(listed.invocations.map(invocation => expect.objectContaining({ id: invocation.id }))))
+  })
+
   it("persists records through the libSQL SQLite adapter", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-"))
     const url = `file:${join(directory, "invocations.sqlite")}`
@@ -186,7 +202,7 @@ describe("Agent Invocations", () => {
         store: createLibsqlAgentInvocationStore({ client: readerClient }),
       })
       expect(await restored.get("durable-run")).toMatchObject({
-        id: "durable-run",
+        id: expect.stringMatching(/^sha256_[\da-f]{64}$/),
         status: "completed",
       })
       expect((await restored.get("durable-run"))?.observations.map(event => event.name)).toEqual([

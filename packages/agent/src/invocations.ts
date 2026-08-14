@@ -147,7 +147,6 @@ function boundedString(value: string | undefined): string | undefined {
 }
 
 async function boundedIdentity(value: string): Promise<string> {
-  if (value.length <= MAX_METADATA_STRING_LENGTH) return value
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
   return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
@@ -333,7 +332,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id) {
       assertInvocationId(id)
-      return await store.get(await boundedIdentity(id))
+      return await store.get(id) || await store.get(await boundedIdentity(id))
     },
     async list(options = {}) {
       return await store.list({ ...options, limit: normalizeLimit(options.limit) })
