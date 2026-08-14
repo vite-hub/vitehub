@@ -259,7 +259,6 @@ describe("Channel instructions", () => {
     expect(modelCall.responseFormat).toEqual({
       schema: {
         ...outputSchema["~standard"].jsonSchema.input(),
-        additionalProperties: false,
       },
       type: "json",
     })
