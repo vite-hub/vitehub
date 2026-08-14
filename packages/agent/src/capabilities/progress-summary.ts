@@ -470,16 +470,8 @@ function createProgressSummaryState(
       close()
       return
     }
-    if (!streamStarted) {
-      streamStarted = true
-      if (intervalMs === 0) {
-        startGeneration()
-      }
-      else {
-        startGeneration()
-        timer = setInterval(startGeneration, intervalMs)
-      }
-    }
+    const startStream = !streamStarted
+    streamStarted = true
     const phasedReasoning = isRecord(event)
       && event.phase === "reasoning"
       && (type === "text-start" || type === "text-delta")
@@ -510,6 +502,10 @@ function createProgressSummaryState(
       if (id) activeTools.delete(id)
       if (name) completedTools.push(name)
       dirty = true
+    }
+    if (startStream) {
+      startGeneration()
+      if (intervalMs !== 0) timer = setInterval(startGeneration, intervalMs)
     }
     if (intervalMs === 0) scheduleEventDriven()
   }

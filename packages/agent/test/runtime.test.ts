@@ -8710,7 +8710,7 @@ describe("agent message protocol", () => {
     await reader.cancel()
   })
 
-  it("preserves a provisional UI title when once-per-thread delivery was already claimed", async () => {
+  it("preserves an established UI title when once-per-thread delivery was already claimed", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
     const { messageChannelTitleSupportContextKey } = await import("../src/channels.ts")
@@ -8738,23 +8738,31 @@ describe("agent message protocol", () => {
           }),
         }) },
     })
+    const messages = [
+      createMessage({ role: "user", text: "Explain critical overstock" }),
+      createMessage({
+        parts: [{ data: { title: "Critical Overstock", type: "title" }, id: "title", type: "data-title" }],
+        role: "assistant",
+      }),
+      createMessage({ role: "user", text: "Existing thread title" }),
+    ]
     const stream = await streamAgent(agent, {
       memo: vi.fn(),
       run: { runId: "run-2", threadId: "thread-1" },
       runtime: "unknown",
       waitUntil: vi.fn(),
     }, {
-      messages: [createMessage({ role: "user", text: "Existing thread title" })],
+      messages,
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
-    const events = []
-    for await (const event of stream) events.push(event)
+    const events: Array<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }> = []
+    for await (const event of stream) events.push(event as typeof events[number])
 
-    expect(events).toContainEqual({
-      data: { title: "Existing thread title", type: "title" },
-      id: "title",
-      type: "data-title",
-    })
-    expect(events).not.toContainEqual({ data: null, id: "title", type: "data-title" })
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "data-title" }))
+    const { createAgentChatData } = await import("../src/messages.ts")
+    expect(createAgentChatData([
+      ...messages.flatMap(message => message.parts),
+      ...events,
+    ]).get("title", "title")).toBe("Critical Overstock")
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -9762,6 +9770,30 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenNthCalledWith(2, expect.objectContaining({ activeTools: ["inventory search"] }))
   })
 
+  it("includes first-chunk tool activity in the initial progress summary", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Checking inventory.")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 60_000 })],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ id: "tool-1", toolName: "inventory_search", type: "tool-input-start" })
+            },
+          }),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Check inventory." })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    await reader.read()
+    await expect.poll(() => execute).toHaveBeenCalledWith(expect.objectContaining({ activeTools: ["inventory search"] }))
+    await reader.cancel()
+  })
+
   it("generates the initial progress summary after streaming starts without waiting for the revision interval", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => "Preparing your request.")
@@ -10086,15 +10118,12 @@ describe("agent message protocol", () => {
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     for await (const _chunk of stream) {}
 
-    expect(execute).toHaveBeenCalledTimes(3)
+    expect(execute).toHaveBeenCalledTimes(2)
     expect(execute.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       activeTools: [],
-      reasoning: undefined,
-    }))
-    expect(execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
       reasoning: "Active",
     }))
-    expect(execute.mock.calls[2]?.[0]).toEqual(expect.objectContaining({
+    expect(execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
       activeTools: ["inventory search"],
       reasoning: undefined,
     }))
@@ -10141,11 +10170,6 @@ describe("agent message protocol", () => {
     expect((harnessGenerate.mock.calls[0]![0] as { prompt: string }).prompt).toBe([
       "Customer: Acme",
       "Request: Why did availability change?",
-      "Tools: None",
-    ].join("\n"))
-    expect((harnessGenerate.mock.calls[1]![0] as { prompt: string }).prompt).toBe([
-      "Customer: Acme",
-      "Request: Why did availability change?",
       "Tools: inventory search",
     ].join("\n"))
     expect(harnessAgentSettings.at(-1)).toMatchObject({
@@ -10183,7 +10207,7 @@ describe("agent message protocol", () => {
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
 
-    expect(harnessGenerate).toHaveBeenCalledTimes(2)
+    expect(harnessGenerate).toHaveBeenCalledTimes(1)
     expect(chunks).toContainEqual(expect.objectContaining({
       type: "data-progress-summary",
     }))
@@ -10226,8 +10250,8 @@ describe("agent message protocol", () => {
     for await (const _chunk of stream) {}
 
     const prompts = harnessGenerate.mock.calls.map(call => (call[0] as { prompt: string }).prompt)
-    expect(prompts[0]).toContain("Active tools: None")
-    expect(prompts[1]).toContain("Active tools: inventory search")
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain("Active tools: inventory search")
     for (const prompt of prompts) {
       expect(prompt).not.toMatch(/rm private|private\/path|sk-secret|hidden instructions/)
     }

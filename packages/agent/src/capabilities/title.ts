@@ -10,7 +10,7 @@ import {
   messageChannelTitleDeliveredContextKey,
   resetMessageChannelTitleDelivery,
 } from "../internal/channels.ts"
-import { getMessageText } from "../messages.ts"
+import { createAgentChatData, getMessageText } from "../messages.ts"
 import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
@@ -1009,9 +1009,12 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {
         if (hasTitleApplied(result)) return result
-        if (!firstUserMessage(context.input.messages())) return result
+        const messages = context.input.messages()
+        if (!firstUserMessage(messages)) return result
         const preparedInput = preparedTitleInput()
+        const establishedTitle = createAgentChatData(messages.flatMap(message => message.parts)).get("title")
         const provisionalTitle = preparedInput
+          && establishedTitle === undefined
           && !options.when
           && shouldRunForTrigger(options.trigger, agentTriggerId(context))
           ? heuristicTitle(stripChatEntityMarkup(preparedInput.text), options.maxLength ?? 80, options.fallback ?? "Untitled")
