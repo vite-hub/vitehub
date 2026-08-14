@@ -140,10 +140,10 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
         isMention: rawMessage.isMention === true,
         metadata: { dateSent: date, edited: false },
         raw: body,
+        replyTo: options.replyTo,
         text: typeof rawMessage.text === "string" ? rawMessage.text : "",
         threadId: `telegram:${String(chat?.id ?? "456")}`,
       })
-      if (options.replyTo) Object.assign(message, { replyTo: options.replyTo })
       cacheMessage(message)
       const task = chatInstance.processMessage(adapter as unknown as Adapter, message.threadId, message, webhookOptions)
       if (!options.deferMessageProcessing) {

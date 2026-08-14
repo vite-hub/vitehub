@@ -62,10 +62,6 @@ import type { Adapter, AdapterPostableMessage, Attachment, ChatConfig, Lock, Mes
 import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 
-type ChatSdkMessageWithReply = ChatSdkMessage & {
-  replyTo?: ChatSdkMessage
-}
-
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
 }
@@ -2415,7 +2411,7 @@ async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversi
   return parts
 }
 
-async function chatMessagePartsWithReply(message: ChatSdkMessageWithReply, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
+async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts = await chatMessageParts(message, options)
   if (!message.replyTo) return parts
   const replyContext = chatReplyMetadata(message)!
@@ -2432,7 +2428,7 @@ async function chatMessagePartsWithReply(message: ChatSdkMessageWithReply, optio
   ]
 }
 
-function chatReplyMetadata(message: ChatSdkMessageWithReply): Record<string, unknown> | undefined {
+function chatReplyMetadata(message: ChatSdkMessage): Record<string, unknown> | undefined {
   const replyTo = message.replyTo
   if (!replyTo) return
   return objectWithoutUndefined({
@@ -2450,7 +2446,7 @@ function chatReplyMetadata(message: ChatSdkMessageWithReply): Record<string, unk
   })
 }
 
-function chatMessageMetadata(thread: Thread, message: ChatSdkMessageWithReply, messageContext?: MessageContext): Record<string, unknown> | undefined {
+function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): Record<string, unknown> | undefined {
   const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
   return objectWithoutUndefined({
     chat: objectWithoutUndefined({
@@ -2471,7 +2467,7 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessageWithReply, m
 }
 
 async function chatSdkMessageToUiMessage(
-  message: ChatSdkMessageWithReply,
+  message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
   options?: { rejectOversizedTextAttachments?: boolean },
 ): Promise<UIMessageLike> {
