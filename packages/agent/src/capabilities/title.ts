@@ -247,10 +247,10 @@ async function renderTitleTemplate(options: TitleOptions, input: TitleTemplateIn
   })
 }
 
-async function resolveTitleModel(context: AgentCapabilityRuntimeContext, options: TitleOptions): Promise<unknown | undefined> {
-  if (options.model) return await context.model.resolve(options.model)
+async function resolveTitleModel(context: AgentCapabilityRuntimeContext, options: TitleOptions, abortSignal: AbortSignal): Promise<unknown | undefined> {
+  if (options.model) return await context.model.resolve(options.model, { abortSignal })
   try {
-    return await context.model.resolve()
+    return await context.model.resolve(undefined, { abortSignal })
   }
   catch (error) {
     if (error instanceof Error && error.message.includes("requires a model option or an agent model")) {
@@ -414,7 +414,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   }
 
   try {
-    const model = await raceTimeout(resolveTitleModel(context, options))
+    const model = await raceTimeout(resolveTitleModel(context, options, abortSignal))
     if (model) {
       const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
       const { generateText } = await loadAiSdk()
@@ -438,9 +438,10 @@ function withTitleParallel<T>(
   getText: (value: T) => string = () => "",
   isTerminal: (value: T) => boolean = () => false,
   fallback?: StreamFallback<T>,
+  isFailureTerminal: (value: T) => boolean = () => false,
 ): AsyncIterable<T> {
   if (typeof (result as ReadableStream<T>).pipeThrough === "function") {
-    return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle, getText, isTerminal, fallback)
+    return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle, getText, isTerminal, fallback, { isFailureTerminal })
   }
   const iterable = (async function* () {
     const iterator = result[Symbol.asyncIterator]()
@@ -474,7 +475,13 @@ function withTitleParallel<T>(
           break
         }
         text += getText(next.value.value)
-        if (deferredTitle && isTerminal(next.value.value)) {
+        if (isFailureTerminal(next.value.value)) {
+          titlePending = false
+          yield next.value.value
+          streamNext = iterator.next()
+          continue
+        }
+        if (titlePending && deferredTitle && isTerminal(next.value.value)) {
           if (!text && fallback) {
             for await (const value of fallback() ?? []) {
               text += getText(value)
@@ -527,7 +534,7 @@ function withTitleReadableStreamParallel<T>(
   getText: (value: T) => string = () => "",
   isTerminal: (value: T) => boolean = () => false,
   fallback?: StreamFallback<T>,
-  options: { clearInitialTitle?: () => T, initialTitle?: string, waitForStart?: boolean } = {},
+  options: { clearInitialTitle?: () => T, initialTitle?: string, isFailureTerminal?: (value: T) => boolean, waitForStart?: boolean } = {},
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
   let fallbackIterator: AsyncIterator<T> | undefined
@@ -634,12 +641,14 @@ function withTitleReadableStreamParallel<T>(
               initialTitlePending = Boolean(options.initialTitle)
             }
             text += getText(next.value.value)
+            const failureTerminal = options.isFailureTerminal?.(next.value.value) === true
+            if (failureTerminal) titlePending = false
             if (initialTitlePending && isTerminal(next.value.value)) {
               initialTitlePending = false
               initialTitleEmitted = true
               controller.enqueue(renderTitle(options.initialTitle!))
             }
-            if (!deferredTitle && titlePending && titleNext && isTerminal(next.value.value)) {
+            if (!deferredTitle && titlePending && titleNext && isTerminal(next.value.value) && !failureTerminal) {
               const resolvedTitle = await titleNext
               titlePending = false
               if (cancelled) return
@@ -649,7 +658,7 @@ function withTitleReadableStreamParallel<T>(
                 if (cleared !== undefined) controller.enqueue(cleared)
               }
             }
-            if (deferredTitle && isTerminal(next.value.value)) {
+            if (deferredTitle && isTerminal(next.value.value) && !failureTerminal) {
               reader?.releaseLock()
               reader = undefined
               if (!text && fallback) {
@@ -732,12 +741,17 @@ function statefulTextDelta(): (value: unknown) => string {
   }
 }
 
-function isFinish(value: unknown): boolean {
-  return toAgentStreamEvent(value)?.type === "finish"
+function isTerminal(value: unknown): boolean {
+  const type = toAgentStreamEvent(value)?.type
+  return type === "error" || type === "finish"
+}
+
+function isFailure(value: unknown): boolean {
+  return toAgentStreamEvent(value)?.type === "error"
 }
 
 function withTitleEvent(result: AsyncIterable<StreamEvent>, title: TitleResolution): AsyncIterable<StreamEvent> {
-  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), statefulTextDelta(), isFinish)
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), statefulTextDelta(), isTerminal, undefined, isFailure)
 }
 
 function withTitleFullStream(
@@ -745,7 +759,7 @@ function withTitleFullStream(
   title: TitleResolution,
   fallback?: StreamFallback<unknown>,
 ): AsyncIterable<unknown> {
-  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), statefulTextDelta(), isFinish, fallback)
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), statefulTextDelta(), isTerminal, fallback, isFailure)
 }
 
 function withTitleTextStream(result: AsyncIterable<string>, title: TitleResolution): AsyncIterable<StreamEvent> {
@@ -758,7 +772,9 @@ function withTitleTextStream(result: AsyncIterable<string>, title: TitleResoluti
     title,
     resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }),
     statefulTextDelta(),
-    isFinish,
+    isTerminal,
+    undefined,
+    isFailure,
   )
 }
 
@@ -772,11 +788,12 @@ function withTitleUiMessageStream(
     title,
     resolvedTitle => ({ data: titleData(resolvedTitle), id: "title", type: "data-title" }),
     statefulTextDelta(),
-    isFinish,
+    isTerminal,
     undefined,
     {
-      clearInitialTitle: () => ({ data: undefined, id: "title", type: "data-title" }),
+      clearInitialTitle: () => ({ data: null, id: "title", type: "data-title" }),
       initialTitle: provisionalTitle,
+      isFailureTerminal: isFailure,
       waitForStart: true,
     },
   )

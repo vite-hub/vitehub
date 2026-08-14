@@ -466,13 +466,16 @@ function createProgressSummaryState(
     if (closed) return
     const event = normalizeUiMessageStreamChunk(chunk)
     const type = eventType(event)
-    if (type === "finish") {
+    if (type === "error" || type === "finish") {
       close()
       return
     }
     if (!streamStarted) {
       streamStarted = true
-      if (intervalMs !== 0) {
+      if (intervalMs === 0) {
+        startGeneration()
+      }
+      else {
         startGeneration()
         timer = setInterval(startGeneration, intervalMs)
       }
@@ -510,8 +513,6 @@ function createProgressSummaryState(
     }
     if (intervalMs === 0) scheduleEventDriven()
   }
-
-  if (intervalMs === 0) scheduleEventDriven()
 
   return {
     attach(controller) {

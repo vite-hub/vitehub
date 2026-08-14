@@ -596,7 +596,9 @@ export function createAgentChatData(
   const values = new Map<string, unknown>()
   for (const part of parts) {
     if (typeof part?.type === "string" && part.type.startsWith("data-") && part.type.length > 5) {
-      values.set(part.type.slice(5), part.data)
+      const type = part.type.slice(5)
+      if (part.data === null) values.delete(type)
+      else values.set(type, part.data)
     }
   }
   return {

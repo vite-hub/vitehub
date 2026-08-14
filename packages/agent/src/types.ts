@@ -812,7 +812,7 @@ export interface AgentCapabilityRuntimeContext<
     finishEffect: (effect: AgentChannelDeliveryFinishEffect) => void
   }
   model: {
-    resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<unknown>
+    resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>, options?: { abortSignal?: AbortSignal }) => Promise<unknown>
   }
   modelExecution: {
     instrument: (instrumentation: AgentModelExecutionInstrumentation<TRuntimeConfig>) => void
@@ -938,6 +938,7 @@ export interface AgentModelResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
+  abortSignal?: AbortSignal
   runtimeConfig: TRuntimeConfig
 }
 

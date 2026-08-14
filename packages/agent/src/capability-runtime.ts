@@ -1058,13 +1058,14 @@ export async function resolveAgentCapabilities<
           },
         },
         model: {
-          async resolve(model) {
+          async resolve(model, options) {
             const resolver = model ?? invocationOptions.model
             if (resolver === undefined) {
               throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
             }
             const resolverContext = {
               ...metadataContext,
+              ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
               fs: currentWorkspace?.fs,
               runtimeConfig: runtime.runtimeConfig,
               workspace: currentWorkspace,

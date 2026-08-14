@@ -1229,6 +1229,27 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("does not delay async iterable errors for deferred titles", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const generated = deferred<string>()
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => generated.promise })],
+      driver: { run: () => (async function* () {
+          yield { error: "stream failed", type: "error" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const events = []
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toEqual([
+      { error: "stream failed", type: "error" },
+      { type: "finish" },
+    ])
+  })
+
   it("adds safe AI SDK telemetry for traced model-backed agents", async () => {
     const aiGlobal = globalThis as typeof globalThis & { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }
     const previousGlobalTelemetry = aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
@@ -8052,6 +8073,29 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
   })
 
+  it("cancels title model resolution when generation exceeds its timeout", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const aborted = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({
+        model: ({ abortSignal }) => new Promise(() => {
+          abortSignal?.addEventListener("abort", aborted, { once: true })
+        }),
+        timeoutMs: 10,
+      })],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+    })
+
+    expect(aborted).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Explain critical overstock" })
+  })
+
   it("falls back when a title condition exceeds its timeout", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -8661,9 +8705,38 @@ describe("agent message protocol", () => {
     generated.reject(new Error("title failed"))
     await expect(reader.read()).resolves.toEqual({
       done: false,
-      value: { data: undefined, id: "title", type: "data-title" },
+      value: { data: null, id: "title", type: "data-title" },
     })
     await reader.cancel()
+  })
+
+  it("emits a provisional title before a terminal UI error", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const generated = deferred<string>()
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => generated.promise })],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ errorText: "provider failed", type: "error" })
+              controller.close()
+            },
+          }),
+        }) },
+    })
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain critical overstock" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+
+    await expect(reader.read()).resolves.toMatchObject({
+      value: { data: { title: "Explain critical overstock" }, id: "title", type: "data-title" },
+    })
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: { errorText: "provider failed", type: "error" },
+    })
+    await expect(reader.read()).rejects.toThrow("provider failed")
   })
 
   it("prefers decorated UI message streams for hybrid async iterable results", async () => {
@@ -9126,6 +9199,31 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("does not start interval progress for a terminal UI error", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Unused progress")
+    const agent = defineAgent({
+      capabilities: [progressSummary({ execute, intervalMs: 0 })],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ errorText: "provider failed", type: "error" })
+              controller.close()
+            },
+          }),
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, {
+      output: "ui-message-stream",
+    }) as ReadableStream<unknown>
+    await expect(async () => {
+      for await (const _chunk of stream) {}
+    }).rejects.toThrow("provider failed")
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("starts progress after delayed Harness setup reaches the HTTP UI stream", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
@@ -9572,6 +9670,11 @@ describe("agent message protocol", () => {
     }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const reader = stream.getReader()
 
+    sourceController.enqueue({ messageId: "message-1", type: "start" })
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: { messageId: "message-1", type: "start" },
+    })
     await expect(reader.read()).resolves.toEqual({
       done: false,
       value: {
@@ -9848,6 +9951,7 @@ describe("agent message protocol", () => {
             toUIMessageStream() {
               return new ReadableStream({
                 async start(controller) {
+                  controller.enqueue({ messageId: "message-1", type: "start" })
                   await new Promise(resolve => setTimeout(resolve, 20))
                   controller.enqueue({ finishReason: "stop", type: "finish" })
                   controller.close()

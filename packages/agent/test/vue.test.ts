@@ -155,6 +155,26 @@ describe("Agent Vue clients", () => {
     scope.stop()
   })
 
+  it("clears provisional data through the serialized UI transport", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute({ writer }) {
+          writer.write({ data: { title: "Provisional" }, id: "title", transient: true, type: "data-title" })
+          writer.write({ data: null, id: "title", type: "data-title" })
+        },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support")))!
+
+    await chat.sendMessage({ text: "Check inventory" })
+
+    expect(chat.status.value).toBe("ready")
+    expect(chat.data.value.get("title")).toBeUndefined()
+    scope.stop()
+  })
+
   it("prefers an explicit transport over the API option", async () => {
     const sendMessages = vi.fn(async () => new ReadableStream({
       start(controller) {
