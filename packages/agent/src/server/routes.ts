@@ -4346,6 +4346,10 @@ export function createChannelChatRouteHandler(
           return resumableChatResponse(resumableRun)
         }
         catch (error) {
+          if (resumableRun.cancelled) {
+            resumableRun.resolveReady()
+            return new Response(null, { status: 204 })
+          }
           resumableRun.setupError = resumableChatError(error)
           resumableRun.resolveReady()
           resumableRuns.delete(resumableInvocationKey)

@@ -660,6 +660,38 @@ describe("resumable web chat", () => {
     }
   })
 
+  it("returns cancellation when registered invocation setup rejects on abort", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockImplementation(async (_agent, context) => {
+      const signal = (context as { request: Request }).request.signal
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }))
+      signal.throwIfAborted()
+      return new Response("unreachable")
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    try {
+      const post = handler(chatRequest("POST"), options)
+      await vi.waitFor(() => expect(streamAgentTrigger).toHaveBeenCalledOnce())
+      const reconnect = handler(chatRequest("GET"), options)
+      const duplicate = handler(chatRequest("POST"), options)
+      await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+      await expect(post).resolves.toMatchObject({ status: 204 })
+      await expect(reconnect).resolves.toMatchObject({ status: 204 })
+      await expect(duplicate).resolves.toMatchObject({ status: 204 })
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
+  })
+
   it("preserves DELETE cancellation while a POST is still registering", async () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
