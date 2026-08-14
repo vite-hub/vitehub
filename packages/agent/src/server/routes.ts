@@ -601,6 +601,16 @@ async function recordChannelDeliveryEvidence(delivery: AgentChannelDeliveryTrack
   catch {}
 }
 
+async function settleChannelDeliveryInvocation(
+  delivery: AgentChannelDeliveryTracker,
+  invocation: "completed" | "failed",
+  terminal: "completed" | "failed" | "rejected",
+  input: Omit<AgentChannelDeliveryEventInput, "type"> = {},
+): Promise<void> {
+  await recordChannelDeliveryEvidence(delivery, { ...input, type: `invocation.${invocation}` })
+  await recordChannelDeliveryEvidence(delivery, { ...input, type: terminal })
+}
+
 async function terminalChannelDeliveryResponse(
   delivery: AgentChannelDeliveryTracker,
   response: Response,
@@ -640,8 +650,7 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
 async function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
   const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
   if (!response.body) {
-    await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
-    await recordChannelDeliveryEvidence(delivery, { type: terminalType, runId })
+    await settleChannelDeliveryInvocation(delivery, "completed", terminalType, { runId })
     return response
   }
   const reader = response.body.getReader()
@@ -649,14 +658,12 @@ async function observeChannelDeliveryResponse(response: Response, delivery: Agen
   const complete = async () => {
     if (finished) return
     finished = true
-    await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId })
-    await recordChannelDeliveryEvidence(delivery, { type: terminalType, runId })
+    await settleChannelDeliveryInvocation(delivery, "completed", terminalType, { runId })
   }
   const fail = async (error: unknown) => {
     if (finished) return
     finished = true
-    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "invocation.failed", runId })
-    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed", runId })
+    await settleChannelDeliveryInvocation(delivery, "failed", "failed", { error: channelDeliveryError(error), runId })
   }
   return new Response(new ReadableStream({
     async pull(controller) {
@@ -1232,8 +1239,10 @@ async function executeQueuedWebhookDelivery(
     if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
       throw new Error("[vitehub] Webhook queue completion lost its lease.")
     }
-    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, { attempt: delivery.attempts + 1, type: "invocation.completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
-    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, { type: "completed", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+    if (channelDelivery) await settleChannelDeliveryInvocation(channelDelivery, "completed", "completed", {
+      attempt: delivery.attempts + 1,
+      runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+    })
     resolveActiveCompletion?.()
   }
   catch (error) {
@@ -1266,15 +1275,9 @@ async function executeQueuedWebhookDelivery(
       }))
       return retryAt
     }
-    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, {
+    if (channelDelivery) await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", {
       attempt: delivery.attempts + 1,
       error: channelDeliveryError(error),
-      type: "invocation.failed",
-      runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
-    })
-    if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, {
-      error: channelDeliveryError(error),
-      type: "failed",
       runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
     })
   }
@@ -3521,8 +3524,8 @@ async function handleChatSdkMessage(
   }
   catch (error) {
     invocationFailed = true
-    if (invocationStarted) await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "invocation.failed", runId: run?.runId })
-    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed", runId: run?.runId })
+    if (invocationStarted) await settleChannelDeliveryInvocation(delivery, "failed", "failed", { error: channelDeliveryError(error), runId: run?.runId })
+    else await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed", runId: run?.runId })
     typing?.stop()
     await progress?.finish()
     await postChatErrorFallback(error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline)
@@ -3531,8 +3534,7 @@ async function handleChatSdkMessage(
   finally {
     typing?.stop()
     if (invocationStarted && !invocationFailed && !durableHandoff) {
-      await recordChannelDeliveryEvidence(delivery, { type: "invocation.completed", runId: run?.runId })
-      await recordChannelDeliveryEvidence(delivery, { type: "completed", runId: run?.runId })
+      await settleChannelDeliveryInvocation(delivery, "completed", "completed", { runId: run?.runId })
     }
   }
 }
@@ -4270,8 +4272,7 @@ export function createChannelChatRouteHandler(
     }
     catch (error) {
       if (delivery) {
-        await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "invocation.failed" })
-        await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed" })
+        await settleChannelDeliveryInvocation(delivery, "failed", "failed", { error: channelDeliveryError(error) })
       }
       return agentChatFetchErrorResponse(error)
     }
@@ -4644,12 +4645,10 @@ export function createChannelWebhookRouteHandler(
               }
               })
               if (durableHandoff) return
-              await channelDelivery.event({ type: "invocation.completed", runId: invocation.run?.runId })
-              await channelDelivery.event({ type: "completed", runId: invocation.run?.runId })
+              await settleChannelDeliveryInvocation(channelDelivery, "completed", "completed", { runId: invocation.run?.runId })
             }
             catch (error) {
-              await channelDelivery.event({ error: channelDeliveryError(error), type: "invocation.failed", runId: invocation.run?.runId })
-              await channelDelivery.event({ error: channelDeliveryError(error), type: "failed", runId: invocation.run?.runId })
+              await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", { error: channelDeliveryError(error), runId: invocation.run?.runId })
               throw error
             }
           })
