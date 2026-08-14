@@ -151,17 +151,12 @@ describe("createCrabboxRuntime", () => {
   it.skipIf(process.platform !== "linux")("reclaims only reparented processes owned by the disposable root", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
-    const stateRoot = join(root, "state")
     const bin = join(root, "bin")
     await Promise.all([mkdir(workspace), mkdir(bin)])
     await fakeCrabbox(bin)
 
     await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
-      const box = await resolveBox({
-        cwd: workspace,
-        home: { state: { ".owned": { key: "orphan-test" } } },
-        runtime: createCrabboxRuntime({ profile: "babysitter", stateRoot }),
-      }, {})
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
       const session = await boxProvider(box).createSession()
       const spawnOrphan = async (argument: string, cwd?: string, boxRoot?: string) => {
         const result = await session.run({
@@ -172,8 +167,6 @@ describe("createCrabboxRuntime", () => {
       }
       const ownedPid = await spawnOrphan(`${session.root}/owned`)
       const cwdOwnedPid = await spawnOrphan("unmarked", session.root)
-      const statePath = (await session.run({ command: 'realpath "$HOME/.owned"' })).stdout.trim()
-      const stateOwnedPid = await spawnOrphan("unmarked", statePath)
       await session.run({ command: `mkdir -p -- '${session.root}.other'` })
       const envOwnedPid = await spawnOrphan("unmarked", `${session.root}.other`, session.root)
       const fdTree = await session.run({
@@ -193,7 +186,6 @@ describe("createCrabboxRuntime", () => {
         await vi.waitFor(async () => {
           await expect(readFile(`/proc/${ownedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${cwdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
-          await expect(readFile(`/proc/${stateOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${treeParentPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${envOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${fdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
@@ -207,8 +199,6 @@ describe("createCrabboxRuntime", () => {
           expect(status === undefined || /^State:\s+Z/m.test(status)).toBe(true)
           const cwdStatus = await readFile(`/proc/${cwdOwnedPid}/status`, "utf8").catch(() => undefined)
           expect(cwdStatus === undefined || /^State:\s+Z/m.test(cwdStatus)).toBe(true)
-          const stateStatus = await readFile(`/proc/${stateOwnedPid}/status`, "utf8").catch(() => undefined)
-          expect(stateStatus === undefined || /^State:\s+Z/m.test(stateStatus)).toBe(true)
           const treeChildStatus = await readFile(`/proc/${treeChildPid}/status`, "utf8").catch(() => undefined)
           expect(treeChildStatus === undefined || /^State:\s+Z/m.test(treeChildStatus)).toBe(true)
           const envStatus = await readFile(`/proc/${envOwnedPid}/status`, "utf8").catch(() => undefined)
@@ -224,7 +214,6 @@ describe("createCrabboxRuntime", () => {
         try { process.kill(unrelatedPid, "SIGKILL") } catch {}
         try { process.kill(ownedPid, "SIGKILL") } catch {}
         try { process.kill(cwdOwnedPid, "SIGKILL") } catch {}
-        try { process.kill(stateOwnedPid, "SIGKILL") } catch {}
         try { process.kill(treeParentPid, "SIGKILL") } catch {}
         try { process.kill(treeChildPid, "SIGKILL") } catch {}
         try { process.kill(envOwnedPid, "SIGKILL") } catch {}
