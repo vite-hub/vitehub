@@ -4347,10 +4347,11 @@ export function createChannelWebhookRouteHandler(
       }
       const webhookDeliveryState = await resolveAgentWebhookState(context, registration, handlerOptions)
       const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
-      const chatDeliveryState = webhookDeliveryState
+      const workflowCustody = await hasActiveWorkflowRuntime(agent, context)
+      const chatDeliveryState = webhookDeliveryState && !workflowCustody
         ? undefined
-        : await resolveChatState(chatOptions, context, registration, handlerOptions)
-      const deliveryState = webhookDeliveryState || (chatDeliveryState
+        : await resolveChatState(chatOptions, context, registration, workflowCustody ? {} : handlerOptions)
+      const deliveryState = (workflowCustody ? undefined : webhookDeliveryState) || (chatDeliveryState
         ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state }
         : undefined)
       if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
@@ -4510,7 +4511,7 @@ export function createChannelWebhookRouteHandler(
                       channelId: registration.channelId,
                       deliveryId: channelDelivery.delivery.id,
                       provider: registration.provider,
-                      state: webhookDeliveryState ? "webhook" : "chat",
+                      state: workflowCustody ? "chat" : webhookDeliveryState ? "webhook" : "chat",
                     },
                   },
                   ...(ownershipAbort
