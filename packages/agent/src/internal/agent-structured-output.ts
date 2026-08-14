@@ -19,6 +19,12 @@ function agentOutputValidationError(code: AgentOutputValidationErrorCode, option
   return new ViteHubError(code, agentOutputErrorMessages[code], { cause: readErrorCause(options) })
 }
 
+export async function normalizeNativeAgentOutputError(output: AgentOutputDefinition | undefined, error: unknown): Promise<never> {
+  const text = error && typeof error === "object" && "text" in error && typeof error.text === "string" ? error.text : undefined
+  if (output && text !== undefined) await validateAgentOutput(output, text)
+  throw error
+}
+
 function isAgentOutputValidationError(value: unknown): boolean {
   const code = getViteHubErrorShape(value)?.code
   return code === "AGENT_OUTPUT_INVALID_JSON" || code === "AGENT_OUTPUT_SCHEMA_INVALID"

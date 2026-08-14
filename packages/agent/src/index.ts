@@ -1763,6 +1763,7 @@ function toAgentAdapterRunContext<
     box: context.box,
     instructions: context.instructions,
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
+    nativeStructuredOutput: !context.outputRenderers.length && !context.finalOutputRenderers.length,
     runtime: context.runtimeContext,
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
   }
@@ -3186,6 +3187,8 @@ async function executeAgentInvocationWithCapacityLease<
   const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
   let result: unknown
   try {
+    const adapterContext = toAgentAdapterRunContext(invocation)
+    if (options.kind === "run" && !options.renderOutput) adapterContext.nativeStructuredOutput = false
     if (customRun) {
       result = await agent.run(invocation)
     }
@@ -3195,10 +3198,10 @@ async function executeAgentInvocationWithCapacityLease<
         invocation.context.get<boolean>(finalChannelOutputContextKey) !== true
         || invocation.context.get<boolean>(progressSummaryOutputContextKey) === true
       )) {
-      result = await adapter.stream(toAgentAdapterRunContext(invocation) as never)
+      result = await adapter.stream(adapterContext as never)
     }
     else {
-      result = await adapter!.generate(toAgentAdapterRunContext(invocation) as never)
+      result = await adapter!.generate(adapterContext as never)
     }
   }
   catch (error) {
