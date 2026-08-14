@@ -263,6 +263,26 @@ async function captureExcludedHostState(host: WorkspaceSessionHost, root: string
   return await captureHostEntriesState(host, root, entries, "host-excluded")
 }
 
+function mergeExcludedHostState(
+  before: Awaited<ReturnType<typeof captureExcludedHostState>>,
+  materialized: Awaited<ReturnType<typeof captureExcludedHostState>>,
+  excluded: readonly string[],
+) {
+  const occupiedRoots = excluded.filter(root => Object.keys(before.snapshot.entries)
+    .some(path => path === root || path.startsWith(`${root}/`)))
+  const entries = Object.fromEntries(Object.entries(materialized.snapshot.entries)
+    .filter(([path]) => !occupiedRoots.some(root => path === root || path.startsWith(`${root}/`))))
+  const contents = new Map(materialized.contents)
+  for (const root of occupiedRoots) {
+    for (const path of [...contents.keys()]) {
+      if (path === root || path.startsWith(`${root}/`)) contents.delete(path)
+    }
+  }
+  for (const [path, entry] of Object.entries(before.snapshot.entries)) entries[path] = entry
+  for (const [path, content] of before.contents) contents.set(path, content)
+  return { contents, snapshot: { ...materialized.snapshot, entries } }
+}
+
 async function restoreExcludedHostState(
   host: WorkspaceSessionHost,
   root: string,
@@ -597,13 +617,20 @@ export async function createHostedWorkspaceSession(
     ...(options.writeBack?.exclude || []).map(path => normalizeSafeWorkspacePath(path, { allowReserved: true })),
   ]
   let closed = false
+  const existingExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
   let attachedState = options.attach ? await captureHostState(host, root, "host-attach") : undefined
   const materialization: { revision?: string, snapshot: WorkspaceSnapshot } = attachedState
     ? { snapshot: attachedState.snapshot }
     : await materializeWorkspace(workspace, host, root, options)
   let baseline = materialization.snapshot
   let baseRevision = materialization.revision
-  const excludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
+  const excludedState = attachedState
+    ? existingExcludedState
+    : mergeExcludedHostState(
+        existingExcludedState,
+        await captureExcludedHostState(host, root, excludedWriteBackPaths),
+        excludedWriteBackPaths,
+      )
   const mediaTypes = new Map<string, string>()
 
   function assertOpen() {
@@ -726,7 +753,6 @@ export async function createHostedWorkspaceSession(
         }
         if (baseRevision) {
           baseRevision = await revisionMaterializer!.currentRevision({
-            abortSignal: options.abortSignal,
             refresh: false,
           })
         }
@@ -757,7 +783,6 @@ export async function createHostedWorkspaceSession(
         await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
       }
       else {
-        await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
         diff = await currentDiff()
       }
       if (diff?.entries.length) {
@@ -767,6 +792,7 @@ export async function createHostedWorkspaceSession(
           onProgress: undefined,
         })
       }
+      if (!options.attach) await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
       closed = true
     },
   }

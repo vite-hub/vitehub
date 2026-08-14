@@ -132,10 +132,10 @@ function gitSymlinkTargetFromBytes(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes).replace(/\0/g, "");
 }
 
-async function waitForGitHubArchive(read: Promise<Uint8Array>, signal?: AbortSignal) {
+async function waitForGitHubOperation<T>(read: Promise<T>, signal?: AbortSignal) {
   signal?.throwIfAborted();
   if (!signal) return await read;
-  return await new Promise<Uint8Array>((resolve, reject) => {
+  return await new Promise<T>((resolve, reject) => {
     const abort = () => reject(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
     void read.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
@@ -178,12 +178,17 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   [workspaceRevisionMaterializer] = {
     currentRevision: async (options?: { abortSignal?: AbortSignal; refresh?: boolean }) => {
-      options?.abortSignal?.throwIfAborted();
-      await this.#mutate(async () => await this.#ensure({ refresh: options?.refresh !== false }));
+      await waitForGitHubOperation(
+        this.#mutate(async () => await this.#ensure({ refresh: options?.refresh !== false })),
+        options?.abortSignal,
+      );
       return this.#baselineRefSha!;
     },
     materializeRevision: async (options?: { abortSignal?: AbortSignal; paths?: readonly string[] }) => {
-      await this.#mutate(async () => await this.#ensure({ refresh: true }));
+      await waitForGitHubOperation(
+        this.#mutate(async () => await this.#ensure({ refresh: true })),
+        options?.abortSignal,
+      );
       const revision = this.#baselineRefSha!;
       const paths = options?.paths;
       const files = [...this.#remoteFiles.keys()].filter(path =>
@@ -203,7 +208,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
           }).catch(() => {});
         }
         this.#archive = {
-          bytes: await waitForGitHubArchive(read, options?.abortSignal),
+          bytes: await waitForGitHubOperation(read, options?.abortSignal),
           revision,
         };
       }

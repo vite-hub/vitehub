@@ -227,6 +227,22 @@ describe("GitHub workspace store", () => {
     expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(1);
   });
 
+  it("lets callers cancel revision resolution while the GitHub request continues", async () => {
+    const abort = new AbortController();
+    vi.mocked(fetch).mockImplementationOnce(async () => await new Promise<Response>(() => {}));
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      { provider: "github", repository: "onmax/repo", token: "token" },
+      "docs",
+    );
+    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+
+    const resolution = materializer.materializeRevision({ abortSignal: abort.signal });
+    abort.abort();
+
+    await expect(resolution).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("retries transient pinned archive reads within a bounded attempt count", async () => {
     archiveFailures = 2;
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");

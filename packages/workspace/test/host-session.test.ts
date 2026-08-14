@@ -517,6 +517,38 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("does not report cancellation after publication has succeeded", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    let revision = "0123456789012345678901234567890123456789"
+    const currentRevision = vi.fn(async (options?: { abortSignal?: AbortSignal }) => {
+      options?.abortSignal?.throwIfAborted()
+      return revision
+    })
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      currentRevision,
+      async materializeRevision() {
+        return { files: 0, revision, root: "" }
+      },
+    }
+    const snapshot = docs.snapshot.bind(docs)
+    docs.snapshot = async (options) => {
+      const result = await snapshot(options)
+      revision = result.id
+      abort.abort()
+      return result
+    }
+
+    const session = await docs.startSession({ abortSignal: abort.signal, host })
+    await session.writeFile("result.txt", "done")
+    await expect(session.commit({ message: "published" })).resolves.toBeUndefined()
+
+    await expect(docs.readFile("result.txt")).resolves.toBe("done")
+    expect(currentRevision).toHaveBeenLastCalledWith({ refresh: false })
+    await session.close()
+  })
+
   it("keeps the provider revision after a no-op publication", async () => {
     const docs = workspace()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
@@ -844,6 +876,20 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/result.txt")).toBe("committed")
     await expect(docs.exists(".agent-runs/trace.json")).resolves.toBe(false)
     await expect(docs.readFile("result.txt")).resolves.toBe("committed")
+  })
+
+  it("restores excluded state that existed before non-attached materialization", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await host.files.mkdir("/workspace/.agent-runs", { recursive: true })
+    await host.files.write("/workspace/.agent-runs/trace.json", new TextEncoder().encode("before"))
+
+    const session = await docs.startSession({ host })
+    await session.writeFile("result.txt", "discarded")
+    await session.close()
+
+    expect(host.readText("/workspace/.agent-runs/trace.json")).toBe("before")
+    expect(host.readText("/workspace/result.txt")).toBeUndefined()
   })
 
   it("keeps concurrent host changes outside an attached session scope", async () => {
