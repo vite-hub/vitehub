@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { createTraceEventLog, noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
+import { createTraceEventLog, noExecutionAuthority, unknownExecutionAuthority, ViteHubError } from "@vite-hub/runtime"
 
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
@@ -13,6 +13,7 @@ const list = vi.fn()
 const exists = vi.fn()
 const stat = vi.fn()
 const diff = vi.fn()
+const rebase = vi.fn()
 const snapshot = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
@@ -28,6 +29,7 @@ const tempRoots: string[] = []
 const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
   fs: { exists, list, readFile, stat, writeFile },
+  history: { rebase },
   snapshot,
   tools: Object.assign(tools, {
     inspect: inspectTools,
@@ -218,6 +220,7 @@ describe("defineAgent workspace option", () => {
     list.mockReset()
     list.mockResolvedValue([])
     readFile.mockReset()
+    rebase.mockReset()
     writeFile.mockReset()
     snapshot.mockReset()
     resolveRegisteredWorkspaceDefinition.mockReset()
@@ -2928,6 +2931,56 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ entries: [expect.objectContaining({ path: "inbox/audio.md" })] }),
     )
     expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive audio" })
+  })
+
+  it("rebases and retries racing Workspace auto-commits", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive audio",
+      paths: ["inbox/audio.md"],
+    })
+    snapshot
+      .mockRejectedValueOnce(new ViteHubError("WORKSPACE_CONFLICT", "Remote Workspace changed."))
+      .mockRejectedValueOnce(new ViteHubError("WORKSPACE_CONFLICT", "Remote Workspace changed again."))
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: { commit: "chore: archive audio", mode: "write" },
+      driver: { run: () => "ok" },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(rebase).toHaveBeenCalledTimes(2)
+    expect(snapshot).toHaveBeenCalledTimes(3)
+    expect(snapshot).toHaveBeenNthCalledWith(3, { name: "chore: archive audio" })
+  })
+
+  it("bounds conflicting Workspace auto-commit retries", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive audio",
+      paths: ["inbox/audio.md"],
+    })
+    snapshot.mockRejectedValue(new ViteHubError("WORKSPACE_CONFLICT", "Remote Workspace changed."))
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: { commit: "chore: archive audio", mode: "write" },
+      driver: { run: () => "ok" },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] }))
+      .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+
+    expect(rebase).toHaveBeenCalledTimes(2)
+    expect(snapshot).toHaveBeenCalledTimes(3)
   })
 
   it("turns workspace commit into a default auto-commit rule", async () => {

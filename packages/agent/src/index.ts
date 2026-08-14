@@ -2642,13 +2642,22 @@ async function commitWorkspaceChanges<
   if (!context.workspaceDefinition || !isWritableWorkspaceFacade(context.workspace)) return
 
   const diff = await context.workspace.diff()
-  const { resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
+  const { isWorkspaceConflict, resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
   const commit = resolveWorkspaceAutoCommit(
     workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
     diff,
   )
   if (!commit) return
-  await context.workspace.snapshot({ name: commit.message })
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await context.workspace.snapshot({ name: commit.message })
+      return
+    }
+    catch (error) {
+      if (!isWorkspaceConflict(error) || attempt >= 2) throw error
+      await context.workspace.history.rebase()
+    }
+  }
 }
 
 async function applyFinalOutputRenderers<
