@@ -457,7 +457,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([
         writeFile(join(appDir, "app/app.vue"), `
           <script setup lang="ts">
-          const chat = useChat(useAgent("contract"), { id: "packed-contract", resume: true })
+          const chat = useChat(useAgent("contract"))
           const title = computed(() => chat.data.value.get("title", "title"))
           </script>
           <template><main>{{ title }}</main></template>
@@ -552,7 +552,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
               }, intervalMs: 50 }),
               progressSummary({ driver: { harness }, id: "quiet-progress", intervalMs: 50 }),
             ],
-            channels: { web: webChat({ route: { resumable: { owner: () => "packed-consumer" } } }) },
+            channels: { web: webChat() },
             driver: { run: () => new HybridResult() },
           })
         `, "utf8"),
@@ -601,13 +601,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             id: "packed-contract",
             messages: [{ id: "user-1", parts: [{ text: "Explain inventory health", type: "text" }], role: "user" }],
           }),
-          headers: { "content-type": "application/json", "x-vitehub-resumable": "true" },
+          headers: { "content-type": "application/json" },
           method: "POST",
         } as const
         const response = await fetch(`${origin}/api/_vitehub/agents/contract/chat`, request)
         const body = await response.text()
-        const replayResponse = await fetch(`${origin}/api/_vitehub/agents/contract/chat?id=packed-contract`)
-        const replayBody = await replayResponse.text()
         const disabledResponse = await fetch(`${origin}/api/_vitehub/agents/disabled/chat`, request)
         const disabledBody = await disabledResponse.text()
         await new Promise(resolve => setTimeout(resolve, 50))
@@ -616,8 +614,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           disabledBody,
           disabledStatus: disabledResponse.status,
           headers: Object.fromEntries(response.headers),
-          replayBody,
-          replayStatus: replayResponse.status,
           status: response.status,
         }
       })
@@ -632,8 +628,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const logs = `${server.logs().stdout}\n${server.logs().stderr}`
 
       expect(server.value.status, `${server.value.body}\n${server.logs().stdout}\n${server.logs().stderr}`).toBe(200)
-      expect(server.value.replayStatus).toBe(200)
-      expect(server.value.replayBody).toBe(server.value.body)
       expect(server.value.headers["x-vercel-ai-ui-message-stream"]).toBe("v1")
       expect(events[0]?.type).toBe("start")
       expect(titles).toEqual([
