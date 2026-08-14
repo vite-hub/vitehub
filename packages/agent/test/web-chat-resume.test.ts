@@ -982,7 +982,7 @@ describe("resumable web chat", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it("releases duplicate waiters when a stalled claim is cancelled", async () => {
+  it("releases duplicate waiters while retaining a cancelled stalled claim's capacity", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -1003,9 +1003,10 @@ describe("resumable web chat", () => {
     await vi.waitFor(() => expect(handler.inspect()).toMatchObject({ pendingClaims: 4 }))
     await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
     await expect(Promise.all(duplicates)).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ status: 204 })]))
-    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 1 })
     releaseInvoker()
     await expect(claim).resolves.toMatchObject({ status: 204 })
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -1040,13 +1041,14 @@ describe("resumable web chat", () => {
       expect.objectContaining({ status: 204 }),
       expect.objectContaining({ status: 204 }),
     ])
-    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 2 })
 
     releaseInvoker()
     await expect(Promise.all(claims)).resolves.toEqual([
       expect.objectContaining({ status: 204 }),
       expect.objectContaining({ status: 204 }),
     ])
+    expect(handler.inspect()).toMatchObject({ pendingClaims: 0 })
     expect(run).not.toHaveBeenCalled()
   })
 

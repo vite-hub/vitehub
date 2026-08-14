@@ -4383,11 +4383,10 @@ export function createChannelChatRouteHandler(
           }
           resumableClaimSetups.set(invocationKey, setup)
           resumableClaimOwners.set(invocationKey, owner!)
-          releaseResumableClaim = () => {
-            if (resumableClaimSetups.get(invocationKey) === setup) {
-              resumableClaimSetups.delete(invocationKey)
-              resumableClaimOwners.delete(invocationKey)
-            }
+          let claimSettled = false
+          const settleResumableClaim = () => {
+            if (claimSettled) return
+            claimSettled = true
             const waiters = resumableClaimWaiterResolves.get(invocationKey)
             resumableClaimWaiterResolves.delete(invocationKey)
             for (const resolve of waiters || []) resolve()
@@ -4396,9 +4395,24 @@ export function createChannelChatRouteHandler(
             if (!chatSetups?.size) resumableClaimSetupsByChat.delete(latestKey!)
             if (latestResumableClaimSetups.get(latestKey!) === claimSetup) latestResumableClaimSetups.delete(latestKey!)
             resolveSetup()
+          }
+          releaseResumableClaim = () => {
+            settleResumableClaim()
+            if (resumableClaimSetups.get(invocationKey) === setup) {
+              resumableClaimSetups.delete(invocationKey)
+              resumableClaimOwners.delete(invocationKey)
+            }
             releaseResumableClaim = undefined
           }
-          const claimSetup: ResumableClaimSetup = { cancel: () => releaseResumableClaim?.(), owner: owner!, promise: setup, sequence: requestSequence }
+          const claimSetup: ResumableClaimSetup = {
+            cancel() {
+              resumableAbortController?.abort("Cancelled by the web chat client.")
+              settleResumableClaim()
+            },
+            owner: owner!,
+            promise: setup,
+            sequence: requestSequence,
+          }
           const chatSetups = resumableClaimSetupsByChat.get(latestKey!) || new Set<ResumableClaimSetup>()
           resumableClaimSetupsByChat.set(latestKey!, chatSetups)
           chatSetups.add(claimSetup)
@@ -4563,7 +4577,11 @@ export function createChannelChatRouteHandler(
             output: "ui-message-stream",
           }))
           if (refreshSessionBoundary) {
-            await state.set(refreshSessionBoundary.key, refreshSessionBoundary.value, approvalTtlMs)
+            await withResumableSessionBoundaryWrite(refreshSessionBoundary.key, async () => {
+              if (await state.get<string>(refreshSessionBoundary!.key) === refreshSessionBoundary!.value) {
+                await state.set(refreshSessionBoundary!.key, refreshSessionBoundary!.value, approvalTtlMs)
+              }
+            })
           }
           if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
           const response = normalizeResumableChatStreamResponse(await toAgentChatFetchResponse(result), triggerInput.run?.runId || resumableInvocationKey)
