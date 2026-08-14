@@ -113,6 +113,7 @@ export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOp
 export interface AgentChannelChatRouteInspection {
   activeRuns: number
   bufferedBytes: number
+  liveSubscribers: number
   maxBufferedBytesPerOwner: number
   maxTotalBufferedBytes: number
   maxRunsPerOwner: number
@@ -4357,13 +4358,16 @@ export function createChannelChatRouteHandler(
     inspect(): AgentChannelChatRouteInspection {
       let activeRuns = 0
       let bufferedBytes = 0
+      let liveSubscribers = 0
       for (const run of resumableRuns.values()) {
         if (!run.done) activeRuns++
         bufferedBytes += run.bufferedBytes
+        liveSubscribers += run.subscribers.size
       }
       return {
         activeRuns,
         bufferedBytes,
+        liveSubscribers,
         maxBufferedBytesPerOwner: resumableChatMaxOwnerBufferedBytes,
         maxTotalBufferedBytes: resumableChatMaxTotalBufferedBytes,
         maxRunsPerOwner: resumableChatMaxRuns,

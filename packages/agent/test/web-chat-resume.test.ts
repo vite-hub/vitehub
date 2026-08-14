@@ -333,11 +333,12 @@ describe("resumable web chat", () => {
     try {
       const subscribers = [await handler(chatRequest("POST"), options)]
       for (let index = 1; index < 100; index++) subscribers.push(await handler(chatRequest("GET"), options))
-      expect(handler.inspect()).toMatchObject({ activeRuns: 1, maxSubscribersPerRun: 100 })
+      expect(handler.inspect()).toMatchObject({ activeRuns: 1, liveSubscribers: 100, maxSubscribersPerRun: 100 })
       expect((await handler(chatRequest("GET"), options)).status).toBe(429)
       source.close()
       await Promise.all(subscribers.map(response => response.text()))
       await Promise.all(pending)
+      expect(handler.inspect()).toMatchObject({ activeRuns: 0, liveSubscribers: 0 })
     }
     finally {
       streamAgentTrigger.mockRestore()
