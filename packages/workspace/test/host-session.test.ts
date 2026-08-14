@@ -695,6 +695,46 @@ describe("workspace host sessions", () => {
     }
   })
 
+  it("cancels a Session waiting for the publication queue", async () => {
+    const docs = workspace()
+    const abort = new AbortController()
+    let revision = "0123456789012345678901234567890123456789"
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return revision
+      },
+      async materializeRevision() {
+        return { files: 1, revision, root: "" }
+      },
+    }
+    await docs.writeFile("README.md", "before")
+    await docs.snapshot({ name: "baseline" })
+    const first = await docs.startSession({ host: memoryHost() })
+    const second = await docs.startSession({ abortSignal: abort.signal, host: memoryHost() })
+    await first.writeFile("README.md", "first")
+    await second.writeFile("README.md", "second")
+    const snapshot = docs.snapshot.bind(docs)
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    docs.snapshot = async (options) => {
+      await blocked
+      const result = await snapshot(options)
+      revision = result.id
+      return result
+    }
+
+    const firstPublication = first.commit({ message: "first" })
+    await new Promise(resolve => setTimeout(resolve, 1))
+    const secondPublication = second.commit({ message: "second" })
+    abort.abort()
+
+    await expect(secondPublication).rejects.toThrow()
+    release()
+    await expect(firstPublication).resolves.toBeUndefined()
+    await first.close()
+    await second.close()
+  })
+
   it("rolls back staged Session changes when provider publication fails", async () => {
     const docs = workspace()
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-revision-target-"))
@@ -792,6 +832,38 @@ describe("workspace host sessions", () => {
 
     rejectInspection = false
     await expect(session.diff()).resolves.toMatchObject({ entries: [] })
+    await session.close()
+  })
+
+  it("publishes from the same host capture used by the Session baseline", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    let revision = "0123456789012345678901234567890123456789"
+    let revisionReads = 0
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        if (++revisionReads > 1) await host.files.write("/workspace/README.md", new TextEncoder().encode("later"))
+        return revision
+      },
+      async materializeRevision() {
+        return { files: 1, revision, root: "" }
+      },
+    }
+    await docs.writeFile("README.md", "before")
+    await docs.snapshot({ name: "baseline" })
+    const snapshot = docs.snapshot.bind(docs)
+    docs.snapshot = async (options) => {
+      const result = await snapshot(options)
+      revision = result.id
+      return result
+    }
+
+    const session = await docs.startSession({ host })
+    await session.writeFile("README.md", "captured")
+    await session.commit({ message: "published" })
+
+    await expect(docs.readFile("README.md")).resolves.toBe("captured")
+    await expect(session.diff()).resolves.toMatchObject({ entries: [expect.objectContaining({ path: "README.md" })] })
     await session.close()
   })
 
@@ -1008,6 +1080,60 @@ describe("workspace host sessions", () => {
     await expect(docs.exists("partial.txt")).resolves.toBe(false)
     expect(host.readText("/workspace/README.md")).toBe("before")
     expect(host.readText("/workspace/partial.txt")).toBeUndefined()
+  })
+
+  it("refreshes an unchanged host when the authoritative revision advances", async () => {
+    const docs = workspace()
+    const firstHost = memoryHost()
+    let revision = "0123456789012345678901234567890123456789"
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return revision
+      },
+      async materializeRevision() {
+        return { files: 1, revision, root: "" }
+      },
+    }
+    await docs.writeFile("README.md", "before")
+    await docs.snapshot({ name: "baseline" })
+    const first = await docs.startSession({ host: firstHost })
+    const second = await docs.startSession({ host: memoryHost() })
+    const snapshot = docs.snapshot.bind(docs)
+    docs.snapshot = async (options) => {
+      const result = await snapshot(options)
+      revision = result.id
+      return result
+    }
+    await second.writeFile("README.md", "after")
+    await second.commit({ message: "advance" })
+
+    await first.close()
+
+    expect(firstHost.readText("/workspace/README.md")).toBe("after")
+    await second.close()
+  })
+
+  it("restores excluded state when close-time diff inspection fails", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await docs.writeFile("README.md", "before")
+    await docs.snapshot({ name: "baseline" })
+    const session = await docs.startSession({ host })
+    await host.files.mkdir("/workspace/.agent-runs", { recursive: true })
+    await host.files.write("/workspace/.agent-runs/trace.json", new TextEncoder().encode("transient"))
+    const list = host.files.list.bind(host.files)
+    let failOnce = true
+    host.files.list = async (...args) => {
+      if (failOnce) {
+        failOnce = false
+        throw new Error("host inspection unavailable")
+      }
+      return await list(...args)
+    }
+
+    await expect(session.close()).rejects.toThrow("host inspection unavailable")
+
+    expect(host.readText("/workspace/.agent-runs/trace.json")).toBeUndefined()
   })
 
   it("restores a revision-backed host after the Session operation is canceled", async () => {
