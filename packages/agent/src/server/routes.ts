@@ -4069,22 +4069,11 @@ async function waitForResumableChatRun(runs: Map<string, ResumableChatRun>, key:
 }
 
 async function waitForResumableChatSetup(setup: Promise<void>, signal: AbortSignal): Promise<boolean> {
-  let settled = false
-  void setup.then(() => {
-    settled = true
-  })
-  for (let attempt = 0; attempt < 30 && !settled && !signal.aborted; attempt++) {
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(finish, 100)
-      function finish() {
-        clearTimeout(timeout)
-        signal.removeEventListener("abort", finish)
-        resolve()
-      }
-      signal.addEventListener("abort", finish, { once: true })
-    })
-  }
-  return settled
+  if (signal.aborted) return false
+  return await Promise.race([
+    setup.then(() => true),
+    new Promise<false>((resolve) => signal.addEventListener("abort", () => resolve(false), { once: true })),
+  ])
 }
 
 async function waitForResumableChatReady(ready: Promise<void>, signal: AbortSignal): Promise<boolean> {
@@ -4228,12 +4217,6 @@ export function createChannelChatRouteHandler(
         if (!owner) return new Response(null, { status: 204 })
         const key = resumableChatKey(agentName, routeOptions.channelId, owner, id)
         if (request.method === "DELETE") {
-          if (!setResumableCancellationTombstone(key, owner, requestSequence)) {
-            throw createRouteError(429, "Resumable web chat has too many pending cancellations. Try again later.")
-          }
-        }
-        let run = latestResumableRuns.get(key)
-        if (request.method === "DELETE") {
           for (const activeRun of [...resumableRuns.values()]) {
             if (activeRun.latestKey !== key || activeRun.requestSequence > requestSequence) continue
             releaseResumableChatRun(activeRun)
@@ -4246,8 +4229,12 @@ export function createChannelChatRouteHandler(
           for (const setup of resumableClaimSetupsByChat.get(key) || []) {
             if (setup.sequence <= requestSequence) setup.cancel()
           }
+          if (!setResumableCancellationTombstone(key, owner, requestSequence)) {
+            throw createRouteError(429, "Resumable web chat has too many pending cancellations. Try again later.")
+          }
           return new Response(null, { status: 204 })
         }
+        let run = latestResumableRuns.get(key)
         const pendingSetup = latestResumableClaimSetups.get(key)
         const waitsForSetup = Boolean(pendingSetup && (!run || pendingSetup.sequence > run.requestSequence))
         const waitsForReady = Boolean(run && !run.consume && !run.done && !run.setupError)
@@ -4612,10 +4599,13 @@ export function createChannelChatRouteHandler(
         if (!latestRun || latestRun.requestSequence < requestSequence) latestResumableRuns.set(resumableLatestKey, resumableRun)
         releaseResumableClaim?.()
 
+        let setupResponse: Response | undefined
         try {
           let result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
             output: "ui-message-stream",
           }))
+          if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
+          setupResponse = await toAgentChatFetchResponse(result)
           if (refreshSessionBoundary) {
             await withResumableSessionBoundaryWrite(refreshSessionBoundary.key, async () => {
               if (await state.get<string>(refreshSessionBoundary!.key) === refreshSessionBoundary!.value) {
@@ -4623,8 +4613,7 @@ export function createChannelChatRouteHandler(
               }
             })
           }
-          if (approvalSessionId) result = trackAgentChatApprovals(result, state, invoker.id, approvalSessionId, approvalTtlMs)
-          const response = normalizeResumableChatStreamResponse(await toAgentChatFetchResponse(result), triggerInput.run?.runId || resumableInvocationKey)
+          const response = normalizeResumableChatStreamResponse(setupResponse, triggerInput.run?.runId || resumableInvocationKey)
           if (!response.body) throw new Error("[vitehub] Resumable web chat requires a stream response.")
           if (resumableRun.done || resumableRun.abortController.signal.aborted) {
             await response.body.cancel("Cancelled by the web chat client.").catch(() => undefined)
@@ -4691,14 +4680,16 @@ export function createChannelChatRouteHandler(
           return resumableChatResponse(resumableRun)
         }
         catch (error) {
+          resumableRun.abortController.abort(error)
+          await setupResponse?.body?.cancel(error).catch(() => undefined)
           if (resumableRun.cancelled) {
             resumableRun.resolveReady()
             return new Response(null, { status: 204 })
           }
           resumableRun.setupError = resumableChatError(error)
+          closeResumableChatRun(resumableRun, resumableRun.setupError)
           resumableRun.resolveReady()
-          resumableRuns.delete(resumableInvocationKey)
-          if (latestResumableRuns.get(resumableLatestKey) === resumableRun) latestResumableRuns.delete(resumableLatestKey)
+          releaseResumableChatRun(resumableRun)
           throw error
         }
       }
