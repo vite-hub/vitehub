@@ -496,6 +496,7 @@ async function materializeWorkspace(
   root: string,
   options?: WorkspaceSessionOptions,
   useRevisionMaterializer = true,
+  onHostMutation?: () => void,
 ) {
   const abortSignal = options?.abortSignal
   abortSignal?.throwIfAborted()
@@ -514,7 +515,10 @@ async function materializeWorkspace(
   await withWorkspaceProgress(options?.onProgress, {
     id: "workspace.prepare.reset-sandbox",
     label: "Resetting sandbox workspace",
-  }, async () => await resetHostWorkspaceRoot(host, root))
+  }, async () => {
+    onHostMutation?.()
+    await resetHostWorkspaceRoot(host, root)
+  })
   abortSignal?.throwIfAborted()
   if (revision?.archive) {
     await withWorkspaceProgress(options?.onProgress, {
@@ -655,15 +659,16 @@ export async function createHostedWorkspaceSession(
   let attachedState = options.attach ? await captureHostState(host, root, "host-attach") : undefined
   let materialization: { revision?: string, snapshot: WorkspaceSnapshot }
   let materializedExcludedState: Awaited<ReturnType<typeof captureExcludedHostState>> | undefined
+  let setupMutatedHost = false
   try {
     materialization = attachedState
       ? { snapshot: attachedState.snapshot }
-      : await materializeWorkspace(workspace, host, root, options)
+      : await materializeWorkspace(workspace, host, root, options, true, () => { setupMutatedHost = true })
     if (!attachedState)
       materializedExcludedState = await captureExcludedHostState(host, root, excludedWriteBackPaths)
   }
   catch (error) {
-    if (attachedState) throw error
+    if (attachedState || !setupMutatedHost) throw error
     try {
       host.detachAbortSignal?.()
       await materializeWorkspace(workspace, host, root, {
@@ -793,6 +798,21 @@ export async function createHostedWorkspaceSession(
         if (baseRevision && await revisionMaterializer?.currentRevision({ abortSignal: options.abortSignal }) !== baseRevision) {
           throw workspaceConflict(`[vitehub] Workspace revision changed after this Session materialized: ${baseRevision}.`)
         }
+        const nextAttachedState = options.attach
+          ? await captureHostState(host, root, commitOptions?.message || "host-commit")
+          : undefined
+        const nextBaseline = nextAttachedState?.snapshot || await createSnapshotFromEntries(
+          Object.entries(baseline.entries)
+            .filter(([path]) => !diff.entries.some(entry => entry.path === path && !entry.after))
+            .map(([path, entry]) => {
+              const changed = diff.entries.find(item => item.path === path)?.after
+              return { path, ...(changed || entry) }
+            })
+            .concat(diff.entries
+              .filter(entry => entry.after && !baseline.entries[entry.path])
+              .map(entry => ({ path: entry.path, ...entry.after! }))),
+          commitOptions?.message || "host-commit",
+        )
         try {
           await commitHostChanges(host, root, workspace, diff, mediaTypes, commitOptions?.message)
         }
@@ -812,11 +832,8 @@ export async function createHostedWorkspaceSession(
             refresh: false,
           })
         }
-        if (options.attach) {
-          attachedState = await captureHostState(host, root, commitOptions?.message || "host-commit")
-          baseline = attachedState.snapshot
-        }
-        else baseline = await snapshotHost(host, root, commitOptions?.message || "host-commit")
+        if (nextAttachedState) attachedState = nextAttachedState
+        baseline = nextBaseline
       })
     },
     async exec(command, args = [], execOptions = {}) {

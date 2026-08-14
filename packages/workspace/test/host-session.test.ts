@@ -471,6 +471,28 @@ describe("workspace host sessions", () => {
     expect(host.readText("/workspace/README.md")).toBe("authoritative")
   })
 
+  it("leaves an unmodified host alone when revision resolution is canceled", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    const abort = new AbortController()
+    await host.files.mkdir("/workspace", { recursive: true })
+    await host.files.write("/workspace/local.txt", new TextEncoder().encode("untouched"))
+    ;(docs as typeof docs & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer] = {
+      async currentRevision() {
+        return "0123456789012345678901234567890123456789"
+      },
+      async materializeRevision() {
+        abort.abort()
+        abort.signal.throwIfAborted()
+        throw new Error("unreachable")
+      },
+    }
+
+    await expect(docs.startSession({ abortSignal: abort.signal, host })).rejects.toThrow()
+
+    expect(host.readText("/workspace/local.txt")).toBe("untouched")
+  })
+
   it("bounds host file reads while capturing Session state", async () => {
     const docs = workspace()
     const host = memoryHost()
@@ -742,6 +764,34 @@ describe("workspace host sessions", () => {
 
     await expect(docs.readFile("result.txt")).resolves.toBe("done")
     expect(currentRevision).toHaveBeenLastCalledWith({ refresh: false })
+    await session.close()
+  })
+
+  it("does not inspect the host after publication has succeeded", async () => {
+    const docs = workspace()
+    const host = memoryHost()
+    await docs.writeFile("README.md", "before")
+    await docs.snapshot({ name: "baseline" })
+    const list = host.files.list.bind(host.files)
+    let rejectInspection = false
+    host.files.list = async (...args) => {
+      if (rejectInspection) throw new Error("host inspection unavailable")
+      return await list(...args)
+    }
+    const snapshot = docs.snapshot.bind(docs)
+    docs.snapshot = async (options) => {
+      const result = await snapshot(options)
+      rejectInspection = true
+      return result
+    }
+
+    const session = await docs.startSession({ host })
+    await session.writeFile("README.md", "after")
+    await expect(session.commit({ message: "published" })).resolves.toBeUndefined()
+    await expect(docs.readFile("README.md")).resolves.toBe("after")
+
+    rejectInspection = false
+    await expect(session.diff()).resolves.toMatchObject({ entries: [] })
     await session.close()
   })
 
