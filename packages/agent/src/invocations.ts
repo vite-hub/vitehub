@@ -363,6 +363,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let observationCount = 0
       let created = false
       let createInput: AgentInvocationStoreCreateInput
+      let runningRetry: Promise<void> | undefined
       let terminalRetry: Promise<void> | undefined
       let heartbeat: ReturnType<typeof setInterval> | undefined
       const stopHeartbeat = () => {
@@ -481,10 +482,20 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         async running() {
           if (finished) return
-          await update({
-            status: "running",
-            timestamp: new Date().toISOString(),
-          })
+          const markRunning = () => update({ status: "running", timestamp: new Date().toISOString() })
+          if (await markRunning() || runningRetry) return
+          runningRetry = (async () => {
+            const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
+            while (!finished && Date.now() < deadline) {
+              await new Promise<void>((resolve) => {
+                const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
+                const unref = (timer as unknown as { unref?: () => void }).unref
+                if (unref) unref.call(timer)
+              })
+              if (await markRunning()) return
+            }
+          })()
+          context.waitUntil(runningRetry)
         },
       }
     },

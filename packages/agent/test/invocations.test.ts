@@ -171,6 +171,40 @@ describe("Agent Invocations", () => {
     await expect(runAgent(agent, runtime("run-1"), {})).resolves.toBe("done")
   })
 
+  it("retries the running transition after storage recovers", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let runningFailures = 1
+    const store: AgentInvocationStore = {
+      ...memory,
+      update(id, input, claimId) {
+        if (input.status === "running" && runningFailures-- > 0) return
+        return memory.update(id, input, claimId)
+      },
+    }
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const invocations = defineAgentInvocations({ store })
+    const agent = defineAgent({
+      driver: { async run() { await gate; return "done" } },
+      invocations,
+      runtime: false,
+    })
+    const invocation = runAgent(agent, {
+      ...runtime("recover-running"),
+      waitUntil: promise => waitUntilTasks.push(promise),
+    }, {})
+
+    await vi.waitFor(() => expect(waitUntilTasks).toHaveLength(1))
+    await Promise.all(waitUntilTasks)
+    await expect(invocations.getByRunId("recover-running")).resolves.toMatchObject({
+      startedAt: expect.any(String),
+      status: "running",
+    })
+    release()
+    await expect(invocation).resolves.toBe("done")
+  })
+
   it("normalizes limits while preserving opaque custom-store cursors", async () => {
     const list = vi.fn(() => ({ cursor: "next/token", invocations: [] }))
     const store: AgentInvocationStore = {
@@ -315,6 +349,7 @@ describe("Agent Invocations", () => {
       const invocations = defineAgentInvocations({
         store: createLibsqlAgentInvocationStore({ client: writerClient }),
       })
+      await expect(invocations.list({ status: [] })).resolves.toEqual({ invocations: [] })
       const agent = defineAgent({
         driver: { run: () => "persisted" },
         invocations,
