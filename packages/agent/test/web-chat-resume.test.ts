@@ -1050,6 +1050,52 @@ describe("resumable web chat", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("rolls back a new manual session boundary when DELETE arrives during its write", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    let releaseSet!: () => void
+    const setReady = new Promise<void>((resolve) => {
+      releaseSet = resolve
+    })
+    const values = new Map<string, unknown>()
+    const state = {
+      connect: async () => {},
+      delete: async (key: string) => { values.delete(key) },
+      get: async <T>(key: string) => values.get(key) as T | undefined,
+      set: async (key: string, value: unknown) => {
+        values.set(key, value)
+        if (key.includes(":boundary")) await setReady
+      },
+    }
+    const run = vi.fn(() => "unused")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: {
+        admission: { authenticate: () => ({}) },
+        input: { trust: ["session"] },
+        mapInput: () => ({ run: { threadId: "thread-1" } }),
+        resumable: { owner: () => "max" },
+      } }) },
+      driver: { run },
+      invoker: { resolve: async () => ({ id: "max" }) },
+      messages: { sessions: true },
+    }) as never)
+    const body = await chatRequest("POST").json() as Record<string, unknown>
+    body.session = { action: "new", id: "manual" }
+    const post = handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { agentName: "support", state: () => state as never, waitUntil: () => {} })
+
+    await vi.waitFor(() => expect([...values.keys()]).toEqual([expect.stringContaining(":boundary")]))
+    await expect(handler(chatRequest("DELETE"), { agentName: "support", state: () => state as never, waitUntil: () => {} })).resolves.toMatchObject({ status: 204 })
+    releaseSet()
+    await expect(post).resolves.toMatchObject({ status: 204 })
+    expect([...values.keys()]).not.toEqual(expect.arrayContaining([expect.stringContaining(":boundary")]))
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("releases duplicate waiters after setup failure", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
