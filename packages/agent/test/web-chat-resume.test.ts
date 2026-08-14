@@ -646,9 +646,13 @@ describe("resumable web chat", () => {
     try {
       const post = handler(chatRequest("POST"), options)
       await vi.waitFor(() => expect(streamAgentTrigger).toHaveBeenCalledOnce())
+      const reconnect = handler(chatRequest("GET"), options)
+      const duplicate = handler(chatRequest("POST"), options)
       await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
       expect(invocationSignal.aborted).toBe(true)
       await expect(post).resolves.toMatchObject({ status: 204 })
+      await expect(reconnect).resolves.toMatchObject({ status: 204 })
+      await expect(duplicate).resolves.toMatchObject({ status: 204 })
       expect(lateStreamCancel).toHaveBeenCalledWith("Cancelled by the web chat client.")
     }
     finally {

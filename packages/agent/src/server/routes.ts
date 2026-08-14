@@ -3885,6 +3885,7 @@ function resumableChatError(error: unknown): Error {
 interface ResumableChatRun {
   abortController: AbortController
   bufferedBytes: number
+  cancelled: boolean
   chunks: Uint8Array[]
   cleanup?: ReturnType<typeof setTimeout>
   consume?: Promise<void>
@@ -4063,9 +4064,11 @@ export function createChannelChatRouteHandler(
         if (request.method === "DELETE") {
           if (run && run.requestSequence <= requestSequence) {
             releaseResumableChatRun(run)
+            run.cancelled = true
             closeResumableChatRun(run)
             run.abortController.abort("Cancelled by the web chat client.")
             await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+            run.resolveReady()
           }
           return new Response(null, { status: 204 })
         }
@@ -4077,6 +4080,7 @@ export function createChannelChatRouteHandler(
         run ||= await waitForResumableChatRun(latestResumableRuns, key)
         if (!run) return new Response(null, { status: 204 })
         await run.ready
+        if (run.cancelled) return new Response(null, { status: 204 })
         if (run.setupError) throw run.setupError
         const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
         if (run.consume) waitUntil?.(run.consume)
@@ -4132,6 +4136,7 @@ export function createChannelChatRouteHandler(
           const existingRun = resumableRuns.get(invocationKey)
           if (existingRun) {
             await existingRun.ready
+            if (existingRun.cancelled) return new Response(null, { status: 204 })
             if (existingRun.setupError) throw existingRun.setupError
             return resumableChatResponse(existingRun)
           }
@@ -4251,6 +4256,7 @@ export function createChannelChatRouteHandler(
         resumableRun = {
           abortController: resumableAbortController!,
           bufferedBytes: 0,
+          cancelled: false,
           chunks: [],
           done: false,
           headers: undefined,
