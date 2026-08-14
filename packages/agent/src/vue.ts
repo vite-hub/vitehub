@@ -198,11 +198,14 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       transport,
     }
   })
-  watch(() => toValue(options), (next, previous) => {
+  watch(() => {
+    const next = toValue(options)
+    return [next, next.id, next.resume] as const
+  }, ([next, nextId, nextResume], [, previousId, previousResume]) => {
     validateOptions(next)
     const prior = latestOptions.value
     latestOptions.value = next
-    if (next.id !== previous.id || next.resume !== previous.resume) {
+    if (nextId !== previousId || nextResume !== previousResume) {
       constructorOptions.value = next
       streamedParts.value = []
       if (next.resume && "window" in globalThis) queueMicrotask(reconnect)
@@ -242,6 +245,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   }, true)
 
   async function stop(): Promise<void> {
+    reconnectGeneration++
     reconnectAbort?.abort()
     const cancellationOptions = latestOptions.value
     const cancellationId = chat.id.value

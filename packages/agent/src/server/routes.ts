@@ -4444,7 +4444,10 @@ export function createChannelChatRouteHandler(
         id: routeOptions.channelId || "http",
         provider: routeOptions.origin || "http",
       }
-      const resumableRequestCancelled = () => Boolean(latestKey && (resumableCancellationTombstones.get(latestKey)?.sequence || 0) > requestSequence)
+      const resumableRequestCancelled = () => Boolean(
+        resumableAbortController?.signal.aborted
+        || (latestKey && (resumableCancellationTombstones.get(latestKey)?.sequence || 0) > requestSequence),
+      )
       if (resumableRequestCancelled()) {
         releaseResumableClaim?.()
         return new Response(null, { status: 204 })
@@ -4488,7 +4491,7 @@ export function createChannelChatRouteHandler(
             }
             const previous = await state.get<string>(boundaryKey)
             selectedSessionId = previous || selectedSessionId
-            if (previous && resumable) refreshSessionBoundary = { key: boundaryKey, value: previous }
+            if (previous && resumes) refreshSessionBoundary = { key: boundaryKey, value: previous }
             else if (selectedSessionId) await state.set(boundaryKey, selectedSessionId, approvalTtlMs)
             if (!resumableRequestCancelled()) return
             if (!previous && selectedSessionId && await state.get<string>(boundaryKey) === selectedSessionId) {

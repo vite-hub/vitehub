@@ -195,7 +195,7 @@ describe("Agent Vue clients", () => {
     vi.stubGlobal("fetch", fetch)
     const options = ref({ id: "chat-1", resume: false })
     const chat = scope.run(() => useChat(useAgent("support"), options))!
-    options.value = { id: "chat-1", resume: true }
+    options.value.resume = true
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     expect(chat.status.value).toBe("ready")
     scope.stop()
@@ -449,6 +449,27 @@ describe("Agent Vue clients", () => {
 
     options.value = { id: "chat-2", resume: true }
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
+    expect(chat.error.value).toBeUndefined()
+    scope.stop()
+  })
+
+  it("does not report an aborted reconnect body as an error after stop", async () => {
+    vi.stubGlobal("window", {})
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 })
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"messageId":"assistant-1","type":"start"}\n\n'))
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")))
+        },
+      }), { headers: { "content-type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" } })
+    })
+    const scope = effectScope()
+    const chat = scope.run(() => useChat(useAgent("support"), { fetch, id: "chat-1", resume: true }))!
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    await chat.stop()
     await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
     expect(chat.error.value).toBeUndefined()
     scope.stop()
