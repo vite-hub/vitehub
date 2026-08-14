@@ -4006,6 +4006,8 @@ export function createChannelChatRouteHandler(
   const resumableClaimWaiters = new Map<string, number>()
   const resumableClaimWaiterResolves = new Map<string, Set<() => void>>()
   let resumableClaimWaiterCount = 0
+  const resumableOwnerBufferedBytes = new Map<string, number>()
+  let resumableTotalBufferedBytes = 0
   const latestResumableClaimSetups = new Map<string, { cancel: () => void, owner: string, promise: Promise<void>, sequence: number }>()
   const resumableCancellationTombstones = new Map<string, { cleanup: ReturnType<typeof setTimeout>, owner: string, sequence: number }>()
   let resumableRequestSequence = 0
@@ -4026,6 +4028,7 @@ export function createChannelChatRouteHandler(
     return true
   }
   const releaseResumableChatRun = (run: ResumableChatRun): void => {
+    if (run.released) return
     run.released = true
     if (run.cleanup) {
       clearTimeout(run.cleanup)
@@ -4033,6 +4036,10 @@ export function createChannelChatRouteHandler(
     }
     if (resumableRuns.get(run.invocationKey) === run) resumableRuns.delete(run.invocationKey)
     if (latestResumableRuns.get(run.latestKey) === run) latestResumableRuns.delete(run.latestKey)
+    resumableTotalBufferedBytes -= run.bufferedBytes
+    const ownerBufferedBytes = (resumableOwnerBufferedBytes.get(run.owner) || 0) - run.bufferedBytes
+    if (ownerBufferedBytes) resumableOwnerBufferedBytes.set(run.owner, ownerBufferedBytes)
+    else resumableOwnerBufferedBytes.delete(run.owner)
     run.chunks = []
     run.bufferedBytes = 0
   }
@@ -4046,7 +4053,9 @@ export function createChannelChatRouteHandler(
 
     try {
       if (request.method !== "POST") {
-        const id = new URL(request.url).searchParams.get("id") || undefined
+        const rawId = new URL(request.url).searchParams.get("id") || undefined
+        if (!rawId) throw createRouteBodyError("Resumable agent chat requires an id query parameter.")
+        const id = optionalBodyString(rawId, "id")
         if (!id) throw createRouteBodyError("Resumable agent chat requires an id query parameter.")
         const body = { id }
         const agentIdentity = routeAgentIdentity(handlerOptions)
@@ -4080,7 +4089,7 @@ export function createChannelChatRouteHandler(
             run.cancelled = true
             closeResumableChatRun(run)
             run.abortController.abort("Cancelled by the web chat client.")
-            await run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
+            void run.reader?.cancel("Cancelled by the web chat client.").catch(() => undefined)
             run.resolveReady()
           }
           const setup = latestResumableClaimSetups.get(key)
@@ -4368,23 +4377,18 @@ export function createChannelChatRouteHandler(
                 if (chunk.done) break
                 const value = chunk.value.slice()
                 resumableRun.bufferedBytes += value.byteLength
-                let ownerBufferedBytes = 0
-                let totalBufferedBytes = 0
-                for (const run of resumableRuns.values()) {
-                  totalBufferedBytes += run.bufferedBytes
-                  if (run.owner === resumableRun.owner) ownerBufferedBytes += run.bufferedBytes
-                }
+                resumableTotalBufferedBytes += value.byteLength
+                let ownerBufferedBytes = (resumableOwnerBufferedBytes.get(resumableRun.owner) || 0) + value.byteLength
+                resumableOwnerBufferedBytes.set(resumableRun.owner, ownerBufferedBytes)
                 if (ownerBufferedBytes > resumableChatMaxOwnerBufferedBytes) {
                   for (const retainedRun of resumableRuns.values()) {
                     if (retainedRun === resumableRun || !retainedRun.done || retainedRun.owner !== resumableRun.owner) continue
                     ownerBufferedBytes -= retainedRun.bufferedBytes
-                    totalBufferedBytes -= retainedRun.bufferedBytes
                     releaseResumableChatRun(retainedRun)
                     if (ownerBufferedBytes <= resumableChatMaxOwnerBufferedBytes) break
                   }
                 }
-                if (resumableRun.bufferedBytes > resumableChatMaxBufferedBytes || ownerBufferedBytes > resumableChatMaxOwnerBufferedBytes || totalBufferedBytes > resumableChatMaxTotalBufferedBytes) {
-                  resumableRun.bufferedBytes -= value.byteLength
+                if (resumableRun.bufferedBytes > resumableChatMaxBufferedBytes || ownerBufferedBytes > resumableChatMaxOwnerBufferedBytes || resumableTotalBufferedBytes > resumableChatMaxTotalBufferedBytes) {
                   releaseResumableChatRun(resumableRun)
                   const error = new Error("[vitehub] Resumable web chat exceeded the retained replay limit.")
                   closeResumableChatRun(resumableRun, error)
@@ -4438,16 +4442,14 @@ export function createChannelChatRouteHandler(
   return Object.assign(handler, {
     inspect(): AgentChannelChatRouteInspection {
       let activeRuns = 0
-      let bufferedBytes = 0
       let liveSubscribers = 0
       for (const run of resumableRuns.values()) {
         if (!run.done) activeRuns++
-        bufferedBytes += run.bufferedBytes
         liveSubscribers += run.subscribers.size
       }
       return {
         activeRuns,
-        bufferedBytes,
+        bufferedBytes: resumableTotalBufferedBytes,
         liveSubscribers,
         maxBufferedBytesPerOwner: resumableChatMaxOwnerBufferedBytes,
         maxPendingCancellationsPerOwner: resumableChatMaxOwnerTombstones,

@@ -137,6 +137,28 @@ describe("resumable web chat", () => {
     expect((await otherOwnerPromise).status).toBe(204)
   })
 
+  it("normalizes chat IDs consistently for POST, reconnect, and cancellation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "done" },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+    const post = new Request("https://example.com/chat", {
+      body: JSON.stringify({ id: " chat-1 ", messageId: "user-1", messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }] }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+    const lookup = (method: "DELETE" | "GET") => new Request("https://example.com/chat?id=%20chat-1%20", { method })
+
+    await expect((await handler(post, options)).text()).resolves.toContain("done")
+    await expect((await handler(lookup("GET"), options)).text()).resolves.toContain("done")
+    await expect(handler(lookup("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+    expect(handler.inspect()).toMatchObject({ bufferedBytes: 0, retainedRuns: 0 })
+  })
+
   it("keeps the newest POST as the latest replay when an older setup finishes later", async () => {
     const agentModule = await import("../src/index.ts")
     const { defineAgent } = agentModule
@@ -623,6 +645,30 @@ describe("resumable web chat", () => {
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith("Cancelled by the web chat client."))
     await expect(body).resolves.toContain("assistant-1")
     await Promise.all(pending)
+  })
+
+  it("returns DELETE after accepting cancellation when provider cleanup stalls", async () => {
+    const agentModule = await import("../src/index.ts")
+    const { defineAgent } = agentModule
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const cancel = vi.fn(() => new Promise<void>(() => {}))
+    const streamAgentTrigger = vi.spyOn(agentModule, "streamAgentTrigger").mockResolvedValue(new Response(new ReadableStream({ cancel })))
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: { portal: webChat({ route: { resumable: { owner: () => "max" } } }) },
+      driver: { run: () => "unused" },
+    }) as never)
+    const options = { agentName: "support", waitUntil: () => {} }
+
+    try {
+      const response = await handler(chatRequest("POST"), options)
+      await expect(handler(chatRequest("DELETE"), options)).resolves.toMatchObject({ status: 204 })
+      expect(cancel).toHaveBeenCalledWith("Cancelled by the web chat client.")
+      await response.body?.cancel()
+    }
+    finally {
+      streamAgentTrigger.mockRestore()
+    }
   })
 
   it("aborts a registered invocation before its stream becomes ready", async () => {
