@@ -5147,6 +5147,83 @@ describe("server helpers", () => {
     )
   })
 
+  it("maps audio attachments from forwarded Discord message snapshots", async () => {
+    const { createDiscordAdapter } = await import("@chat-adapter/discord")
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const collection = <T>(values: T[]) => ({
+      map: <U>(callback: (value: T) => U) => values.map(callback),
+      values: () => values.values(),
+    })
+    const adapter = createDiscordAdapter({
+      applicationId: "mini",
+      botToken: "test-token",
+      publicKey: "0".repeat(64),
+    })
+    const run = vi.fn(() => "ok")
+    const handleGatewayMessage = (adapter as unknown as {
+      handleGatewayMessage: (message: unknown, isMentioned: boolean) => Promise<void>
+    }).handleGatewayMessage.bind(adapter)
+    Object.assign(adapter, {
+      fetchMessages: vi.fn(async () => ({ messages: [] })),
+      postMessage: vi.fn(async () => ({ id: "reply", raw: {}, threadId: "discord:guild:channel:thread" })),
+      startGatewayListener: vi.fn(async () => {
+        await handleGatewayMessage({
+          attachments: collection([]),
+          author: {
+            bot: false,
+            displayName: "Maxi",
+            id: "user",
+            username: "maxi",
+          },
+          channel: {
+            isThread: () => true,
+            parentId: "channel",
+          },
+          channelId: "thread",
+          content: "",
+          createdAt: new Date("2026-08-14T15:39:39.136Z"),
+          editedAt: null,
+          guildId: "guild",
+          id: "forwarded-audio",
+          messageSnapshots: collection([{
+            attachments: collection([{
+              contentType: "audio/ogg",
+              name: "voice-message.ogg",
+              size: 873_205,
+              url: "https://cdn.discordapp.com/voice-message.ogg",
+            }]),
+            content: "",
+          }]),
+        }, true)
+        return Response.json({ ok: true })
+      }),
+    })
+    const agent = defineAgent({
+      channels: {
+        discord: discord({ adapter: () => adapter }),
+      },
+      driver: { run },
+    })
+    const handler = createDiscordGatewayRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/mini/discord/gateway"), {})
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [expect.objectContaining({
+          mediaType: "audio/ogg",
+          name: "voice-message.ogg",
+          size: 873_205,
+          type: "audio",
+          url: "https://cdn.discordapp.com/voice-message.ogg",
+        })],
+      })],
+    }))
+  })
+
   it("rejects non-GET Discord Gateway requests", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")

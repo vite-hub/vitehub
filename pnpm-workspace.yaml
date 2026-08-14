@@ -30,9 +30,9 @@ catalogs:
   auth:
     better-auth: ^1.6.23
   chat:
-    "@chat-adapter/discord": 4.37.0
+    "@chat-adapter/discord": 4.38.0
     "@chat-adapter/telegram": 4.37.0
-    chat: 4.37.0
+    chat: 4.38.0
     chat-state-cloudflare-do: ^0.2.0
   database:
     "@libsql/client": ^0.17.4
