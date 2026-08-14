@@ -368,12 +368,26 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         root: this.#root,
         token: this.#token,
       });
-      if (remote.refSha === this.#baselineRefSha) return;
-
-      const takeRemote = new Set(options.takeRemote || []);
+      const takeRemote = options.takeRemote || [];
+      const shouldTakeRemote = (path: string) => takeRemote.some(
+        root => path === root || path.startsWith(`${root}/`),
+      );
       const local = new Map(this.#files);
       const previousRemoteFiles = this.#remoteFiles;
       const changed = new Set([...previousRemoteFiles.keys(), ...local.keys()]);
+      if (remote.refSha === this.#baselineRefSha) {
+        for (const path of changed) {
+          if (!shouldTakeRemote(path)) continue;
+          const file = remote.files.get(path);
+          if (file) this.#files.set(path, githubRemoteFile(path, file));
+          else this.#files.delete(path);
+        }
+        this.#dirty = [...new Set([...this.#remoteFiles.keys(), ...this.#files.keys()])].some(
+          path => !matchesGitHubRemote(this.#files.get(path), this.#remoteFiles.get(path)),
+        );
+        return;
+      }
+
       for (const path of changed) {
         if (matchesGitHubRemote(local.get(path), previousRemoteFiles.get(path))) {
           changed.delete(path);
@@ -383,7 +397,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         const current = remote.files.get(path);
         if (
           !sameGitHubTreeEntry(previous, current) &&
-          !takeRemote.has(path) &&
+          !shouldTakeRemote(path) &&
           !matchesGitHubRemote(local.get(path), current)
         ) {
           throw workspaceConflict(
@@ -408,7 +422,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
           previousRemoteFiles.get(path),
           remote.files.get(path),
         );
-        if (remoteChanged && takeRemote.has(path)) continue;
+        if (remoteChanged && shouldTakeRemote(path)) continue;
         const file = local.get(path);
         if (file) this.#files.set(path, file);
         else this.#files.delete(path);

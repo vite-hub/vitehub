@@ -101,6 +101,28 @@ describe("Harness Workspace Session", () => {
     }
   })
 
+  it("materializes through a Harness sandbox without binary reads", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "from workspace")
+    await docs.snapshot({ name: "baseline" })
+    const sandbox = localSandbox()
+    delete sandbox.session.readBinaryFile
+    const root = await sandbox.root
+    const target = join(root, "workspace")
+
+    try {
+      const session = await prepareHarnessWorkspaceSession(facade(docs) as never, {
+        session: sandbox.session,
+        sessionWorkDir: target,
+      })
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("from workspace")
+      await session.close()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("keeps concurrent invocation trees isolated and discards a failed invocation", async () => {
     const docs = workspace()
     await docs.writeFile("README.md", "authoritative")
@@ -152,6 +174,31 @@ describe("Harness Workspace Session", () => {
       controller.abort(new Error("invocation canceled"))
 
       await expect(session.close(new Error("invocation canceled"))).resolves.toBeUndefined()
+      await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("closes and restores a Session when Git baseline initialization fails", async () => {
+    const docs = workspace()
+    await docs.writeFile("README.md", "authoritative")
+    await docs.snapshot({ name: "baseline" })
+    const sandbox = localSandbox()
+    const root = await sandbox.root
+    const target = join(root, "workspace")
+    const run = sandbox.session.run
+    sandbox.session.run = async (options) => {
+      if (options.command.includes("git init")) throw new Error("git unavailable")
+      return await run(options)
+    }
+
+    try {
+      await expect(prepareHarnessWorkspaceSession(facade(docs) as never, {
+        session: sandbox.session,
+        sessionWorkDir: target,
+      })).rejects.toThrow("git unavailable")
       await expect(readFile(join(target, "README.md"), "utf8")).resolves.toBe("authoritative")
     }
     finally {

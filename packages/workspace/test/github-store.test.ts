@@ -1201,6 +1201,42 @@ describe("GitHub workspace store", () => {
     );
   });
 
+  it("discards selected staged writes when the provider revision is unchanged", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Authoritative\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("page.md", { path: "page.md", content: "# Failed invocation\n" });
+    await store.writeFile("draft.md", { path: "draft.md", content: "unrelated draft\n" });
+    await store.rebase?.({ takeRemote: ["page.md"] });
+
+    await expect(store.readFile("page.md")).resolves.toMatchObject({
+      content: textBytes("# Authoritative\n"),
+    });
+    await expect(store.readFile("draft.md")).resolves.toMatchObject({
+      content: textBytes("unrelated draft\n"),
+    });
+    await store.snapshot({ name: "retry" });
+    expect(remoteTree).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: ".vitehub/workspaces/docs/page.md",
+        sha: textSha("# Authoritative\n"),
+      }),
+      expect.objectContaining({
+        path: ".vitehub/workspaces/docs/draft.md",
+        sha: textSha("unrelated draft\n"),
+      }),
+    ]));
+  });
+
   it("requires repository and token configuration", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
 

@@ -140,6 +140,30 @@ async function adaptOrClose(session: BoxSession) {
   }
 }
 
+async function openInvocationBox(box: Box, options: Parameters<typeof openHarnessBox>[1], signal?: AbortSignal) {
+  const opening = openHarnessBox(box, options)
+  if (!signal) return await opening
+  signal.throwIfAborted()
+  return await new Promise<BoxSession>((resolve, reject) => {
+    const aborted = () => {
+      opening.then(session => session.close()).catch(() => undefined)
+      reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"))
+    }
+    signal.addEventListener("abort", aborted, { once: true })
+    if (signal.aborted) aborted()
+    opening.then(
+      (session) => {
+        signal.removeEventListener("abort", aborted)
+        resolve(session)
+      },
+      (error) => {
+        signal.removeEventListener("abort", aborted)
+        reject(error)
+      },
+    )
+  })
+}
+
 export function createBoxHarnessSandbox(
   box: Box,
 ): HarnessV1SandboxProvider & { readonly executionAuthority: ExecutionAuthority } {
@@ -148,21 +172,37 @@ export function createBoxHarnessSandbox(
     providerId: box.plan.runtime,
     specificationVersion: "harness-sandbox-v1",
     async createSession(options) {
+      options?.abortSignal?.throwIfAborted()
       let adapted: HarnessV1NetworkSandboxSession | undefined
-      const session = await openHarnessBox(box, {
+      const session = await openInvocationBox(box, {
         id: options?.sessionId,
-        signal: options?.abortSignal,
         initialize: options?.onFirstCreate
-          ? async (boxSession, { signal }) => {
+          ? async (boxSession) => {
               adapted = adaptBoxSession(boxSession)
-              await options.onFirstCreate!(adapted, { abortSignal: signal })
+              await options.onFirstCreate!(adapted, { abortSignal: options.abortSignal })
             }
           : undefined,
-      })
-      return adapted || await adaptOrClose(session)
+      }, options?.abortSignal)
+      try {
+        options?.abortSignal?.throwIfAborted()
+        return adapted || await adaptOrClose(session)
+      }
+      catch (error) {
+        await session.close().catch(() => undefined)
+        throw error
+      }
     },
     async resumeSession(options) {
-      return await adaptOrClose(await openHarnessBox(box, { id: options.sessionId, signal: options.abortSignal }))
+      options.abortSignal?.throwIfAborted()
+      const session = await openInvocationBox(box, { id: options.sessionId }, options.abortSignal)
+      try {
+        options.abortSignal?.throwIfAborted()
+        return await adaptOrClose(session)
+      }
+      catch (error) {
+        await session.close().catch(() => undefined)
+        throw error
+      }
     },
   }
 }

@@ -155,8 +155,11 @@ function harnessWorkspaceHost(options: PrepareHarnessWorkspaceSessionOptions): {
         if (result.code !== 0) throw new Error(`[vitehub] Failed to create Harness Workspace directory: ${result.stderr || "mkdir failed"}`)
       },
       async read(path) {
-        if (!sandbox.readBinaryFile) throw new Error("[vitehub] Harness Workspace Session requires sandbox.readBinaryFile.")
-        return await sandbox.readBinaryFile({ abortSignal, path })
+        if (sandbox.readBinaryFile) return await sandbox.readBinaryFile({ abortSignal, path })
+        const result = await run("sh", ["-c", "test -f \"$1\" || exit 44; base64 < \"$1\"", "sh", path])
+        if (result.code === 44) return null
+        if (result.code !== 0) throw new Error(`[vitehub] Failed to read Harness Workspace file: ${result.stderr || "base64 failed"}`)
+        return Buffer.from(result.stdout.replace(/\s/g, ""), "base64")
       },
       async remove(path, removeOptions) {
         const result = removeOptions?.recursive
@@ -214,7 +217,19 @@ export async function prepareHarnessWorkspaceSession(
     target: options.sessionWorkDir,
     writeBack: { exclude: options.ignoreWriteBackPaths },
   }))
-  await initializeSandboxGitBaseline(session, options.onProgress)
+  try {
+    await initializeSandboxGitBaseline(session, options.onProgress)
+  }
+  catch (error) {
+    sessionHost.detachAbortSignal()
+    try {
+      await session.close()
+    }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "[vitehub] Failed to initialize and close Harness Workspace Session.")
+    }
+    throw error
+  }
 
   return {
     async close(error?: unknown) {
