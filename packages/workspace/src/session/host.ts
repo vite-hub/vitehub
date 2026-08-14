@@ -750,18 +750,17 @@ export async function createHostedWorkspaceSession(
     async close() {
       if (closed) return
       await ensureHostWorkspaceRoot(host, root)
-      const rootExists = true
       let diff: WorkspaceDiff | undefined
       if (options.attach && attachedState) {
         const attachedDiff = filterSessionDiff(diffSnapshots(baseline, await snapshotHost(host, root)), sessionPaths)
         await restoreAttachedHost(host, root, attachedDiff, attachedState)
       }
-      else if (rootExists && excludedState) {
+      else if (excludedState) {
         await restoreExcludedHostState(host, root, excludedWriteBackPaths, excludedState)
         diff = await currentDiff()
       }
       closed = true
-      if (rootExists && diff?.entries.length) await materializeWorkspace(workspace, host, root, options)
+      if (diff?.entries.length) await materializeWorkspace(workspace, host, root, options)
     },
   }
 }
