@@ -251,7 +251,7 @@ export async function runAgentWorkflowDefinition<
 
 function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
   return Boolean(value && typeof value === "object"
-    && typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string"
+    && (typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string" || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined)
     && typeof (value as AgentChannelDeliveryWorkflowBinding).deliveryId === "string"
     && typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string"
     && ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"))

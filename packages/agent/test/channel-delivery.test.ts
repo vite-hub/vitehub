@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
+import { agentChannelDeliverySourceId, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
 
 import type { StateAdapter } from "chat"
+
+describe("Agent Channel delivery source identity", () => {
+  it("scopes top-level activity IDs to providers that define them", () => {
+    expect(agentChannelDeliverySourceId("teams", { id: "activity-1" })).toBe("activity-1")
+    expect(agentChannelDeliverySourceId("custom", { id: "resource-1" })).toBeUndefined()
+    expect(agentChannelDeliverySourceId("custom", { event: { id: "event-1" }, id: "resource-1" })).toBe("event-1")
+  })
+})
 
 function stateAdapter(): StateAdapter {
   const values = new Map<string, unknown>()

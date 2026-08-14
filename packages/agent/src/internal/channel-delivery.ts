@@ -13,7 +13,7 @@ export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
 export interface AgentChannelDeliveryWorkflowBinding {
-  channelId: string
+  channelId?: string
   deliveryId: string
   provider: string
   state: "chat" | "webhook"
@@ -45,6 +45,22 @@ function sourceKey(delivery: Pick<AgentChannelDelivery, "provider" | "scope" | "
 
 function token(): string {
   return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function sourceValue(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
+}
+
+export function agentChannelDeliverySourceId(provider: string, payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return
+  const record = payload as Record<string, unknown>
+  const activity = record.activity && typeof record.activity === "object" && !Array.isArray(record.activity) ? record.activity as Record<string, unknown> : undefined
+  const event = record.event && typeof record.event === "object" && !Array.isArray(record.event) ? record.event as Record<string, unknown> : undefined
+  return sourceValue(record.event_id)
+    || sourceValue(record.update_id)
+    || (provider === "teams" ? sourceValue(record.id) : undefined)
+    || sourceValue(activity?.id)
+    || sourceValue(event?.id)
 }
 
 function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): void {

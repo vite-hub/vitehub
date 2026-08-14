@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -585,14 +585,8 @@ async function webhookDeliverySourceId(request: Request, provider: string): Prom
   const header = request.headers.get("x-github-delivery") || request.headers.get("x-vitehub-delivery-id") || request.headers.get("idempotency-key")
   if (header) return header
   const payload = parseWebhookPayload(await request.clone().text())
-  if (isRecord(payload)) {
-    const source = deliverySourceValue(payload.event_id)
-      || deliverySourceValue(payload.update_id)
-      || (provider === "teams" ? deliverySourceValue(payload.id) : undefined)
-      || (isRecord(payload.activity) ? deliverySourceValue(payload.activity.id) : undefined)
-      || (isRecord(payload.event) ? deliverySourceValue(payload.event.id) : undefined)
-    if (source) return source
-  }
+  const source = agentChannelDeliverySourceId(provider, payload)
+  if (source) return source
   return randomToken()
 }
 
@@ -4619,16 +4613,17 @@ export function createChannelWebhookRouteHandler(
     const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
     if (!match) return []
     const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
-    const chatState = webhookState ? undefined : await resolveChatState(
+    const workflowCustody = await hasActiveWorkflowRuntime(agent, context)
+    const chatState = webhookState && !workflowCustody ? undefined : await resolveChatState(
       getChannelChatOptions(agent, match.registration.channelId, getAgentChatOptions(agent)),
       context,
       match.registration,
-      handlerOptions,
+      workflowCustody ? {} : handlerOptions,
     )
-    const state = webhookState?.state || chatState?.state
+    const state = (workflowCustody ? undefined : webhookState?.state) || chatState?.state
     if (!state) return []
     await state.connect()
-    const scopePrefix = webhookState?.keyPrefix || chatState?.titleKeyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(match.registration)}`
+    const scopePrefix = (workflowCustody ? undefined : webhookState?.keyPrefix) || chatState?.titleKeyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(match.registration)}`
     return await readAgentChannelDeliveries(state, handlerOptions.limit, scopePrefix)
   }
   handler.resume = (handlerOptions = {}) => {
