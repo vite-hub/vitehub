@@ -169,6 +169,10 @@ describe("createCrabboxRuntime", () => {
       const cwdOwnedPid = await spawnOrphan("unmarked", session.root)
       await session.run({ command: `mkdir -p -- '${session.root}.other'` })
       const envOwnedPid = await spawnOrphan("unmarked", `${session.root}.other`, session.root)
+      const fdTree = await session.run({
+        command: `node -e 'const { openSync } = require("node:fs"); const { spawn } = require("node:child_process"); const fd = openSync(process.argv[1], "a"); const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { cwd: process.argv[2], detached: true, env: { PATH: process.env.PATH, PWD: process.argv[2] }, stdio: ["ignore", "ignore", "ignore", fd] }); child.unref(); console.log(child.pid)' '${session.root}/fd-owned' '${session.root}.other'`,
+      })
+      const fdOwnedPid = Number(fdTree.stdout.trim())
       const treePidFile = `${session.root}/tree-child.pid`
       const tree = await session.run({
         command: `node -e 'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "const { spawn } = require(\\"node:child_process\\"); const child = spawn(process.execPath, [\\"-e\\", \\"setInterval(() => {}, 60000)\\"], { stdio: \\"ignore\\" }); require(\\"node:fs\\").writeFileSync(process.argv[1], String(child.pid)); setInterval(() => {}, 60000)", process.argv[1]], { cwd: process.argv[2], detached: true, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${treePidFile}' '${session.root}'`,
@@ -183,6 +187,7 @@ describe("createCrabboxRuntime", () => {
           await expect(readFile(`/proc/${cwdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${treeParentPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${envOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${fdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
           await expect(readFile(`/proc/${unrelatedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
         })
         await session.destroy()
@@ -196,6 +201,8 @@ describe("createCrabboxRuntime", () => {
           expect(treeChildStatus === undefined || /^State:\s+Z/m.test(treeChildStatus)).toBe(true)
           const envStatus = await readFile(`/proc/${envOwnedPid}/status`, "utf8").catch(() => undefined)
           expect(envStatus === undefined || /^State:\s+Z/m.test(envStatus)).toBe(true)
+          const fdStatus = await readFile(`/proc/${fdOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(fdStatus === undefined || /^State:\s+Z/m.test(fdStatus)).toBe(true)
         })
         expect(() => process.kill(unrelatedPid, 0)).not.toThrow()
       }
@@ -206,6 +213,7 @@ describe("createCrabboxRuntime", () => {
         try { process.kill(treeParentPid, "SIGKILL") } catch {}
         try { process.kill(treeChildPid, "SIGKILL") } catch {}
         try { process.kill(envOwnedPid, "SIGKILL") } catch {}
+        try { process.kill(fdOwnedPid, "SIGKILL") } catch {}
       }
     })
   }, 30_000)
