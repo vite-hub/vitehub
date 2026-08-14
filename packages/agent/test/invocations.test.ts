@@ -65,7 +65,16 @@ describe("Agent Invocations", () => {
   })
 
   it("normalizes non-finite observation numbers across stores", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const memory = createMemoryAgentInvocationStore()
+    const persistedObservations: unknown[] = []
+    const store: AgentInvocationStore = {
+      ...memory,
+      update(id, input, claimId) {
+        if (input.observation) persistedObservations.push(input.observation)
+        return memory.update(id, input, claimId)
+      },
+    }
+    const invocations = defineAgentInvocations({ store })
     const agent = defineAgent({
       driver: { async run(context) {
         await context.traceLog?.append({
@@ -83,6 +92,9 @@ describe("Agent Invocations", () => {
     const observation = (await invocations.getByRunId("observation-numbers"))?.observations
       .find(event => event.name === "numbers")
     expect(observation?.attributes).toMatchObject({ finite: 1, nan: null, negative: null, positive: null })
+    expect(persistedObservations).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ nan: null, negative: null, positive: null }),
+    }))
   })
 
   it("stops observation writes at the durable cap and retries terminal writes", async () => {
@@ -224,6 +236,27 @@ describe("Agent Invocations", () => {
     })
     release()
     await expect(invocation).resolves.toBe("done")
+  })
+
+  it("persists startedAt before a fast terminal transition", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let runningFailures = 1
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        update(id, input, claimId) {
+          if (input.status === "running" && runningFailures-- > 0) return
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const agent = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
+
+    await expect(runAgent(agent, runtime("fast-running-recovery"), {})).resolves.toBe("done")
+    await expect(invocations.getByRunId("fast-running-recovery")).resolves.toMatchObject({
+      startedAt: expect.any(String),
+      status: "completed",
+    })
   })
 
   it("normalizes limits while preserving opaque custom-store cursors", async () => {

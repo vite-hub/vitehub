@@ -364,6 +364,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let ownsRecord = false
       let observationCount = 0
       let created = false
+      let runningPersisted = false
+      let runningRequested = false
       let createInput: AgentInvocationStoreCreateInput
       let runningRetry: Promise<void> | undefined
       let terminalRetry: Promise<void> | undefined
@@ -431,12 +433,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const observe = (observation: TraceEventLogEntry) => write(async () => {
         if (observationCount >= MAX_OBSERVATIONS || !await renew()) return
         const timestamp = normalizedTimestamp(observation.timestamp)
+        const persistedObservation = boundedObservation({
+          ...observation,
+          timestamp,
+          ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+        })
         const updated = await store.update(recordId, {
-          observation: {
-            ...observation,
-            timestamp,
-            ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-          },
+          observation: persistedObservation,
           timestamp,
         }, claimId)
         if (updated) observationCount = updated.observations.length
@@ -450,6 +453,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         async finish(status, error) {
           if (finished) return
+          if (runningRequested && !runningPersisted) {
+            runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
+          }
           const finishInput: AgentInvocationStoreUpdateInput = {
               ...(errorDetails(error) ? { error: errorDetails(error) } : {}),
               status,
@@ -484,7 +490,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         async running() {
           if (finished) return
-          const markRunning = () => update({ status: "running", timestamp: new Date().toISOString() })
+          runningRequested = true
+          const markRunning = async () => {
+            runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
+            return runningPersisted
+          }
           if (await markRunning() || runningRetry) return
           runningRetry = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
