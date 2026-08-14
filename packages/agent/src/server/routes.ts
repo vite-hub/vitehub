@@ -581,13 +581,14 @@ function deliverySourceValue(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
 }
 
-async function webhookDeliverySourceId(request: Request): Promise<string> {
+async function webhookDeliverySourceId(request: Request, provider: string): Promise<string> {
   const header = request.headers.get("x-github-delivery") || request.headers.get("x-vitehub-delivery-id") || request.headers.get("idempotency-key")
   if (header) return header
   const payload = parseWebhookPayload(await request.clone().text())
   if (isRecord(payload)) {
     const source = deliverySourceValue(payload.event_id)
       || deliverySourceValue(payload.update_id)
+      || (provider === "teams" ? deliverySourceValue(payload.id) : undefined)
       || (isRecord(payload.activity) ? deliverySourceValue(payload.activity.id) : undefined)
       || (isRecord(payload.event) ? deliverySourceValue(payload.event.id) : undefined)
     if (source) return source
@@ -4361,7 +4362,7 @@ export function createChannelWebhookRouteHandler(
         channelId: registration.channelId,
         provider: registration.provider,
         scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
-        sourceId: await webhookDeliverySourceId(request),
+        sourceId: await webhookDeliverySourceId(request, registration.provider),
       })
       context = withAgentChannelDelivery(context, channelDelivery)
 
