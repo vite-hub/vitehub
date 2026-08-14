@@ -9452,6 +9452,8 @@ describe("server helpers", () => {
       const firstResponse = handler(await serialRequest(91_010, "A"), "telegram", { agentName: "support" })
       await firstStartedPromise
       await expect(handler(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      const queuedDeliveries = await handler.deliveries(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })
+      expect(queuedDeliveries.find(delivery => delivery.sourceId === "92011")?.status).toBe("queued")
       await vi.advanceTimersByTimeAsync(31_000)
       expect(extendLock).toHaveBeenCalled()
       await expect(handler(await serialRequest(91_012, "C"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
