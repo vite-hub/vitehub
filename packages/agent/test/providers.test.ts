@@ -11190,6 +11190,7 @@ describe("server helpers", () => {
       }
       return { id: "default-fallback", raw: { message }, threadId }
     })
+    const run = vi.fn(() => new Promise(() => undefined))
     const agent = defineAgent({
       channels: {
         telegram: telegram({
@@ -11202,7 +11203,7 @@ describe("server helpers", () => {
           webhooks: { secretToken: false },
         }),
       },
-      driver: { run: () => new Promise(() => undefined) },
+      driver: { run },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -11211,7 +11212,7 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch(error => error)
-      await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0), { interval: 0 })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
       await vi.advanceTimersByTimeAsync(28_000)
       await vi.advanceTimersByTimeAsync(1_000)
 
