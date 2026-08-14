@@ -105,6 +105,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
         const headers = new Headers(requestInit?.headers)
         if (requestInit?.method === "POST" && latestOptions.value.resume) {
           headers.set("x-vitehub-resumable", "true")
+          headers.set("x-vitehub-claim-id", crypto.randomUUID())
         }
         return request(input, {
           ...requestInit,

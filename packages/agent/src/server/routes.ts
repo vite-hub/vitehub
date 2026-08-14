@@ -114,11 +114,13 @@ export interface AgentChannelChatRouteInspection {
   activeRuns: number
   bufferedBytes: number
   liveSubscribers: number
+  maxPendingAdmissionSetupsPerOwner: number
   maxBufferedBytesPerOwner: number
   maxPendingCancellationsPerOwner: number
   maxPendingClaimsPerOwner: number
   maxPendingLookupsPerOwner: number
   maxTotalBufferedBytes: number
+  maxTotalPendingAdmissionSetups: number
   maxTotalPendingCancellations: number
   maxTotalPendingClaims: number
   maxTotalPendingLookups: number
@@ -127,6 +129,7 @@ export interface AgentChannelChatRouteInspection {
   maxSubscribersPerRun: number
   maxTotalRuns: number
   pendingCancellations: number
+  pendingAdmissionSetups: number
   pendingClaims: number
   pendingLookups: number
   pendingOwnerResolutions: number
@@ -4104,6 +4107,8 @@ export function createChannelChatRouteHandler(
   const resumableLookupOwners = new Map<string, number>()
   let resumableLookupCount = 0
   let resumableOwnerResolutionCount = 0
+  const resumableAdmissionSetupOwners = new Map<string, number>()
+  let resumableAdmissionSetupCount = 0
   const resumableOwnerBufferedBytes = new Map<string, number>()
   let resumableTotalBufferedBytes = 0
   type ResumableClaimSetup = { cancel: () => void, owner: string, promise: Promise<void>, sequence: number }
@@ -4303,10 +4308,16 @@ export function createChannelChatRouteHandler(
       const inputContext = { agentName, auth: auth as never, body, event: handlerOptions.event, input: trustedInput, rawBody: parsed.rawBody, request }
       const owner = resumes ? await resolveResumableOwner(resumable!, inputContext, request.signal) : undefined
       if (resumes && !owner) return new Response(null, { status: 204 })
-      if (resumes && resumableOwnerResolutionCount >= resumableChatMaxTotalPendingOwnerResolutions) {
+      if (resumes && (resumableAdmissionSetupOwners.get(owner!) || 0) >= resumableChatMaxPendingClaims) {
+        throw createRouteError(429, "Resumable web chat has too many pending admission setups. Try again later.")
+      }
+      if (resumes && resumableAdmissionSetupCount >= resumableChatMaxTotalPendingClaims) {
         throw createRouteError(429, "Resumable web chat has reached its setup capacity. Try again later.")
       }
-      if (resumes) resumableOwnerResolutionCount++
+      if (resumes) {
+        resumableAdmissionSetupOwners.set(owner!, (resumableAdmissionSetupOwners.get(owner!) || 0) + 1)
+        resumableAdmissionSetupCount++
+      }
       let triggerInput: AgentChatMessageTriggerInput
       try {
         const admittedInput = mergeAgentChannelChatRouteInput(
@@ -4319,18 +4330,27 @@ export function createChannelChatRouteHandler(
         )
       }
       finally {
-        if (resumes) resumableOwnerResolutionCount--
+        if (resumes) {
+          const pending = (resumableAdmissionSetupOwners.get(owner!) || 1) - 1
+          if (pending) resumableAdmissionSetupOwners.set(owner!, pending)
+          else resumableAdmissionSetupOwners.delete(owner!)
+          resumableAdmissionSetupCount--
+        }
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
       const chatId = resumableChatId || "default"
       const latestKey = owner ? resumableChatKey(agentName, routeOptions.channelId, owner, chatId) : undefined
+      const regenerationClaimId = optionalBodyString(request.headers.get("x-vitehub-claim-id") || undefined, "x-vitehub-claim-id")
+      if (resumes && body.trigger === "regenerate-message" && !regenerationClaimId) {
+        throw createRouteBodyError("Resumable regeneration requires an x-vitehub-claim-id header.")
+      }
       const invocationKey = latestKey
         ? resumableChatKey(
             agentName,
             routeOptions.channelId,
             owner!,
             chatId,
-            body.trigger === "regenerate-message" ? `regenerate:${randomToken()}` : triggerInput.run?.messageId || "default",
+            body.trigger === "regenerate-message" ? `regenerate:${regenerationClaimId}` : triggerInput.run?.messageId || "default",
           )
         : undefined
       if (invocationKey) {
@@ -4731,11 +4751,13 @@ export function createChannelChatRouteHandler(
         activeRuns,
         bufferedBytes: resumableTotalBufferedBytes,
         liveSubscribers,
+        maxPendingAdmissionSetupsPerOwner: resumableChatMaxPendingClaims,
         maxBufferedBytesPerOwner: resumableChatMaxOwnerBufferedBytes,
         maxPendingCancellationsPerOwner: resumableChatMaxOwnerTombstones,
         maxPendingClaimsPerOwner: resumableChatMaxPendingClaims,
         maxPendingLookupsPerOwner: resumableChatMaxPendingLookups,
         maxTotalBufferedBytes: resumableChatMaxTotalBufferedBytes,
+        maxTotalPendingAdmissionSetups: resumableChatMaxTotalPendingClaims,
         maxTotalPendingCancellations: resumableChatMaxTombstones,
         maxTotalPendingClaims: resumableChatMaxTotalPendingClaims,
         maxTotalPendingLookups: resumableChatMaxTotalPendingLookups,
@@ -4744,6 +4766,7 @@ export function createChannelChatRouteHandler(
         maxSubscribersPerRun: resumableChatMaxSubscribers,
         maxTotalRuns: resumableChatMaxTotalRuns,
         pendingCancellations: resumableCancellationTombstones.size,
+        pendingAdmissionSetups: resumableAdmissionSetupCount,
         pendingClaims: resumableClaimSetups.size + resumableClaimWaiterCount,
         pendingLookups: resumableLookupCount,
         pendingOwnerResolutions: resumableOwnerResolutionCount,

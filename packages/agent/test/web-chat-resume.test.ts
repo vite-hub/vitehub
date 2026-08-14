@@ -310,8 +310,11 @@ describe("resumable web chat", () => {
           messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
           trigger: "regenerate-message",
         }),
+        headers: { "content-type": "application/json", "x-owner": "max", "x-vitehub-claim-id": "regeneration-1", "x-vitehub-resumable": "true" },
       })
+      const regenerationRetry = regeneration.clone()
       await expect((await handler(regeneration, options)).text()).resolves.toBe("ok")
+      await expect((await handler(regenerationRetry, options)).text()).resolves.toBe("ok")
       await Promise.all(pending)
       expect(streamAgentTrigger).toHaveBeenCalledTimes(2)
     }
