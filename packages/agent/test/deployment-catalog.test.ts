@@ -153,7 +153,6 @@ async function createDeploymentRuntimeFixture(
             url: "file:catalog.sqlite",
           },
         },
-        routes: { chat: true },
         ...(adapter === "deno" ? { runtime: "deno" } : {}),
       }),
       {

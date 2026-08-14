@@ -54,9 +54,9 @@ With manual chat delivery, ViteHub edits the current placeholder as summaries ar
 
 ## Understand the runtime behavior
 
-The Capability starts its initial summary before the primary Driver finishes setup. If the summary completes before the UI stream is available, ViteHub buffers the latest transient part and emits it when the stream attaches.
+With event-driven `intervalMs: 0`, the Capability starts its initial summary when the first non-terminal primary stream chunk arrives. A terminal-only or failed stream does not start unused auxiliary work.
 
-Positive intervals use a fixed cadence from invocation start, so a slow generation does not postpone the next tick. Generations can overlap; each receives a higher revision, and a stale completion cannot replace a newer completed revision. Set `intervalMs: 0` to generate from reasoning and tool activity through the event-driven microtask behavior instead. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
+Positive intervals begin when the first primary stream chunk arrives and use a fixed cadence from that point, so auxiliary generation never delays primary Driver startup and a slow generation does not postpone the next tick. Generations can overlap; each receives a higher revision, and a stale completion cannot replace a newer completed revision. Set `intervalMs: 0` to generate from reasoning and tool activity through the event-driven microtask behavior instead. Raw reasoning, tool input, and tool output are excluded from the generated prompt; reasoning is represented only as an `Active` presence signal.
 
 The default prompt uses only reasoning presence, sanitized tool names, and the previous summary. It does not include user message text, code, commands, paths, traces, hidden instructions, credentials, raw tool details, or trusted `<context>` payloads.
 
@@ -64,7 +64,7 @@ The Capability stops its cadence and aborts every in-flight generation when the 
 
 ## Requirements
 
-The primary Agent Driver must expose a compatible async stream or UI message stream. With a positive interval, the Capability attempts a summary on every tick and suppresses unchanged output. With `intervalMs: 0`, it remains silent after the initial summary until reasoning or tool lifecycle events provide new activity.
+The primary Agent Driver must expose a compatible async stream or UI message stream. With a positive interval, the Capability attempts a summary on every tick and suppresses unchanged output. With `intervalMs: 0`, it remains silent after the first-chunk summary until reasoning or tool lifecycle events provide new activity.
 
 Configure a `driver`, `model`, or `execute` option for summary generation. Without one of those options, the Capability uses the Agent model when available.
 

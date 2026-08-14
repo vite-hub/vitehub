@@ -18,6 +18,25 @@ export interface DataPart {
   type: "data" | `data-${string}`
 }
 
+declare global {
+  interface ViteHubAgentChatDataTypes {
+    "progress-summary": { revision: number, summary: string, type: "progress-summary" }
+    title: { title: string, type: "title" }
+  }
+}
+
+export interface AgentChatData {
+  entries: () => Array<[string, unknown]>
+  get<TKey extends keyof ViteHubAgentChatDataTypes & string>(type: TKey): ViteHubAgentChatDataTypes[TKey] | undefined
+  get<TKey extends keyof ViteHubAgentChatDataTypes & string, TField extends keyof NonNullable<ViteHubAgentChatDataTypes[TKey]> & string>(
+    type: TKey,
+    key: TField,
+  ): NonNullable<ViteHubAgentChatDataTypes[TKey]>[TField] | undefined
+  get<T = unknown>(type: string): T | undefined
+  get<T = unknown>(type: string, key: string): T | undefined
+  toJSON: () => Record<string, unknown>
+}
+
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
@@ -569,4 +588,28 @@ export function deserializeMessages(input: string | SerializedMessages): Message
   }
   for (const message of parsed.messages) validateMessage(message)
   return parsed.messages
+}
+
+export function createAgentChatData(
+  parts: Iterable<{ data?: unknown, id?: unknown, transient?: unknown, type?: unknown }> = [],
+): AgentChatData {
+  const values = new Map<string, unknown>()
+  for (const part of parts) {
+    if (typeof part?.type === "string" && part.type.startsWith("data-") && part.type.length > 5) {
+      const type = part.type.slice(5)
+      if (part.data === null) values.delete(type)
+      else values.set(type, part.data)
+    }
+  }
+  return {
+    entries: () => Array.from(values.entries()),
+    get<T = unknown>(type: string, key?: string): T | undefined {
+      const value = values.get(type)
+      if (key === undefined) return value as T | undefined
+      return value && typeof value === "object"
+        ? (value as Record<string, unknown>)[key] as T | undefined
+        : undefined
+    },
+    toJSON: () => Object.fromEntries(values),
+  }
 }

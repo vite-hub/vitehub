@@ -12,7 +12,7 @@ ViteHub keeps Agent Definitions, Schedule Definitions, KV Stores, and Runtime He
 
 | Concern | ViteHub boundary |
 | --- | --- |
-| Agent chat and webhook routes | Agent Package writes `.vitehub/agent/deno-server.ts` when `runtime: 'deno'` and hosted Agent Definitions exist. The webhook route remains enabled; `routes.chat` publishes the chat dispatcher, and route-enabled Channels select which Agents answer it. |
+| Agent chat and webhook routes | Agent Package writes `.vitehub/agent/deno-server.ts` when `runtime: 'deno'` and hosted Agent Definitions exist. It mounts the conventional chat dispatcher and webhook route; route-enabled Channels select which Agents answer chat requests. |
 | Static cron schedules | Schedule Package writes `.vitehub/schedule/deno-cron.mjs` for Deno `Deno.cron` wake output. |
 | Lightweight state | KV Package can use `driver: 'deno-kv'` and native `Deno.openKv()`. |
 | Deployment | Deno Deploy owns app entrypoint configuration, environment variables, permissions, logs, and production rollout. |
@@ -29,7 +29,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    hubAgent({ routes: { chat: true }, runtime: 'deno' }),
+    hubAgent({ runtime: 'deno' }),
     hubKv(),
     hubSchedule(),
   ],
@@ -39,7 +39,7 @@ export default defineConfig({
 })
 ```
 
-The generated Agent server imports discovered Agent Definitions and always mounts the webhook route pattern. It mounts a chat dispatcher only when `routes.chat` is enabled.
+The generated Agent server imports discovered Agent Definitions and mounts both the webhook route pattern and the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher.
 If Schedule output exists, the generated server loads `.vitehub/schedule/deno-cron.mjs` before serving requests.
 
 ## Generated output

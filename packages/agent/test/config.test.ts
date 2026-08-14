@@ -24,7 +24,6 @@ describe("agent config", () => {
         state: { provider: "auto" },
       },
       routes: {
-        chat: false,
         discordGateway: false,
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
@@ -41,7 +40,6 @@ describe("agent config", () => {
       integrations: { sandbox: false, workflow: "auto" },
       providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       routes: {
-        chat: false,
         discordGateway: false,
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
@@ -49,24 +47,21 @@ describe("agent config", () => {
     })
   })
 
-  it("normalizes optional chat and Discord Gateway routes with the required webhook route", () => {
-    expect(normalizeAgentOptions({ routes: { chat: true, discordGateway: true } })).toMatchObject({
+  it("normalizes the optional Discord Gateway route with the required webhook route", () => {
+    expect(normalizeAgentOptions({ routes: { discordGateway: true } })).toMatchObject({
       routes: {
-        chat: "/api/_vitehub/agents/[agent]/chat",
         discordGateway: "/api/_vitehub/agents/[agent]/discord/gateway",
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
-    expect(normalizeAgentOptions({ routes: { chat: "/chat", discordGateway: "/discord/gateway" } })).toMatchObject({
+    expect(normalizeAgentOptions({ routes: { discordGateway: "/discord/gateway" } })).toMatchObject({
       routes: {
-        chat: "/chat",
         discordGateway: "/discord/gateway",
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
-    expect(normalizeAgentOptions({ routes: { chat: false, discordGateway: false } })).toMatchObject({
+    expect(normalizeAgentOptions({ routes: { discordGateway: false } })).toMatchObject({
       routes: {
-        chat: false,
         discordGateway: false,
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
