@@ -3075,7 +3075,7 @@ async function materializeAgentStructuredOutput(
   for await (const event of events) {
     onEvent?.(event)
     if (event.type === "error") {
-      if (output && text) await validateAgentOutput(output, text)
+      if (output && text && event.error.startsWith("No object generated:")) await validateAgentOutput(output, text)
       throw new Error(event.error)
     }
     if (event.type === "text-delta") text += event.text
