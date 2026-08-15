@@ -28,6 +28,7 @@ interface ChannelSyncLoadInput {
   agent?: string
   channel?: string
   env: NodeJS.ProcessEnv
+  resolveDefaultThread?: boolean
   rootDir: string
   stage: string
 }
@@ -347,7 +348,9 @@ async function loadChannelTargetsExclusive(
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
-          defaultThreadId: await getAgentChannelHistoryDefinition(channel)?.resolveDefaultThreadId?.(context, channel),
+          defaultThreadId: !syncOnly && input.resolveDefaultThread !== false
+            ? await getAgentChannelHistoryDefinition(channel)?.resolveDefaultThreadId?.(context, channel)
+            : undefined,
           mode: sync?.mode || "webhook",
           provider,
           registration: await channelRegistration(channelId, channel, context),

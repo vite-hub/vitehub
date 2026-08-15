@@ -255,8 +255,10 @@ describe("agent CLI", () => {
       provider: "telegram",
       registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
     }
+    const loadTargets = vi.fn(async () => [target])
     const run = async () => await runAgentChannelHistoryCli([
       "--stage", "production",
+      "--thread", "telegram:123",
       "--url", "https://example.com",
       "--output", "archives/export",
     ], {
@@ -267,11 +269,12 @@ describe("agent CLI", () => {
       stdout,
     }, {
       fetch: fetcher as never,
-      loadTargets: async () => [target],
+      loadTargets,
     })
 
     try {
       await expect(run()).resolves.toBe(1)
+      expect(loadTargets).toHaveBeenCalledWith(expect.objectContaining({ resolveDefaultThread: false }))
       await expect(readdir(join(rootDir, "archives"))).resolves.toEqual([])
 
       await mkdir(join(rootDir, "archives/export"))

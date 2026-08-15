@@ -15,7 +15,7 @@ interface ChannelHistoryCliContext {
 
 interface ChannelHistoryCliOptions {
   fetch?: typeof fetch
-  loadTargets?: (input: { agent?: string, channel?: string, env: NodeJS.ProcessEnv, rootDir: string, stage: string }) => Promise<LoadedChannelTarget[]>
+  loadTargets?: (input: { agent?: string, channel?: string, env: NodeJS.ProcessEnv, resolveDefaultThread: boolean, rootDir: string, stage: string }) => Promise<LoadedChannelTarget[]>
   rootDir?: string
 }
 
@@ -126,6 +126,7 @@ export async function runAgentChannelHistoryCli(
       agent: parsed.agent,
       channel: parsed.channel,
       env: context.env,
+      resolveDefaultThread: parsed.threadId === undefined,
       rootDir: options.rootDir || context.rootDir,
       stage: parsed.stage,
     })
