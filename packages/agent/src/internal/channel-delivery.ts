@@ -6,9 +6,7 @@ const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
 const maximumDeliveries = 10_000
 const indexKey = "deliveries:index"
-const indexLockKey = "deliveries:index:lock"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
-const indexUpdateTails = new WeakMap<StateAdapter, Promise<void>>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 
 export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
@@ -58,7 +56,7 @@ function token(): string {
   return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function sourceValue(value: unknown): string | undefined {
+export function agentChannelDeliverySourceValue(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
 }
 
@@ -67,11 +65,11 @@ export function agentChannelDeliverySourceId(provider: string, payload: unknown)
   const record = payload as Record<string, unknown>
   const activity = record.activity && typeof record.activity === "object" && !Array.isArray(record.activity) ? record.activity as Record<string, unknown> : undefined
   const event = record.event && typeof record.event === "object" && !Array.isArray(record.event) ? record.event as Record<string, unknown> : undefined
-  return sourceValue(record.event_id)
-    || sourceValue(record.update_id)
-    || (provider === "teams" || provider === "discord" ? sourceValue(record.id) : undefined)
-    || sourceValue(activity?.id)
-    || sourceValue(event?.id)
+  return agentChannelDeliverySourceValue(record.event_id)
+    || agentChannelDeliverySourceValue(record.update_id)
+    || (provider === "teams" || provider === "discord" ? agentChannelDeliverySourceValue(record.id) : undefined)
+    || agentChannelDeliverySourceValue(activity?.id)
+    || agentChannelDeliverySourceValue(event?.id)
 }
 
 export function agentChannelDeliveryMessageIdentity(provider: string, payload: unknown): { messageId: string, threadId: string } | undefined {
@@ -80,8 +78,8 @@ export function agentChannelDeliveryMessageIdentity(provider: string, payload: u
   if (provider === "telegram") {
     const message = record.message && typeof record.message === "object" && !Array.isArray(record.message) ? record.message as Record<string, unknown> : undefined
     const chat = message?.chat && typeof message.chat === "object" && !Array.isArray(message.chat) ? message.chat as Record<string, unknown> : undefined
-    const messageId = sourceValue(message?.message_id)
-    const chatId = sourceValue(chat?.id)
+    const messageId = agentChannelDeliverySourceValue(message?.message_id)
+    const chatId = agentChannelDeliverySourceValue(chat?.id)
     if (messageId && chatId) return { messageId, threadId: `telegram:${chatId}` }
   }
 }
@@ -115,39 +113,15 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
   )
 }
 
-async function updateDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
-  const lockTtlMs = 5_000
-  let lock = await state.acquireLock(indexLockKey, lockTtlMs)
-  while (!lock) {
-    await new Promise(resolve => setTimeout(resolve, 1))
-    lock = await state.acquireLock(indexLockKey, lockTtlMs)
-  }
-  const indexLock = lock
-  let extension = Promise.resolve(true)
-  const heartbeat = setInterval(() => {
-    extension = extension.then(async owned => owned && await state.extendLock(indexLock, lockTtlMs)).catch(() => false)
-  }, 1_000)
-  try {
-    const ids = await state.get<string[]>(indexKey) || []
-    if (!await state.extendLock(indexLock, lockTtlMs)) throw new Error("[vitehub] Agent Channel delivery index update lost its lock.")
-    await state.set(indexKey, [...ids.filter(id => id !== deliveryId), deliveryId].slice(-maximumDeliveries), retentionMs)
-  }
-  finally {
-    clearInterval(heartbeat)
-    await extension
-    await state.releaseLock(indexLock)
-  }
-}
-
 async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
-  const previous = indexUpdateTails.get(state) || Promise.resolve()
-  const update = previous.catch(() => undefined).then(async () => await updateDeliveryIndex(state, deliveryId))
-  indexUpdateTails.set(state, update)
+  const indexedKey = `${deliveryRecordKey(deliveryId)}:indexed`
+  if (!await state.setIfNotExists(indexedKey, true, retentionMs)) return
   try {
-    await update
+    await state.appendToList(indexKey, deliveryId, { maxLength: maximumDeliveries, ttlMs: retentionMs })
   }
-  finally {
-    if (indexUpdateTails.get(state) === update) indexUpdateTails.delete(state)
+  catch (error) {
+    await state.delete(indexedKey).catch(() => undefined)
+    throw error
   }
 }
 
@@ -297,7 +271,7 @@ export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context:
 }
 
 export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get" | "getList">, limit = 100, scopePrefix?: string): Promise<AgentChannelDeliveryInspection[]> {
-  const ids = await state.get<string[]>(indexKey) || []
+  const ids = await state.getList<string>(indexKey)
   const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[] }> = []
   const maximum = Math.max(0, limit)
   for (const id of [...ids].reverse()) {
@@ -307,15 +281,18 @@ export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get"
     stored.push({ ...delivery, events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)) })
   }
   return stored.map((delivery) => {
-    let reopened = false
+    let retrySignaled = false
     const status = delivery.events.reduce<AgentChannelDeliveryStatus>((current, event) => {
       if (event.type === "duplicate") {
-        reopened = true
+        retrySignaled = true
         return current
       }
       if (current === "completed" || current === "failed" || current === "rejected") {
-        if ((!reopened && event.type !== "invocation.started") || (event.type !== "accepted" && event.type !== "retrying" && event.type !== "invocation.started")) return current
-        reopened = false
+        const retryStarts = event.type === "retrying"
+          || (retrySignaled && event.type === "accepted")
+          || (event.type === "invocation.started" && (retrySignaled || current === "failed"))
+        if (!retryStarts) return current
+        retrySignaled = false
       }
       if (event.type === "invocation.started") return "running"
       if (event.type === "received") return "received"

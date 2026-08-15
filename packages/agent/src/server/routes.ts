@@ -27,7 +27,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
 import { activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
-import { agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import { agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, agentChannelDeliverySourceValue, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -582,10 +582,6 @@ function requestHeaders(request: Request): Record<string, string> {
   return Object.fromEntries(request.headers.entries())
 }
 
-function deliverySourceValue(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
-}
-
 async function webhookDeliverySourceId(request: Request, provider: string, payload: unknown): Promise<string> {
   const header = request.headers.get("x-github-delivery") || request.headers.get("x-vitehub-delivery-id") || request.headers.get("idempotency-key")
   if (header) return header
@@ -637,7 +633,7 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
           await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
           try {
             const message = await target.post(...args)
-            await recordChannelDeliveryEvidence(delivery, { messageId: deliverySourceValue((message as { id?: unknown }).id), type: "outbound.completed" })
+            await recordChannelDeliveryEvidence(delivery, { messageId: agentChannelDeliverySourceValue((message as { id?: unknown }).id), type: "outbound.completed" })
             return message
           }
           catch (error) {
@@ -3287,7 +3283,7 @@ async function handleChatSdkMessage(
     channelId: registration.channelId,
     provider: chatRegistrationOrigin(registration),
     scope: `${state.keyPrefix}${thread.id}`,
-    sourceId: deliverySourceValue(message.id) || randomToken(),
+    sourceId: agentChannelDeliverySourceValue(message.id) || randomToken(),
   })
   delivery.claimed = true
   context = withAgentChannelDelivery(context, delivery)
@@ -3630,7 +3626,7 @@ async function handleChatSdkMessages(
           ? await serialMessageDeliveryKind(queuedThread, queuedMessage)
           : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
-        const queuedMessageId = deliverySourceValue(queuedMessage.id)
+        const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw)
         const queuedDelivery = serial
           ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined)
@@ -4244,7 +4240,7 @@ export function createChannelChatRouteHandler(
         channelId: registration.channelId,
         provider: registration.provider,
         scope: `chat:${agentName}:${registration.provider}:${encodeURIComponent(invoker.id)}:${sessionId || "default"}`,
-        sourceId: deliverySourceValue(body.messageId) || deliverySourceValue(triggerInput.run?.messageId) || randomToken(),
+        sourceId: agentChannelDeliverySourceValue(body.messageId) || agentChannelDeliverySourceValue(triggerInput.run?.messageId) || randomToken(),
       })
       context = withAgentChannelDelivery(context, delivery)
       const sessionOptions = chatOptions.sessions

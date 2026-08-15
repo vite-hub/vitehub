@@ -41,6 +41,7 @@ function stateAdapter(): StateAdapter {
     extendLock: async (lock: Lock) => locks.has(lock.threadId),
     get: async (key: string) => (values.get(key) as never) ?? null,
     getList: async (key: string) => [...(lists.get(key) || [])] as never,
+    delete: async (key: string) => void values.delete(key),
     releaseLock: async (lock: Lock) => void locks.delete(lock.threadId),
     set: async (key: string, value: unknown) => void values.set(key, value),
     setIfNotExists: async (key: string, value: unknown) => {
@@ -134,14 +135,14 @@ describe("Agent Channel delivery journal", () => {
   it("repairs the inspection index after a partially failed open", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
-    const set = state.set.bind(state)
+    const appendToList = state.appendToList.bind(state)
     let failIndex = true
-    state.set = async (key, value, ttlMs) => {
+    state.appendToList = async (key, value, options) => {
       if (key === "deliveries:index" && failIndex) {
         failIndex = false
         throw new Error("index unavailable")
       }
-      await set(key, value, ttlMs)
+      await appendToList(key, value, options)
     }
     const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10" }
 
@@ -169,9 +170,10 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   })
 
-  it("bounds the inspection index by recently updated distinct deliveries", async () => {
+  it("bounds the inspection index by distinct deliveries without rewriting shared state", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
+    const acquireLock = vi.spyOn(state, "acquireLock")
     const first = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-0" })
     let secondId: string | undefined
     for (let index = 1; index < 10_000; index++) {
@@ -181,13 +183,14 @@ describe("Agent Channel delivery journal", () => {
 
     await first.event({ type: "accepted" })
     const newest = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10000" })
-    const ids = await state.get<string[]>("deliveries:index")
+    const ids = await state.getList<string>("deliveries:index")
 
     expect(ids).toHaveLength(10_000)
     expect(new Set(ids)).toHaveLength(10_000)
-    expect(ids).not.toContain(secondId)
-    expect(ids?.at(-2)).toBe(first.delivery.id)
+    expect(ids).not.toContain(first.delivery.id)
+    expect(ids?.at(0)).toBe(secondId)
     expect(ids?.at(-1)).toBe(newest.delivery.id)
+    expect(acquireLock).not.toHaveBeenCalled()
     info.mockRestore()
   }, 10_000)
 
@@ -232,6 +235,19 @@ describe("Agent Channel delivery journal", () => {
 
     await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
       expect.objectContaining({ status: "completed" }),
+    ])
+    info.mockRestore()
+  })
+
+  it.each(["completed", "rejected"] as const)("keeps %s terminal when an unmarked Workflow attempt arrives", async (terminal) => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "telegram", scope: "chat:support", sourceId: `workflow-${terminal}` })
+    await delivery.event({ type: terminal })
+    await delivery.event({ type: "invocation.started" })
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ status: terminal }),
     ])
     info.mockRestore()
   })
