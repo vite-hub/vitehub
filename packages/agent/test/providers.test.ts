@@ -7452,7 +7452,7 @@ describe("server helpers", () => {
       )).toHaveLength(1))
 
       await vi.advanceTimersByTimeAsync(1_000)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 5_000 })
       await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(2))
       await expect(retryDelivery.mock.results[1]?.value).resolves.toBe(true)
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
@@ -10215,9 +10215,9 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
     let workflowPayload: { input?: { timeout?: number } } | undefined
-    const create = vi.fn(async ({ id, params }: { id: string, params: typeof workflowPayload }) => {
+    const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string, params: typeof workflowPayload }>) => {
       workflowPayload = params
-      return { id, status: async () => ({ status: "queued" }) }
+      return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const run = vi.fn(() => "internal output")
     const agent = defineAgent({
@@ -10237,14 +10237,14 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: {
           env: {
-            [getCloudflareWorkflowBindingName("calories")]: { create, get: vi.fn() },
+            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
           },
         },
         waitUntil: task => waitUntilTasks.push(task),
       })
 
       expect(response.status).toBe(200)
-      expect(create).toHaveBeenCalledOnce()
+      expect(createBatch).toHaveBeenCalledOnce()
       expect(workflowPayload?.input?.timeout).toBeUndefined()
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
       expect(run).not.toHaveBeenCalled()
@@ -10272,7 +10272,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-opt-out-state-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
-    const create = vi.fn()
+    const createBatch = vi.fn()
     const run = vi.fn(() => "internal output")
     const agent = defineAgent({
       channels: {
@@ -10292,12 +10292,12 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: {
           env: {
-            [getCloudflareWorkflowBindingName("calories")]: { create, get: vi.fn() },
+            [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
           },
         },
       })).rejects.toThrow("Durable Channel delivery requires this Agent invocation to start a Workflow")
 
-      expect(create).not.toHaveBeenCalled()
+      expect(createBatch).not.toHaveBeenCalled()
       expect(run).not.toHaveBeenCalled()
     }
     finally {
@@ -10336,7 +10336,7 @@ describe("server helpers", () => {
         cloudflare: {
           env: {
             [getCloudflareWorkflowBindingName("calories")]: {
-              create: async () => { throw new Error("Workflow handoff failed") },
+              createBatch: async () => { throw new Error("Workflow handoff failed") },
               get: vi.fn(),
             },
           },

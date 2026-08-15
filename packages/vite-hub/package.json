@@ -68,6 +68,7 @@
     "./agent/channels": "./dist/agent/channels.js",
     "./agent/cloudflare": "./dist/agent/cloudflare.js",
     "./agent/eval": "./dist/agent/eval.js",
+    "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/server": "./dist/agent/server.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
     "./agent/vue": "./dist/agent/vue.js",

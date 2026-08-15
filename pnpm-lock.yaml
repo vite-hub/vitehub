@@ -681,7 +681,6 @@ importers:
       '@ai-sdk/vue':
         specifier: catalog:ai
         version: 4.0.38(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)
-
   packages/auth:
     dependencies:
       '@vite-hub/env':

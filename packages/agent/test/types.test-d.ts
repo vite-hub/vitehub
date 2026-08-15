@@ -10,6 +10,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
+import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import githubExtension from "@github-tools/eve-extension"
@@ -47,6 +48,38 @@ describe("agent public types", () => {
   it("types Eve extensions in static capabilities", () => {
     defineAgent({
       capabilities: [githubExtension({ preset: "code-review" })],
+      driver: { run: () => "ok" },
+    })
+
+    defineAgent({
+      // @ts-expect-error arbitrary objects are neither Capabilities nor extension mounts
+      capabilities: [{}],
+      driver: { run: () => "ok" },
+    })
+
+    defineAgent({
+      // @ts-expect-error unrelated symbol-bearing objects are not extension mounts
+      capabilities: [{ *[Symbol.iterator]() {} }],
+      driver: { run: () => "ok" },
+    })
+
+    const arbitraryCapabilities: object[] = [{}]
+    defineAgent({
+      // @ts-expect-error open-ended arrays still validate every Capability
+      capabilities: arbitraryCapabilities,
+      driver: { run: () => "ok" },
+    })
+
+    const readonlyArbitraryCapabilities: readonly object[] = [{}]
+    defineAgent({
+      // @ts-expect-error readonly open arrays still validate every Capability
+      capabilities: readonlyArbitraryCapabilities,
+      driver: { run: () => "ok" },
+    })
+
+    const typedExtensionCapabilities: AgentCapabilitiesInput = [githubExtension({ preset: "code-review" })]
+    defineAgent({
+      capabilities: typedExtensionCapabilities,
       driver: { run: () => "ok" },
     })
   })

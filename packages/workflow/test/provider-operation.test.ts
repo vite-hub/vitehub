@@ -41,6 +41,35 @@ describe("Workflow provider operation errors", () => {
     expect(JSON.stringify(error)).not.toContain("secret")
   })
 
+  it("only carries explicit acknowledgement uncertainty across the provider boundary", async () => {
+    const ambiguous = await runWorkflowProviderOperation("cloudflare", "create", async () => {
+      throw new Error("connection closed")
+    }, {
+      acknowledgementUnknown: () => true,
+    }).catch(error => error)
+    const deterministic = await runWorkflowProviderOperation("cloudflare", "create", async () => {
+      throw new Error("instance already exists")
+    }).catch(error => error)
+
+    expect(ambiguous.details).toEqual({ acknowledgement: "unknown", operation: "create", provider: "cloudflare" })
+    expect(deterministic.details).toEqual({ operation: "create", provider: "cloudflare" })
+  })
+
+  it("passes normalized HTTP status to acknowledgement classification", async () => {
+    let classifiedStatus: number | undefined
+    const error = await runWorkflowProviderOperation("cloudflare", "create", () => {
+      throw Object.assign(new Error("rejected"), { status: 403 })
+    }, {
+      acknowledgementUnknown: (_error, status) => {
+        classifiedStatus = status
+        return status === undefined
+      },
+    }).catch(error => error)
+
+    expect(classifiedStatus).toBe(403)
+    expect(error.details).toEqual({ operation: "create", provider: "cloudflare", status: 403 })
+  })
+
   it("preserves ViteHub and abort errors by exact identity", async () => {
     const custom = new ViteHubError("CUSTOM_WORKFLOW_FAILURE", "Custom failure.")
     const abort = new DOMException("cancelled", "AbortError")

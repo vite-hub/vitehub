@@ -144,6 +144,28 @@ describe("workflow config", () => {
     }])
   })
 
+  it("keeps Agent recovery bindings separate from single-workflow overrides", () => {
+    const recovery = "vitehub-agent-invocation-recovery-welcome"
+    expect(createCloudflareWorkflowBindings(
+      [
+        { handler: "/tmp/welcome.ts", name: "welcome", source: "agent-workflow" },
+        { handler: "/tmp/welcome.ts", name: recovery, source: "agent-workflow-recovery" },
+      ],
+      { binding: "WORKFLOW_CUSTOM", name: "workflow-custom" },
+    )).toEqual([
+      {
+        binding: "WORKFLOW_CUSTOM",
+        class_name: getCloudflareWorkflowClassName("welcome"),
+        name: "workflow-custom",
+      },
+      {
+        binding: getCloudflareWorkflowBindingName(recovery),
+        class_name: getCloudflareWorkflowClassName(recovery),
+        name: getCloudflareWorkflowName(recovery),
+      },
+    ])
+  })
+
   it("rejects Cloudflare binding overrides for multiple workflows", () => {
     expect(() => createCloudflareWorkflowBindings(
       [
