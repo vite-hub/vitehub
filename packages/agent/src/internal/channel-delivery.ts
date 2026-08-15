@@ -114,15 +114,8 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
 }
 
 async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
-  const indexedKey = `${deliveryRecordKey(deliveryId)}:indexed`
-  if (!await state.setIfNotExists(indexedKey, true, retentionMs)) return
-  try {
-    await state.appendToList(indexKey, deliveryId, { maxLength: maximumDeliveries, ttlMs: retentionMs })
-  }
-  catch (error) {
-    await state.delete(indexedKey).catch(() => undefined)
-    throw error
-  }
+  if ((await state.getList<string>(indexKey)).includes(deliveryId)) return
+  await state.appendToList(indexKey, deliveryId, { maxLength: maximumDeliveries, ttlMs: retentionMs })
 }
 
 async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent> {
@@ -137,7 +130,7 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
     await state.set(sourceKey(delivery), delivery, retentionMs)
     await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
     await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
-    await touchDeliveryIndex(state, delivery.id)
+    if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
   }
   catch (error) {
     console.error(JSON.stringify({
@@ -273,9 +266,12 @@ export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context:
 export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get" | "getList">, limit = 100, scopePrefix?: string): Promise<AgentChannelDeliveryInspection[]> {
   const ids = await state.getList<string>(indexKey)
   const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[] }> = []
+  const seen = new Set<string>()
   const maximum = Math.max(0, limit)
   for (const id of [...ids].reverse()) {
     if (stored.length >= maximum) break
+    if (seen.has(id)) continue
+    seen.add(id)
     const delivery = await state.get<AgentChannelDelivery>(deliveryRecordKey(id))
     if (!delivery || (scopePrefix && !delivery.scope.startsWith(scopePrefix))) continue
     stored.push({ ...delivery, events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)) })

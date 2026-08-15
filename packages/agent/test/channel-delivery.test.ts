@@ -170,7 +170,7 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   })
 
-  it("bounds the inspection index by distinct deliveries without rewriting shared state", async () => {
+  it("bounds the inspection index by admissions without rewriting lifecycle updates", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
     const acquireLock = vi.spyOn(state, "acquireLock")
@@ -193,6 +193,22 @@ describe("Agent Channel delivery journal", () => {
     expect(acquireLock).not.toHaveBeenCalled()
     info.mockRestore()
   }, 10_000)
+
+  it("de-duplicates concurrent admission references during inspection", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const appendToList = state.appendToList.bind(state)
+    state.appendToList = async (key, value, options) => {
+      await appendToList(key, value, options)
+      if (key === "deliveries:index") await appendToList(key, value, options)
+    }
+    const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "duplicate-index" })
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ id: delivery.delivery.id }),
+    ])
+    info.mockRestore()
+  })
 
   it("keeps terminal settlement when a delayed queued event arrives", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
