@@ -5,6 +5,7 @@ import { executeWorkspaceCommand } from "./workspace-command.ts"
 import type {
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentToolExecutionContext,
   AgentToolSchema,
 } from "../types.ts"
 
@@ -167,9 +168,9 @@ function gmailAuthorizationUrl(value: unknown): string {
   return url.href
 }
 
-async function runGmailCommand(args: string[], context: AgentCapabilityContext): Promise<string> {
+async function runGmailCommand(args: string[], context: AgentCapabilityContext, execution?: AgentToolExecutionContext): Promise<string> {
   return (await executeWorkspaceCommand(context.workspace, "gog", args, {
-    abortSignal: context.abortSignal,
+    abortSignal: execution?.abortSignal || context.abortSignal,
     check: true,
     timeout: 60_000,
   }, context.context)).stdout
@@ -181,8 +182,8 @@ function gmailConfigurationRequired(error: unknown): boolean {
   return /oauth client|client credentials|credentials.*(?:missing|not found|not stored|stored)/i.test(output)
 }
 
-async function gmailAccounts(context: AgentCapabilityContext): Promise<GmailAccount[]> {
-  const output = JSON.parse(await runGmailCommand(["auth", "list", "--check", "--json", "--no-input"], context)) as { accounts?: unknown }
+async function gmailAccounts(context: AgentCapabilityContext, execution?: AgentToolExecutionContext): Promise<GmailAccount[]> {
+  const output = JSON.parse(await runGmailCommand(["auth", "list", "--check", "--json", "--no-input"], context, execution)) as { accounts?: unknown }
   return Array.isArray(output.accounts) ? output.accounts as GmailAccount[] : []
 }
 
@@ -200,7 +201,7 @@ function gmailAuthScopeArgs(mode: GmailCapabilityMode): string[] {
   return mode === "draft" ? ["--gmail-scope", "full"] : ["--readonly"]
 }
 
-async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext, mode: GmailCapabilityMode) {
+async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext, mode: GmailCapabilityMode, execution?: AgentToolExecutionContext) {
   if (input?.action !== "start" && input?.action !== "complete") {
     throw new TypeError("[vitehub] gmail_auth action must be start or complete.")
   }
@@ -213,7 +214,7 @@ async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext,
     throw new TypeError('[vitehub] gmail_auth access "draft" requires gmail({ mode: "draft" }).')
   }
   if (input.action === "start") {
-    if (gmailConnectedAccount(await gmailAccounts(context), account, access)) {
+    if (gmailConnectedAccount(await gmailAccounts(context, execution), account, access)) {
       return { account, status: "connected" as const }
     }
     try {
@@ -222,7 +223,7 @@ async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext,
         "--services", "gmail",
         ...gmailAuthScopeArgs(access),
         "--remote", "--step", "1", "--json", "--no-input",
-      ], context)) as { auth_url?: unknown }
+      ], context, execution)) as { auth_url?: unknown }
       return { access, account, authorizationUrl: gmailAuthorizationUrl(output.auth_url), status: "authorization_required" as const }
     }
     catch (error) {
@@ -241,7 +242,7 @@ async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext,
       ...gmailAuthScopeArgs(access),
       "--remote", "--step", "2", "--auth-url", redirectUrl,
       "--json", "--no-input",
-    ], context)
+    ], context, execution)
     return { account, status: "connected" as const }
   }
   catch {
@@ -254,7 +255,7 @@ function gmailRequestedAccount(value: unknown, tool: string): string | undefined
   return gmailEmail(value, tool)
 }
 
-async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityContext, mode: GmailCapabilityMode) {
+async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityContext, mode: GmailCapabilityMode, execution?: AgentToolExecutionContext) {
   const requestedAccount = gmailRequestedAccount(input?.account, "gmail_search")
   const max = input?.max === undefined ? 10 : input.max
   if (!Number.isInteger(max) || max < 1 || max > 50) {
@@ -266,13 +267,13 @@ async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityCont
   const query = input?.query?.trim() || "in:inbox"
   if (query.includes("\0")) throw new TypeError("[vitehub] gmail_search query cannot contain null bytes.")
 
-  const accounts = (await gmailAccounts(context)).filter(candidate => candidate.valid === true
+  const accounts = (await gmailAccounts(context, execution)).filter(candidate => candidate.valid === true
     && Array.isArray(candidate.services)
     && candidate.services.includes("gmail"))
   const account = requestedAccount || (accounts.length === 1 ? gmailEmail(accounts[0]?.email, "gmail_search") : undefined)
   if (!account) return { status: "account_required" as const }
   if (!gmailConnectedAccount(accounts, account, "read")) {
-    return await gmailAuth({ access: "read", account, action: "start" }, context, mode)
+    return await gmailAuth({ access: "read", account, action: "start" }, context, mode, execution)
   }
 
   try {
@@ -284,7 +285,7 @@ async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityCont
         "--max", String(max),
         "--json", "--no-input", "--readonly", "--gmail-no-send", "--wrap-untrusted",
         "--", query,
-      ], context)),
+      ], context, execution)),
       status: "ok" as const,
     }
   }
@@ -304,7 +305,7 @@ function gmailOptionalRecipients(value: unknown, label: string): string[] {
   return value === undefined || Array.isArray(value) && value.length === 0 ? [] : gmailRecipients(value, label)
 }
 
-async function gmailDraft(input: GmailDraftInput, context: AgentCapabilityContext) {
+async function gmailDraft(input: GmailDraftInput, context: AgentCapabilityContext, execution?: AgentToolExecutionContext) {
   const requestedAccount = gmailRequestedAccount(input?.account, "gmail_draft")
   const to = gmailRecipients(input?.to, "to")
   const cc = gmailOptionalRecipients(input?.cc, "cc")
@@ -312,14 +313,14 @@ async function gmailDraft(input: GmailDraftInput, context: AgentCapabilityContex
   const subject = gmailText(input?.subject, "gmail_draft subject")
   const body = gmailDraftBody(input?.body)
 
-  const accounts = await gmailAccounts(context)
+  const accounts = await gmailAccounts(context, execution)
   const connectedAccounts = accounts.filter(candidate => candidate.valid === true
     && Array.isArray(candidate.services)
     && candidate.services.includes("gmail"))
   const account = requestedAccount || (connectedAccounts.length === 1 ? gmailEmail(connectedAccounts[0]?.email, "gmail_draft") : undefined)
   if (!account) return { status: "account_required" as const }
   if (!gmailConnectedAccount(accounts, account, "draft")) {
-    return await gmailAuth({ access: "draft", account, action: "start" }, context, "draft")
+    return await gmailAuth({ access: "draft", account, action: "start" }, context, "draft", execution)
   }
 
   try {
@@ -334,7 +335,7 @@ async function gmailDraft(input: GmailDraftInput, context: AgentCapabilityContex
         "--body", body,
         "--account", account,
         "--json", "--no-input", "--gmail-no-send",
-      ], context)),
+      ], context, execution)),
       status: "ok" as const,
     }
   }
@@ -361,13 +362,13 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
     tools: context => ({
       gmail_auth: defineInternalTool<GmailAuthInput>({
         description: "Start or complete Gmail authorization for one account. Return the authorization URL to the user, then retry the original Gmail task after authorization connects.",
-        execute: input => gmailAuth(input, context, mode),
+        execute: (input, execution) => gmailAuth(input, context, mode, execution),
         inputSchema: gmailAuthInputSchema,
         name: "gmail_auth",
       }),
       gmail_search: defineInternalTool<GmailSearchInput>({
         description: "Search or list Gmail threads without sending or retrieving full message bodies. Returns a structured authorization continuation when setup is required.",
-        execute: input => gmailSearch(input, context, mode),
+        execute: (input, execution) => gmailSearch(input, context, mode, execution),
         inputSchema: gmailSearchInputSchema,
         name: "gmail_search",
       }),
@@ -375,7 +376,7 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
         ? {
             gmail_draft: defineInternalTool<GmailDraftInput>({
               description: "Create an unsent Gmail draft. This tool cannot send messages and returns a structured authorization continuation when draft access is required.",
-              execute: input => gmailDraft(input, context),
+              execute: (input, execution) => gmailDraft(input, context, execution),
               inputSchema: gmailDraftInputSchema,
               name: "gmail_draft",
             }),

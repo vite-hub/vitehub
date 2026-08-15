@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { mkdir, mkdtemp, lstat, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, join } from "node:path"
@@ -625,6 +625,7 @@ async function* runProvider(
   let unregister: (() => void) | undefined
   let generatedInstructionFile: string | undefined
   let originalGeneratedInstructions: Uint8Array | undefined
+  let originalGeneratedInstructionLink: string | undefined
   let generatedInstructionFileExisted = false
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
@@ -684,9 +685,17 @@ async function* runProvider(
     }
     if (instructions) {
       generatedInstructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      originalGeneratedInstructions = await readFile(join(root, generatedInstructionFile)).catch(() => undefined)
-      generatedInstructionFileExisted = originalGeneratedInstructions !== undefined
-      await writeFile(join(root, generatedInstructionFile), instructions)
+      const instructionPath = join(root, generatedInstructionFile)
+      const instructionEntry = await lstat(instructionPath).catch(() => undefined)
+      generatedInstructionFileExisted = instructionEntry !== undefined
+      if (instructionEntry?.isSymbolicLink()) {
+        originalGeneratedInstructionLink = await readlink(instructionPath)
+        await rm(instructionPath)
+      }
+      else {
+        originalGeneratedInstructions = await readFile(instructionPath).catch(() => undefined)
+      }
+      await writeFile(instructionPath, instructions)
     }
     effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
@@ -790,7 +799,11 @@ async function* runProvider(
     if (generatedInstructionFile) {
       try {
         const path = join(root, generatedInstructionFile)
-        if (generatedInstructionFileExisted) await writeFile(path, originalGeneratedInstructions!)
+        if (originalGeneratedInstructionLink !== undefined) {
+          await rm(path, { force: true })
+          await symlink(originalGeneratedInstructionLink, path)
+        }
+        else if (generatedInstructionFileExisted) await writeFile(path, originalGeneratedInstructions!)
         else await rm(path, { force: true })
       }
       catch (error) {

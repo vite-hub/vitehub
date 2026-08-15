@@ -1,4 +1,4 @@
-import { access, rm } from "node:fs/promises"
+import { access, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -403,6 +403,40 @@ describe("Provider Agent Driver", () => {
     }) as never)
 
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("restores a symlinked provider instruction entry without overwriting its target", async () => {
+    const threadId = "thread-symlinked-instructions"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let root = ""
+    const session = {
+      close: vi.fn(async () => {
+        expect((await lstat(`${root}/CLAUDE.md`)).isSymbolicLink()).toBe(true)
+        expect(await readlink(`${root}/CLAUDE.md`)).toBe("AGENTS.md")
+        expect(await readFile(`${root}/AGENTS.md`, "utf8")).toBe("workspace instructions")
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(`${root}/AGENTS.md`, "workspace instructions")
+        await symlink("AGENTS.md", `${root}/CLAUDE.md`)
+        return session
+      }),
+      tools: {},
+    }
+
+    await createProviderAgentAdapter({ instructions: "generated instructions", provider: "claude-code" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
   })
 
   it("writes successful workspace sessions back before cleanup", async () => {

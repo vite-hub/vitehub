@@ -76,6 +76,19 @@ describe("gmail capability", () => {
     }))
   })
 
+  it("forwards the tool execution signal to Gmail commands", async () => {
+    const runtime = await capabilityTools(gmail(), args => result(args[0] === "auth"
+      ? '{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}'
+      : '{"threads":[]}'))
+    const controller = new AbortController()
+
+    await runtime.tools.gmail_search!.execute?.({ account: "test@example.com" }, { abortSignal: controller.signal })
+
+    for (const session of runtime.sessions) {
+      expect(session.exec).toHaveBeenCalledWith("gog", expect.any(Array), expect.objectContaining({ abortSignal: controller.signal }))
+    }
+  })
+
   it("returns structured authorization states and validates the continuation", async () => {
     let state: "compose-only" | "connected" | "configuration" | "disconnected" | "invalid-url" = "connected"
     const calls: string[][] = []
