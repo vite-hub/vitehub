@@ -148,6 +148,23 @@ function publicDelivery(delivery: StoredAgentChannelDelivery): AgentChannelDeliv
   return value
 }
 
+function reduceDeliveryStatus(events: AgentChannelDeliveryEvent[]): { retrySignaled: boolean, status: AgentChannelDeliveryStatus } {
+  return events.reduce<{ retrySignaled: boolean, status: AgentChannelDeliveryStatus }>((current, event) => advanceDeliveryStatus(current.status, current.retrySignaled, event), {
+    retrySignaled: false,
+    status: "received" as AgentChannelDeliveryStatus,
+  })
+}
+
+async function acquireDeliveryLock(state: StateAdapter, deliveryId: string) {
+  const lockKey = `deliveries:${deliveryId}:journal-lock`
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const lock = await state.acquireLock(lockKey, 30_000)
+    if (lock) return lock
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  throw new Error("Timed out waiting for the Agent Channel delivery journal lock.")
+}
+
 async function appendEvent(state: StateAdapter, delivery: StoredAgentChannelDelivery, input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent> {
   const terminal = input.type === "completed" || input.type === "failed" || input.type === "rejected"
   const event: AgentChannelDeliveryEvent = {
@@ -158,14 +175,22 @@ async function appendEvent(state: StateAdapter, delivery: StoredAgentChannelDeli
     id: token(),
   }
   try {
-    const next = advanceDeliveryStatus(delivery.journalStatus || "received", delivery.journalRetrySignaled || false, event)
-    const stored = { ...delivery, journalRetrySignaled: next.retrySignaled, journalStatus: next.status }
-    await state.set(sourceKey(stored), stored, retentionMs)
-    await state.set(deliveryRecordKey(stored.id), stored, retentionMs)
-    await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
-    delivery.journalRetrySignaled = next.retrySignaled
-    delivery.journalStatus = next.status
-    if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
+    const lock = await acquireDeliveryLock(state, delivery.id)
+    try {
+      const current = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(delivery.id)) || delivery
+      const reduced = current.journalStatus
+        ? { retrySignaled: current.journalRetrySignaled || false, status: current.journalStatus }
+        : reduceDeliveryStatus(await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(delivery.id)))
+      const next = advanceDeliveryStatus(reduced.status, reduced.retrySignaled, event)
+      const stored = { ...current, journalRetrySignaled: next.retrySignaled, journalStatus: next.status }
+      await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
+      await state.set(sourceKey(stored), stored, retentionMs)
+      await state.set(deliveryRecordKey(stored.id), stored, retentionMs)
+      if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
+    }
+    finally {
+      await state.releaseLock(lock)
+    }
   }
   catch (error) {
     console.error(JSON.stringify({
@@ -321,12 +346,6 @@ export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get"
   return stored.map((delivery) => {
     const { persistedStatus, ...inspection } = delivery
     if (persistedStatus) return { ...inspection, status: persistedStatus }
-    let retrySignaled = false
-    const status = delivery.events.reduce<AgentChannelDeliveryStatus>((current, event) => {
-      const next = advanceDeliveryStatus(current, retrySignaled, event)
-      retrySignaled = next.retrySignaled
-      return next.status
-    }, "received")
-    return { ...inspection, status }
+    return { ...inspection, status: reduceDeliveryStatus(delivery.events).status }
   })
 }

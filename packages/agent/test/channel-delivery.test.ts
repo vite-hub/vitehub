@@ -173,7 +173,6 @@ describe("Agent Channel delivery journal", () => {
   it("bounds the inspection index by admissions without rewriting lifecycle updates", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
-    const acquireLock = vi.spyOn(state, "acquireLock")
     const first = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-0" })
     let secondId: string | undefined
     for (let index = 1; index < 10_000; index++) {
@@ -190,7 +189,6 @@ describe("Agent Channel delivery journal", () => {
     expect(ids).not.toContain(first.delivery.id)
     expect(ids?.at(0)).toBe(secondId)
     expect(ids?.at(-1)).toBe(newest.delivery.id)
-    expect(acquireLock).not.toHaveBeenCalled()
     info.mockRestore()
   }, 10_000)
 
@@ -255,6 +253,42 @@ describe("Agent Channel delivery journal", () => {
     expect(inspection?.events).toHaveLength(256)
     expect(inspection?.events.some(event => event.type === "completed")).toBe(false)
     expect(inspection?.status).toBe("completed")
+    info.mockRestore()
+  })
+
+  it("initializes persisted status from legacy history before appending", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "legacy-completed" }
+    const delivery = await openAgentChannelDelivery(state, input)
+    await delivery.event({ type: "completed" })
+    const recordKey = `deliveries:${delivery.delivery.id}`
+    const sourceKey = `deliveries:source:${encodeURIComponent(`${input.provider}:${input.scope}:${input.sourceId}`)}`
+    const stored = await state.get<Record<string, unknown>>(recordKey)
+    const { journalRetrySignaled: _journalRetrySignaled, journalStatus: _journalStatus, ...legacy } = stored || {}
+    await state.set(recordKey, legacy)
+    await state.set(sourceKey, legacy)
+
+    await openAgentChannelDelivery(state, input)
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
+    info.mockRestore()
+  })
+
+  it("does not let a stale tracker overwrite newer terminal status", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "concurrent-completed" })
+    const stale = await resumeAgentChannelDelivery(state, delivery.delivery.id)
+
+    await delivery.event({ type: "completed" })
+    await stale?.event({ type: "outbound.completed" })
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
     info.mockRestore()
   })
 

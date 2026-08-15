@@ -54,7 +54,7 @@ const optionalMessageAdapterRuntimeExternals = [
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
-function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, isDM?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, replyTo?: Message, secret?: string } = {}) {
+function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, isDM?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, photoData?: Blob, rawMessageValue?: unknown, replyTo?: Message, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
@@ -139,7 +139,7 @@ function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Bu
         id: options.missingIncomingMessageId ? undefined as unknown as string : String(rawMessage.message_id ?? "7"),
         isMention: rawMessage.isMention === true,
         metadata: { dateSent: date, edited: false },
-        raw: body,
+        raw: options.rawMessageValue ?? body,
         replyTo: options.replyTo,
         text: typeof rawMessage.text === "string" ? rawMessage.text : "",
         threadId: `telegram:${String(chat?.id ?? "456")}`,
@@ -9747,6 +9747,30 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
+  })
+
+  it("delivers serial messages when raw payload fingerprinting is unsupported", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const circular: { self?: unknown, value: bigint } = { value: 1n }
+    circular.self = circular
+    const adapter = createTestChatAdapter({ rawMessageValue: circular })
+    const run = vi.fn(() => "ok")
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { concurrency: "serial", stream: false },
+        }),
+      },
+      driver: { run },
+    }) as never)
+
+    const response = await handler(chatWebhookRequest(91_009), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledOnce()
   })
 
   it("preserves queued message threads with channel-scoped serial processing", async () => {

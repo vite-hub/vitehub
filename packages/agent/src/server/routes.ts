@@ -3689,7 +3689,7 @@ async function handleChatSdkMessages(
           : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
-        const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw)
+        const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
         const queuedDelivery = serial
           ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined)
             || (queuedMessageId
