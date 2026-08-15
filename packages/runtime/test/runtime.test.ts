@@ -303,7 +303,7 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
-  it("derives yielded stream errors as failed runs even when finish follows", async () => {
+  it("uses the terminal invocation event after contained errors", async () => {
     const log = createTraceEventLog()
     await log.append({
       name: "agent.invocation.start",
@@ -330,11 +330,11 @@ describe("@vite-hub/runtime", () => {
         durationMs: 20,
         endTime: "2026-01-01T00:00:00.020Z",
         id: "run-1",
-        status: "failed",
+        status: "completed",
       }),
     ])
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({
-      status: { code: "ERROR" },
+      status: { code: "OK" },
     })
   })
 

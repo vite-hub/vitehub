@@ -459,11 +459,9 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
     }
 
     const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = sorted.some(isTraceRunError)
-      ? "failed"
-      : terminal
-        ? "completed"
-        : "running"
+    const status: TraceRunStatus = terminal
+      ? isTraceRunError(terminal) ? "failed" : "completed"
+      : "running"
     const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
       durationMs: durationMs(first.timestamp, endTime),
