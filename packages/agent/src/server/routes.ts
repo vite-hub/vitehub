@@ -3808,17 +3808,24 @@ async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter
   const rehydrate = (adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }).rehydrateAttachment
   const resolved = rehydrate && !attachment.fetchData ? rehydrate.call(adapter, attachment) : attachment
   let data = resolved.data
+  let fetchedBytes: Uint8Array | undefined
   if (!data && resolved.fetchData) {
     try {
       data = await resolved.fetchData()
     }
     catch {}
   }
-  const bytes = typeof data === "string"
+  if (!data && resolved.url) {
+    try {
+      fetchedBytes = await fetchTextAttachmentBytes(resolved.url)
+    }
+    catch {}
+  }
+  const bytes = fetchedBytes ?? (typeof data === "string"
     ? attachmentStringBytes(data, resolved.mimeType || "application/octet-stream")
     : data instanceof Blob
       ? new Uint8Array(await data.arrayBuffer())
-      : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : undefined
+      : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : undefined)
   return objectWithoutUndefined({
     data: bytes ? historyBytesToBase64(bytes) : undefined,
     fetchMetadata: resolved.fetchMetadata,

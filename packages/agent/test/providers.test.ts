@@ -12359,6 +12359,27 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
 
+    await expect(handler(new Request(webhookUrl, {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456 },
+          date: 1781092801,
+          document: {
+            file_name: "receipt.pdf",
+            file_size: 3,
+            mime_type: "application/pdf",
+            url: "https://cdn.example.com/receipt.pdf",
+          },
+          from: { id: 123, username: "maxi" },
+          message_id: 21,
+        },
+        update_id: 21,
+      }),
+      headers: { "x-test-secret": "history-secret" },
+      method: "POST",
+    }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
+    const fetchAttachment = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(Uint8Array.from([4, 5, 6])))
+
     const connectsBeforeHistory = connect.mock.calls.length
     const response = await handler(new Request(webhookUrl, {
       body: JSON.stringify({ threadId: "telegram:456" }),
@@ -12375,11 +12396,17 @@ describe("server helpers", () => {
         attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" })]),
         id: "20",
         threadId: "telegram:456",
+      }), expect.objectContaining({
+        attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([4, 5, 6]).toString("base64"), name: "receipt.pdf", type: "file" })]),
+        id: "21",
+        threadId: "telegram:456",
       })]),
       provider: "telegram",
       schemaVersion: 1,
       threadId: "telegram:456",
     })
+    expect(fetchAttachment).toHaveBeenCalledWith("https://cdn.example.com/receipt.pdf")
+    fetchAttachment.mockRestore()
     expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 1)
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
