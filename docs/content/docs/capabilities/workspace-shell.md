@@ -24,7 +24,7 @@ Provider Drivers can additionally expose configured commands in explicit write m
 
 ```ts [server/agents/coder.ts]
 export default defineAgent({
-  driver: { provider: 'codex' },
+  driver: { kind: 'codex' },
   workspace: { mode: 'write' },
   capabilities: [workspaceShell({ commands: ['git'], mode: 'write', timeout: 30_000 })],
 })

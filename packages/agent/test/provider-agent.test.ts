@@ -367,17 +367,18 @@ describe("Provider Agent Driver", () => {
     expect(execute).toHaveBeenCalledWith({ query: "vitehub" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
   })
 
-  it("waits for an aborted Workspace child to close before settling execution", async () => {
+  it("force-closes an aborted Workspace process tree before settling execution", async () => {
     const threadId = "thread-workspace-child-close"
     let host: { exec: (command: string, args: string[], options: { signal: AbortSignal }) => Promise<unknown> } | undefined
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       async onSendTurn() {
         const controller = new AbortController()
         const startedAt = performance.now()
-        const execution = host!.exec(process.execPath, ["-e", "process.on('SIGTERM',()=>setTimeout(()=>process.exit(0),200));setInterval(()=>{},1000)"], { signal: controller.signal })
+        const execution = host!.exec(process.execPath, ["-e", "const{spawn}=require('node:child_process');spawn(process.execPath,['-e',\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\"],{stdio:'inherit'});process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"], { signal: controller.signal })
         setTimeout(() => controller.abort(), 50)
         await expect(execution).rejects.toMatchObject({ name: "AbortError" })
-        expect(performance.now() - startedAt).toBeGreaterThanOrEqual(200)
+        expect(performance.now() - startedAt).toBeGreaterThanOrEqual(250)
+        expect(performance.now() - startedAt).toBeLessThan(2_000)
       },
     })
     const session = {

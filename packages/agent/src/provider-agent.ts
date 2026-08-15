@@ -292,12 +292,28 @@ function localWorkspaceHost(): WorkspaceSessionHost {
       return await new Promise((resolve, reject) => {
         const child = spawn(command, [...args], {
           cwd: options.cwd,
+          detached: true,
           env: cleanEnvironment(options.env as Record<string, string> | undefined),
           signal,
         })
         let stdout = ""
         let stderr = ""
         let executionError: unknown
+        let forceKill: ReturnType<typeof setTimeout> | undefined
+        const killProcessGroup = (killSignal: NodeJS.Signals) => {
+          if (!child.pid) return
+          try {
+            process.kill(-child.pid, killSignal)
+          }
+          catch {}
+        }
+        const terminate = () => {
+          killProcessGroup("SIGTERM")
+          forceKill = setTimeout(() => killProcessGroup("SIGKILL"), 250)
+          forceKill.unref()
+        }
+        signal?.addEventListener("abort", terminate, { once: true })
+        if (signal?.aborted) terminate()
         child.stdout.setEncoding("utf8").on("data", chunk => stdout += chunk)
         child.stderr.setEncoding("utf8").on("data", chunk => stderr += chunk)
         // An aborted child emits `error` when termination is requested and
@@ -306,6 +322,8 @@ function localWorkspaceHost(): WorkspaceSessionHost {
         // still-live child.
         child.once("error", error => executionError = error)
         child.once("close", (code) => {
+          signal?.removeEventListener("abort", terminate)
+          if (forceKill) clearTimeout(forceKill)
           if (executionError) reject(executionError)
           else resolve({ code: code ?? 1, stderr, stdout })
         })
@@ -343,6 +361,9 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
   if (!context.workspace) return
+  if (process.platform === "win32") {
+    throw new Error("[vitehub] Provider Agent Driver Workspaces require a POSIX Node host.")
+  }
   const paths = selectedWorkspacePaths(context)
   await materializeWorkspaceSources(context, paths)
   const session = await workspaceSessionStarter(context.workspace)({
