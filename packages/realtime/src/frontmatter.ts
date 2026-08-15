@@ -12,11 +12,20 @@ export const Frontmatter = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: "pre[data-frontmatter]", getAttrs: element => ({ value: element.textContent || "" }) }]
+    return [{
+      tag: "pre[data-frontmatter]",
+      getAttrs: element => ({
+        value: element.hasAttribute("data-frontmatter-empty") ? null : element.textContent || "",
+      }),
+    }]
   },
 
   renderHTML({ node }) {
-    return ["pre", { "data-frontmatter": "", contenteditable: "false" }, node.attrs.value]
+    return ["pre", {
+      "data-frontmatter": "",
+      "data-frontmatter-empty": node.attrs.value === null ? "" : undefined,
+      contenteditable: "false",
+    }, node.attrs.value ?? ""]
   },
 
   markdownTokenName: "frontmatter",
