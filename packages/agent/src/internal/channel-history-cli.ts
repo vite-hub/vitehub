@@ -113,9 +113,8 @@ function safeAttachmentName(name: unknown, mimeType: unknown, index: number): st
   return source.replace(/[^A-Za-z0-9._-]+/g, "-") || `attachment-${index}`
 }
 
-async function materializeAttachments(value: unknown, mediaDir: string, counter: { value: number }): Promise<unknown> {
-  if (Array.isArray(value)) return await Promise.all(value.map(item => materializeAttachments(item, mediaDir, counter)))
-  if (!value || typeof value !== "object") return value
+async function materializeAttachment(value: unknown, mediaDir: string, counter: { value: number }): Promise<unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
   const record = value as Record<string, unknown>
   if (typeof record.data === "string" && (typeof record.type === "string" || typeof record.mimeType === "string")) {
     counter.value += 1
@@ -125,7 +124,29 @@ async function materializeAttachments(value: unknown, mediaDir: string, counter:
     const { data: _data, ...attachment } = record
     return { ...attachment, file: `media/${fileName}` }
   }
-  return Object.fromEntries(await Promise.all(Object.entries(record).map(async ([key, item]) => [key, await materializeAttachments(item, mediaDir, counter)])))
+  return value
+}
+
+async function materializeMessage(value: unknown, mediaDir: string, counter: { value: number }): Promise<unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
+  const message = value as Record<string, unknown>
+  return {
+    ...message,
+    ...(Array.isArray(message.attachments)
+      ? { attachments: await Promise.all(message.attachments.map(item => materializeAttachment(item, mediaDir, counter))) }
+      : {}),
+    ...(message.replyTo ? { replyTo: await materializeMessage(message.replyTo, mediaDir, counter) } : {}),
+  }
+}
+
+async function materializeHistory(value: unknown, mediaDir: string, counter: { value: number }): Promise<unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
+  const history = value as Record<string, unknown>
+  if (!Array.isArray(history.messages)) return value
+  return {
+    ...history,
+    messages: await Promise.all(history.messages.map(message => materializeMessage(message, mediaDir, counter))),
+  }
 }
 
 export async function runAgentChannelHistoryCli(
@@ -180,7 +201,7 @@ export async function runAgentChannelHistoryCli(
         throw new Error(`Channel history export failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}.`)
       }
       const history = await response.json()
-      const materialized = await materializeAttachments(history, join(stagingDir, "media"), { value: 0 })
+      const materialized = await materializeHistory(history, join(stagingDir, "media"), { value: 0 })
       await writeFile(join(stagingDir, "history.json"), `${JSON.stringify(materialized, null, 2)}\n`)
       await rename(stagingDir, outputDir)
       const messageCount = Array.isArray((materialized as { messages?: unknown }).messages) ? (materialized as { messages: unknown[] }).messages.length : 0

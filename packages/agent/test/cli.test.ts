@@ -204,6 +204,7 @@ describe("agent CLI", () => {
       return Response.json({
         messages: [{
           attachments: [{ data: Buffer.from([1, 2, 3]).toString("base64"), mimeType: "image/jpeg", name: "meal.jpg", type: "image" }],
+          formatted: { data: "preserve me", type: "text" },
           id: "1",
           text: "Lunch",
           threadId: "telegram:123",
@@ -240,6 +241,7 @@ describe("agent CLI", () => {
       expect(stdout.output()).toContain("Downloaded 1 messages")
       await expect(readFile(join(rootDir, "archives/export/media/0001-meal.jpg"))).resolves.toEqual(Buffer.from([1, 2, 3]))
       await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"file": "media/0001-meal.jpg"')
+      await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"data": "preserve me"')
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

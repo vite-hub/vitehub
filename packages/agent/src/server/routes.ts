@@ -3945,6 +3945,8 @@ function boundedJsonByteLength(value: unknown, maxBytes: number, seen = new Set<
       const codePoint = value.codePointAt(index)!
       bytes += codePoint === 0x22 || codePoint === 0x5c
         ? 2
+        : codePoint >= 0xd800 && codePoint <= 0xdfff
+          ? 6
         : codePoint <= 0x1f
           ? 6
           : codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
@@ -3962,10 +3964,25 @@ function boundedJsonByteLength(value: unknown, maxBytes: number, seen = new Set<
     const itemBytes = boundedJsonByteLength(item, maxBytes - bytes, seen)
     if (itemBytes === undefined) return
     bytes += itemBytes + (index ? 1 : 0)
-    if (!Array.isArray(value)) bytes += key.length + 3
+    if (!Array.isArray(value)) {
+      const keyBytes = boundedJsonByteLength(key, maxBytes - bytes, seen)
+      if (keyBytes === undefined) return
+      bytes += keyBytes + 1
+    }
     if (bytes > maxBytes) return
   }
   seen.delete(value)
+  return bytes
+}
+
+function boundedUtf8ByteLength(value: string, maxBytes: number): number | undefined {
+  let bytes = 0
+  for (let index = 0; index < value.length;) {
+    const codePoint = value.codePointAt(index)!
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    if (bytes > maxBytes) return
+    index += codePoint > 0xffff ? 2 : 1
+  }
   return bytes
 }
 
@@ -4054,7 +4071,7 @@ async function createChannelHistoryResponse(
     }
   }
   const configuredHistory = isRecord(chatOptions?.threadHistory) ? chatOptions.threadHistory : {}
-  return Response.json({
+  const archive = {
     agent: context.agentIdentity?.name || "agent",
     channel: registration.channelId || registration.id,
     exportedAt: new Date().toISOString(),
@@ -4066,7 +4083,12 @@ async function createChannelHistoryResponse(
     },
     schemaVersion: 1,
     threadId: body.threadId.trim(),
-  })
+  }
+  const serialized = JSON.stringify(archive)
+  if (boundedUtf8ByteLength(serialized, channelHistoryArchiveMaxBytes) === undefined) {
+    return createJsonErrorResponse(400, "Channel history archive exceeds the 35 MiB response limit.")
+  }
+  return new Response(serialized, { headers: { "content-type": "application/json" } })
 }
 
 async function createChatWebhookHandler(
