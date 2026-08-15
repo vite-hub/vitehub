@@ -12394,7 +12394,7 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })
     expect(response.status).toBe(200)
-    const archive = await response.json()
+    const archive = await response.json() as { messages: Array<{ attachments: Array<{ data: string }>, id: string }> }
     expect(archive).toMatchObject({
       messages: expect.arrayContaining([expect.objectContaining({
         attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" })]),
@@ -12409,7 +12409,7 @@ describe("server helpers", () => {
       schemaVersion: 1,
       threadId: "telegram:456",
     })
-    const pdf = archive.messages.find((message: { id: string }) => message.id === "21").attachments[0]
+    const pdf = archive.messages.find(message => message.id === "21")!.attachments[0]!
     expect(Buffer.from(pdf.data, "base64")).toHaveLength(archivedPdf.byteLength)
     expect(fetchAttachment).toHaveBeenCalledWith(new URL("https://cdn.example.com/receipt.pdf"), { redirect: "error" })
     fetchAttachment.mockRestore()
