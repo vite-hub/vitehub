@@ -911,7 +911,9 @@ async function runAgentAsWorkflow<
   }
   catch (error) {
     const ambiguous = isAmbiguousWorkflowStartFailure(error)
-    const failedRunId = context.run?.runId || workflowRunId || (ambiguous ? undefined : createTraceId())
+    const failedRunId = !options.fresh && context.run?.runId
+      ? context.run.runId
+      : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
       const invocationJournal = await bindAgentInvocations(agent.invocations, {
         ...context,
