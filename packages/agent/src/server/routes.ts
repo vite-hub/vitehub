@@ -3442,7 +3442,7 @@ async function handleChatSdkMessage(
     const resolvedInvocationInput = invocation.input as AgentRunInput
     if (durableDelivery) {
       if (state.workflowCustodySupported === false) {
-        throw new Error("[vitehub] Durable Channel delivery cannot hand request-scoped State to an Agent Workflow. Configure Channel state or a generated host State provider.")
+        throw new Error("[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider.")
       }
       const durableTyping = startChatTypingRefresh(thread, context)
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
@@ -4572,7 +4572,6 @@ export function createChannelWebhookRouteHandler(
         ? {
             ...await resolveChatState(chatOptions, context, registration, handlerOptions),
             workflowCustodySupported: chatOptions?.state !== undefined
-              || handlerOptions.state === undefined
               || stateResolverSupportsWorkflowCustody(handlerOptions.state),
           }
         : undefined
