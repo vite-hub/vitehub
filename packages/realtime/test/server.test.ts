@@ -1091,9 +1091,11 @@ describe("tiptap-markdown documents", () => {
   it("recognizes frontmatter only as the first document block", () => {
     const leading = yDocToProsemirrorJSON(markdownToYDoc("---\r\nname: docs\r\n---\r\n\r\n# Page"), "default")
     const later = yDocToProsemirrorJSON(markdownToYDoc("# Page\n\n---\nname: section\n---"), "default")
+    const nested = "> ---\n> name: quoted\n> ---"
 
     expect(leading.content?.map((node: JSONContent) => node.type)).toEqual(["frontmatter", "heading"])
     expect(later.content?.map((node: JSONContent) => node.type)).not.toContain("frontmatter")
+    expect(yDocToMarkdown(markdownToYDoc(nested))).toBe(nested)
   })
 
   it("conditionally writes the live document for a Workspace checkpoint", async () => {
