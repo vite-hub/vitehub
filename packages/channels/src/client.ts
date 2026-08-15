@@ -6,6 +6,10 @@ function channelError(message: string): Error {
   return new Error(`[vitehub] ${message}`)
 }
 
+function logDelivery(event: string, deliveryId: string, channel: string, connector: string, extra: Record<string, unknown> = {}): void {
+  console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, connector, ...extra }))
+}
+
 export function createChannel<
   TConnectors extends ChannelConnectorMap,
   TDefault extends keyof TConnectors & string = never,
@@ -38,15 +42,24 @@ export function createChannel<
 
       const connectorOptions = { ...(options as Record<string, unknown>) }
       delete connectorOptions.connector
-      const result = await connector.send(text, connectorOptions as never)
-      if (!result || typeof result !== "object") {
-        throw channelError(`Channel connector "${connectorName}" returned an invalid result.`)
+      const deliveryId = globalThis.crypto.randomUUID()
+      logDelivery("outbound.started", deliveryId, name, connectorName)
+      try {
+        const result = await connector.send(text, connectorOptions as never)
+        if (!result || typeof result !== "object") {
+          throw channelError(`Channel connector "${connectorName}" returned an invalid result.`)
+        }
+        logDelivery("outbound.completed", deliveryId, name, connectorName, { messageId: result.id })
+        return {
+          ...result,
+          channel: name,
+          connector: connectorName,
+          deliveryId,
+        }
       }
-
-      return {
-        ...result,
-        channel: name,
-        connector: connectorName,
+      catch (error) {
+        logDelivery("outbound.failed", deliveryId, name, connectorName, { error: error instanceof Error ? error.message.slice(0, 2_000) : String(error).slice(0, 2_000) })
+        throw error
       }
     },
   }

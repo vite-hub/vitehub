@@ -64,6 +64,7 @@ export interface AgentHostIdentity {
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   agentIdentity?: AgentHostIdentity
+  channelDelivery?: AgentChannelDelivery
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
   toolStepReporter?: (step: AgentToolStep) => MaybePromise<void>
   run?: AgentRunMetadata
@@ -203,6 +204,53 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
   origin?: TOrigin
   runId: string
   threadId?: string
+}
+
+export interface AgentChannelDelivery {
+  agentName: string
+  channelId?: string
+  id: string
+  provider: string
+  receivedAt: string
+  scope: string
+  sourceId: string
+}
+
+export type AgentChannelDeliveryEventType =
+  | "accepted"
+  | "completed"
+  | "duplicate"
+  | "failed"
+  | "invocation.completed"
+  | "invocation.failed"
+  | "invocation.started"
+  | "outbound.completed"
+  | "outbound.failed"
+  | "outbound.started"
+  | "queued"
+  | "received"
+  | "rejected"
+  | "retrying"
+
+export interface AgentChannelDeliveryEventInput {
+  attempt?: number
+  error?: string
+  messageId?: string
+  runId?: string
+  type: AgentChannelDeliveryEventType
+}
+
+export interface AgentChannelDeliveryEvent extends AgentChannelDeliveryEventInput {
+  at: string
+  deliveryId: string
+  id: string
+}
+
+export type AgentChannelDeliveryStatus = "accepted" | "completed" | "failed" | "queued" | "received" | "rejected" | "retrying" | "running"
+
+export interface AgentChannelDeliveryInspection extends AgentChannelDelivery {
+  events: AgentChannelDeliveryEvent[]
+  status: AgentChannelDeliveryStatus
 }
 
 export type AgentChannelDeliveryEffectKind = "reaction" | "reply" | "status" | (string & {})

@@ -8,6 +8,7 @@ import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtim
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
+import { agentChannelDeliveryWorkflowContextKey, resumeWorkflowAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
 
 import type {
   AgentHostIdentity,
@@ -20,6 +21,7 @@ import type {
   AgentRuntimeName,
 } from "../types.ts"
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
+import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 
 export { workspaceAgentWithSourceRoot }
 
@@ -198,7 +200,7 @@ export async function runAgentWorkflowDefinition<
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
     : undefined
   const runId = context.id || payload.run?.runId
-  const runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
+  let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
     ...(payload.capabilities ? { capabilities: payload.capabilities } : {}),
     ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
@@ -211,11 +213,47 @@ export async function runAgentWorkflowDefinition<
     waitUntil,
   } as never)
 
-  return await portableWorkflowResult(await runAgentInline(
-    agent,
-    runtimeContext,
-    payload.resolvedInvoker
-      ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
-      : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
-  ))
+  const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
+  const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
+    ? await resumeWorkflowAgentChannelDelivery(
+        agent as never,
+        runtimeContext as never,
+        channelDeliveryBinding,
+      )
+    : undefined
+  if (isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) && !channelDelivery) {
+    throw new Error(`[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.`)
+  }
+  if (channelDelivery) runtimeContext = withAgentChannelDelivery(runtimeContext, channelDelivery)
+
+  try {
+    if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
+    const result = await portableWorkflowResult(await runAgentInline(
+      agent,
+      runtimeContext,
+      payload.resolvedInvoker
+        ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
+        : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
+    ))
+    if (channelDelivery) {
+      await channelDelivery.event({ type: "invocation.completed", runId }).catch(() => undefined)
+      await channelDelivery.event({ type: "completed", runId }).catch(() => undefined)
+    }
+    return result
+  }
+  catch (error) {
+    if (channelDelivery) {
+      await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "invocation.failed", runId }).catch(() => undefined)
+      await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "failed", runId }).catch(() => undefined)
+    }
+    throw error
+  }
+}
+
+function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
+  return Boolean(value && typeof value === "object"
+    && (typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string" || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined)
+    && typeof (value as AgentChannelDeliveryWorkflowBinding).deliveryId === "string"
+    && typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string"
+    && ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"))
 }

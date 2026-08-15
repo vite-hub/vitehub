@@ -151,6 +151,16 @@ Set `messages.commentary: 'message'` only when the Driver emits explicit comment
 
 Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. Overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
 
+## Inspect delivery custody
+
+Every built-in and custom Agent Channel records a delivery timeline before the Agent starts. The record keeps the provider event id separate from ViteHub's delivery id, then appends admission, invocation, retry, outbound, completion, and failure events. Discord Gateway and Telegram polling listeners also emit structured lifecycle events, so a listener gap can be distinguished from an event that reached ViteHub.
+
+The evidence boundary stays explicit: no ViteHub record can prove a provider event existed when it never reached the process. Provider audit logs and Gateway session history remain the source for that side of an incident.
+
+The journal uses the Channel's existing State Adapter and retains the timelines referenced by the 10,000 most recent admissions. Inspection de-duplicates concurrent or retried admissions of the same timeline. Each delivery and its newest 256 events expire 30 days after their last update. Records contain identifiers, timestamps, attempts, provider reply ids, and bounded error messages; ViteHub does not copy message text, attachment data, webhook bodies, or connector options into the journal. Production durability therefore follows the configured Agent state provider, while the default in-memory development state remains process-local.
+
+Invocation hooks and Drivers receive the active record as `context.channelDelivery`. Trace Events repeat `channel.delivery.id`, `channel.delivery.provider`, and `channel.delivery.source.id`, while JSON logs use the `vitehub.channel.delivery` and `vitehub.channel.listener` scopes. The webhook route handler exposes `handler.deliveries(request, webhookId, options)` so host integrations inspect records through the same scoped State Adapter used by the Channel.
+
 ## Scope abilities to one Channel
 
 Channel Capabilities apply only when that Channel is active. Agent-level Capabilities remain available to every invocation.
@@ -189,7 +199,7 @@ Harness-backed Drivers keep serializable URL references. Private callback-only a
 
 | Concern | Owner |
 | --- | --- |
-| Origin, event, thread, message, and reply delivery | Channel |
+| Origin, event, thread, message, custody, and reply delivery | Channel |
 | Trusted caller identity | Agent Actor |
 | User-authored command parsing | Input Commands Capability |
 | Prior conversational messages | Chat History and sessions |
