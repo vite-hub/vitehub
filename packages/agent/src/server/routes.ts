@@ -3856,7 +3856,7 @@ async function fetchChannelHistoryAttachmentBytes(url: string, maxBytes: number,
   return bytes
 }
 
-async function boundedChannelHistoryAttachmentData(fetchData: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
+async function boundedChannelHistoryOperation(operation: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
   return await new Promise((resolve, reject) => {
     const abort = () => settle(reject, signal.reason)
     const timeout = setTimeout(() => settle(reject, new DOMException("Attachment read timed out.", "TimeoutError")), 30_000)
@@ -3870,11 +3870,47 @@ async function boundedChannelHistoryAttachmentData(fetchData: () => unknown | Pr
       return
     }
     signal.addEventListener("abort", abort, { once: true })
-    Promise.resolve().then(fetchData).then(
+    Promise.resolve().then(operation).then(
       value => settle(resolve, value),
       error => settle(reject, error),
     )
   })
+}
+
+function channelHistoryStringByteLength(value: string, mediaType: string): number | undefined {
+  const dataUrl = /^data:([^,]*?),(.*)$/is.exec(value)
+  const encoded = dataUrl?.[2] ?? value
+  const base64 = dataUrl
+    ? dataUrl[1]!.split(";").some(parameter => parameter.toLowerCase() === "base64")
+    : !isTextAttachmentDataMediaType(mediaType)
+  if (base64) {
+    let length = 0
+    let padding = 0
+    for (const character of encoded) {
+      if (/\s/.test(character)) continue
+      length++
+      padding = character === "=" ? padding + 1 : 0
+    }
+    return Math.max(0, Math.floor(length * 3 / 4) - Math.min(padding, 2))
+  }
+  let bytes = 0
+  for (let index = 0; index < encoded.length;) {
+    if (dataUrl && encoded[index] === "%") {
+      if (!/^[\da-f]{2}$/i.test(encoded.slice(index + 1, index + 3))) return
+      bytes++
+      index += 3
+      continue
+    }
+    const codePoint = encoded.codePointAt(index)!
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    index += codePoint > 0xffff ? 2 : 1
+  }
+  return bytes
+}
+
+function isTextAttachmentDataMediaType(mediaType: string): boolean {
+  const normalized = mediaType.split(";", 1)[0]!.trim().toLowerCase()
+  return normalized.startsWith("text/") || normalized === "application/json" || normalized === "application/xml" || normalized.endsWith("+json") || normalized.endsWith("+xml")
 }
 
 async function channelHistoryAttachment(
@@ -3909,7 +3945,7 @@ async function channelHistoryAttachment(
   const boundedLazySize = typeof resolved.size === "number" && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
   if (!data && resolved.fetchData && boundedLazySize) {
     try {
-      data = await boundedChannelHistoryAttachmentData(() => resolved.fetchData!(), signal)
+      data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
     }
     catch {}
   }
@@ -3919,9 +3955,16 @@ async function channelHistoryAttachment(
     }
     catch {}
   }
-  const bytes = typeof data === "string"
-    ? attachmentStringBytes(data, resolved.mimeType || "application/octet-stream")
-    : channelHistoryAttachmentBytes(data)
+  let bytes: Uint8Array | undefined
+  try {
+    if (typeof data === "string") {
+      const mediaType = resolved.mimeType || "application/octet-stream"
+      const byteLength = channelHistoryStringByteLength(data, mediaType)
+      bytes = byteLength !== undefined && byteLength <= maxBytes ? attachmentStringBytes(data, mediaType) : undefined
+    }
+    else bytes = channelHistoryAttachmentBytes(data)
+  }
+  catch {}
   const boundedBytes = bytes && bytes.byteLength <= maxBytes ? bytes : undefined
   if (boundedBytes) budget.remaining -= boundedBytes.byteLength
   return objectWithoutUndefined({
@@ -3989,8 +4032,15 @@ async function createChannelHistoryResponse(
   const messages: Record<string, unknown>[] = []
   const attachmentBudget = { remaining: channelHistoryAttachmentMaxBytes }
   try {
-    for await (const message of chat.thread(body.threadId.trim()).allMessages) {
+    const iterator = chat.thread(body.threadId.trim()).allMessages[Symbol.asyncIterator]()
+    while (true) {
+      const next = await boundedChannelHistoryOperation(() => iterator.next(), request.signal)
+      if (!next || typeof next !== "object" || !("done" in next)) throw new Error("Channel history provider returned an invalid result.")
+      const result = next as IteratorResult<ChatSdkMessage>
+      if (result.done) break
+      const message = result.value
       messages.push(await channelHistoryMessage(message, adapter, attachmentBudget, request.signal))
+      if (request.signal.aborted) break
     }
   }
   catch (error) {

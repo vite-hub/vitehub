@@ -12453,8 +12453,21 @@ describe("server helpers", () => {
     const abortedArchive = await abortedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
     expect(abortedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
     finishLateRead(Buffer.from([1, 2, 3]))
+    attachmentFetchData.mockResolvedValueOnce("data:text/plain,%ZZ" as unknown as Buffer)
+    const malformedResponse = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(malformedResponse.status).toBe(200)
+    const malformedArchive = await malformedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
+    expect(malformedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
     fetchAttachment.mockRestore()
-    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 3)
+    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 4)
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
   }, 15_000)
