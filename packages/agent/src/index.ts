@@ -1932,27 +1932,28 @@ function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   agent: { name?: string, version?: string },
 ): void {
-  const traceLog = runtime.traceLog
-  if (!telemetry || !traceLog) return
-  const runs = deriveTraceRuns(traceLog.entries())
-  const id = runtime.run?.runId || runtime.trace?.id
-  const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
-  if (!run || run.status === "running") return
-  const name = runtime.agentIdentity?.name || agent.name
-  const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) => index
-    ? span
-    : {
-        ...span,
-        attributes: {
-          ...span.attributes,
-          "gen_ai.operation.name": "invoke_agent",
-          ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
-          ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
-          "vitehub.runtime.name": runtime.runtime,
-        },
-      })
+  if (!telemetry || !runtime.traceLog) return
   const task = Promise.resolve()
-    .then(() => telemetry({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans }))
+    .then(async () => {
+      const runs = deriveTraceRuns(runtime.traceLog!.entries())
+      const id = runtime.run?.runId || runtime.trace?.id
+      const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
+      if (!run || run.status === "running") return
+      const name = runtime.agentIdentity?.name || agent.name
+      const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) => index
+        ? span
+        : {
+            ...span,
+            attributes: {
+              ...span.attributes,
+              "gen_ai.operation.name": "invoke_agent",
+              ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
+              ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
+              "vitehub.runtime.name": runtime.runtime,
+            },
+          })
+      await telemetry({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans })
+    })
     .catch(() => console.error("[vitehub] Agent telemetry export failed."))
   registerAgentBackgroundTask(runtime, task)
 }

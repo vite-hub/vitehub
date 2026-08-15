@@ -77,6 +77,21 @@ describe("Agent telemetry", () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it("encodes only safe integers as OTLP int64 values", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+
+    await otlpHttpJson({ endpoint: "https://console.example/v1/traces", resource: { build: 1e21 } })({
+      agent: {},
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      spans: [{ attributes: { count: 12 }, name: "vitehub.run", spanId: "0123456789abcdef", startTime: "2026-01-01T00:00:00.000Z", status: { code: "OK" }, traceId: "0123456789abcdef0123456789abcdef" }],
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
+    expect(body.resourceSpans[0].resource.attributes).toContainEqual({ key: "build", value: { doubleValue: 1e21 } })
+    expect(body.resourceSpans[0].scopeSpans[0].spans[0].attributes).toContainEqual({ key: "count", value: { intValue: "12" } })
+  })
+
   it("exports one metadata-only trace after a successful invocation", async () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()
@@ -243,6 +258,34 @@ describe("Agent telemetry", () => {
     await Promise.all(tasks)
 
     expect(error).toHaveBeenCalledWith("[vitehub] Agent telemetry export failed.")
+    error.mockRestore()
+  })
+
+  it("does not let cyclic telemetry preparation change Agent output", async () => {
+    const tasks: Promise<unknown>[] = []
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      telemetry: vi.fn(),
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({ attributes: { details: cyclic }, name: "application.content", type: "run" })
+          return "ok"
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-cyclic-trace" },
+      runtime: "unknown",
+      traceLog,
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).resolves.toBe("ok")
+    await Promise.all(tasks)
+    expect(error).not.toHaveBeenCalled()
     error.mockRestore()
   })
 

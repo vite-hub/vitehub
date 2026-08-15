@@ -292,21 +292,24 @@ function isContentAttributeKey(key: string): boolean {
   return key.split(".").some((part, index) => index > 0 && contentAttributeKeys.has(part))
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype)
-}
-
-function metadataValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(metadataValue)
-  if (!isPlainRecord(value)) return value
+function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (!value || typeof value !== "object") return value
+  if (seen.has(value)) return "[Circular]"
+  seen.add(value)
+  if (Array.isArray(value)) {
+    const next = value.map(child => metadataValue(child, seen))
+    seen.delete(value)
+    return next
+  }
   const omitted: string[] = []
   const next = Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
     if (isContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }
-    return [[key, metadataValue(child)]]
+    return [[key, metadataValue(child, seen)]]
   }))
+  seen.delete(value)
   if (omitted.length) next["content.omitted"] = omitted
   return next
 }

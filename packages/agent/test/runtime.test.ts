@@ -12193,6 +12193,31 @@ describe("agent message protocol", () => {
       }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
     })
 
+    it.each(["success", "failure"] as const)("retains Workflow background work through %s", async (outcome) => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let release!: () => void
+      const pending = new Promise<void>(resolve => { release = resolve })
+      let settled = false
+      const workflow = runAgentWorkflowDefinition({} as never, {
+        id: `background-${outcome}`,
+        name: `background-${outcome}`,
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        context.waitUntil(pending)
+        if (outcome === "failure") throw new Error("Agent failed")
+        return "ok"
+      })
+      void workflow.finally(() => { settled = true }).catch(() => {})
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      release()
+      if (outcome === "failure") await expect(workflow).rejects.toThrow("Agent failed")
+      else await expect(workflow).resolves.toBe("ok")
+    })
+
     it("rejects sparse arrays whose custom properties mask missing indices", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const result = Array(1) as unknown[] & { note?: string }

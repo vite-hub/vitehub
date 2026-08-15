@@ -558,4 +558,17 @@ describe("@vite-hub/runtime", () => {
     expect(JSON.stringify(span)).not.toContain("secret prompt")
     expect(JSON.stringify(span)).not.toContain("secret result")
   })
+
+  it("recursively redacts traversable non-plain attribute objects", async () => {
+    const details = Object.assign(Object.create(null) as Record<string, unknown>, {
+      nested: { prompt: "secret prompt", safe: true },
+    })
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({ attributes: { details }, name: "agent.invocation", type: "run" })
+
+    const [span] = traceEventsToOpenTelemetrySpans(log.entries(), { content: "metadata" })
+
+    expect(span?.attributes?.details).toEqual({ nested: { "content.omitted": ["prompt"], safe: true } })
+    expect(JSON.stringify(span)).not.toContain("secret prompt")
+  })
 })
