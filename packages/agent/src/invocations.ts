@@ -14,6 +14,7 @@ const MAX_ANNOTATIONS = 32
 const MAX_ANNOTATION_KEY_LENGTH = 64
 const MAX_ANNOTATION_STRING_LENGTH = 512
 const MAX_METADATA_STRING_LENGTH = 512
+const MAX_OBSERVATION_CONTENT_STRING_LENGTH = 64 * 1024
 const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
@@ -194,26 +195,39 @@ function normalizedTimestamp(value: Date | string): string {
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
 }
 
-function boundedObservationValue(value: unknown, depth = 0): unknown {
-  if (typeof value === "string") return boundedString(value)
+function boundedObservationValue(value: unknown, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
+  if (typeof value === "string") return value.slice(0, maxStringLength)
   if (value === null || typeof value === "boolean") return value
   if (typeof value === "number") return Number.isFinite(value) ? value : null
   if (typeof value === "bigint") return boundedString(String(value))
   if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).map(item => boundedObservationValue(item, depth + 1))
+    return value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).map(item => boundedObservationValue(item, depth + 1, maxStringLength))
   }
   if (!value || typeof value !== "object") return boundedString(String(value))
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
     .slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)
-    .map(([key, child]) => [boundedString(key), boundedObservationValue(child, depth + 1)]))
+    .map(([key, child]) => [boundedString(key), boundedObservationValue(child, depth + 1, maxStringLength)]))
+}
+
+function observationContentAttribute(key: string): boolean {
+  return [
+    "approval.input",
+    "input.messages",
+    "input.prompt",
+    "message.content",
+    "result.text",
+    "tool.input",
+    "tool.output",
+    "vitehub.activity.body",
+  ].includes(key)
 }
 
 function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
   const attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)
         .slice(0, MAX_OBSERVATION_ATTRIBUTES)
-        .map(([key, value]) => [boundedString(key), boundedObservationValue(value)]))
+        .map(([key, value]) => [boundedString(key), boundedObservationValue(value, 0, observationContentAttribute(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]))
     : undefined
   return {
     ...observation,

@@ -1029,7 +1029,7 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("emits stream milestone Trace Events without tracing text deltas", async () => {
+  it("emits stream activity Trace Events without leaking metadata-only content", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
@@ -1054,6 +1054,7 @@ describe("agent message protocol", () => {
 
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message",
       "agent.tool.start",
       "agent.tool.finish",
       "agent.usage.recorded",
@@ -1065,6 +1066,41 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
+  })
+
+  it("batches reasoning, records title data, and retains complete content when opted in", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { title } = await import("../src/capabilities.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => "Readable session" })],
+      driver: { run: () => (async function* () {
+          yield { phase: "commentary", text: "Inspecting ", type: "text-delta" }
+          yield { phase: "commentary", text: "the repository", type: "text-delta" }
+          yield { id: "tool-1", input: { path: "README.md" }, name: "read", type: "tool-call" }
+          yield { id: "tool-1", name: "read", output: { text: "contents" }, type: "tool-result" }
+          yield { phase: "final", text: "Finished ", type: "text-delta" }
+          yield { phase: "final", text: "the review", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Review the repository" })],
+    })
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(traceLog.entries().find(event => event.name === "agent.title.recorded")?.attributes).toMatchObject({
+      "vitehub.session.title": "Readable session",
+    })
+    expect(traceLog.entries().filter(event => event.name === "agent.reasoning")).toEqual([
+      expect.objectContaining({ attributes: expect.objectContaining({ "message.content": "Inspecting the repository" }) }),
+    ])
+    expect(traceLog.entries().filter(event => event.name === "agent.message")).toEqual([
+      expect.objectContaining({ attributes: expect.objectContaining({ "message.content": "Finished the review" }) }),
+    ])
+    expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ path: "README.md" })
+    expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes?.["tool.output"]).toEqual({ text: "contents" })
   })
 
   it("exports product actions as execute_tool spans with ViteHub rendering semantics", async () => {
@@ -9095,6 +9131,7 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts.some(part => part.type === "tool-search")).toBe(true)
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message",
       "agent.tool.start",
       "agent.tool.finish",
       "agent.stream.finish",
@@ -9168,6 +9205,7 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(nativeResult)
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
@@ -9213,6 +9251,7 @@ describe("agent message protocol", () => {
     }))
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
+      "agent.message",
       "agent.stream.finish",
       "agent.invocation.finish",
     ])

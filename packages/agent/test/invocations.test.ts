@@ -301,6 +301,25 @@ describe("Agent Invocations", () => {
     expect(stored?.observations.at(-1)?.attributes?.["result.text"]).toBe("Reply to private prompt")
   })
 
+  it("retains useful tool content beyond the metadata string limit", async () => {
+    const output = "x".repeat(2_000)
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({ attributes: { "tool.output": { stdout: output } }, name: "agent.tool.finish", type: "run" })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("long-tool-output"), {})
+
+    const observation = (await invocations.getByRunId("long-tool-output"))?.observations
+      .find(event => event.name === "agent.tool.finish")
+    expect((observation?.attributes?.["tool.output"] as { stdout?: string })?.stdout).toBe(output)
+  })
+
   it("normalizes non-finite observation numbers across stores", async () => {
     const memory = createMemoryAgentInvocationStore()
     const persistedObservations: unknown[] = []

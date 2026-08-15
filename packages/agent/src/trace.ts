@@ -44,6 +44,15 @@ function invocationAttributes(context: AgentTraceContext, extra: Record<string, 
 }
 
 function eventAttributes(event: StreamEvent): Record<string, unknown> {
+  if (event.type === "text-delta") {
+    return {
+      "message.content": event.text,
+      "message.id": event.messageId || event.id,
+      "message.phase": event.phase,
+      "message.role": event.role || "assistant",
+      "vitehub.activity.kind": event.phase === "commentary" ? "reasoning" : "message",
+    }
+  }
   if (event.type === "tool-call" || event.type === "tool-input-start") {
     return {
       "gen_ai.operation.name": "execute_tool",
@@ -106,6 +115,15 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
     return { "finish.reason": event.reason }
   }
   return {}
+}
+
+function streamTitle(event: StreamEvent): string | undefined {
+  if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
+  if (!event.data || typeof event.data !== "object") return
+  const data = event.data as { title?: unknown, type?: unknown }
+  return data.type === "title" && typeof data.title === "string" && data.title.trim()
+    ? data.title.trim()
+    : undefined
 }
 
 export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -185,6 +203,15 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
 ): Promise<void> {
   if (!event || typeof event !== "object" || typeof (event as { type?: unknown }).type !== "string") return
   const streamEvent = event as StreamEvent
+  const title = streamTitle(streamEvent)
+  if (title) {
+    await traceAgentEvent(context, {
+      attributes: { "vitehub.session.title": title },
+      name: "agent.title.recorded",
+      type: "run",
+    })
+    return
+  }
   const names = {
     "approval-decision": "agent.approval.decision",
     "approval-request": "agent.approval.request",
@@ -193,6 +220,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     "tool-call": "agent.tool.start",
     "tool-input-start": "agent.tool.start",
     "tool-result": streamEvent.type === "tool-result" && streamEvent.error ? "agent.tool.error" : "agent.tool.finish",
+    "text-delta": streamEvent.type === "text-delta" && streamEvent.phase === "commentary" ? "agent.reasoning" : "agent.message",
     usage: "agent.usage.recorded",
   } as const
   const name = streamEvent.type in names ? names[streamEvent.type as keyof typeof names] : undefined
