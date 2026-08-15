@@ -571,7 +571,12 @@ async function* runProvider(
   let generatedInstructionFile: string | undefined
   let originalGeneratedInstructions: Uint8Array | undefined
   let generatedInstructionFileExisted = false
+  let runtimeCleanupDeferred = false
   const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
+  const deferRuntimeCleanup = (cleanup: Promise<void>) => {
+    runtimeCleanupDeferred = true
+    observeLateCleanup(cleanup)
+  }
   try {
     effectiveSignal?.throwIfAborted()
     workspaceSession = await prepareWorkspace(context, root)
@@ -618,7 +623,19 @@ async function* runProvider(
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
       threadId,
-    }), effectiveSignal, async () => await runtime!.close(), observeLateCleanup)
+    }), effectiveSignal, async session => {
+      try {
+        await runtime!.stopSession(session.threadId)
+      }
+      finally {
+        try {
+          await runtime!.close()
+        }
+        finally {
+          await rm(root, { force: true, recursive: true })
+        }
+      }
+    }, deferRuntimeCleanup)
     if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
     const prompt = providerPrompt(context.messages, resumed, context.prompt)
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt or user message.")
@@ -628,8 +645,21 @@ async function* runProvider(
     const turn = await waitForProviderOperation(
       runtime.sendTurn({ attachments, input: prompt, threadId }),
       effectiveSignal,
-      async () => await runtime!.close(),
-      observeLateCleanup,
+      async lateTurn => {
+        try {
+          await runtime!.interruptTurn(threadId, lateTurn.turnId).catch(() => undefined)
+          await runtime!.stopSession(threadId)
+        }
+        finally {
+          try {
+            await runtime!.close()
+          }
+          finally {
+            await rm(root, { force: true, recursive: true })
+          }
+        }
+      },
+      deferRuntimeCleanup,
     )
     if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
     const activeRuntime = runtime
@@ -688,7 +718,7 @@ async function* runProvider(
     setActiveAgentWorkspaceFiles(context.context, undefined)
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
-    for (const result of await Promise.allSettled([runtime?.close(), toolServer?.close()])) {
+    for (const result of await Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()])) {
       if (result.status === "rejected") cleanupErrors.push(result.reason)
     }
     if (generatedInstructionFile) {
@@ -707,11 +737,13 @@ async function* runProvider(
     catch (error) {
       cleanupErrors.push(error)
     }
-    try {
-      await rm(root, { force: true, recursive: true })
-    }
-    catch (error) {
-      cleanupErrors.push(error)
+    if (!runtimeCleanupDeferred) {
+      try {
+        await rm(root, { force: true, recursive: true })
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
     }
     if (cleanupErrors.length) {
       throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")

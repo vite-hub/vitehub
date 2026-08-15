@@ -52,6 +52,7 @@ function runtime(threadId: string, events: unknown[], options: {
       mcp = input.mcp
       return { resumeCursor: options.resumeCursor, threadId }
     }),
+    stopSession: vi.fn(async () => undefined),
   }
   providerRuntimes.push(value)
   return value
@@ -489,10 +490,10 @@ describe("Provider Agent Driver", () => {
 
     expect(provider.startSession).toHaveBeenCalledOnce()
     expect(provider.sendTurn).not.toHaveBeenCalled()
-    expect(provider.close).toHaveBeenCalledOnce()
+    expect(provider.close).not.toHaveBeenCalled()
   })
 
-  it("closes a provider runtime again when startup settles after timeout", async () => {
+  it("stops provider startup that settles after timeout before closing its runtime", async () => {
     const threadId = "thread-late-start"
     let finishStartup!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
@@ -510,8 +511,10 @@ describe("Provider Agent Driver", () => {
     }) as never)
 
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    expect(provider.close).not.toHaveBeenCalled()
     finishStartup()
-    await vi.waitFor(() => expect(provider.close).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+    expect(provider.stopSession).toHaveBeenCalledWith(threadId)
     expect(waitUntil).toHaveBeenCalledOnce()
   })
 
