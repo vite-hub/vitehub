@@ -114,7 +114,6 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
 }
 
 async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
-  if ((await state.getList<string>(indexKey)).includes(deliveryId)) return
   await state.appendToList(indexKey, deliveryId, { maxLength: maximumDeliveries, ttlMs: retentionMs })
 }
 

@@ -210,6 +210,24 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   })
 
+  it("keeps a retried oldest timeline discoverable through admission overflow", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "oldest-retry" }
+    const oldest = await openAgentChannelDelivery(state, input)
+    for (let index = 1; index < 10_000; index++) {
+      await openAgentChannelDelivery(state, { ...input, sourceId: `overflow-${index}` })
+    }
+
+    await openAgentChannelDelivery(state, input)
+    await openAgentChannelDelivery(state, { ...input, sourceId: "overflow-10000" })
+
+    await expect(readAgentChannelDeliveries(state, 10_000)).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: oldest.delivery.id })]),
+    )
+    info.mockRestore()
+  }, 10_000)
+
   it("keeps terminal settlement when a delayed queued event arrives", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()

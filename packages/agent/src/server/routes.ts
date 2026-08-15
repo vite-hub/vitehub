@@ -1131,7 +1131,16 @@ async function executeQueuedWebhookDelivery(
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
   if (delivery.attempts >= maxWebhookQueueAttempts) {
+    const channelDelivery = delivery.channelDeliveryId
+      ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId)
+      : undefined
     if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      await channelDelivery?.event({
+        attempt: delivery.attempts,
+        error: `Queued webhook delivery exhausted ${maxWebhookQueueAttempts} execution leases.`,
+        type: "failed",
+        runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+      }).catch(() => undefined)
       console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" exhausted ${maxWebhookQueueAttempts} execution leases and will not be retried.`)
     }
     return
@@ -4500,10 +4509,10 @@ export function createChannelWebhookRouteHandler(
             sourceId: await webhookDeliverySourceId(request, registration.provider, webhookPayload),
           })
           if (messageIdentity) {
-            await bindAgentChannelDeliveryMessage(deliveryState.state, delivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId)
+            await bindAgentChannelDeliveryMessage(deliveryState.state, delivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId).catch(() => undefined)
           }
           if (payloadFingerprint) {
-            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, registration.provider, payloadFingerprint)
+            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, registration.provider, payloadFingerprint).catch(() => undefined)
           }
           return delivery
         })()
@@ -4581,7 +4590,7 @@ export function createChannelWebhookRouteHandler(
                   }))
                 }
                 else await recordChannelDeliveryEvidence(channelDelivery, { type: outcome.queued ? "queued" : outcome.response.ok ? "completed" : "rejected", runId: invocation.run?.runId })
-                if (outcome.queued) detachAgentChannelDelivery(channelDelivery)
+                if (outcome.queued || outcome.settlement) detachAgentChannelDelivery(channelDelivery)
                 return outcome.response
               }
             }
