@@ -62,6 +62,8 @@ describe("renderMarkdownTemplate", () => {
       "https://example.com/first\n[Injected](https://evil.test)",
       "https://example.com/\uD800",
       "https://example.com/?x=&#x29;*Injected*",
+      "https://example.com/?x=&#65/foo",
+      "https://example.com/?x=&copy/foo",
       "https://example.com/?a=1&amp;b=2",
       "http://[::1]/recap",
       "//[::1]/recap",
