@@ -50,12 +50,20 @@ describe("renderMarkdownTemplate", () => {
     const characterReferenceMarkdown = await renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: characterReferenceUrl },
     })
-    expect(characterReferenceMarkdown).toBe("[Open recap](https://example.com/?x=%26#x29;*Injected*)")
+    expect(characterReferenceMarkdown).toBe("[Open recap](https://example.com/?x=&#x2%39;*Injected*)")
     const renderedUrl = new URL(characterReferenceMarkdown.slice("[Open recap](".length, -1))
     const sourceUrl = new URL(characterReferenceUrl)
     expect(renderedUrl.pathname).toBe(sourceUrl.pathname)
-    expect(renderedUrl.search).toBe("?x=%26")
-    expect(renderedUrl.hash).toBe(sourceUrl.hash)
+    expect(renderedUrl.search).toBe(sourceUrl.search)
+    expect(decodeURIComponent(renderedUrl.hash)).toBe(sourceUrl.hash)
+
+    const namedReferenceUrl = "https://example.com/?a=1&amp;b=2"
+    const namedReferenceMarkdown = await renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: namedReferenceUrl },
+    })
+    expect(namedReferenceMarkdown).toBe("[Open recap](https://example.com/?a=1&am%70;b=2)")
+    const namedReferenceRenderedUrl = new URL(namedReferenceMarkdown.slice("[Open recap](".length, -1))
+    expect([...namedReferenceRenderedUrl.searchParams]).toEqual([...new URL(namedReferenceUrl).searchParams])
 
     await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: "http://[::1]/recap" },
