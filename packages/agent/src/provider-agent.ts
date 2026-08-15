@@ -18,7 +18,7 @@ import { agentInvocationControlId, registerAgentInvocationInputHandler } from ".
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
-import { agentToolPolicyExecuteSymbol } from "./tool-runtime.ts"
+import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -235,8 +235,11 @@ async function startToolServer(
           abortSignal?.addEventListener("abort", () => resolve(false), { once: true })
         }).finally(() => approvals.delete(approvalRequest.id as string))
         if (approved) {
-          const execute = (tool as AgentToolDefinition & { [agentToolPolicyExecuteSymbol]?: AgentToolDefinition["execute"] })[agentToolPolicyExecuteSymbol]
-          if (execute) return toolResult(await execute(approvalRequest.input, { abortSignal: AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])]) }))
+          const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
+          if (approve) {
+            approve(approvalRequest.input)
+            return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])]) }))
+          }
         }
       }
       return { content: [{ text: error instanceof Error ? error.message : String(error), type: "text" }], isError: true }
@@ -799,6 +802,11 @@ async function* runProvider(
     }
     effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
+    const finalizeLateRuntimeCreation = async () => {
+      releaseDeferredRuntimeStopped?.()
+      await workspaceCleanup
+      await rm(root, { force: true, recursive: true })
+    }
     runtime = await waitForProviderOperation(
       createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider }),
       effectiveSignal,
@@ -807,13 +815,11 @@ async function* runProvider(
           await lateRuntime.close()
         }
         finally {
-          releaseDeferredRuntimeStopped?.()
-          await workspaceCleanup
-          await rm(root, { force: true, recursive: true })
+          await finalizeLateRuntimeCreation()
         }
       },
       deferRuntimeCleanup,
-      () => releaseDeferredRuntimeStopped?.(),
+      finalizeLateRuntimeCreation,
     )
     effectiveSignal?.throwIfAborted()
     if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals)

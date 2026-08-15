@@ -16,7 +16,7 @@ import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
-import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
+import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
 
 function event(type: string, threadId: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return { payload, threadId, type, ...extra }
@@ -446,13 +446,14 @@ describe("Provider Agent Driver", () => {
         toolCallReady()
       },
     })
-    const tools = applyAgentToolPolicies({
+    const reportToolStep = vi.fn(async () => undefined)
+    const tools = withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies({
       email_send: {
-        execute: vi.fn(async () => "sent"),
+        execute: vi.fn(async () => undefined),
         name: "email_send",
         policy: "require-approval" as const,
       },
-    })!
+    })!), reportToolStep)
 
     const output = createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-approval", { tools }) as never) as AsyncIterable<unknown>
     const stream = output[Symbol.asyncIterator]()
@@ -465,7 +466,8 @@ describe("Provider Agent Driver", () => {
     await expect(sendAgentInvocationInput("run-thread-tool-approval", {
       messages: [{ id: "approval", parts: [{ approved: true, id: (approval.value as { id: string }).id, type: "approval-decision" }], role: "user" }],
     }, { mode: "respond" })).resolves.toBe("accepted")
-    await expect(toolCall).resolves.toMatchObject({ content: [{ text: "sent", type: "text" }] })
+    await expect(toolCall).resolves.toMatchObject({ content: [{ text: "null", type: "text" }] })
+    expect(reportToolStep).toHaveBeenCalledWith(expect.objectContaining({ toolResults: [expect.objectContaining({ output: null })] }))
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
   })
 
@@ -860,6 +862,24 @@ describe("Provider Agent Driver", () => {
     await expect(access(root)).resolves.toBeUndefined()
     resolveRuntime(lateRuntime)
     await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+  })
+
+  it("removes the Workspace root when late runtime creation rejects", async () => {
+    const threadId = "thread-late-runtime-rejection"
+    let rejectRuntime!: (reason: unknown) => void
+    createProviderRuntime.mockImplementationOnce(() => new Promise((_resolve, reject) => rejectRuntime = reject) as never)
+    const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      input: { prompt: "hello", timeout: 20 },
+    }) as never)
+
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    const runtimeCall = createProviderRuntime.mock.lastCall
+    expect(runtimeCall).toBeDefined()
+    const root = (runtimeCall![0] as { cwd: string }).cwd
+    await expect(access(root)).resolves.toBeUndefined()
+    rejectRuntime(new Error("late startup failed"))
     await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
   })
 

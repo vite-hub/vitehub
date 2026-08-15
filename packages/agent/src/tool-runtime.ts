@@ -14,7 +14,7 @@ function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
   return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
 }
 
-export const agentToolPolicyExecuteSymbol: unique symbol = Symbol("vitehub.agent.tool-policy-execute")
+export const agentToolPolicyApproveSymbol: unique symbol = Symbol("vitehub.agent.tool-policy-approve")
 
 export function toJsonCompatibleValue(value: unknown): unknown {
   if (value === undefined) return null
@@ -43,11 +43,15 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
 
   const execute = tool.execute
   const policy = tool.policy
+  const approvedInputs = new Set<unknown>()
 
   return {
     ...tool,
-    [agentToolPolicyExecuteSymbol]: execute,
+    [agentToolPolicyApproveSymbol](input: unknown) {
+      approvedInputs.add(input)
+    },
     async execute(input, context) {
+      if (approvedInputs.delete(input)) return await execute(input, context)
       const decision = typeof policy === "function"
         ? await policy({
             name: tool.name,
