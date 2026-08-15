@@ -44,7 +44,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
@@ -866,7 +866,7 @@ async function runAgentAsWorkflow<
       const invocationJournal = await bindAgentInvocations(agent.invocations, {
         ...context,
         run: { ...context.run, runId: failedRunId },
-      }, { agentName: agent.name, terminalTakeover: true })
+      }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
       if (!ambiguous) await invocationJournal?.finish("failed", error)
     }
     throw error
@@ -874,7 +874,7 @@ async function runAgentAsWorkflow<
   const invocationJournal = hasAgentDefinition(agent)
     ? await bindAgentInvocations(agent.invocations, {
       ...context,
-      run: { ...context.run, runId: run.id },
+      run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
     }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
     : undefined
   return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
@@ -4033,7 +4033,12 @@ async function executeAgentInvocation<
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
   const invocationJournal = definition
-    ? await bindAgentInvocations((definition as AgentDefinition).invocations, context, { agentName: (definition as AgentDefinition).name })
+    ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
+      ...context,
+      ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
+        ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
+        : {}),
+    }, { agentName: (definition as AgentDefinition).name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined

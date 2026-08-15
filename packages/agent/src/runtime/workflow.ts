@@ -6,6 +6,7 @@ import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/co
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
+import { agentInvocationRunId } from "../invocation-context.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
 import { toAgentRunResult } from "../agent-output.ts"
@@ -214,6 +215,9 @@ export async function runAgentWorkflowDefinition<
     runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
     waitUntil,
   } as never)
+  if (payload.run?.runId && payload.run.runId !== runId) {
+    ;(runtimeContext as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
+  }
 
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)

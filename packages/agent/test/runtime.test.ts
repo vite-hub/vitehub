@@ -12005,7 +12005,8 @@ describe("agent message protocol", () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
-      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const store = createMemoryAgentInvocationStore()
+      const invocations = defineAgentInvocations({ store })
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
         details: { operation: "create", provider: "cloudflare" },
@@ -12036,6 +12037,56 @@ describe("agent message protocol", () => {
         }, {})).rejects.toBe(failure)
 
         await expect(invocations.getByRunId("accepted-workflow")).resolves.toMatchObject({ status: "pending" })
+        const record = await invocations.getByRunId("accepted-workflow")
+        expect(record && await store.claim(record.id, "accepted-worker", 30_000)).toBe(true)
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("preserves source run identity when Workflow providers require a portable ID", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      let providerRunId = ""
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        workflow: async () => ({
+          createWorkflow: () => ({
+            run: async (_payload: unknown, options: { id?: string }) => {
+              providerRunId = options.id || ""
+              return { id: providerRunId, status: "queued" }
+            },
+          }),
+        }) as never,
+      })
+      try {
+        const sourceRunId = "source/run/id"
+        await runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          name: "portable-id-agent",
+          runtime: workflow("portable-id-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { runId: sourceRunId },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})
+
+        expect(providerRunId).toMatch(/^vitehub-invalid-/)
+        await expect(invocations.getByRunId(sourceRunId, "portable-id-agent")).resolves.toMatchObject({ status: "pending" })
+        await expect(invocations.getByRunId(providerRunId, "portable-id-agent")).resolves.toBeUndefined()
       }
       finally {
         setAgentWorkflowRuntimeLoaders({
