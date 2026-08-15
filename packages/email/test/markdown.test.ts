@@ -45,4 +45,13 @@ describe("renderEmailMarkdown", () => {
       data: { url: "https://example.com/?x=&#x29;*Injected*" },
     })).rejects.toThrow("must resolve to a safe destination")
   })
+
+  it("preserves backslash data in a scalar link query", async () => {
+    await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?q=a\\b" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"https://example.com/?q=a%5Cb\">Open recap</a></p>",
+      text: "[Open recap](https://example.com/?q=a%5Cb)",
+    })
+  })
 })

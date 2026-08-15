@@ -47,6 +47,10 @@ describe("renderMarkdownTemplate", () => {
     })).resolves.toBe("[Open recap](https://example.com/?a=1&debug)")
 
     await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?q=a\\b" },
+    })).resolves.toBe("[Open recap](https://example.com/?q=a%5Cb)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: "https://example.com/a) [Injected](https://evil.test?q=\"x\"" },
     })).resolves.toBe("[Open recap](https://example.com/a%29%20%5BInjected%5D%28https://evil.test?q=%22x%22)")
 

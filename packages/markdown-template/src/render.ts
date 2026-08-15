@@ -143,10 +143,12 @@ function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
 
 async function safeLinkDestination(path: string, data: Record<string, unknown>): Promise<string> {
   const value = scalarValue(path, data)
+  const suffixIndex = value.search(/[?#]/)
+  const hasPathBackslash = value.slice(0, suffixIndex < 0 ? undefined : suffixIndex).includes("\\")
   const hasHtmlReferencePrefix = /&#(?:\d+|x[\dA-F]+)/i.test(value)
     || [...value.matchAll(/&([A-Za-z][A-Za-z\d]*)(?=[^=A-Za-z\d]|$)/g)]
       .some(match => legacyHtmlReferences.has(match[1]!))
-  if (value.includes("\\") || hasHtmlReferencePrefix || /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
+  if (hasPathBackslash || hasHtmlReferencePrefix || /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
     const codePoint = character.codePointAt(0)!
     return codePoint < 32 || codePoint === 127
   })) {
