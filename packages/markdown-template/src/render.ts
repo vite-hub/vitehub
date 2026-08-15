@@ -144,9 +144,15 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
   }
   let encoded: string
   try {
-    encoded = encodeURI(value)
+    const ipv6Authority = value.match(/^([a-z][a-z\d+.-]*:\/\/(?:[^/?#]*@)?)\[([^\]]+)]/i)
+    const parsed = ipv6Authority ? new URL(value) : undefined
+    encoded = ipv6Authority && parsed?.hostname === `[${ipv6Authority[2]}]`
+      ? `${encodeURI(ipv6Authority[1]!)}[${encodeURI(ipv6Authority[2]!)}]${encodeURI(value.slice(ipv6Authority[0].length))}`
+      : encodeURI(value)
+    encoded = encoded
       .replace(/%25([\dA-F]{2})/gi, "%$1")
       .replace(/[()]/g, character => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`)
+      .replace(/&(?=(?:#\d{1,7}|#[xX][\dA-F]{1,6}|[A-Za-z][A-Za-z\d]{1,31});)/g, "%26")
   }
   catch {
     throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
@@ -158,7 +164,7 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
   if (!link || !isElement(link) || link[0] !== "a" || typeof link[1].href !== "string") {
     throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
   }
-  return link[1].href
+  return encoded
 }
 
 function assertTemplate(template: string): void {

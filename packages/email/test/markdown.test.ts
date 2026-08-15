@@ -40,4 +40,13 @@ describe("renderEmailMarkdown", () => {
       text: "[Open and share your visual recap](https://prs.onmax.me/recap/2026-07)",
     })
   })
+
+  it("keeps character references inside a scalar link destination", async () => {
+    await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?x=&#x29;*Injected*" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"https://example.com/?x=%26#x29;*Injected*\">Open recap</a></p>",
+      text: "[Open recap](https://example.com/?x=%26#x29;*Injected*)",
+    })
+  })
 })
