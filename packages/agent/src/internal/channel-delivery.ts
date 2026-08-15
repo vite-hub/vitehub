@@ -9,6 +9,11 @@ const indexKey = "deliveries:index"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 
+interface StoredAgentChannelDelivery extends AgentChannelDelivery {
+  journalRetrySignaled?: boolean
+  journalStatus?: AgentChannelDeliveryStatus
+}
+
 export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
@@ -117,7 +122,33 @@ async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Prom
   await state.appendToList(indexKey, deliveryId, { maxLength: maximumDeliveries, ttlMs: retentionMs })
 }
 
-async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent> {
+function advanceDeliveryStatus(
+  current: AgentChannelDeliveryStatus,
+  retrySignaled: boolean,
+  event: Pick<AgentChannelDeliveryEvent, "type">,
+): { retrySignaled: boolean, status: AgentChannelDeliveryStatus } {
+  if (event.type === "duplicate") return { retrySignaled: true, status: current }
+  if (current === "completed" || current === "failed" || current === "rejected") {
+    const retryStarts = event.type === "retrying"
+      || (retrySignaled && event.type === "accepted")
+      || (event.type === "invocation.started" && (retrySignaled || current === "failed"))
+    if (!retryStarts) return { retrySignaled, status: current }
+    retrySignaled = false
+  }
+  if (event.type === "invocation.started") return { retrySignaled, status: "running" }
+  if (event.type === "received") return { retrySignaled, status: "received" }
+  if (event.type === "accepted" || event.type === "completed" || event.type === "failed" || event.type === "queued" || event.type === "rejected" || event.type === "retrying") {
+    return { retrySignaled, status: event.type }
+  }
+  return { retrySignaled, status: current }
+}
+
+function publicDelivery(delivery: StoredAgentChannelDelivery): AgentChannelDelivery {
+  const { journalRetrySignaled: _journalRetrySignaled, journalStatus: _journalStatus, ...value } = delivery
+  return value
+}
+
+async function appendEvent(state: StateAdapter, delivery: StoredAgentChannelDelivery, input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent> {
   const terminal = input.type === "completed" || input.type === "failed" || input.type === "rejected"
   const event: AgentChannelDeliveryEvent = {
     ...input,
@@ -127,9 +158,13 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
     id: token(),
   }
   try {
-    await state.set(sourceKey(delivery), delivery, retentionMs)
-    await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
+    const next = advanceDeliveryStatus(delivery.journalStatus || "received", delivery.journalRetrySignaled || false, event)
+    const stored = { ...delivery, journalRetrySignaled: next.retrySignaled, journalStatus: next.status }
+    await state.set(sourceKey(stored), stored, retentionMs)
+    await state.set(deliveryRecordKey(stored.id), stored, retentionMs)
     await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
+    delivery.journalRetrySignaled = next.retrySignaled
+    delivery.journalStatus = next.status
     if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
   }
   catch (error) {
@@ -152,12 +187,13 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
   return event
 }
 
-function tracker(state: StateAdapter, delivery: AgentChannelDelivery, duplicate: boolean): AgentChannelDeliveryTracker {
+function tracker(state: StateAdapter, stored: StoredAgentChannelDelivery, duplicate: boolean): AgentChannelDeliveryTracker {
+  const delivery = publicDelivery(stored)
   const value: AgentChannelDeliveryTracker = {
     claimed: false,
     delivery,
     duplicate,
-    event: async (input) => await appendEvent(state, delivery, input),
+    event: async (input) => await appendEvent(state, stored, input),
   }
   // A duplicate may already be terminal and is still usable through its request
   // context. Keeping it process-global would retain its State Adapter forever.
@@ -186,13 +222,13 @@ export async function resumeWorkflowAgentChannelDelivery(
 }
 
 export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<AgentChannelDelivery, "id" | "receivedAt">): Promise<AgentChannelDeliveryTracker> {
-  const candidate: AgentChannelDelivery = {
+  const candidate: StoredAgentChannelDelivery = {
     ...input,
     id: token(),
     receivedAt: new Date().toISOString(),
   }
   const created = await state.setIfNotExists(sourceKey(candidate), candidate, retentionMs)
-  const delivery = created ? candidate : (await state.get<AgentChannelDelivery>(sourceKey(candidate))) || candidate
+  const delivery = created ? candidate : (await state.get<StoredAgentChannelDelivery>(sourceKey(candidate))) || candidate
   await state.set(sourceKey(delivery), delivery, retentionMs)
   await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
   const opened = tracker(state, delivery, !created)
@@ -207,7 +243,7 @@ export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<
 }
 
 export async function resumeAgentChannelDelivery(state: StateAdapter, deliveryId: string): Promise<AgentChannelDeliveryTracker | undefined> {
-  const stored = await state.get<AgentChannelDelivery>(deliveryRecordKey(deliveryId))
+  const stored = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
   return stored ? tracker(state, stored, false) : undefined
 }
 
@@ -267,36 +303,30 @@ export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context:
 
 export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get" | "getList">, limit = 100, scopePrefix?: string): Promise<AgentChannelDeliveryInspection[]> {
   const ids = await state.getList<string>(indexKey)
-  const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[] }> = []
+  const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[], persistedStatus?: AgentChannelDeliveryStatus }> = []
   const seen = new Set<string>()
   const maximum = Math.max(0, limit)
   for (const id of [...ids].reverse()) {
     if (stored.length >= maximum) break
     if (seen.has(id)) continue
     seen.add(id)
-    const delivery = await state.get<AgentChannelDelivery>(deliveryRecordKey(id))
+    const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(id))
     if (!delivery || (scopePrefix && !delivery.scope.startsWith(scopePrefix))) continue
-    stored.push({ ...delivery, events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)) })
+    stored.push({
+      ...publicDelivery(delivery),
+      events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)),
+      persistedStatus: delivery.journalStatus,
+    })
   }
   return stored.map((delivery) => {
+    const { persistedStatus, ...inspection } = delivery
+    if (persistedStatus) return { ...inspection, status: persistedStatus }
     let retrySignaled = false
     const status = delivery.events.reduce<AgentChannelDeliveryStatus>((current, event) => {
-      if (event.type === "duplicate") {
-        retrySignaled = true
-        return current
-      }
-      if (current === "completed" || current === "failed" || current === "rejected") {
-        const retryStarts = event.type === "retrying"
-          || (retrySignaled && event.type === "accepted")
-          || (event.type === "invocation.started" && (retrySignaled || current === "failed"))
-        if (!retryStarts) return current
-        retrySignaled = false
-      }
-      if (event.type === "invocation.started") return "running"
-      if (event.type === "received") return "received"
-      if (event.type === "accepted" || event.type === "completed" || event.type === "failed" || event.type === "queued" || event.type === "rejected" || event.type === "retrying") return event.type
-      return current
+      const next = advanceDeliveryStatus(current, retrySignaled, event)
+      retrySignaled = next.retrySignaled
+      return next.status
     }, "received")
-    return { ...delivery, status }
+    return { ...inspection, status }
   })
 }

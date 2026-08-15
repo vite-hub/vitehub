@@ -242,6 +242,22 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   })
 
+  it("preserves terminal status after duplicate admissions truncate event history", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "completed-duplicate" }
+    const delivery = await openAgentChannelDelivery(state, input)
+    await delivery.event({ type: "completed" })
+
+    for (let index = 0; index < 256; index++) await openAgentChannelDelivery(state, input)
+
+    const [inspection] = await readAgentChannelDeliveries(state)
+    expect(inspection?.events).toHaveLength(256)
+    expect(inspection?.events.some(event => event.type === "completed")).toBe(false)
+    expect(inspection?.status).toBe("completed")
+    info.mockRestore()
+  })
+
   it("lets a reopened attempt replace a recoverable terminal status", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
