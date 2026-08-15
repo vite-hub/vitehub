@@ -439,6 +439,10 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes: vi.fn() },
+      name: "@vite-hub/email/vite",
+    }])
     const { nuxt, runNitroConfigHook } = createNuxt()
 
     await viteHubNuxtModule({ email: true, preset: "vercel" }, nuxt)

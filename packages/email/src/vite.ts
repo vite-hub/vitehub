@@ -1,4 +1,4 @@
-import { readFile, readdir, rm } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 
@@ -226,8 +226,7 @@ function renderEmailTemplateTypes(names: string[]): string {
   ].join("\n")).join("\n\n") + (names.length ? "\n" : "")
 }
 
-async function collectEmailTemplateDependencies(files: string[]): Promise<Set<string>> {
-  const dependencies = new Set(files)
+async function collectEmailTemplateDependencies(files: string[], dependencies: Set<string>): Promise<void> {
   const visit = async (file: string) => {
     const template = await readFile(file, "utf8")
     for (const specifier of extractMarkdownTemplateImportSpecifiers(template)) {
@@ -238,13 +237,16 @@ async function collectEmailTemplateDependencies(files: string[]): Promise<Set<st
     }
   }
   for (const file of files) await visit(file)
-  return dependencies
 }
 
 async function materializeEmailTemplates(templatesRoot: string, outputRoot: string, rootDir: string): Promise<void> {
-  await rm(outputRoot, { force: true, recursive: true })
+  const stagingRoot = `${outputRoot}.staging`
+  const backupRoot = `${outputRoot}.backup`
+  await rm(stagingRoot, { force: true, recursive: true })
+  await rm(backupRoot, { force: true, recursive: true })
+  await mkdir(stagingRoot, { recursive: true })
   for (const file of await listEmailTemplates(templatesRoot)) {
-    const target = resolve(outputRoot, templateName(templatesRoot, file))
+    const target = resolve(stagingRoot, templateName(templatesRoot, file))
     const entry = `${target}.entry.mjs`
     await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
@@ -254,6 +256,22 @@ async function materializeEmailTemplates(templatesRoot: string, outputRoot: stri
       await rm(entry, { force: true })
     }
   }
+  let replaced = false
+  try {
+    await rename(outputRoot, backupRoot)
+    replaced = true
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  try {
+    await rename(stagingRoot, outputRoot)
+  }
+  catch (error) {
+    if (replaced) await rename(backupRoot, outputRoot)
+    throw error
+  }
+  await rm(backupRoot, { force: true, recursive: true })
 }
 
 export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
@@ -289,8 +307,14 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     const names = files.map(file => templateName(templatesRoot, file))
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
     if (options.materialize) {
-      await materializeEmailTemplates(templatesRoot, materializedRoot, options.projectRoot)
-      watchFiles = await collectEmailTemplateDependencies(files)
+      const nextWatchFiles = new Set(files)
+      try {
+        await collectEmailTemplateDependencies(files, nextWatchFiles)
+        await materializeEmailTemplates(templatesRoot, materializedRoot, options.projectRoot)
+      }
+      finally {
+        watchFiles = nextWatchFiles
+      }
       materialized = true
     }
   }

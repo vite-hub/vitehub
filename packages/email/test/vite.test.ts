@@ -218,6 +218,16 @@ describe("hubEmail", () => {
 
     await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(2))
     expect(send).toHaveBeenCalledOnce()
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .toContain("Updated footer")
+
+    const missingTemplate = join(root, "server", "shared", "missing.md")
+    await writeFile(missingTemplate, "Recovered footer")
+    handlers.get("add")?.(missingTemplate)
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .toContain("Recovered footer")
   })
 
   it("uses the development Nitro preset instead of the deployment target", async () => {
