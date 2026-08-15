@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -236,6 +236,103 @@ describe("agent CLI", () => {
       expect(stdout.output()).toContain("Downloaded 1 messages")
       await expect(readFile(join(rootDir, "archives/export/media/0001-meal.jpg"))).resolves.toEqual(Buffer.from([1, 2, 3]))
       await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"file": "media/0001-meal.jpg"')
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("publishes Channel history atomically and preserves existing output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-lifecycle-"))
+    const stdout = stream()
+    const stderr = stream()
+    const fetcher = vi.fn(async () => new Response("unavailable", { status: 503 }))
+    const target = {
+      agent: "calories",
+      channel: "telegram",
+      defaultThreadId: "telegram:123",
+      mode: "webhook" as const,
+      provider: "telegram",
+      registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+    }
+    const run = async () => await runAgentChannelHistoryCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--output", "archives/export",
+    ], {
+      cwd: rootDir,
+      env: {},
+      rootDir,
+      stderr,
+      stdout,
+    }, {
+      fetch: fetcher as never,
+      loadTargets: async () => [target],
+    })
+
+    try {
+      await expect(run()).resolves.toBe(1)
+      await expect(readdir(join(rootDir, "archives"))).resolves.toEqual([])
+
+      await mkdir(join(rootDir, "archives/export"))
+      await writeFile(join(rootDir, "archives/export/existing.txt"), "keep")
+      await expect(run()).resolves.toBe(1)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      await expect(readFile(join(rootDir, "archives/export/existing.txt"), "utf8")).resolves.toBe("keep")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("cleans aborted exports and preserves one concurrent winner", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-concurrent-"))
+    const target = {
+      agent: "calories",
+      channel: "telegram",
+      defaultThreadId: "telegram:123",
+      mode: "webhook" as const,
+      provider: "telegram",
+      registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+    }
+    const run = async (fetcher: typeof fetch) => await runAgentChannelHistoryCli([
+      "--stage", "production",
+      "--url", "https://example.com",
+      "--output", "export",
+    ], {
+      cwd: rootDir,
+      env: {},
+      rootDir,
+      stderr: stream(),
+      stdout: stream(),
+    }, {
+      fetch: fetcher,
+      loadTargets: async () => [target],
+    })
+
+    try {
+      await expect(run(async () => {
+        throw new DOMException("timed out", "TimeoutError")
+      })).resolves.toBe(1)
+      await expect(readdir(rootDir)).resolves.toEqual([])
+
+      let started = 0
+      let release!: () => void
+      const bothStarted = new Promise<void>((resolve) => { release = resolve })
+      const concurrentFetch = (marker: string) => async () => {
+        started += 1
+        if (started === 2) release()
+        await bothStarted
+        return Response.json({ marker, messages: [], schemaVersion: 1, threadId: "telegram:123" })
+      }
+      const results = await Promise.all([
+        run(concurrentFetch("first")),
+        run(concurrentFetch("second")),
+      ])
+      expect(results.sort()).toEqual([0, 1])
+      await expect(readdir(rootDir)).resolves.toEqual(["export"])
+      const published = JSON.parse(await readFile(join(rootDir, "export/history.json"), "utf8")) as { marker: string }
+      expect(["first", "second"]).toContain(published.marker)
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

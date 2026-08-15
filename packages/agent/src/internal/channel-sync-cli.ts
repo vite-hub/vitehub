@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverAgentDefinitions } from "../discovery.ts"
+import { getAgentChannelHistoryDefinition } from "./channel-history.ts"
 import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
 
@@ -269,13 +270,6 @@ async function channelRegistration(
   return { id: channelId }
 }
 
-async function channelDefaultThreadId(channel: AgentChannelDefinition, context: unknown, provider: string): Promise<string | undefined> {
-  if (provider !== "telegram") return
-  const adapter = await resolvedChannelValue(channel.adapter, context) as { allowedUserIds?: Set<string>, openDM?: (userId: string) => Promise<string> } | undefined
-  if (!adapter?.openDM || adapter.allowedUserIds?.size !== 1) return
-  return await adapter.openDM.call(adapter, [...adapter.allowedUserIds][0]!)
-}
-
 function uniqueAgentDefinitions(
   rootDir: string,
   serverDirs?: string[],
@@ -349,7 +343,7 @@ async function loadChannelTargetsExclusive(
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
-          defaultThreadId: await channelDefaultThreadId(channel, context, provider),
+          defaultThreadId: await getAgentChannelHistoryDefinition(channel)?.resolveDefaultThreadId?.(context, channel),
           mode: sync?.mode || "webhook",
           provider,
           registration: await channelRegistration(channelId, channel, context),
@@ -374,9 +368,10 @@ async function loadChannelTargetsExclusive(
 
 let channelSyncTargetLoadQueue: Promise<void> = Promise.resolve()
 
-async function loadChannelSyncTargets(
+async function loadQueuedChannelTargets(
   input: ChannelSyncLoadInput,
-): Promise<LoadedChannelSyncTarget[]> {
+  syncOnly: boolean,
+): Promise<Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }>> {
   const previous = channelSyncTargetLoadQueue
   let release!: () => void
   channelSyncTargetLoadQueue = new Promise<void>((resolve) => {
@@ -384,26 +379,21 @@ async function loadChannelSyncTargets(
   })
   await previous
   try {
-    return await loadChannelTargetsExclusive(input, true) as LoadedChannelSyncTarget[]
+    return await loadChannelTargetsExclusive(input, syncOnly)
   }
   finally {
     release()
   }
 }
 
+async function loadChannelSyncTargets(
+  input: ChannelSyncLoadInput,
+): Promise<LoadedChannelSyncTarget[]> {
+  return await loadQueuedChannelTargets(input, true) as LoadedChannelSyncTarget[]
+}
+
 export async function loadChannelTargets(input: ChannelSyncLoadInput): Promise<LoadedChannelTarget[]> {
-  const previous = channelSyncTargetLoadQueue
-  let release!: () => void
-  channelSyncTargetLoadQueue = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  await previous
-  try {
-    return await loadChannelTargetsExclusive(input, false)
-  }
-  finally {
-    release()
-  }
+  return await loadQueuedChannelTargets(input, false)
 }
 
 async function verifyDeployedWebhook(

@@ -1,8 +1,9 @@
 import { createHmac } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 
 import { deployedChannelWebhookUrl, loadChannelTargets, type LoadedChannelTarget } from "./channel-sync-cli.ts"
+import { agentChannelHistoryHeader } from "./channel-history.ts"
 
 interface ChannelHistoryCliContext {
   cwd: string
@@ -27,8 +28,6 @@ interface ParsedChannelHistoryArgs {
   stage?: string
   threadId?: string
 }
-
-const channelHistoryHeader = "x-vitehub-channel-history"
 
 function writeUsage(context: ChannelHistoryCliContext): void {
   context.stdout.write([
@@ -78,7 +77,7 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
     : registration.secretToken
   return new Headers({
     "content-type": "application/json",
-    [channelHistoryHeader]: "1",
+    [agentChannelHistoryHeader]: "1",
     [registration.secretHeader]: value,
   })
 }
@@ -137,26 +136,37 @@ export async function runAgentChannelHistoryCli(
     const url = deployedChannelWebhookUrl(target, normalizedOrigin(parsed.origin))
     if (!url) throw new Error(`Channel ${target.agent}/${target.channel} has no deployed webhook route.`)
     const body = JSON.stringify({ threadId })
-    const response = await (options.fetch || globalThis.fetch)(url, {
-      body,
-      headers: historyHeaders(target, body),
-      method: "POST",
-      redirect: "error",
-      signal: AbortSignal.timeout(120_000),
-    })
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "")
-      throw new Error(`Channel history export failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}.`)
-    }
-    const history = await response.json()
     const outputDir = resolve(context.cwd, parsed.output)
     await mkdir(dirname(outputDir), { recursive: true })
-    await mkdir(outputDir)
-    const materialized = await materializeAttachments(history, join(outputDir, "media"), { value: 0 })
-    await writeFile(join(outputDir, "history.json"), `${JSON.stringify(materialized, null, 2)}\n`)
-    const messageCount = Array.isArray((materialized as { messages?: unknown }).messages) ? (materialized as { messages: unknown[] }).messages.length : 0
-    context.stdout.write(`Downloaded ${messageCount} messages to ${outputDir}\n`)
-    return 0
+    await access(outputDir).then(
+      () => { throw new Error(`Channel history output already exists: ${outputDir}`) },
+      () => undefined,
+    )
+    const stagingDir = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}-`))
+    try {
+      const response = await (options.fetch || globalThis.fetch)(url, {
+        body,
+        headers: historyHeaders(target, body),
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(120_000),
+      })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "")
+        throw new Error(`Channel history export failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}.`)
+      }
+      const history = await response.json()
+      const materialized = await materializeAttachments(history, join(stagingDir, "media"), { value: 0 })
+      await writeFile(join(stagingDir, "history.json"), `${JSON.stringify(materialized, null, 2)}\n`)
+      await rename(stagingDir, outputDir)
+      const messageCount = Array.isArray((materialized as { messages?: unknown }).messages) ? (materialized as { messages: unknown[] }).messages.length : 0
+      context.stdout.write(`Downloaded ${messageCount} messages to ${outputDir}\n`)
+      return 0
+    }
+    catch (error) {
+      await rm(stagingDir, { force: true, recursive: true })
+      throw error
+    }
   }
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)

@@ -14,6 +14,7 @@ import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
+import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { isAttachmentData } from "../messages.ts"
@@ -2498,7 +2499,6 @@ function chatMessageAuthorEmail(message: ChatSdkMessage): string | undefined {
 }
 
 const chatTextAttachmentMaxBytes = 8 * 1024 * 1024
-export const agentChannelHistoryHeader = "x-vitehub-channel-history"
 const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
 const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
 const chatTextAttachmentOversizeMessage = `[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`
