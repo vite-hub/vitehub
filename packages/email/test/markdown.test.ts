@@ -54,4 +54,13 @@ describe("renderEmailMarkdown", () => {
       text: "[Open recap](https://example.com/?q=a%5Cb)",
     })
   })
+
+  it("preserves backslash data in an opaque scalar destination", async () => {
+    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+      data: { url: "web+demo:folder\\item" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"web+demo:folder%5Citem\">Open item</a></p>",
+      text: "[Open item](web+demo:folder%5Citem)",
+    })
+  })
 })

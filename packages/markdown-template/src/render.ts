@@ -144,7 +144,13 @@ function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
 async function safeLinkDestination(path: string, data: Record<string, unknown>): Promise<string> {
   const value = scalarValue(path, data)
   const suffixIndex = value.search(/[?#]/)
-  const hasPathBackslash = value.slice(0, suffixIndex < 0 ? undefined : suffixIndex).includes("\\")
+  const scheme = value.match(/^([a-z][a-z\d+.-]*):/i)
+  const hierarchical = !scheme
+    || /^(?:file|ftp|https?|wss?)$/i.test(scheme[1]!)
+    || value[scheme[0].length] === "/"
+    || value[scheme[0].length] === "\\"
+  const hasPathBackslash = hierarchical
+    && value.slice(0, suffixIndex < 0 ? undefined : suffixIndex).includes("\\")
   const hasHtmlReferencePrefix = /&#(?:\d+|x[\dA-F]+)/i.test(value)
     || [...value.matchAll(/&([A-Za-z][A-Za-z\d]*)(?=[^=A-Za-z\d]|$)/g)]
       .some(match => legacyHtmlReferences.has(match[1]!))
