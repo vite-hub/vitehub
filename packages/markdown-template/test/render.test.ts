@@ -48,7 +48,7 @@ describe("renderMarkdownTemplate", () => {
 
     await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: "https://example.com/?x=&#x29;*Injected*" },
-    })).resolves.toBe("[Open recap](https://example.com/?x=%26#x29;*Injected*)")
+    })).resolves.toBe("[Open recap](https://example.com/?x=%26%23x29%3B*Injected*)")
 
     await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: "http://[::1]/recap" },
