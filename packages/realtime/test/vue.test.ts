@@ -63,12 +63,12 @@ describe("useRealtimeTiptap", () => {
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
     const editor = new Editor({
       extensions: realtime.extensions.value,
-      content: "---\n# comment\nname: docs\n---\n\n# Page",
+      content: "---\n---\n\n# Page",
       contentType: "markdown",
     })
 
     expect(editor.getJSON().content?.map(node => node.type)).toEqual(["frontmatter", "heading"])
-    expect(editor.getMarkdown()).toBe("---\n# comment\nname: docs\n---\n\n# Page")
+    expect(editor.getMarkdown()).toBe("---\n---\n\n# Page")
 
     editor.destroy()
     scope.stop()

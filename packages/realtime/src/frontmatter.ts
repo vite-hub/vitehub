@@ -23,10 +23,10 @@ export const Frontmatter = Node.create({
   markdownTokenizer: {
     name: "frontmatter",
     level: "block",
-    start: src => /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.test(src) ? 0 : -1,
+    start: src => /^---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/.test(src) ? 0 : -1,
     tokenize(src, tokens) {
       if (tokens.length) return
-      const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(src)
+      const match = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/.exec(src)
       if (!match) return
       return { type: "frontmatter", raw: match[0], text: match[1] }
     },
