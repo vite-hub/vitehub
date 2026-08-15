@@ -1526,7 +1526,9 @@ function generatedCloudflareChatStateHelper(): string[] {
     "",
     "function chatStateFromCloudflare(cloudflare: ViteHubGeneratedCloudflare | undefined) {",
     `  const namespace = cloudflare?.env?.${defaultCloudflareAgentStateBinding} as ViteHubAgentStateDurableObjectNamespace | undefined`,
-    "  return namespace ? createCloudflareAgentState({ namespace }) : undefined",
+    "  const state = namespace ? createCloudflareAgentState({ namespace }) : undefined",
+    "  if (state) Object.assign(state, { workflowCustody: true })",
+    "  return state",
     "}",
   ]
 }
@@ -1562,6 +1564,7 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
     "}",
     "const viteHubChatStateResolver = () => chatStateFromLibsql()",
     "viteHubChatStateResolver.ownsScope = false",
+    "viteHubChatStateResolver.workflowCustody = true",
   ]
 }
 

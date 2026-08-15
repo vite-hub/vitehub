@@ -2312,6 +2312,11 @@ function stateResolverOwnsScope(state: unknown): boolean {
   return isRecord(state) && typeof state.resolve === "function"
 }
 
+function stateResolverSupportsWorkflowCustody(state: unknown): boolean {
+  return (typeof state === "function" || isRecord(state))
+    && (state as { workflowCustody?: unknown }).workflowCustody === true
+}
+
 async function resolveChatState(
   options: AgentChatOptions | undefined,
   context: ViteAgentRouteRuntimeContext,
@@ -4554,6 +4559,14 @@ export function createChannelWebhookRouteHandler(
       const webhookDeliveryState = await resolveAgentWebhookState(context, registration, handlerOptions)
       const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
       const workflowCustody = await hasActiveWorkflowRuntime(agent, context)
+      if (
+        workflowCustody
+        && chatOptions?.state === undefined
+        && handlerOptions.state !== undefined
+        && !stateResolverSupportsWorkflowCustody(handlerOptions.state)
+      ) {
+        throw new Error("[vitehub] Durable Channel delivery cannot hand request-scoped State to an Agent Workflow. Configure Channel state or a generated host State provider.")
+      }
       const chatDeliveryState = trigger.id === "chat.message" || workflowCustody || !webhookDeliveryState
         ? await resolveChatState(chatOptions, context, registration, handlerOptions)
         : undefined

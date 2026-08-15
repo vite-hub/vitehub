@@ -661,6 +661,21 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain('import { setAgentChannelDeliveryWorkflowStateResolver } from "@vite-hub/agent/server/internal"')
       expect(registry).toContain('const viteHubChatStateOptions = {"url":"libsql://state.example.test"}')
       expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
+
+      const cloudflarePlugin = hubAgent()
+      const cloudflareConfigResolved = cloudflarePlugin.configResolved as unknown as typeof configResolved
+      const cloudflareTransform = cloudflarePlugin.transform as typeof transform
+      await cloudflareConfigResolved({
+        command: "build",
+        createResolver: () => async (id: string) => `/app/node_modules/${id}`,
+        plugins: [],
+        preset: "cloudflare",
+        root,
+      } as never)
+      const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      expect(cloudflareRegistry).toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
+      expect(cloudflareRegistry).toContain("context.cloudflare?.env?.CHAT_STATE")
+      expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -10290,6 +10305,42 @@ describe("server helpers", () => {
     finally {
       release()
       resetWorkflowRuntime()
+    }
+  })
+
+  it("rejects request-scoped State before a Workflow custody handoff", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-request-state-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "unused")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: { delivery: "manual" },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      await expect(handler(chatWebhookRequest(91_101), "telegram", {
+        agentIdentity: { name: "calories" },
+        state: () => state,
+      })).rejects.toThrow("cannot hand request-scoped State to an Agent Workflow")
+      expect(run).not.toHaveBeenCalled()
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
     }
   })
 

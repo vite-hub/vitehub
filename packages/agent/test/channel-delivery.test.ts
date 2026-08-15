@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
 
 import type { Lock, StateAdapter } from "chat"
 
@@ -61,6 +61,7 @@ function stateAdapter(): StateAdapter {
       const list = [...(lists.get(key) || []), value]
       lists.set(key, options?.maxLength ? list.slice(-options.maxLength) : list)
     },
+    connect: async () => undefined,
     extendLock: async (lock: Lock) => locks.has(lock.threadId),
     get: async (key: string) => (values.get(key) as never) ?? null,
     getList: async (key: string) => [...(lists.get(key) || [])] as never,
@@ -76,6 +77,40 @@ function stateAdapter(): StateAdapter {
 }
 
 describe("Agent Channel delivery journal", () => {
+  it("resumes Workflow custody through the installed host State owner", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      channelId: "telegram",
+      provider: "telegram",
+      scope: "chat:support:telegram",
+      sourceId: "workflow-host-state",
+    })
+    detachAgentChannelDelivery(delivery)
+    const { setAgentChannelDeliveryWorkflowStateResolver } = await import("../src/server/routes.ts")
+    setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: () => state }))
+
+    try {
+      const resumed = await resumeWorkflowAgentChannelDelivery({}, {
+        request: new Request("https://example.com"),
+        runtime: "unknown",
+        runtimeConfig: {},
+      } as never, {
+        channelId: "telegram",
+        deliveryId: delivery.delivery.id,
+        provider: "telegram",
+        state: "chat",
+      })
+
+      expect(resumed?.delivery.id).toBe(delivery.delivery.id)
+    }
+    finally {
+      setAgentChannelDeliveryWorkflowStateResolver(() => ({}))
+      info.mockRestore()
+    }
+  })
+
   it("keeps provider retries on one durable, inspectable timeline", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
