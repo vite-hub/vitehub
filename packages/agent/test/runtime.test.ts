@@ -12193,6 +12193,98 @@ describe("agent message protocol", () => {
       }, async () => [undefined])).rejects.toMatchObject({ isRetryable: false })
     })
 
+    it.each(["success", "failure"] as const)("retains Workflow background work through %s", async (outcome) => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let release!: () => void
+      const pending = new Promise<void>(resolve => { release = resolve })
+      let settled = false
+      const workflow = runAgentWorkflowDefinition({} as never, {
+        id: `background-${outcome}`,
+        name: `background-${outcome}`,
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        context.waitUntil(pending)
+        if (outcome === "failure") throw new Error("Agent failed")
+        return "ok"
+      })
+      void workflow.finally(() => { settled = true }).catch(() => {})
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      release()
+      if (outcome === "failure") await expect(workflow).rejects.toThrow("Agent failed")
+      else await expect(workflow).resolves.toBe("ok")
+    })
+
+    it("retains Workflow background work registered during cleanup", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let releaseFirst!: () => void
+      let releaseSecond!: () => void
+      const second = new Promise<void>(resolve => { releaseSecond = resolve })
+      let runtimeContext!: { waitUntil: (task: Promise<unknown>) => void }
+      const first = new Promise<void>(resolve => { releaseFirst = resolve }).then(() => runtimeContext.waitUntil(second))
+      let markRegistered!: () => void
+      const registered = new Promise<void>(resolve => { markRegistered = resolve })
+      let settled = false
+      const workflow = runAgentWorkflowDefinition({} as never, {
+        id: "nested-background",
+        name: "nested-background",
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        runtimeContext = context
+        context.waitUntil(first)
+        markRegistered()
+        return "ok"
+      })
+      void workflow.finally(() => { settled = true })
+
+      await registered
+      releaseFirst()
+      await first
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      releaseSecond()
+      await expect(workflow).resolves.toBe("ok")
+    })
+
+    it("observes Workflow background failures while the invocation is pending", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let rejectTask!: (error: Error) => void
+      let releaseRun!: () => void
+      let markRegistered!: () => void
+      const task = new Promise<void>((_resolve, reject) => { rejectTask = reject })
+      const run = new Promise<void>(resolve => { releaseRun = resolve })
+      const registered = new Promise<void>(resolve => { markRegistered = resolve })
+      const unhandled = vi.fn()
+      process.on("unhandledRejection", unhandled)
+
+      try {
+        const workflow = runAgentWorkflowDefinition({} as never, {
+          id: "background-rejection",
+          name: "background-rejection",
+          payload: {},
+          provider: "vercel",
+        }, async (_agent, context) => {
+          context.waitUntil(task)
+          markRegistered()
+          await run
+          return "ok"
+        })
+        await registered
+        rejectTask(new Error("background failed"))
+        await new Promise(resolve => setImmediate(resolve))
+        expect(unhandled).not.toHaveBeenCalled()
+        releaseRun()
+        await expect(workflow).resolves.toBe("ok")
+      }
+      finally {
+        process.off("unhandledRejection", unhandled)
+      }
+    })
+
     it("rejects sparse arrays whose custom properties mask missing indices", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const result = Array(1) as unknown[] & { note?: string }

@@ -59,10 +59,6 @@ function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRunt
   return "unknown"
 }
 
-function waitUntil(promise: Promise<unknown>): void {
-  void Promise.resolve(promise).catch(() => {})
-}
-
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
 function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): boolean {
@@ -200,6 +196,7 @@ export async function runAgentWorkflowDefinition<
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
     : undefined
   const runId = context.id || payload.run?.runId
+  const backgroundTasks: Promise<unknown>[] = []
   let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
     ...(payload.capabilities ? { capabilities: payload.capabilities } : {}),
@@ -210,7 +207,9 @@ export async function runAgentWorkflowDefinition<
       : {}),
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
     runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
-    waitUntil,
+    waitUntil(promise: Promise<unknown>) {
+      backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
+    },
   } as never)
 
   const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
@@ -247,6 +246,11 @@ export async function runAgentWorkflowDefinition<
       await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "failed", runId }).catch(() => undefined)
     }
     throw error
+  }
+  finally {
+    while (backgroundTasks.length) {
+      await Promise.allSettled(backgroundTasks.splice(0))
+    }
   }
 }
 

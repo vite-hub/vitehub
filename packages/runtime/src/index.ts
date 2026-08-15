@@ -169,6 +169,10 @@ export interface OpenTelemetrySpanView {
   traceId: string
 }
 
+export interface OpenTelemetrySpanViewOptions {
+  content?: TraceEventContentPolicy
+}
+
 export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
   capabilities?: RuntimeCapabilities
   cloudflare?: {
@@ -288,21 +292,24 @@ function isContentAttributeKey(key: string): boolean {
   return key.split(".").some((part, index) => index > 0 && contentAttributeKeys.has(part))
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype)
-}
-
-function metadataValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(metadataValue)
-  if (!isPlainRecord(value)) return value
+function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (!value || typeof value !== "object") return value
+  if (seen.has(value)) return "[Circular]"
+  seen.add(value)
+  if (Array.isArray(value)) {
+    const next = value.map(child => metadataValue(child, seen))
+    seen.delete(value)
+    return next
+  }
   const omitted: string[] = []
   const next = Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
     if (isContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }
-    return [[key, metadataValue(child)]]
+    return [[key, metadataValue(child, seen)]]
   }))
+  seen.delete(value)
   if (omitted.length) next["content.omitted"] = omitted
   return next
 }
@@ -441,10 +448,10 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
     }
 
     const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = sorted.some(isTraceRunError)
+    const status: TraceRunStatus = sorted.some(event => (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true) || event.name === "run.error")
       ? "failed"
       : terminal
-        ? "completed"
+        ? isTraceRunError(terminal) ? "failed" : "completed"
         : "running"
     const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
@@ -465,6 +472,10 @@ function traceRunTraceId(run: TraceRunView): string {
 
 function traceRunParentId(run: TraceRunView): string | undefined {
   return firstString(...run.events.map(event => event.trace?.parentId))
+}
+
+function traceRunSpanId(run: TraceRunView): string {
+  return firstString(...run.events.map(event => event.attributes?.["agent.invocation.id"]), run.id) || run.id
 }
 
 function isOpenTelemetryId(value: string, length: number): boolean {
@@ -488,16 +499,22 @@ function openTelemetryId(value: string, length: 16 | 32): string {
   return /^0+$/.test(id) ? `1${id.slice(1)}` : id
 }
 
-export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>): OpenTelemetrySpanView[] {
-  return deriveTraceRuns(events).flatMap((run) => {
+export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
+  const entries = [...events].map(entry => options.content === "metadata"
+    ? { ...entry, attributes: metadataAttributes(entry.attributes) }
+    : entry)
+  return deriveTraceRuns(entries).flatMap((run) => {
     const rawParentSpanId = traceRunParentId(run)
     const rawTraceId = traceRunTraceId(run)
     const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
-    const spanId = openTelemetryId(run.id, 16)
+    const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
+    const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
+    const errorMessage = firstString(...run.events.slice().reverse().map(event => event.attributes?.["error.message"]))
     return [
       {
         attributes: {
+          ...attributes,
           "vitehub.run.id": run.id,
           ...(rawParentSpanId ? { "vitehub.trace.parentId": rawParentSpanId } : {}),
           "vitehub.trace.id": rawTraceId,
@@ -507,7 +524,10 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         ...(parentSpanId ? { parentSpanId } : {}),
         spanId,
         startTime: run.startTime,
-        status: { code: run.status === "failed" ? "ERROR" : "OK" },
+        status: {
+          code: run.status === "failed" ? "ERROR" : "OK",
+          ...(run.status === "failed" && errorMessage ? { message: errorMessage } : {}),
+        },
         traceId,
       } satisfies OpenTelemetrySpanView,
       ...run.steps.map(step => ({
@@ -516,12 +536,15 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
           "vitehub.run.id": run.id,
           "vitehub.step.id": step.id,
         },
-        endTime: step.endTime,
+        endTime: step.endTime || run.endTime,
         name: step.name,
         parentSpanId: spanId,
-        spanId: openTelemetryId(`${run.id}:${step.id}`, 16),
+        spanId: openTelemetryId(`${spanId}:${step.id}`, 16),
         startTime: step.startTime,
-        status: { code: step.status === "failed" ? "ERROR" : "OK" } as const,
+        status: {
+          code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",
+          ...(typeof step.attributes?.["error.message"] === "string" ? { message: step.attributes["error.message"] } : {}),
+        } as const,
         traceId,
       })),
     ]
