@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import github from '@github-tools/eve-extension'
 import { codexDriver, defineAgent, otlpHttpJson } from 'vite-hub/agent'
+import { title } from 'vite-hub/agent/capabilities'
 import { consoleClient } from '../../console.ts'
 import { invocations } from '../../invocations.ts'
 
@@ -13,7 +14,12 @@ const exec = promisify(execFile)
 const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex')
 const codexAuth = join(codexHome, 'auth.json')
 const githubToken = process.env.GITHUB_TOKEN || (await exec('gh', ['auth', 'token'])).stdout.trim()
-const capabilities = [github({
+const capabilities = [title({
+  execute: ({ input }) => {
+    const context = input.context as { pullRequestTitle: string }
+    return context.pullRequestTitle
+  },
+}), github({
   exclude: [
     'addPullRequestComment',
     'createPullRequestReview',
@@ -25,7 +31,7 @@ const capabilities = [github({
   preset: 'code-review',
   token: githubToken,
 })] as const
-const driver = codexDriver<{ checkout: string }>({ model: 'gpt-5.6-sol' })
+const driver = codexDriver({ model: 'gpt-5.6-sol' }).withCallOptions<{ checkout: string }>()
 
 export default defineAgent({
   box: {

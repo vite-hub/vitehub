@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { runScheduledAgent } from 'vite-hub/agent'
+import { createMessage, runScheduledAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/kv'
 import { defineSchedule } from 'vite-hub/schedule'
 import { useServerEnv } from '#vitehub/env/server'
@@ -59,7 +59,7 @@ export default defineSchedule({
             abortSignal: AbortSignal.timeout(60 * 60 * 1000),
             context,
             options: { checkout },
-            prompt: await renderPrompt({ blocker, context }),
+            messages: [createMessage({ role: 'user', text: await renderPrompt({ blocker, context }) })],
           })
         })
 
