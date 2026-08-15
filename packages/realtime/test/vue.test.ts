@@ -70,6 +70,9 @@ describe("useRealtimeTiptap", () => {
     expect(editor.getJSON().content?.map(node => node.type)).toEqual(["frontmatter", "heading"])
     expect(editor.getMarkdown()).toBe("---\n---\n\n# Page")
 
+    editor.commands.insertContentAt(0, { type: "paragraph", content: [{ type: "text", text: "Before" }] })
+    expect(editor.getJSON().content?.map(node => node.type)).toEqual(["frontmatter", "heading"])
+
     editor.destroy()
     scope.stop()
   })

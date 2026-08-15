@@ -1,13 +1,14 @@
 import { Node } from "@tiptap/core"
 
+const frontmatterPattern = /^---\r?\n(?:---(?:\r?\n|$)|([\s\S]*?)\r?\n---(?:\r?\n|$))/
+
 export const Frontmatter = Node.create({
   name: "frontmatter",
-  group: "block",
   atom: true,
   selectable: false,
 
   addAttributes() {
-    return { value: { default: "" } }
+    return { value: { default: null } }
   },
 
   parseHTML() {
@@ -23,20 +24,20 @@ export const Frontmatter = Node.create({
   markdownTokenizer: {
     name: "frontmatter",
     level: "block",
-    start: src => /^---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/.test(src) ? 0 : -1,
+    start: src => frontmatterPattern.test(src) ? 0 : -1,
     tokenize(src, tokens) {
       if (tokens.length) return
-      const match = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/.exec(src)
+      const match = frontmatterPattern.exec(src)
       if (!match) return
       return { type: "frontmatter", raw: match[0], text: match[1] }
     },
   },
 
   parseMarkdown(token, helpers) {
-    return helpers.createNode("frontmatter", { value: token.text || "" })
+    return helpers.createNode("frontmatter", { value: token.text ?? null })
   },
 
   renderMarkdown(node) {
-    return `---\n${node.attrs?.value || ""}\n---`
+    return node.attrs?.value === null ? "---\n---" : `---\n${node.attrs?.value || ""}\n---`
   },
 })

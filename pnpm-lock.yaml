@@ -116,6 +116,9 @@ catalogs:
     '@tiptap/extension-collaboration':
       specifier: ^3.29.2
       version: 3.29.2
+    '@tiptap/extension-document':
+      specifier: ^3.29.2
+      version: 3.29.2
     '@tiptap/extension-image':
       specifier: ^3.29.2
       version: 3.29.2
@@ -1242,6 +1245,9 @@ importers:
       '@tiptap/extension-collaboration':
         specifier: catalog:realtime
         version: 3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2)(@tiptap/y-tiptap@3.0.8(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.1)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))(yjs@13.6.30)
+      '@tiptap/extension-document':
+        specifier: catalog:realtime
+        version: 3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))
       '@tiptap/extension-image':
         specifier: catalog:realtime
         version: 3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))

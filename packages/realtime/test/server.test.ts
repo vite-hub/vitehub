@@ -1065,6 +1065,8 @@ describe("tiptap-markdown documents", () => {
   it("preserves frontmatter independently of its first YAML token", () => {
     const documents = [
       "---\n---",
+      "---\n---\n\n# Page",
+      "---\n\n---\n\n# Page",
       "---\n# comment\nname: docs\n---\n\n# Page",
       "---\n\nname: docs\n---\n\n# Page",
       "---\n\"navigation.order\": 1\n---\n\n# Page",
