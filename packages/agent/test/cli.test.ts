@@ -295,6 +295,8 @@ describe("agent CLI", () => {
       .rejects.toThrow("no unique webhook registration named support")
     await expect(channelRegistration("support", { kind: "http", webhooks: { id: "primary" } } as never, {}, "other"))
       .rejects.toThrow("no unique webhook registration named other")
+    await expect(channelRegistration("support", { kind: "http", webhooks: { id: "primary" } } as never, {}, "other", true))
+      .resolves.toBeUndefined()
   })
 
   it("publishes Channel history atomically and preserves existing output", async () => {

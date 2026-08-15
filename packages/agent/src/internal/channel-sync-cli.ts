@@ -243,6 +243,7 @@ export async function channelRegistration(
   channel: AgentChannelDefinition,
   context: unknown,
   registrationId?: string,
+  allowMissing = false,
 ): Promise<LoadedChannelSyncTarget["registration"]> {
   const webhooks = channel.webhooks
   if (webhooks === false) return
@@ -254,6 +255,7 @@ export async function channelRegistration(
   const matching = registrationId
     ? registrations.filter(registration => registration.id === registrationId)
     : registrations
+  if (registrationId && matching.length === 0 && allowMissing) return
   if (matching.length !== 1) {
     throw new TypeError(
       registrationId
@@ -343,6 +345,8 @@ async function loadChannelTargetsExclusive(
         if (syncOnly && !sync) continue
         if (!sync && (channel.messages === false || channel.adapter === undefined || channel.webhooks === false)) continue
         const provider = syncDefinition?.provider || channel.kind
+        const registration = await channelRegistration(channelId, channel, context, input.registration, true)
+        if (input.registration && !registration) continue
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
@@ -351,7 +355,7 @@ async function loadChannelTargetsExclusive(
             : undefined,
           mode: sync?.mode || "webhook",
           provider,
-          registration: await channelRegistration(channelId, channel, context, input.registration),
+          registration,
           ...(sync ? { sync } : {}),
         })
       }
