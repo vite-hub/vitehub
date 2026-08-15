@@ -5,10 +5,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import github from '@github-tools/eve-extension'
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent, otlpHttpJson } from 'vite-hub/agent'
+import { consoleClient } from '../../console.ts'
 import { invocations } from '../../invocations.ts'
-
-import type { BuiltInAgentDriver } from 'vite-hub/agent'
 
 const exec = promisify(execFile)
 const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex')
@@ -26,13 +25,13 @@ const capabilities = [github({
   preset: 'code-review',
   token: githubToken,
 })] as const
-const driver = { kind: 'codex', model: 'gpt-5.6-sol' } satisfies BuiltInAgentDriver<{ checkout: string }>
+const driver = codexDriver<{ checkout: string }>({ model: 'gpt-5.6-sol' })
 
 export default defineAgent({
   box: {
     runtime: 'trusted-host',
     cwd: ({ input }) => {
-      const checkout = (input.options as { checkout?: string } | undefined)?.checkout
+      const checkout = input.options?.checkout
       if (!checkout) throw new Error('Babysitter requires a checkout.')
       return checkout
     },
@@ -63,6 +62,12 @@ export default defineAgent({
   capabilities,
   driver,
   invocations,
+  name: 'babysitter',
+  telemetry: consoleClient && otlpHttpJson({
+    endpoint: consoleClient.endpoint('/api/otlp/v1/traces'),
+    headers: consoleClient.headers,
+    resource: { 'service.namespace': 'vitehub' },
+  }),
 })
 
 async function readGitConfig(key: string) {

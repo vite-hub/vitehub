@@ -52,4 +52,12 @@ flowchart TD
    pnpm dev
    ```
 
+   To mirror invocation sessions and export completed OTLP traces to ViteHub Console, set its base URL and bearer token:
+
+   ```sh
+   VITEHUB_CONSOLE_URL=https://console.example \
+   VITEHUB_CONSOLE_TOKEN=replace-me \
+   pnpm dev
+   ```
+
 To use Claude Code instead, install `@ai-sdk/harness-claude-code`, then replace `codexDriver()` with `claudeCodeDriver()` in the [agent definition](server/agents/babysitter/agent.ts).
