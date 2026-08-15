@@ -99,6 +99,8 @@ describe("renderMarkdownTemplate", () => {
       "https://example.com/?x=&copy/foo",
       "https://example.com/?a=1&amp;b=2",
       "http://[::1]/recap",
+      "http:[::1]/recap",
+      "ftp:/[::1]/recap",
       "//[::1]/recap",
       "///[::1]/recap",
     ]) {
