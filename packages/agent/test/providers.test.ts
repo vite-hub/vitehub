@@ -6543,6 +6543,64 @@ describe("server helpers", () => {
     }
   })
 
+  it("preserves persisted webhook handoff and execution when custody progress writes fail", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-custody-progress-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const appendToList = state.appendToList.bind(state)
+    vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+      const event = value as { type?: string }
+      if (key.endsWith(":events") && (event.type === "queued" || event.type === "invocation.started")) {
+        throw new Error("custody progress unavailable")
+      }
+      await appendToList(key, value, options)
+    })
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "preserve execution" },
+                webhook: {
+                  concurrencyLimit: 1,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/github/webhook", {
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-custody-progress",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", { agentName: "review", webhookState: state })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("replaces request abort signals before persisting webhook invocations", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")

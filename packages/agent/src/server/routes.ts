@@ -1216,13 +1216,15 @@ async function executeQueuedWebhookDelivery(
     : undefined
   if (channelDelivery) {
     context = withAgentChannelDelivery(context, channelDelivery)
-    if (delivery.attempts > 0) await channelDelivery.event({ attempt: delivery.attempts + 1, type: "retrying", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
-    await channelDelivery.event({ attempt: delivery.attempts + 1, type: "invocation.started", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
   }
   const ownershipAbort = new AbortController()
   const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
     ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
   })
+  if (channelDelivery) {
+    if (delivery.attempts > 0) await recordChannelDeliveryEvidence(channelDelivery, { attempt: delivery.attempts + 1, type: "retrying", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+    await recordChannelDeliveryEvidence(channelDelivery, { attempt: delivery.attempts + 1, type: "invocation.started", runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId })
+  }
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
   }
@@ -4648,8 +4650,8 @@ export function createChannelWebhookRouteHandler(
             }
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             await registerQueue(backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
-            await channelDelivery.event({ type: queued ? "queued" : "duplicate", runId: invocation.run?.runId })
             if (queued) detachAgentChannelDelivery(channelDelivery)
+            await recordChannelDeliveryEvidence(channelDelivery, { type: queued ? "queued" : "duplicate", runId: invocation.run?.runId })
             return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
