@@ -122,8 +122,10 @@ describe("hubEmail", () => {
   it("generates exact virtual module types for discovered Email templates", async () => {
     const root = await createTempProject()
     const template = join(root, "server", "emails", "monthly-recap.md")
-    await mkdir(join(root, "server", "emails"), { recursive: true })
+    const nestedTemplate = join(root, "server", "emails", "monthly-recap", "detail.md")
+    await mkdir(join(root, "server", "emails", "monthly-recap"), { recursive: true })
     await writeFile(template, "Hello {{name}}")
+    await writeFile(nestedTemplate, "Nested detail")
     const plugin = hubEmail({ driver: "unemail/driver/cloudflare-email" })
 
     await resolvePlugin(plugin, root)
@@ -131,20 +133,28 @@ describe("hubEmail", () => {
     expect((plugin.resolveId as (id: string) => string)("#vitehub/emails/monthly-recap"))
       .toBe(`/@fs/${template}?markdown-template`)
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
+      'declare module "#vitehub/emails/monthly-recap/detail" {',
+      "  const render: (data?: Record<string, unknown>) => Promise<string>",
+      "  export default render",
+      "}",
+      "",
       'declare module "#vitehub/emails/monthly-recap" {',
       "  const render: (data?: Record<string, unknown>) => Promise<string>",
       "  export default render",
       "}",
       "",
     ].join("\n"))
-    await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
     await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Hello {{name}}")
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap", "detail.mjs"), "utf8"))
+      .toContain("Nested detail")
     await rm(template)
+    await rm(nestedTemplate)
     await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
-    await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe("")
     expect(() => (plugin.resolveId as (id: string) => string)("#vitehub/emails/../secret"))
@@ -166,13 +176,15 @@ describe("hubEmail", () => {
     })
     await resolvePlugin(plugin, root)
 
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Hello {{name}}")
     const buildStart = plugin.buildStart as unknown as (this: { addWatchFile: (file: string) => void }) => Promise<void>
-    await buildStart.call({ addWatchFile: vi.fn() })
+    const addWatchFile = vi.fn()
+    await buildStart.call({ addWatchFile })
+    expect(addWatchFile).toHaveBeenCalledWith(join(root, "server", "emails"))
     await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Updated template")
     await buildStart.call({ addWatchFile: vi.fn() })
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated template")
   })
 
@@ -209,7 +221,7 @@ describe("hubEmail", () => {
     handlers.get("change")?.(sharedTemplate)
 
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated footer")
 
     await writeFile(join(templatesRoot, "monthly-recap.md"), "@../shared/missing.md")
@@ -218,7 +230,7 @@ describe("hubEmail", () => {
 
     await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(2))
     expect(send).toHaveBeenCalledOnce()
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated footer")
 
     const missingTemplate = join(root, "server", "shared", "missing.md")
@@ -226,7 +238,7 @@ describe("hubEmail", () => {
     handlers.get("add")?.(missingTemplate)
 
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Recovered footer")
   })
 
@@ -261,7 +273,7 @@ describe("hubEmail", () => {
     handlers.get("change")?.(template)
 
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated template")
   })
 

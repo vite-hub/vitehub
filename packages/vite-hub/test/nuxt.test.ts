@@ -496,6 +496,28 @@ describe("ViteHub Nuxt integration", () => {
     expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
   })
 
+  it("materializes and exposes Email templates on non-host-specific Nitro presets", async () => {
+    const prepareTypes = vi.fn()
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "@vite-hub/email/vite",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ email: { driver: "unemail/driver/resend" }, preset: "node" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    expect(prepareTypes).toHaveBeenCalledWith({
+      materialize: true,
+      projectRoot: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
+    const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+    expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+  })
+
   it("includes generated types from a configured Env project root", async () => {
     const { nuxt } = createNuxt()
 

@@ -335,7 +335,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<void> }
   } | undefined
   await emailPlugin?.api?.prepareTypes?.({
-    materialize: options.preset === "cloudflare" || options.preset === "vercel",
+    materialize: true,
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   })
@@ -387,7 +387,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const generatedAliases = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
-    ...((options.preset === "cloudflare" || options.preset === "vercel") && emailPlugin
+    ...(emailPlugin
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
       : {}),
     "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
