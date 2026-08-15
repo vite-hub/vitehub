@@ -131,6 +131,15 @@ describe("workspaceShell capability", () => {
     expect(startSession).not.toHaveBeenCalled()
   })
 
+  it("rejects a Workspace Session without process authority", async () => {
+    const session = Object.assign(workspaceSession(), { executionAuthority: { processes: "none" } })
+    const { tools } = await capabilityTools(workspaceShell({ commands: ["agent-browser"] }), session as never)
+
+    await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" })).rejects.toThrow("host that permits processes")
+    expect(session.exec).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("commits successful write-mode commands", async () => {
     const { session, tools } = await capabilityTools(workspaceShell({ commands: ["agent-browser"], mode: "write" }))
 

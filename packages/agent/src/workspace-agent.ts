@@ -59,6 +59,7 @@ import type {
   AgentRunInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentRuntimeName,
   AgentSettings,
   AgentUIMessageStreamProjection,
   ResolvedAgentRuntimeContext,
@@ -517,8 +518,10 @@ function resolvedDriverExecutionAuthority<
   CALL_OPTIONS,
 >(
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
+  runtime?: AgentRuntimeName,
 ): ExecutionAuthority {
   if (driver.kind === "model") return noExecutionAuthority
+  if (driver.kind === "provider" && (runtime === "cloudflare-agents" || runtime === "deno")) return noExecutionAuthority
   return driver.kind === "provider" ? staticDriverExecutionAuthority(driver) : unknownExecutionAuthority
 }
 
@@ -677,7 +680,7 @@ async function resolvedDriverMetadata<
   }
   if (driver.kind === "provider") {
     return {
-      executionAuthority: resolvedDriverExecutionAuthority(driver),
+      executionAuthority: resolvedDriverExecutionAuthority(driver, context.runtime),
       kind: "provider",
       provider: providerMetadata(driver),
     }
@@ -1478,7 +1481,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     const config = staticConfig && {
       driver: {
         ...staticConfig.driver,
-        executionAuthority: resolvedDriverExecutionAuthority(normalizeAgentDriver(settings)),
+        executionAuthority: resolvedDriverExecutionAuthority(normalizeAgentDriver(settings), selection.runtime.runtime),
       },
       ...(uiMessageStream ? { uiMessageStream } : {}),
     }

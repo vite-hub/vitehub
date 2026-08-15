@@ -2936,6 +2936,18 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("reports no provider execution authority on processless runtimes", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: "codex" })
+
+    const metadata = await resolveAgentInspectionMetadata(agent, { runtime: { runtime: "deno" } })
+
+    expect(metadata.config?.driver).toMatchObject({
+      executionAuthority: noExecutionAuthority,
+      kind: "provider",
+    })
+  })
+
   it("reports unknown authority for an opaque custom Agent definition", async () => {
     const { createAgentInspectionMetadata, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const agent = {

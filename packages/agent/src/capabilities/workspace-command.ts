@@ -151,6 +151,10 @@ export async function executeWorkspaceCommand(
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
   assertWorkspace(workspace, "[vitehub] Capability command execution requires an execution-capable Workspace Session.")
   const session = await workspace.startSession()
+  if (session.executionAuthority?.processes === "none") {
+    await session.close()
+    throw new Error("[vitehub] Capability command execution requires a Workspace Session host that permits processes.")
+  }
   let result
   try {
     result = await session.exec(command, args, {
