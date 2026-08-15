@@ -62,5 +62,12 @@ describe("renderEmailMarkdown", () => {
       html: "<p><a href=\"web+demo:folder%5Citem\">Open item</a></p>",
       text: "[Open item](web+demo:folder%5Citem)",
     })
+
+    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+      data: { url: "web+demo:\\folder\\item" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"web+demo:%5Cfolder%5Citem\">Open item</a></p>",
+      text: "[Open item](web+demo:%5Cfolder%5Citem)",
+    })
   })
 })
