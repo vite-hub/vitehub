@@ -194,8 +194,9 @@ describe("hubEmail", () => {
 
     const handlers = new Map<string, (file: string) => void>()
     const send = vi.fn()
+    const logError = vi.fn()
     ;(plugin.configureServer as unknown as (server: Record<string, unknown>) => void)({
-      config: { logger: { error: vi.fn() } },
+      config: { logger: { error: logError } },
       watcher: {
         add: vi.fn(),
         on: (event: string, handler: (file: string) => void) => handlers.set(event, handler),
@@ -210,10 +211,20 @@ describe("hubEmail", () => {
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
       .toContain("Updated footer")
+
+    await writeFile(join(templatesRoot, "monthly-recap.md"), "@../shared/missing.md")
+    handlers.get("change")?.(join(templatesRoot, "monthly-recap.md"))
+    handlers.get("change")?.(join(templatesRoot, "monthly-recap.md"))
+
+    await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(2))
+    expect(send).toHaveBeenCalledOnce()
   })
 
   it("uses the development Nitro preset instead of the deployment target", async () => {
     const root = await createTempProject()
+    const template = join(root, "server", "emails", "monthly-recap.md")
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(template, "Initial template")
     const plugin = hubEmail({
       driver: "unemail/driver/resend",
       hosting: "cloudflare-module",
@@ -221,9 +232,27 @@ describe("hubEmail", () => {
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
 
     expect(config({ nitro: { preset: "node-server" } })).not.toHaveProperty("nitro")
+    await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
     await resolvePlugin(plugin, root)
 
     expect(await loadConfiguredDefinition(plugin)).not.toContain("cloudflare:workers")
+
+    const handlers = new Map<string, (file: string) => void>()
+    const send = vi.fn()
+    ;(plugin.configureServer as unknown as (server: Record<string, unknown>) => void)({
+      config: { logger: { error: vi.fn() } },
+      watcher: {
+        add: vi.fn(),
+        on: (event: string, handler: (file: string) => void) => handlers.set(event, handler),
+      },
+      ws: { send },
+    })
+    await writeFile(template, "Updated template")
+    handlers.get("change")?.(template)
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .toContain("Updated template")
   })
 
   it("resolves a fresh Cloudflare credential for every send", async () => {

@@ -275,9 +275,11 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let projectRoot = process.cwd()
   let buildStarted = false
   let materialized = false
+  let materializationRequested = false
   let watchFiles = new Set<string>()
 
   const prepareTypes = async (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => {
+    if (options.materialize) materializationRequested = true
     const nextTemplatesRoot = resolve(options.serverDirs?.[0] ?? resolve(options.projectRoot, "server"), "emails")
     if (nextTemplatesRoot !== templatesRoot || options.projectRoot !== projectRoot) materialized = false
     projectRoot = options.projectRoot
@@ -293,7 +295,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     }
   }
   const prepareTypesOnce = async () => {
-    await prepareTypes({ materialize: (cloudflare || vercel) && !materialized, projectRoot, serverDirs })
+    await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && !materialized, projectRoot, serverDirs })
   }
 
   return {
@@ -347,7 +349,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       }
     },
     async buildStart() {
-      await prepareTypes({ materialize: (cloudflare || vercel) && (buildStarted || !materialized), projectRoot, serverDirs })
+      await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && (buildStarted || !materialized), projectRoot, serverDirs })
       buildStarted = true
       for (const file of watchFiles) this.addWatchFile(file)
     },
@@ -357,17 +359,25 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       let refreshPending = false
       let refreshPromise: Promise<void> | undefined
       const refresh = async () => {
+        let refreshed = false
         do {
           refreshPending = false
-          await prepareTypes({ materialize: cloudflare || vercel, projectRoot, serverDirs })
-          server.watcher.add([...watchFiles])
+          try {
+            await prepareTypes({ materialize: materializationRequested || cloudflare || vercel, projectRoot, serverDirs })
+            server.watcher.add([...watchFiles])
+            refreshed = true
+          }
+          catch (error) {
+            refreshed = false
+            server.config.logger.error(String(error))
+          }
         } while (refreshPending)
-        server.ws.send({ type: "full-reload" })
+        if (refreshed) server.ws.send({ type: "full-reload" })
       }
       const refreshForFile = (file: string) => {
         if (!isInside(templatesRoot, file) && !watchFiles.has(file)) return
         refreshPending = true
-        refreshPromise ??= refresh().catch(error => server.config.logger.error(String(error))).finally(() => {
+        refreshPromise ??= refresh().finally(() => {
           refreshPromise = undefined
         })
       }
