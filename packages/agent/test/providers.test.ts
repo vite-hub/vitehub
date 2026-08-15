@@ -641,6 +641,32 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("installs durable host state in generated Agent Workflow registries", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-"))
+    try {
+      const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } })
+      const configResolved = plugin.configResolved as unknown as (config: { command: "build", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      await configResolved({
+        command: "build",
+        createResolver: () => async id => `/app/node_modules/${id}`,
+        plugins: [],
+        root,
+      })
+
+      const registry = await transform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+
+      expect(registry).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
+      expect(registry).toContain('import { setAgentChannelDeliveryWorkflowStateResolver } from "@vite-hub/agent/server/internal"')
+      expect(registry).toContain('const viteHubChatStateOptions = {"url":"libsql://state.example.test"}')
+      expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("leaves Schedule virtual modules unchanged without discovered Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-empty-schedule-targets-"))
@@ -7840,7 +7866,9 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-lost-lease-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const extendLock = vi.fn(async (lock: { threadId: string }, ttlMs: number) =>
-      lock.threadId.endsWith("deliveries:index:lock") ? await state.extendLock(lock as never, ttlMs) : false)
+      lock.threadId.endsWith("deliveries:index:lock") || lock.threadId.endsWith(":journal-lock")
+        ? await state.extendLock(lock as never, ttlMs)
+        : false)
     const losingState = new Proxy(state, {
       get(target, property) {
         if (property === "extendLock") return extendLock
@@ -7902,7 +7930,8 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(500)
       await Promise.all(waitUntilTasks.splice(0))
 
-      expect(extendLock.mock.calls.filter(([lock]) => !lock.threadId.endsWith("deliveries:index:lock"))).toHaveLength(1)
+      expect(extendLock.mock.calls.filter(([lock]) =>
+        !lock.threadId.endsWith("deliveries:index:lock") && !lock.threadId.endsWith(":journal-lock"))).toHaveLength(1)
       expect(abortSignal?.aborted).toBe(true)
 
       const rerun = await handler(request("delivery-2"), "github", options)
@@ -9893,7 +9922,7 @@ describe("server helpers", () => {
       driver: { run },
     }) as never)
 
-    const response = await handler(chatWebhookRequest(91_009), "telegram")
+    const response = await handler(chatWebhookRequest(91_009), "telegram", { agentName: "ambiguous-placeholder" })
 
     expect(response.status).toBe(200)
     expect(run).toHaveBeenCalledOnce()
@@ -12059,10 +12088,12 @@ describe("server helpers", () => {
     const response = await handler(chatWebhookRequest(91_009), "telegram")
 
     expect(response.status).toBe(200)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", expect.objectContaining({
-      attachments: expect.any(Array),
-      markdown: "See the result.",
-    }))
+    await vi.waitFor(() => {
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", expect.objectContaining({
+        attachments: expect.any(Array),
+        markdown: "See the result.",
+      }))
+    })
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 

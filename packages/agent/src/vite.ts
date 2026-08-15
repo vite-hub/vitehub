@@ -274,10 +274,37 @@ function transformGeneratedAgentWorkflowRegistry(
   code: string,
   capabilities: GeneratedAgentRuntimeCapability[],
   agentImportBase: string,
+  state: { cloudflare?: boolean, libsql?: GeneratedLibsqlAgentStateOptions } = {},
 ): string {
   const capabilityLoaders = generatedAgentWorkflowCapabilityLoaders(capabilities, agentImportBase)
-  if (!capabilityLoaders.imports.length) return code
-  return [...capabilityLoaders.imports, "", ...capabilityLoaders.setup, code].join("\n")
+  const stateImports = state.libsql
+    ? [
+        `import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`,
+        `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+      ]
+    : state.cloudflare
+      ? [
+          `import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
+          `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+        ]
+      : []
+  const stateSetup = state.libsql
+    ? [
+        ...generatedLibsqlChatStateHelper(state.libsql),
+        "setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))",
+        "",
+      ]
+    : state.cloudflare
+      ? [
+          `setAgentChannelDeliveryWorkflowStateResolver(context => {`,
+          `  const namespace = context.cloudflare?.env?.${defaultCloudflareAgentStateBinding}`,
+          "  return namespace ? { state: createCloudflareAgentState({ namespace }) } : {}",
+          "})",
+          "",
+        ]
+      : []
+  if (!capabilityLoaders.imports.length && !stateImports.length) return code
+  return [...capabilityLoaders.imports, ...stateImports, "", ...capabilityLoaders.setup, ...stateSetup, code].join("\n")
 }
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
@@ -2498,6 +2525,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           code,
           runtimeCapabilities,
           getAgentImportBase(agent, frameworkOptions),
+          {
+            cloudflare: shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), resolved!),
+            libsql: resolveLibsqlAgentState(normalizeAgentOptions(agent), resolved!),
+          },
         )
       }
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
@@ -2525,6 +2556,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               code,
               runtimeCapabilities,
               getAgentImportBase(agent, frameworkOptions),
+              {
+                cloudflare: shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), resolved!),
+                libsql: resolveLibsqlAgentState(normalizeAgentOptions(agent), resolved!),
+              },
             )
           : code,
       },

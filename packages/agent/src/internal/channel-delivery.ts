@@ -53,8 +53,8 @@ function payloadKey(provider: string, fingerprint: string): string {
   return `deliveries:payload:${encodeURIComponent(`${provider}:${fingerprint}`)}`
 }
 
-function sourceKey(delivery: Pick<AgentChannelDelivery, "provider" | "scope" | "sourceId">): string {
-  return `deliveries:source:${encodeURIComponent(`${delivery.provider}:${delivery.scope}:${delivery.sourceId}`)}`
+function sourceKey(delivery: Pick<AgentChannelDelivery, "channelId" | "provider" | "scope" | "sourceId">): string {
+  return `deliveries:source:${encodeURIComponent(`${delivery.provider}:${delivery.channelId || ""}:${delivery.scope}:${delivery.sourceId}`)}`
 }
 
 function token(): string {

@@ -22,6 +22,29 @@ describe("Agent Channel delivery source identity", () => {
     expect(agentChannelDeliverySourceId("telegram", payload)).toBe("42")
     expect(agentChannelDeliveryMessageIdentity("telegram", payload)).toEqual({ messageId: "7", threadId: "telegram:456" })
   })
+
+  it("keeps identical provider event IDs separate across Channels", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const first = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      channelId: "telegram-primary",
+      provider: "telegram",
+      scope: "webhook:support:telegram",
+      sourceId: "42",
+    })
+    const second = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      channelId: "telegram-secondary",
+      provider: "telegram",
+      scope: "webhook:support:telegram",
+      sourceId: "42",
+    })
+
+    expect(second.duplicate).toBe(false)
+    expect(second.delivery.id).not.toBe(first.delivery.id)
+    info.mockRestore()
+  })
 })
 
 function stateAdapter(): StateAdapter {

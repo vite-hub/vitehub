@@ -90,6 +90,17 @@ export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOption
   webhookState?: AgentWebhookStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
+type AgentChannelDeliveryWorkflowStateResolver = (
+  context: ViteAgentRouteRuntimeContext,
+  binding: AgentChannelDeliveryWorkflowBinding,
+) => MaybePromise<Pick<AgentChannelWebhookRouteOptions, "state" | "webhookState">>
+
+let agentChannelDeliveryWorkflowStateResolver: AgentChannelDeliveryWorkflowStateResolver | undefined
+
+export function setAgentChannelDeliveryWorkflowStateResolver(resolver: AgentChannelDeliveryWorkflowStateResolver): void {
+  agentChannelDeliveryWorkflowStateResolver = resolver
+}
+
 export interface AgentChannelWebhookRouteHandler {
   (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions): Promise<Response>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
@@ -2346,14 +2357,15 @@ async function resolveWorkflowAgentChannelDelivery(
     id: binding.channelId,
     provider: binding.provider,
   }
+  const handlerOptions = await agentChannelDeliveryWorkflowStateResolver?.(context, binding) || {}
   const webhookState = binding.state === "webhook"
-    ? await resolveAgentWebhookState(context, registration, {})
+    ? await resolveAgentWebhookState(context, registration, handlerOptions)
     : undefined
   const state = webhookState || await resolveChatState(
       getChannelChatOptions(agent, binding.channelId, getAgentChatOptions(agent)),
       context,
       registration,
-      {},
+      handlerOptions,
     )
   await state.state.connect()
   return await resumeAgentChannelDelivery(state.state, binding.deliveryId)
@@ -4543,7 +4555,7 @@ export function createChannelWebhookRouteHandler(
       const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
       const workflowCustody = await hasActiveWorkflowRuntime(agent, context)
       const chatDeliveryState = trigger.id === "chat.message" || workflowCustody || !webhookDeliveryState
-        ? await resolveChatState(chatOptions, context, registration, workflowCustody ? {} : handlerOptions)
+        ? await resolveChatState(chatOptions, context, registration, handlerOptions)
         : undefined
       const deliveryState = (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) || (chatDeliveryState
         ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state }
@@ -4564,11 +4576,11 @@ export function createChannelWebhookRouteHandler(
             sourceId: await webhookDeliverySourceId(request, registration.provider, webhookPayload),
           })
           if (messageIdentity) {
-            await bindAgentChannelDeliveryMessage(deliveryState.state, delivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId)
+            await bindAgentChannelDeliveryMessage(deliveryState.state, delivery, chatRegistrationOrigin(registration), messageIdentity.threadId, messageIdentity.messageId)
               .catch(error => logChannelDeliveryAliasFailure(delivery, "message", error))
           }
           if (payloadFingerprint) {
-            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, registration.provider, payloadFingerprint)
+            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, chatRegistrationOrigin(registration), payloadFingerprint)
               .catch(error => logChannelDeliveryAliasFailure(delivery, "payload", error))
           }
           return delivery
