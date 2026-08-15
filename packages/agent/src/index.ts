@@ -3066,6 +3066,7 @@ async function finishAgentInvocation<
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
+        "result.text": text,
         ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
         ...(usage ? { "usage.record": usage } : {}),
       })

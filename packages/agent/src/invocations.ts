@@ -3,7 +3,7 @@ import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
-import type { TraceEvent, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry } from "@vite-hub/runtime"
 
 const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
@@ -89,6 +89,7 @@ export interface AgentInvocationStore {
 }
 
 export interface AgentInvocationsOptions {
+  content?: TraceEventContentPolicy
   store: AgentInvocationStore
 }
 
@@ -354,13 +355,14 @@ function journalTraceLog(
   traceLog: TraceEventLog,
   observe: (entry: TraceEventLogEntry) => void,
   nextSequence: () => number,
+  content: TraceEventContentPolicy,
 ): TraceEventLog {
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       try {
         const safeEntry = {
-          ...await createTraceEventLog().append(entry),
+          ...await createTraceEventLog({ content }).append({ ...event, timestamp: entry.timestamp }),
           sequence: nextSequence(),
         }
         void observe(safeEntry)
@@ -374,6 +376,10 @@ function journalTraceLog(
 
 export function defineAgentInvocations(options: AgentInvocationsOptions): AgentInvocations {
   assertStore(options?.store)
+  if (options.content !== undefined && options.content !== "content" && options.content !== "metadata") {
+    throw new TypeError('[vitehub] Agent Invocations content must be "content" or "metadata".')
+  }
+  const content = options.content || "metadata"
   const store = options.store
   const invocations: BoundAgentInvocations = {
     [agentInvocationsBrand]: true,
@@ -532,7 +538,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content),
         },
         async finish(status, error) {
           if (finished) return

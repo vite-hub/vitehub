@@ -286,6 +286,21 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
+  it("persists invocation content only when explicitly enabled", async () => {
+    const metadataInvocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const contentInvocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+
+    await runAgent(defineAgent({ driver: { run: ({ input }) => `Reply to ${input.prompt}` }, invocations: metadataInvocations, runtime: false }), runtime("metadata-content"), { prompt: "private prompt" })
+    await runAgent(defineAgent({ driver: { run: ({ input }) => `Reply to ${input.prompt}` }, invocations: contentInvocations, runtime: false }), runtime("stored-content"), { prompt: "private prompt" })
+
+    const metadata = await metadataInvocations.getByRunId("metadata-content")
+    const stored = await contentInvocations.getByRunId("stored-content")
+    expect(metadata?.observations[0]?.attributes).not.toHaveProperty("input.prompt")
+    expect(metadata?.observations.at(-1)?.attributes).not.toHaveProperty("result.text")
+    expect(stored?.observations[0]?.attributes?.["input.prompt"]).toBe("private prompt")
+    expect(stored?.observations.at(-1)?.attributes?.["result.text"]).toBe("Reply to private prompt")
+  })
+
   it("normalizes non-finite observation numbers across stores", async () => {
     const memory = createMemoryAgentInvocationStore()
     const persistedObservations: unknown[] = []

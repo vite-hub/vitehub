@@ -36,6 +36,8 @@ function invocationAttributes(context: AgentTraceContext, extra: Record<string, 
     "channel.delivery.source.id": context.runtime.channelDelivery?.sourceId,
     "input.hasMessages": Boolean(context.input.messages?.length),
     "input.hasPrompt": Boolean(context.input.prompt),
+    "input.messages": context.input.messages,
+    "input.prompt": context.input.prompt,
     "runtime.name": context.runtime.runtime,
     ...extra,
   }
@@ -51,6 +53,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasInput": event.input !== undefined,
+      "tool.input": event.input,
       "vitehub.activity.kind": event.activity?.kind || "tool",
       "vitehub.action.name": event.activity?.kind === "action" ? event.activity.name : undefined,
     }
@@ -64,6 +67,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasOutput": event.output !== undefined,
+      "tool.output": event.output,
       "tool.error": event.error,
       "vitehub.activity.kind": event.activity?.kind || "tool",
       "vitehub.action.name": event.activity?.kind === "action" ? event.activity.name : undefined,
@@ -75,6 +79,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "approval.name": event.name,
       "approval.reason": event.reason,
       "approval.hasInput": event.input !== undefined,
+      "approval.input": event.input,
     }
   }
   if (event.type === "approval-decision") {
