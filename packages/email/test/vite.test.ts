@@ -161,11 +161,19 @@ describe("hubEmail", () => {
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
 
-    config({ root })
+    expect(config({ root })).toMatchObject({
+      resolve: { alias: { "#vitehub/emails": join(root, ".vitehub", "email", "templates") } },
+    })
     await resolvePlugin(plugin, root)
 
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
       .toContain("Hello {{name}}")
+    const buildStart = plugin.buildStart as unknown as (this: { addWatchFile: (file: string) => void }) => Promise<void>
+    await buildStart.call({ addWatchFile: vi.fn() })
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Updated template")
+    await buildStart.call({ addWatchFile: vi.fn() })
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .toContain("Updated template")
   })
 
   it("serializes development refreshes and watches imported templates", async () => {

@@ -273,6 +273,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let templatesRoot = resolve(process.cwd(), "server", "emails")
   let materializedRoot = resolve(process.cwd(), ".vitehub", "email", "templates")
   let projectRoot = process.cwd()
+  let buildStarted = false
   let materialized = false
   let watchFiles = new Set<string>()
 
@@ -315,7 +316,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       return {
-        ...(vercel ? { resolve: { alias: { "#vitehub/emails": materializedRoot } } } : {}),
+        ...(cloudflare || vercel ? { resolve: { alias: { "#vitehub/emails": materializedRoot } } } : {}),
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }
     },
@@ -346,7 +347,8 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       }
     },
     async buildStart() {
-      await prepareTypesOnce()
+      await prepareTypes({ materialize: (cloudflare || vercel) && (buildStarted || !materialized), projectRoot, serverDirs })
+      buildStarted = true
       for (const file of watchFiles) this.addWatchFile(file)
     },
     configureServer(server) {

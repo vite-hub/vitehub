@@ -466,6 +466,9 @@ describe("ViteHub Nuxt integration", () => {
       projectRoot: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
+    const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+    expect(((nuxt.options as typeof nuxt.options & { nitro: { alias: Record<string, string> } }).nitro).alias["#vitehub/emails"]).toBe(emailTemplates)
   })
 
   it("includes generated types from a configured Env project root", async () => {

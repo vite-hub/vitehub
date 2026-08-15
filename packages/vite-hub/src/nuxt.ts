@@ -387,7 +387,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const generatedAliases = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
-    ...(options.preset === "vercel" && options.email
+    ...((options.preset === "cloudflare" || options.preset === "vercel") && options.email
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
       : {}),
     "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
