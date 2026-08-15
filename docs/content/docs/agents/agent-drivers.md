@@ -65,7 +65,7 @@ export default defineAgent({
 })
 ```
 
-Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
+Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. Provider Workspaces additionally require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
 Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
@@ -80,7 +80,7 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `output` | Optional structured Agent output contract. |
 | `capacity` | Optional process-local concurrency and queue limits. |
 
-Provider Drivers do not accept Agent Boxes, model-specific Provider Tool contributions, Cloudflare Agents, or Deno. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
+Provider Drivers do not accept Agent Boxes, model-specific Provider Tool contributions, Cloudflare Agents, or Deno. Provider Workspaces are also unsupported on Windows. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
 
 ## Use a custom run Driver
 

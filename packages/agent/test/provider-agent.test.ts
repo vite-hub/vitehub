@@ -406,6 +406,24 @@ describe("Provider Agent Driver", () => {
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it("bounds asynchronous instruction resolution by the invocation timeout", async () => {
+    const adapter = createProviderAgentAdapter({
+      instructions: async () => await new Promise<string>(() => undefined),
+      provider: "codex",
+    })
+
+    await expect(adapter.generate(context("thread-instruction-timeout", {
+      input: { prompt: "hello", timeout: 20 },
+    }) as never)).rejects.toThrow()
+  })
+
+  it("reports runtime-wide provider errors without a thread association", async () => {
+    runtime("thread-global-error", [{ payload: { message: "runtime failed" }, type: "runtime.error" }])
+
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context("thread-global-error") as never))
+      .rejects.toThrow("runtime failed")
+  })
+
   it("restores a symlinked provider instruction entry without overwriting its target", async () => {
     const threadId = "thread-symlinked-instructions"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

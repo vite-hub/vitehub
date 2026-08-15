@@ -300,6 +300,7 @@ function localWorkspaceHost(): WorkspaceSessionHost {
         let stderr = ""
         let executionError: unknown
         let forceKill: ReturnType<typeof setTimeout> | undefined
+        let termination: Promise<void> | undefined
         const killProcessGroup = (killSignal: NodeJS.Signals) => {
           if (!child.pid) return
           try {
@@ -308,9 +309,15 @@ function localWorkspaceHost(): WorkspaceSessionHost {
           catch {}
         }
         const terminate = () => {
+          if (termination) return
           killProcessGroup("SIGTERM")
-          forceKill = setTimeout(() => killProcessGroup("SIGKILL"), 250)
-          forceKill.unref()
+          termination = new Promise((resolve) => {
+            forceKill = setTimeout(() => {
+              killProcessGroup("SIGKILL")
+              resolve()
+            }, 250)
+            forceKill.unref()
+          })
         }
         signal?.addEventListener("abort", terminate, { once: true })
         if (signal?.aborted) terminate()
@@ -321,12 +328,12 @@ function localWorkspaceHost(): WorkspaceSessionHost {
         // the original failure, but do not let Workspace cleanup race the
         // still-live child.
         child.once("error", error => executionError = error)
-        child.once("close", (code) => {
+        child.once("close", (code) => void (termination || Promise.resolve()).then(() => {
           signal?.removeEventListener("abort", terminate)
-          if (forceKill) clearTimeout(forceKill)
+          if (forceKill && !signal?.aborted) clearTimeout(forceKill)
           if (executionError) reject(executionError)
           else resolve({ code: code ?? 1, stderr, stdout })
-        })
+        }))
       })
     },
   }
@@ -699,7 +706,7 @@ async function* runProvider(
         return execution
       })
     }
-    let instructions = await resolveInstructions(options, context)
+    let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
     if (!instructions && options.provider === "claude-code") {
       const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
       if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
@@ -785,7 +792,7 @@ async function* runProvider(
       const current = await Promise.race([nextEvent, aborted])
       if (current.done) throw new Error("[vitehub] Provider Agent Driver event stream ended before the turn completed.")
       nextEvent = events.next()
-      if (current.value.threadId !== threadId) continue
+      if (current.value.threadId && current.value.threadId !== threadId) continue
       const normalized = providerEvent(current.value)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)
