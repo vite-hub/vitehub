@@ -14,6 +14,7 @@ import { createProviderAgentAdapter } from "../src/provider-agent.ts"
 import { defineAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 
 function event(type: string, threadId: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) {
@@ -356,6 +357,29 @@ describe("Provider Agent Driver", () => {
     ]))
     expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "accept")
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
+  })
+
+  it("preserves the primary input handler during auxiliary provider runs", async () => {
+    const primaryThreadId = "thread-primary-input"
+    const controller = new AbortController()
+    const primary = runtime(primaryThreadId, [], { afterEvents: () => new Promise(() => {}) })
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const primaryResult = adapter.generate(context(primaryThreadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+    const invocationId = `run-${primaryThreadId}`
+
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
+    const auxiliaryThreadId = "thread-auxiliary-input"
+    runtime(auxiliaryThreadId, [event("turn.completed", auxiliaryThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    const auxiliaryContext = context(auxiliaryThreadId)
+    auxiliaryContext.runtime.run.runId = invocationId
+    await adapter.generate(markAuxiliaryMessageChannelInstructionContext(auxiliaryContext) as never)
+
+    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true })
+    controller.abort("cancelled")
+    await expect(primaryResult).rejects.toBe("cancelled")
+    expect(primary.interruptTurn).toHaveBeenCalledWith(primaryThreadId, "turn-1")
   })
 
   it("serves Capability tools through the provider MCP boundary", async () => {

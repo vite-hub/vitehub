@@ -15,7 +15,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
-import { resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 
@@ -810,7 +810,7 @@ async function* runProvider(
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
     const invocationId = agentInvocationControlId(context.runtime)
-    if (invocationId) {
+    if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode !== "respond") return "unsupported"
