@@ -189,6 +189,10 @@ function emailTemplateName(id: string): string | undefined {
   return name
 }
 
+function exactIdPattern(id: string): RegExp {
+  return new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
+}
+
 async function listEmailTemplates(root: string, directory = root): Promise<string[]> {
   let entries
   try {
@@ -368,7 +372,10 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         : {}
       return {
         ...(cloudflare || vercel
-          ? { resolve: { alias: Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [`${emailTemplatePrefix}${name}`, path])) } }
+          ? { resolve: { alias: Object.entries(emailTemplatePaths).map(([name, replacement]) => ({
+              find: exactIdPattern(`${emailTemplatePrefix}${name}`),
+              replacement,
+            })) } }
           : {}),
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }

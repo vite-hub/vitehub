@@ -175,9 +175,10 @@ describe("hubEmail", () => {
     } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
 
-    expect(await config({ root })).toMatchObject({
-      resolve: { alias: { "#vitehub/emails/monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs") } },
-    })
+    expect(await config({ root })).toMatchObject({ resolve: { alias: [{
+      find: /^#vitehub\/emails\/monthly-recap$/,
+      replacement: join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
+    }] } })
     await resolvePlugin(plugin, root)
 
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
@@ -194,9 +195,10 @@ describe("hubEmail", () => {
 
   it("resolves nested standalone host templates through exact aliases", async () => {
     const root = await createTempProject()
-    const template = join(root, "server", "emails", "monthly", "detail.md")
-    await mkdir(join(root, "server", "emails", "monthly"), { recursive: true })
-    await writeFile(template, "Nested detail")
+    const parentTemplate = join(root, "server", "emails", "monthly.md")
+    const nestedTemplate = join(root, "server", "emails", "monthly", "detail.md")
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(parentTemplate, "Monthly")
     const server = await createServer({
       appType: "custom",
       configFile: false,
@@ -205,8 +207,10 @@ describe("hubEmail", () => {
       server: { middlewareMode: true },
     })
     try {
+      await mkdir(join(root, "server", "emails", "monthly"))
+      await writeFile(nestedTemplate, "Nested detail")
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
-        .toBe(join(root, ".vitehub", "email", "templates", "monthly%2Fdetail.mjs"))
+        .toBe(`/@fs${nestedTemplate}?markdown-template`)
     }
     finally {
       await server.close()
@@ -237,9 +241,10 @@ describe("hubEmail", () => {
     await writeFile(join(root, "server", "emails", "welcome.md"), "Welcome")
     const plugin = hubEmail({ driver: "unemail/driver/resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
     const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
-    await expect(config({ root: appRoot })).resolves.toMatchObject({
-      resolve: { alias: { "#vitehub/emails/welcome": join(root, ".vitehub", "email", "templates", "welcome.mjs") } },
-    })
+    await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [{
+      find: /^#vitehub\/emails\/welcome$/,
+      replacement: join(root, ".vitehub", "email", "templates", "welcome.mjs"),
+    }] } })
   })
 
   it("serializes development refreshes and watches imported templates", async () => {
