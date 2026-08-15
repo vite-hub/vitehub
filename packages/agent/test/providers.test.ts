@@ -9452,8 +9452,17 @@ describe("server helpers", () => {
       const firstResponse = handler(await serialRequest(91_010, "A"), "telegram", { agentName: "support" })
       await firstStartedPromise
       await expect(handler(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(await serialRequest(91_010, "A"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      const ignoredRequest = new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({ update_id: 92_014 }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      })
+      await expect(handler(ignoredRequest, "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       const queuedDeliveries = await handler.deliveries(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })
       expect(queuedDeliveries.find(delivery => delivery.sourceId === "92011")?.status).toBe("queued")
+      expect(queuedDeliveries.find(delivery => delivery.sourceId === "92010")?.status).not.toBe("completed")
+      expect(queuedDeliveries.find(delivery => delivery.sourceId === "92014")?.status).toBe("completed")
       await vi.advanceTimersByTimeAsync(31_000)
       expect(extendLock).toHaveBeenCalled()
       await expect(handler(await serialRequest(91_012, "C"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
@@ -9466,8 +9475,8 @@ describe("server helpers", () => {
       expect(run).toHaveBeenCalledTimes(4)
       expect(histories).toEqual([["A"], ["B"], ["C"], ["D"]])
       const deliveries = await handler.deliveries(await serialRequest(91_013, "D"), "telegram", { agentName: "support" })
-      expect(deliveries).toHaveLength(4)
-      expect(deliveries.map(delivery => delivery.sourceId).sort()).toEqual(["92010", "92011", "92012", "92013"])
+      expect(deliveries).toHaveLength(5)
+      expect(deliveries.map(delivery => delivery.sourceId).sort()).toEqual(["92010", "92011", "92012", "92013", "92014"])
       expect(deliveries.every(delivery => delivery.status === "completed" || delivery.status === "failed")).toBe(true)
     }
     finally {

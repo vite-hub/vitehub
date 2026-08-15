@@ -4689,10 +4689,13 @@ export function createChannelWebhookRouteHandler(
           const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline, chatDeliveryState)
           webhookDeadlineAbort?.signal.throwIfAborted()
           const response = await handler(request, { waitUntil: context.waitUntil })
-          if (!channelDelivery.claimed) {
+          if (!channelDelivery.claimed && !channelDelivery.duplicate) {
             const serial = chatSdkOption<string>(chatOptions, "concurrency") === "serial"
+            const ignored = serial && response.ok && await response.clone().json()
+              .then(body => isRecord(body) && body.ignored === true)
+              .catch(() => false)
             await recordChannelDeliveryEvidence(channelDelivery, {
-              type: response.ok ? serial ? "queued" : "completed" : response.status >= 500 ? "failed" : "rejected",
+              type: response.ok ? serial && !ignored ? "queued" : "completed" : response.status >= 500 ? "failed" : "rejected",
             })
           }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
