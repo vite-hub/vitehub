@@ -12001,6 +12001,50 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("keeps ambiguous accepted Workflow starts recoverable", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const failure = Object.assign(new Error("provider acknowledgement lost"), {
+        code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+        details: { operation: "create", provider: "cloudflare" },
+      })
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        workflow: async () => ({
+          createWorkflow: () => ({
+            run: async () => { throw failure },
+          }),
+        }) as never,
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          runtime: workflow("ambiguous-start-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { runId: "accepted-workflow" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+
+        await expect(invocations.getByRunId("accepted-workflow")).resolves.toMatchObject({ status: "pending" })
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("reconciles controlled queued runs without caller inspection", async () => {
       const { defineAgent, startAgentInvocation } = await import("../src/index.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")

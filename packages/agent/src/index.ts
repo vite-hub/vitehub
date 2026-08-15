@@ -748,6 +748,14 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
+function isAmbiguousWorkflowStartFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error) || !("details" in error)) return false
+  const details = (error as { details?: unknown }).details
+  return (error as { code?: unknown }).code === "WORKFLOW_PROVIDER_OPERATION_FAILED"
+    && Boolean(details && typeof details === "object" && "operation" in details
+      && ["create", "run", "start"].includes(String((details as { operation?: unknown }).operation)))
+}
+
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
   const materialized = await materializeMessageAttachmentData(messages)
   return await Promise.all(materialized.map(async message => ({
@@ -852,12 +860,14 @@ async function runAgentAsWorkflow<
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   }
   catch (error) {
-    if (hasAgentDefinition(agent)) {
+    const ambiguous = isAmbiguousWorkflowStartFailure(error)
+    const failedRunId = workflowRunId || (ambiguous ? undefined : createTraceId())
+    if (hasAgentDefinition(agent) && failedRunId) {
       const invocationJournal = await bindAgentInvocations(agent.invocations, {
         ...context,
-        run: { ...context.run, runId: workflowRunId || createTraceId() },
+        run: { ...context.run, runId: failedRunId },
       }, { agentName: agent.name, terminalTakeover: true })
-      await invocationJournal?.finish("failed", error)
+      if (!ambiguous) await invocationJournal?.finish("failed", error)
     }
     throw error
   }
