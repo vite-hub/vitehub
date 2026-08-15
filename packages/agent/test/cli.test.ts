@@ -7,6 +7,7 @@ import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/wor
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli } from "../src/cli.ts"
+import { runAgentChannelHistoryCli } from "../src/internal/channel-history-cli.ts"
 import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
@@ -53,7 +54,7 @@ describe("agent CLI", () => {
         name: "agent",
       }, {
         description: "External Channel registration workflows.",
-        features: [expect.objectContaining({ name: "sync" })],
+        features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
       }],
     })
@@ -71,7 +72,7 @@ describe("agent CLI", () => {
         name: "agent",
       }, {
         description: "External Channel registration workflows.",
-        features: [expect.objectContaining({ name: "sync" })],
+        features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
       }],
     })
@@ -184,6 +185,61 @@ describe("agent CLI", () => {
       schemaVersion: 1,
       stage: "staging",
     })
+  })
+
+  it("downloads Channel history and materializes attachments", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
+    const stdout = stream()
+    const stderr = stream()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe("https://example.com/api/_vitehub/agents/calories/webhooks/telegram")
+      const headers = new Headers(init?.headers)
+      expect(headers.get("x-vitehub-channel-history")).toBe("1")
+      expect(headers.get("x-test-secret")).toBe("webhook-secret")
+      expect(init?.body).toBe(JSON.stringify({ threadId: "telegram:123" }))
+      return Response.json({
+        messages: [{
+          attachments: [{ data: Buffer.from([1, 2, 3]).toString("base64"), mimeType: "image/jpeg", name: "meal.jpg", type: "image" }],
+          id: "1",
+          text: "Lunch",
+          threadId: "telegram:123",
+        }],
+        schemaVersion: 1,
+        threadId: "telegram:123",
+      })
+    })
+    try {
+      const exitCode = await runAgentChannelHistoryCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+        "--output", "export",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        stderr,
+        stdout,
+      }, {
+        fetch: fetcher as never,
+        loadTargets: async () => [{
+          agent: "calories",
+          channel: "telegram",
+          defaultThreadId: "telegram:123",
+          mode: "webhook",
+          provider: "telegram",
+          registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+        }],
+      })
+
+      expect(exitCode).toBe(0)
+      expect(stderr.output()).toBe("")
+      expect(stdout.output()).toContain("Downloaded 1 messages")
+      await expect(readFile(join(rootDir, "export/media/0001-meal.jpg"))).resolves.toEqual(Buffer.from([1, 2, 3]))
+      await expect(readFile(join(rootDir, "export/history.json"), "utf8")).resolves.toContain('"file": "media/0001-meal.jpg"')
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("redacts Telegram credentials from provider errors", async () => {

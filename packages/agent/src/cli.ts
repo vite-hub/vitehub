@@ -7,6 +7,7 @@ import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
+import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
 import { materializeAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
@@ -1326,14 +1327,24 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       },
       {
         description: "External Channel registration workflows.",
-        features: [{
-          description: "Inspect and synchronize provider-owned Channel webhooks for a deployed stage.",
-          name: "sync",
-          run: async (args, context) => await runAgentChannelSyncCli(args, context, {
-            rootDir: options?.rootDir,
-          }),
-          usage: "vitehub channels sync --stage <name> --url <https-origin> [--apply --confirm-origin <https-origin>]",
-        }],
+        features: [
+          {
+            description: "Download one deployed Channel conversation and its attachments.",
+            name: "history",
+            run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
+              rootDir: options?.rootDir,
+            }),
+            usage: "vitehub channels history --stage <name> --url <https-origin> --output <directory> [--thread <id>]",
+          },
+          {
+            description: "Inspect and synchronize provider-owned Channel webhooks for a deployed stage.",
+            name: "sync",
+            run: async (args, context) => await runAgentChannelSyncCli(args, context, {
+              rootDir: options?.rootDir,
+            }),
+            usage: "vitehub channels sync --stage <name> --url <https-origin> [--apply --confirm-origin <https-origin>]",
+          },
+        ],
         name: "channels",
       },
     ],

@@ -12314,6 +12314,58 @@ describe("server helpers", () => {
     ])
   })
 
+  it("exports authenticated Channel history with attachment data", async () => {
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => Buffer.from([1, 2, 3]), persistThreadHistory: true })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => adapter as never },
+        stream: false,
+        webhooks: { telegram: { secretHeader: "x-test-secret", secretToken: "history-secret" } },
+      })],
+      driver: { run: () => "saved" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const webhookUrl = "https://example.com/api/_vitehub/agents/calories/webhooks/telegram"
+    await expect(handler(new Request(webhookUrl, {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456 },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 20,
+          photo: [{ file_id: "photo-1", file_name: "meal.jpg" }],
+        },
+        update_id: 20,
+      }),
+      headers: { "x-test-secret": "history-secret" },
+      method: "POST",
+    }), "telegram")).resolves.toMatchObject({ status: 200 })
+
+    const response = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram")
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      messages: [{
+        attachments: [{ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" }],
+        id: "20",
+        threadId: "telegram:456",
+      }],
+      provider: "telegram",
+      schemaVersion: 1,
+      threadId: "telegram:456",
+    })
+  })
+
   it("keeps fetched thread history when the current chat message has no id", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")

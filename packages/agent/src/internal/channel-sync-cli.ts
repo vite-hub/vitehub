@@ -31,16 +31,23 @@ interface ChannelSyncLoadInput {
   stage: string
 }
 
-export interface LoadedChannelSyncTarget {
+export interface LoadedChannelTarget {
   agent: string
   channel: string
+  defaultThreadId?: string
   mode: "disabled" | "webhook"
   provider: string
   registration?: {
     id: string
     path?: string
+    secretHeader?: string
+    secretToken?: false | string
+    signature?: string
     url?: string
   }
+}
+
+export interface LoadedChannelSyncTarget extends LoadedChannelTarget {
   sync: AgentChannelSyncProvider
 }
 
@@ -193,7 +200,7 @@ function replaceRouteParams(route: string, agent: string, webhook: string): stri
 }
 
 function desiredWebhookUrl(
-  target: LoadedChannelSyncTarget,
+  target: LoadedChannelTarget,
   origin: string,
   webhookRoute: false | string,
 ): string | undefined {
@@ -213,33 +220,60 @@ function desiredWebhookUrl(
   return url.toString()
 }
 
-function channelRegistration(
+export function deployedChannelWebhookUrl(target: LoadedChannelTarget, origin: string): string | undefined {
+  return desiredWebhookUrl(target, origin, defaultWebhookRoute)
+}
+
+async function resolvedChannelValue(value: unknown, context: unknown): Promise<unknown> {
+  const resolved = typeof value === "function" ? await value(context) : value
+  return resolved && typeof resolved === "object" && "unseal" in resolved && typeof resolved.unseal === "function"
+    ? resolved.unseal()
+    : resolved
+}
+
+async function channelRegistration(
   channelId: string,
   channel: AgentChannelDefinition,
-): LoadedChannelSyncTarget["registration"] {
+  context: unknown,
+): Promise<LoadedChannelSyncTarget["registration"]> {
   const webhooks = channel.webhooks
   if (webhooks === false) return
   if (Array.isArray(webhooks)) {
     if (webhooks.length !== 1) {
       throw new TypeError(
-        `Telegram Channel ${channelId} must declare exactly one webhook registration.`,
+        `Channel ${channelId} must declare exactly one webhook registration.`,
       )
     }
     const registration = webhooks[0]!
+    const secretToken = await resolvedChannelValue(registration.secretToken, context)
     return {
       id: registration.id || channelId,
       ...(registration.path ? { path: registration.path } : {}),
+      ...(registration.secretHeader ? { secretHeader: registration.secretHeader } : {}),
+      ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
+      ...(registration.signature ? { signature: registration.signature } : {}),
       ...(registration.url ? { url: registration.url } : {}),
     }
   }
   if (webhooks && webhooks !== true) {
+    const secretToken = await resolvedChannelValue(webhooks.secretToken, context)
     return {
       id: webhooks.id || channelId,
       ...(webhooks.path ? { path: webhooks.path } : {}),
+      ...(webhooks.secretHeader ? { secretHeader: webhooks.secretHeader } : {}),
+      ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
+      ...(webhooks.signature ? { signature: webhooks.signature } : {}),
       ...(webhooks.url ? { url: webhooks.url } : {}),
     }
   }
   return { id: channelId }
+}
+
+async function channelDefaultThreadId(channel: AgentChannelDefinition, context: unknown, provider: string): Promise<string | undefined> {
+  if (provider !== "telegram") return
+  const adapter = await resolvedChannelValue(channel.adapter, context) as { allowedUserIds?: Set<string>, openDM?: (userId: string) => Promise<string> } | undefined
+  if (!adapter?.openDM || adapter.allowedUserIds?.size !== 1) return
+  return await adapter.openDM.call(adapter, [...adapter.allowedUserIds][0]!)
 }
 
 function uniqueAgentDefinitions(
@@ -264,9 +298,10 @@ function uniqueAgentDefinitions(
   return [...unique.values()]
 }
 
-async function loadChannelSyncTargetsExclusive(
+async function loadChannelTargetsExclusive(
   input: ChannelSyncLoadInput,
-): Promise<LoadedChannelSyncTarget[]> {
+  syncOnly: boolean,
+): Promise<Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }>> {
   const { createServer, loadEnv } = await import("vite")
   let server: Awaited<ReturnType<typeof createServer>> | undefined
   const previousEnvironment = new Map(
@@ -293,7 +328,7 @@ async function loadChannelSyncTargetsExclusive(
       if (value === undefined) continue
       process.env[key] = value
     }
-    const targets: LoadedChannelSyncTarget[] = []
+    const targets: Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }> = []
     const stageRoot = server.config.root
     const stageServerDirs = (server.config as typeof server.config & {
       [VITEHUB_SERVER_DIRS]?: string[]
@@ -307,16 +342,18 @@ async function loadChannelSyncTargetsExclusive(
       for (const [channelId, channel] of Object.entries(loaded.agent.channels)) {
         if (input.channel && channelId !== input.channel) continue
         const syncDefinition = getAgentChannelSyncDefinition(channel)
-        if (!syncDefinition) continue
-        const sync = await syncDefinition.resolve(context, channel)
-        if (!sync) continue
+        const sync = syncOnly && syncDefinition ? await syncDefinition.resolve(context, channel) : undefined
+        if (syncOnly && !sync) continue
+        if (!sync && (channel.messages === false || channel.adapter === undefined || channel.webhooks === false)) continue
+        const provider = syncDefinition?.provider || channel.kind
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
-          mode: sync.mode,
-          provider: syncDefinition.provider,
-          registration: channelRegistration(channelId, channel),
-          sync,
+          defaultThreadId: await channelDefaultThreadId(channel, context, provider),
+          mode: sync?.mode || "webhook",
+          provider,
+          registration: await channelRegistration(channelId, channel, context),
+          ...(sync ? { sync } : {}),
         })
       }
     }
@@ -347,7 +384,22 @@ async function loadChannelSyncTargets(
   })
   await previous
   try {
-    return await loadChannelSyncTargetsExclusive(input)
+    return await loadChannelTargetsExclusive(input, true) as LoadedChannelSyncTarget[]
+  }
+  finally {
+    release()
+  }
+}
+
+export async function loadChannelTargets(input: ChannelSyncLoadInput): Promise<LoadedChannelTarget[]> {
+  const previous = channelSyncTargetLoadQueue
+  let release!: () => void
+  channelSyncTargetLoadQueue = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await previous
+  try {
+    return await loadChannelTargetsExclusive(input, false)
   }
   finally {
     release()

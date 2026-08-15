@@ -2498,6 +2498,7 @@ function chatMessageAuthorEmail(message: ChatSdkMessage): string | undefined {
 }
 
 const chatTextAttachmentMaxBytes = 8 * 1024 * 1024
+export const agentChannelHistoryHeader = "x-vitehub-channel-history"
 const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
 const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
 const chatTextAttachmentOversizeMessage = `[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`
@@ -3795,6 +3796,103 @@ async function createChannelChat(
   return chat
 }
 
+function historyBytesToBase64(data: Uint8Array): string {
+  let binary = ""
+  for (let offset = 0; offset < data.length; offset += 0x8000) {
+    binary += String.fromCharCode(...data.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter): Promise<Record<string, unknown>> {
+  const rehydrate = (adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }).rehydrateAttachment
+  const resolved = rehydrate && !attachment.fetchData ? rehydrate.call(adapter, attachment) : attachment
+  let data = resolved.data
+  if (!data && resolved.fetchData) {
+    try {
+      data = await resolved.fetchData()
+    }
+    catch {}
+  }
+  const bytes = data instanceof Blob
+    ? new Uint8Array(await data.arrayBuffer())
+    : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : undefined
+  return objectWithoutUndefined({
+    data: bytes ? historyBytesToBase64(bytes) : undefined,
+    fetchMetadata: resolved.fetchMetadata,
+    height: resolved.height,
+    mimeType: resolved.mimeType,
+    name: resolved.name,
+    size: resolved.size,
+    type: resolved.type,
+    unavailable: !bytes || undefined,
+    url: bytes ? undefined : resolved.url,
+    width: resolved.width,
+  })
+}
+
+async function channelHistoryMessage(message: ChatSdkMessage, adapter: Adapter): Promise<Record<string, unknown>> {
+  return objectWithoutUndefined({
+    attachments: await Promise.all(message.attachments.map(attachment => channelHistoryAttachment(attachment, adapter))),
+    author: message.author,
+    formatted: message.formatted,
+    id: message.id,
+    isMention: message.isMention,
+    links: message.links,
+    metadata: objectWithoutUndefined({
+      dateSent: message.metadata.dateSent.toISOString(),
+      edited: message.metadata.edited,
+      editedAt: isoDate(message.metadata.editedAt),
+    }),
+    replyTo: message.replyTo ? await channelHistoryMessage(message.replyTo, adapter) : undefined,
+    text: message.text,
+    threadId: message.threadId,
+  })
+}
+
+async function createChannelHistoryResponse(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  options: AgentChannelWebhookRouteOptions,
+  request: Request,
+): Promise<Response> {
+  const body = await request.json().catch(() => undefined) as { threadId?: unknown } | undefined
+  if (!body || typeof body.threadId !== "string" || !body.threadId.trim()) {
+    return createBadRequest("Channel history export requires threadId.")
+  }
+  const baseChatOptions = getAgentChatOptions(agent)
+  const adapters = await resolveChatAdapters(baseChatOptions, context)
+  const adapterName = resolveChatAdapterName(adapters, registration)
+  const adapter = adapterName ? adapters[adapterName] : undefined
+  if (!adapter) return createJsonErrorResponse(500, "Channel history export could not resolve the configured Chat adapter.")
+  const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
+  const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options)
+  const messages: Record<string, unknown>[] = []
+  try {
+    for await (const message of chat.thread(body.threadId.trim()).allMessages) {
+      messages.push(await channelHistoryMessage(message, adapter))
+    }
+  }
+  catch (error) {
+    return createJsonErrorResponse(400, error instanceof Error ? error.message : "Channel history export failed.")
+  }
+  const configuredHistory = isRecord(chatOptions?.threadHistory) ? chatOptions.threadHistory : {}
+  return Response.json({
+    agent: context.agentIdentity?.name || "agent",
+    channel: registration.channelId || registration.id,
+    exportedAt: new Date().toISOString(),
+    messages,
+    provider: registration.provider,
+    retention: {
+      maxMessages: configuredHistory.maxMessages ?? 100,
+      ttlMs: configuredHistory.ttlMs ?? 7 * 24 * 60 * 60 * 1000,
+    },
+    schemaVersion: 1,
+    threadId: body.threadId.trim(),
+  })
+}
+
 async function createChatWebhookHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -4554,6 +4652,21 @@ export function createChannelWebhookRouteHandler(
           },
           status: 204,
         })
+      }
+      if (request.headers.get(agentChannelHistoryHeader) === "1") {
+        const secret = await resolveMaybe(registration.secretToken, context)
+        if (!registration.secretHeader || !secret) {
+          return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
+        }
+        try {
+          await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
+        }
+        catch (error) {
+          const response = toHttpErrorResponse(error)
+          if (response) return response
+          throw error
+        }
+        return await createChannelHistoryResponse(agent, context, registration, handlerOptions, request)
       }
       if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
         try {
