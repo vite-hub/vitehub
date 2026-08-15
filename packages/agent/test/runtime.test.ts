@@ -12183,6 +12183,7 @@ describe("agent message protocol", () => {
           runtime: "unknown",
           waitUntil: vi.fn(),
         }, { agentName: agent.name })
+        if (!parent) throw new Error("Expected the parent invocation journal to be configured.")
         await parent.running()
 
         await expect(startAgentInvocation(agent, {
