@@ -4,6 +4,7 @@ export interface AgentWebhookQueueDelivery {
   concurrencyGroup: string
   concurrencyKey?: string
   concurrencyLimit: number
+  channelDeliveryId?: string
   deliveryId: string
   enqueuedAt: number
   invocation?: {
@@ -34,7 +35,7 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean>
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
-  retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number): Promise<boolean>
+  retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
   webhookDeliveryScopes(): Promise<string[]>
 }
 

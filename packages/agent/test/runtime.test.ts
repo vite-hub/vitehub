@@ -3589,6 +3589,24 @@ describe("agent message protocol", () => {
     ])).toEqual([
       { content: "{\"city\":\"Seattle\"}", role: "user" },
     ])
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m2",
+        parts: [
+          { data: { text: "quoted reply" }, type: "data-chat-reply-text" },
+          { data: { title: "UI title" }, type: "data-title" },
+          { text: "assistant response", type: "text" },
+        ],
+        role: "assistant",
+      }),
+    ])).toEqual([{
+      content: [
+        { text: "{\"text\":\"quoted reply\"}", type: "text" },
+        { text: "assistant response", type: "text" },
+      ],
+      role: "assistant",
+    }])
   })
 
   it("drops empty ViteHub messages before model conversion", async () => {
@@ -4884,6 +4902,57 @@ describe("agent message protocol", () => {
       error.mockRestore()
       warn.mockRestore()
     }
+  })
+
+  it("runs delivery effects when outbound custody evidence cannot be written", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const delivered = vi.fn()
+    const event = vi.fn(async (input: { type: string }) => {
+      if (input.type === "outbound.started") throw new Error("journal unavailable")
+      return { ...input, at: new Date().toISOString(), deliveryId: "delivery-1", id: "event-1" }
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reaction: delivered },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+    const runtime = {
+      [Symbol.for("vitehub.agent.channel-delivery")]: {
+        claimed: true,
+        delivery: { id: "delivery-1" },
+        duplicate: false,
+        event,
+      },
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }
+
+    await expect(runAgentTrigger(agent, runtime as never, "portal.message", {})).resolves.toBe("ok")
+    expect(delivered).toHaveBeenCalledOnce()
+    expect(event).toHaveBeenCalledWith(expect.objectContaining({ type: "outbound.started" }))
+    expect(event).toHaveBeenCalledWith(expect.objectContaining({ type: "outbound.completed" }))
   })
 
   it("exposes Agent Trigger metadata", async () => {

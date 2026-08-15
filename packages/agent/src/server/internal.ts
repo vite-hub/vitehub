@@ -4,6 +4,8 @@ export {
   createDiscordGatewayRouteHandler,
   createTelegramPollingRouteHandler,
   hasChannelChatRoute,
+  installAgentChannelDeliveryWorkflowResolver,
+  setAgentChannelDeliveryWorkflowStateResolver,
 } from "./routes.ts"
 export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"

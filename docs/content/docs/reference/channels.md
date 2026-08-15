@@ -68,7 +68,7 @@ The file name becomes the Channel name. For a Vite suffix definition, use `src/a
 
 ## Send from an H3 or Nitro handler
 
-`useChannel()` returns immediately. `send()` performs the connector call and returns a normalized result with the Channel name, connector name, and optional provider message id.
+`useChannel()` returns immediately. `send()` performs the connector call and returns a normalized result with the Channel name, connector name, ViteHub delivery id, and optional provider message id.
 
 ```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
@@ -88,9 +88,12 @@ The handler returns a result like this:
 {
   "channel": "alerts",
   "connector": "telegram",
+  "deliveryId": "e4875238-2922-4787-9f7f-b13e2e7839be",
   "id": "1730000000000"
 }
 ```
+
+Each send emits metadata-only JSON events with the `vitehub.channel.send` scope for `started`, `completed`, and `failed`. The events include `deliveryId`, Channel, connector, provider message id, and error message, but never include message text or connector options. This outbound-only package has no State Adapter, so durability comes from the application's configured log drain; use Agent Channels when inbound custody and recovery are required.
 
 ## Add another connector
 

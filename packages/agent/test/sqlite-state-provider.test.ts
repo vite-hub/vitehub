@@ -94,7 +94,7 @@ describe("SQLite Agent State Provider", () => {
   })
 
   it("leases webhook deliveries under global and per-key concurrency", async () => {
-    const { state } = await createState()
+    const { state, url } = await createState()
     await state.connect()
     const queue = state as ViteHubSqliteAgentStateAdapter
 
@@ -113,6 +113,12 @@ describe("SQLite Agent State Provider", () => {
 
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, "wrong-token")).resolves.toBe(false)
     await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
+    const client = createClient({ url })
+    await expect(client.execute({
+      args: [first!.scope, first!.deliveryId],
+      sql: "SELECT status, value FROM test_agent_state_webhook_queue WHERE scope = ? AND delivery_id = ?",
+    })).resolves.toMatchObject({ rows: [{ status: "completed", value: "{}" }] })
+    client.close()
     const third = await queue.claimWebhookDelivery("webhook:review:github:")
     expect(third?.deliveryId).toBe("delivery-2")
 
@@ -288,9 +294,34 @@ describe("SQLite Agent State Provider", () => {
     const reclaimed = await restored.claimWebhookDelivery("webhook:review:github:")
     expect(reclaimed?.deliveryId).toBe("delivery-1")
     expect(reclaimed?.leaseToken).not.toBe(abandoned?.leaseToken)
+    expect(reclaimed?.attempts).toBe(1)
     await expect(restored.completeWebhookDelivery(reclaimed!.scope, reclaimed!.deliveryId, abandoned!.leaseToken)).resolves.toBe(false)
     await expect(restored.completeWebhookDelivery(reclaimed!.scope, reclaimed!.deliveryId, reclaimed!.leaseToken)).resolves.toBe(true)
     await expect(restored.enqueueWebhookDelivery(webhookDelivery("delivery-1"))).resolves.toBe(false)
+    await restored.disconnect()
+  })
+
+  it("terminally completes an expired third webhook execution lease", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T10:00:00.000Z"))
+    const { state, url } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("crashed-delivery"))
+    let lease = await queue.claimWebhookDelivery("webhook:review:github:")
+    await queue.retryWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken, Date.now())
+    lease = await queue.claimWebhookDelivery("webhook:review:github:")
+    await queue.retryWebhookDelivery(lease!.scope, lease!.deliveryId, lease!.leaseToken, Date.now())
+    lease = await queue.claimWebhookDelivery("webhook:review:github:")
+    await state.disconnect()
+
+    vi.advanceTimersByTime(1_001)
+    const restored = createLibsqlAgentState({ tablePrefix: "test_agent_state_", url })
+    await restored.connect()
+    const terminal = await restored.claimWebhookDelivery("webhook:review:github:")
+    expect(terminal?.attempts).toBe(3)
+    await expect(restored.completeWebhookDelivery(terminal!.scope, terminal!.deliveryId, terminal!.leaseToken)).resolves.toBe(true)
+    await expect(restored.enqueueWebhookDelivery(webhookDelivery("crashed-delivery"))).resolves.toBe(false)
     await restored.disconnect()
   })
 
@@ -318,6 +349,7 @@ describe("SQLite Agent State Provider", () => {
     const recovered = await queue.claimWebhookDelivery(delivery.scope)
     expect(recovered?.deliveryId).toBe(delivery.deliveryId)
     expect(recovered?.leaseToken).not.toBe("steer-token")
+    expect(recovered?.attempts).toBe(1)
     await state.disconnect()
   })
 
