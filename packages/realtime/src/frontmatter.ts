@@ -1,10 +1,4 @@
 import { Node } from "@tiptap/core"
-import { Markdown } from "@tiptap/markdown"
-import { Marked } from "marked"
-
-export function createRealtimeMarkdown() {
-  return Markdown.configure({ marked: new Marked() as unknown as typeof import("marked").marked })
-}
 
 export const Frontmatter = Node.create({
   name: "frontmatter",

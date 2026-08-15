@@ -1,5 +1,6 @@
 import { effectScope, nextTick, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { Editor } from "@tiptap/core"
 
 import { useRealtimeTiptap } from "../src/vue.ts"
 
@@ -56,6 +57,23 @@ afterEach(() => {
 })
 
 describe("useRealtimeTiptap", () => {
+  it("preserves frontmatter through the Vue editor extensions", () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const editor = new Editor({
+      extensions: realtime.extensions.value,
+      content: "---\n# comment\nname: docs\n---\n\n# Page",
+      contentType: "markdown",
+    })
+
+    expect(editor.getJSON().content?.map(node => node.type)).toEqual(["frontmatter", "heading"])
+    expect(editor.getMarkdown()).toBe("---\n# comment\nname: docs\n---\n\n# Page")
+
+    editor.destroy()
+    scope.stop()
+  })
+
   it("connects providers only while enabled", async () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
     const enabled = ref(false)
