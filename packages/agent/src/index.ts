@@ -167,6 +167,7 @@ import type {
   AgentStaticCapabilitiesList,
   IsTypedAgentStaticCapabilitiesList,
   AgentTelemetry,
+  AgentToolSet,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -414,6 +415,7 @@ export type {
   AgentTriggerInvokeResult,
   AgentTriggerRunInvokeResult,
   AgentToolResolver,
+  AgentToolSet,
   AgentToolStep,
   AgentWaitUntil,
   ClaudeCodeDriverOptions,
@@ -937,8 +939,9 @@ async function runAgentAsWorkflow<
       : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
       const recoveryAccepted = !ambiguous
-        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
-        || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
+        || !workflowRunId
+        || !agent.invocations
+        || await deferRecovery(workflowRunId, failedRunId)
       if (recoveryAccepted) {
         const invocationJournal = await bindAgentInvocations(agent.invocations, {
           ...context,
@@ -2344,6 +2347,7 @@ type InvocationRunContext<
   startedAt: number
   telemetry?: AgentTelemetry<TRuntimeConfig>
   telemetryAgent: { name?: string, version?: string }
+  tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
@@ -2587,8 +2591,10 @@ function withStreamedResult(
   stream: AsyncIterable<unknown>,
   result: unknown,
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
+  tools?: AgentToolSet,
 ) {
   const toolNames = new Map<string, string>()
+  const toolActivities = new Map(Object.entries(tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let explicitTextPhaseSeen = false
   let finalText = ""
@@ -2603,7 +2609,7 @@ function withStreamedResult(
     },
     stream: (async function* () {
       for await (const chunk of stream) {
-        const event = toAgentStreamEvent(chunk, toolNames, textPhases)
+        const event = toAgentStreamEvent(chunk, toolNames, textPhases, toolActivities)
         const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
           && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
           && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
@@ -2678,6 +2684,7 @@ function traceUiMessageStream<
 >(stream: ReadableStream<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): ReadableStream<unknown> {
   const reader = stream.getReader()
   const toolNames = new Map<string, string>()
+  const toolActivities = new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let finished = false
   let released = false
@@ -2696,7 +2703,7 @@ function traceUiMessageStream<
           controller.close()
           return
         }
-        const event = toAgentStreamEvent(result.value, toolNames, textPhases)
+        const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities)
         if (event) {
           if (event.type === "finish") finished = true
           await traceAgentStreamEvent(toTraceContext(context), event)
@@ -3182,7 +3189,7 @@ async function finalizeAgentInvocationResult<
       const enrichedStream = withEagerStreamUsageExtensions(source.stream, context, result)
       const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
-        const streamed = withStreamedResult(stream, result)
+        const streamed = withStreamedResult(stream, result, undefined, context.tools)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
@@ -3593,7 +3600,7 @@ async function executeAgentInvocationWithCapacityLease<
           const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
           preservedSources.set(renderedStream, source)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
-          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord)
+          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.tools)
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             finishing = true
@@ -3992,7 +3999,7 @@ async function executeAgentInvocationWithCapacityLease<
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
-    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord)
+    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.tools)
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {

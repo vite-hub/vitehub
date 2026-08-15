@@ -344,6 +344,20 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("restores configured activities on normalized tool events", () => {
+    const toolNames = new Map<string, string>()
+    const activities = new Map([["repository_host_write", { kind: "action" as const, name: "repository-host.write" }]])
+
+    expect(toAgentStreamEvent({ toolCallId: "call-1", toolName: "repository_host_write", type: "tool-call" }, toolNames, undefined, activities)).toMatchObject({
+      activity: { kind: "action", name: "repository-host.write" },
+      type: "tool-call",
+    })
+    expect(toAgentStreamEvent({ output: "ok", toolCallId: "call-1", type: "tool-result" }, toolNames, undefined, activities)).toMatchObject({
+      activity: { kind: "action", name: "repository-host.write" },
+      type: "tool-result",
+    })
+  })
+
   it("normalizes AI SDK stream aliases", () => {
     expect(toAgentStreamEvent({ textDelta: "x", type: "text" })).toEqual({
       id: undefined,

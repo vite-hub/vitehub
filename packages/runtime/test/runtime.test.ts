@@ -338,6 +338,26 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("keeps runs successful after recoverable stream warnings", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })
+    await log.append({
+      attributes: { "error.message": "provider restarted", "error.recoverable": true },
+      name: "agent.stream.error",
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "run-1" },
+      type: "error",
+    })
+    await log.append({ name: "agent.invocation.finish", timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())).toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({
+      status: { code: "OK" },
+    })
+  })
+
   it("prefers Agent Invocation run ids over shared trace ids", async () => {
     const log = createTraceEventLog()
     await log.append({

@@ -415,7 +415,9 @@ function isTraceRunFinish(event: TraceEventLogEntry): boolean {
 }
 
 function isTraceRunError(event: TraceEventLogEntry): boolean {
-  return event.name === "agent.invocation.error" || event.name === "agent.stream.error" || event.name === "run.error"
+  return event.name === "agent.invocation.error"
+    || (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true)
+    || event.name === "run.error"
 }
 
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {

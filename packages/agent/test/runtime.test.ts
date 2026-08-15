@@ -10346,6 +10346,7 @@ describe("agent message protocol", () => {
       const store = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({ store })
       let providerRunId = ""
+      const defer = vi.fn(async (_payload: unknown) => ({ id: "recovery", provider: "openworkflow" as const, status: "queued" as const }))
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
         details: { acknowledgement: "unknown", operation: "run", provider: "openworkflow" },
@@ -10359,12 +10360,14 @@ describe("agent message protocol", () => {
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         workflow: async () => ({
-          createWorkflow: () => ({
-            run: async (_payload: unknown, options: { id?: string }) => {
-              providerRunId = options.id || ""
-              throw failure
-            },
-          }),
+          createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
+            ? { defer }
+            : {
+                run: async (_payload: unknown, options: { id?: string }) => {
+                  providerRunId = options.id || ""
+                  throw failure
+                },
+              },
         }) as never,
       })
       try {
@@ -10380,6 +10383,13 @@ describe("agent message protocol", () => {
         }, {})).rejects.toBe(failure)
 
         expect(providerRunId).toBe("accepted/workflow")
+        expect(defer).toHaveBeenCalledOnce()
+        expect(defer.mock.calls[0]?.[0]).toMatchObject({
+          invocationRecovery: {
+            sourceRunId: "accepted/workflow",
+            workflowName: "ambiguous-start-agent",
+          },
+        })
         await expect(invocations.getByRunId("accepted/workflow")).resolves.toMatchObject({ status: "pending" })
         const record = await invocations.getByRunId("accepted/workflow")
         expect(record && await store.claim(record.id, "accepted-worker", 30_000)).toBe(true)
