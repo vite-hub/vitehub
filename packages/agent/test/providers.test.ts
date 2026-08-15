@@ -11337,6 +11337,66 @@ describe("server helpers", () => {
     }
   })
 
+  it("replaces a manual placeholder with a safe transcription quota error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { transcribe } = await import("../src/capabilities.ts")
+    const { transcriptionError } = await import("../src/capabilities/transcription.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [
+        transcribe({ execute: () => { throw transcriptionError("TRANSCRIPTION_QUOTA_EXCEEDED") } }),
+      ],
+      channels: {
+        telegram: testTelegram(telegram, {
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            errorFallbackText: "Mini no pudo completar el trabajo.",
+            fallbackStreamingPlaceholderText: "Pensando…",
+          },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = new Request("https://example.com/api/_vitehub/agents/mini/webhooks/telegram", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_id: "audio-file",
+            file_name: "audio.ogg",
+            file_size: 3,
+            mime_type: "audio/ogg",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 91_107,
+        },
+        update_id: 91_107,
+      }),
+      method: "POST",
+    })
+
+    try {
+      await expect(handler(request, "telegram")).rejects.toMatchObject({ code: "TRANSCRIPTION_QUOTA_EXCEEDED" })
+      expect(run).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Pensando…")
+      expect(adapter.editMessage).toHaveBeenCalledWith(
+        "telegram:456",
+        "sent-1",
+        "Audio transcription is unavailable because its provider quota is exhausted.",
+      )
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("restores manual placeholder ownership when completion cleanup fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")

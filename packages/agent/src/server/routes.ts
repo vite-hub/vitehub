@@ -3065,10 +3065,9 @@ async function resolveChatErrorFallbackText(
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
-  if (typeof fallback === "string") return fallback
   const publicError = toAgentPublicError(args.error, "http")
-  if (publicError.code === "RATE_LIMIT_REJECTED") return publicError.error
-  return defaultChatErrorFallbackText
+  if (publicError.code !== "INTERNAL") return publicError.error
+  return typeof fallback === "string" ? fallback : defaultChatErrorFallbackText
 }
 
 interface ManualChatDeliveryState {

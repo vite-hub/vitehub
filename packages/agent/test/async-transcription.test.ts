@@ -152,6 +152,7 @@ describe("createTranscription", () => {
     "TRANSCRIPTION_INVALID_REQUEST",
     "TRANSCRIPTION_NETWORK_FAILED",
     "TRANSCRIPTION_PROVIDER_FAILED",
+    "TRANSCRIPTION_QUOTA_EXCEEDED",
     "TRANSCRIPTION_RATE_LIMITED",
   ] as const)("serializes code %s", (code) => {
     const error = transcriptionError(code)
@@ -331,6 +332,7 @@ describe("elevenLabsScribe", () => {
 
   it.each([
     [401, "TRANSCRIPTION_AUTHENTICATION_FAILED"],
+    [402, "TRANSCRIPTION_QUOTA_EXCEEDED"],
     [422, "TRANSCRIPTION_INVALID_REQUEST"],
     [429, "TRANSCRIPTION_RATE_LIMITED"],
     [503, "TRANSCRIPTION_PROVIDER_FAILED"],
