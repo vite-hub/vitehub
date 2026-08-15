@@ -36,14 +36,14 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
     metadata: commands ? { commands, mode, ...(timeout ? { timeout } : {}) } : undefined,
     mode,
     requires: [{ primitive: "workspace", workspace: { mode: commands ? "write" : mode, required: true } }],
-    tools: ({ driver, workspace }) => {
+    tools: ({ context, driver, workspace }) => {
       return {
         ...(driver?.kind === "provider"
           ? {}
           : mode === "write" && "write" in workspace.tools
             ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
             : workspace.tools.inspect()) as AgentToolSet,
-        ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace) : {}),
+        ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace, { context }) : {}),
       }
     },
   })

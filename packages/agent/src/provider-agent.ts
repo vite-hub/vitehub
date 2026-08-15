@@ -9,7 +9,7 @@ import { normalizeExecutionAuthority } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
-import { setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
+import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
@@ -620,6 +620,8 @@ async function* runProvider(
   let generatedInstructionFileExisted = false
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
+  let clearActiveWorkspaceCommands: (() => void) | undefined
+  let clearActiveWorkspaceFiles: (() => void) | undefined
   const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
@@ -644,7 +646,7 @@ async function* runProvider(
     effectiveSignal?.throwIfAborted()
     workspaceSession = await prepareWorkspace(context, root)
     if (workspaceSession) {
-      setActiveAgentWorkspaceFiles(context.context, {
+      clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
           try {
             return { active: true, body: await workspaceSession!.readFile(path, { encoding: "binary" }) }
@@ -654,6 +656,7 @@ async function* runProvider(
           }
         },
       })
+      clearActiveWorkspaceCommands = setActiveAgentWorkspaceCommands(context.context, (command, args, execOptions) => workspaceSession!.exec(command, args, execOptions))
     }
     let instructions = await resolveInstructions(options, context)
     if (!instructions && options.provider === "claude-code") {
@@ -755,7 +758,8 @@ async function* runProvider(
   }
   finally {
     unregister?.()
-    setActiveAgentWorkspaceFiles(context.context, undefined)
+    clearActiveWorkspaceCommands?.()
+    clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
     for (const result of await Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()])) {

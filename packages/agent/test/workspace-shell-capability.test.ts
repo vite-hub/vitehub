@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { workspaceShell } from "../src/capabilities.ts"
+import { setActiveAgentWorkspaceCommands } from "../src/agent-workspace-runtime.ts"
 
 import type { AgentCapabilityDefinition, AgentToolSet } from "../src/types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
@@ -26,14 +27,16 @@ function workspaceSession(options: { exitCode?: number } = {}) {
 async function capabilityTools(
   capability: AgentCapabilityDefinition = workspaceShell({ commands: ["agent-browser"] }),
   session = workspaceSession(),
-): Promise<{ session: ReturnType<typeof workspaceSession>, startSession: ReturnType<typeof vi.fn>, tools: AgentToolSet }> {
+): Promise<{ context: never, session: ReturnType<typeof workspaceSession>, startSession: ReturnType<typeof vi.fn>, tools: AgentToolSet }> {
   if (typeof capability.tools !== "function") throw new Error("workspaceShell capability must expose tool resolver")
   const startSession = vi.fn(async () => session)
+  const context = new Map() as never
   const tools = await capability.tools({
+    context,
     workspace: { startSession, tools: { inspect: () => ({}) } },
     workspaceDefinition: { name: "test" },
   } as never) as AgentToolSet
-  return { session, startSession, tools }
+  return { context, session, startSession, tools } as never
 }
 
 describe("workspaceShell capability", () => {
@@ -138,6 +141,18 @@ describe("workspaceShell capability", () => {
     await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" })).rejects.toThrow("host that permits processes")
     expect(session.exec).not.toHaveBeenCalled()
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("runs provider commands through the active hosted Workspace Session", async () => {
+    const { context, startSession, tools } = await capabilityTools()
+    const exec = vi.fn(async (command: string, args: string[] = []) => ({ args, command, exitCode: 0, stderr: "", stdout: "hosted\n" }))
+    const clear = setActiveAgentWorkspaceCommands(context, exec)
+
+    await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" })).resolves.toMatchObject({ stdout: "hosted\n" })
+
+    expect(exec).toHaveBeenCalledWith("agent-browser", [], { cwd: "/workspace", env: undefined, timeout: 60_000 })
+    expect(startSession).not.toHaveBeenCalled()
+    clear()
   })
 
   it("commits successful write-mode commands", async () => {

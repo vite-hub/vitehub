@@ -172,7 +172,7 @@ async function runGmailCommand(args: string[], context: AgentCapabilityContext):
     abortSignal: context.abortSignal,
     check: true,
     timeout: 60_000,
-  })).stdout
+  }, context.context)).stdout
 }
 
 function gmailConfigurationRequired(error: unknown): boolean {

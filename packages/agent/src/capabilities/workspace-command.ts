@@ -1,7 +1,9 @@
 import { defineInternalTool } from "./internal.ts"
+import { activeAgentWorkspaceCommands } from "../agent-workspace-runtime.ts"
 
 import type {
   AgentCapabilityMode,
+  AgentInvocationContextStore,
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
@@ -29,6 +31,7 @@ interface WorkspaceCommandToolOptions {
   description?: string
   missingWorkspaceMessage?: string
   toolName?: string
+  context?: AgentInvocationContextStore
 }
 
 interface BoxCommandOptions {
@@ -148,7 +151,21 @@ export async function executeWorkspaceCommand(
   command: string,
   args: string[] = [],
   options: BoxCommandOptions = {},
+  context?: AgentInvocationContextStore,
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
+  const activeExecute = context && activeAgentWorkspaceCommands(context)
+  if (activeExecute) {
+    const result = await activeExecute(command, args, {
+      abortSignal: options.abortSignal,
+      cwd: options.cwd,
+      env: options.env,
+      timeout: options.timeout,
+    })
+    if (options.check && result.exitCode !== 0) {
+      throw Object.assign(new Error(`[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.`), result, { name: "BoxCommandError" })
+    }
+    return result
+  }
   assertWorkspace(workspace, "[vitehub] Capability command execution requires an execution-capable Workspace Session.")
   const session = await workspace.startSession()
   if (session.executionAuthority?.processes === "none") {
@@ -236,7 +253,7 @@ export function workspaceCommandTools(
           cwd,
           env,
           timeout: commandTimeout,
-        })
+        }, options.context)
       },
     }),
   }
