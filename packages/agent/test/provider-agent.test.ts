@@ -428,15 +428,22 @@ describe("Provider Agent Driver", () => {
   })
 
   it("publishes Capability approval requests raised through MCP", async () => {
+    let toolCall!: Promise<unknown>
+    let toolCallReady!: () => void
+    const ready = new Promise<void>(resolve => toolCallReady = resolve)
     runtime("thread-tool-approval", [event("turn.completed", "thread-tool-approval", { state: "completed" }, { turnId: "turn-1" })], {
+      async beforeEvent() {
+        await ready
+        await toolCall
+      },
       async onSendTurn(mcp) {
         const client = new McpClient({ name: "provider-test", version: "1" })
         const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
           requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
         })
         await client.connect(transport)
-        await client.callTool({ arguments: { recipient: "team@example.com" }, name: "email_send" })
-        await client.close()
+        toolCall = client.callTool({ arguments: { recipient: "team@example.com" }, name: "email_send" }).finally(() => client.close())
+        toolCallReady()
       },
     })
     const tools = applyAgentToolPolicies({
@@ -447,13 +454,19 @@ describe("Provider Agent Driver", () => {
       },
     })!
 
-    const events = await collect(createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-approval", { tools }) as never)) as Array<Record<string, unknown>>
-
-    expect(events).toContainEqual(expect.objectContaining({
+    const output = createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-approval", { tools }) as never) as AsyncIterable<unknown>
+    const stream = output[Symbol.asyncIterator]()
+    const approval = await stream.next()
+    expect(approval.value).toEqual(expect.objectContaining({
       input: { recipient: "team@example.com" },
       name: "email_send",
       type: "approval-request",
     }))
+    await expect(sendAgentInvocationInput("run-thread-tool-approval", {
+      messages: [{ id: "approval", parts: [{ approved: true, id: (approval.value as { id: string }).id, type: "approval-decision" }], role: "user" }],
+    }, { mode: "respond" })).resolves.toBe("accepted")
+    await expect(toolCall).resolves.toMatchObject({ content: [{ text: "sent", type: "text" }] })
+    await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
   })
 
   it("force-closes an aborted Workspace process tree before settling execution", async () => {
@@ -827,6 +840,27 @@ describe("Provider Agent Driver", () => {
     expect(provider.startSession).toHaveBeenCalledOnce()
     expect(provider.sendTurn).not.toHaveBeenCalled()
     expect(provider.close).not.toHaveBeenCalled()
+  })
+
+  it("retains the Workspace root until late runtime creation is closed", async () => {
+    const threadId = "thread-late-runtime"
+    const lateRuntime = runtime(threadId, [])
+    providerRuntimes.pop()
+    let resolveRuntime!: (value: typeof lateRuntime) => void
+    createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => resolveRuntime = resolve) as never)
+    const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      input: { prompt: "hello", timeout: 20 },
+    }) as never)
+
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    const runtimeCall = createProviderRuntime.mock.lastCall
+    expect(runtimeCall).toBeDefined()
+    const root = (runtimeCall![0] as { cwd: string }).cwd
+    await expect(access(root)).resolves.toBeUndefined()
+    resolveRuntime(lateRuntime)
+    await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
   })
 
   it("retains thread ownership until late Workspace preparation closes", async () => {

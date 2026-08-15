@@ -18,6 +18,7 @@ import { agentInvocationControlId, registerAgentInvocationInputHandler } from ".
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
+import { agentToolPolicyExecuteSymbol } from "./tool-runtime.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -189,7 +190,12 @@ function toolResult(value: unknown) {
   return { content: [{ text, type: "text" as const }] }
 }
 
-async function startToolServer(tools: AgentToolSet, abortSignal: AbortSignal | undefined, emit: (event: StreamEvent) => void) {
+async function startToolServer(
+  tools: AgentToolSet,
+  abortSignal: AbortSignal | undefined,
+  emit: (event: StreamEvent) => void,
+  approvals: Map<string, (approved: boolean) => void>,
+) {
   const [{ Server: McpServer }, { StreamableHTTPServerTransport }, { CallToolRequestSchema, ListToolsRequestSchema }] = await Promise.all([
     import("@modelcontextprotocol/sdk/server/index.js"),
     import("@modelcontextprotocol/sdk/server/streamableHttp.js"),
@@ -224,6 +230,14 @@ async function startToolServer(tools: AgentToolSet, abortSignal: AbortSignal | u
           reason: typeof approvalRequest.reason === "string" ? approvalRequest.reason : undefined,
           type: "approval-request",
         })
+        const approved = await new Promise<boolean>((resolve) => {
+          approvals.set(approvalRequest.id as string, resolve)
+          abortSignal?.addEventListener("abort", () => resolve(false), { once: true })
+        }).finally(() => approvals.delete(approvalRequest.id as string))
+        if (approved) {
+          const execute = (tool as AgentToolDefinition & { [agentToolPolicyExecuteSymbol]?: AgentToolDefinition["execute"] })[agentToolPolicyExecuteSymbol]
+          if (execute) return toolResult(await execute(approvalRequest.input, { abortSignal: AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])]) }))
+        }
       }
       return { content: [{ text: error instanceof Error ? error.message : String(error), type: "text" }], isError: true }
     }
@@ -504,12 +518,14 @@ function approvalDecision(approved: boolean): ProviderApprovalDecision {
   return approved ? "accept" : "decline"
 }
 
-async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, messages: Message[]): Promise<boolean> {
+async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, messages: Message[], approvals: Map<string, (approved: boolean) => void>): Promise<boolean> {
   let responded = false
   for (const part of latestUserMessages(messages).flatMap(message => message.parts)) {
     if (part.type === "approval-decision") {
       responded = true
-      await runtime.respondToRequest(threadId, part.id as never, approvalDecision(part.approved))
+      const resolveApproval = approvals.get(part.id)
+      if (resolveApproval) resolveApproval(part.approved)
+      else await runtime.respondToRequest(threadId, part.id as never, approvalDecision(part.approved))
     }
     if (part.type === "data-agent-input" && part.data && typeof part.data === "object") {
       const data = part.data as { answers?: unknown, requestId?: unknown }
@@ -665,6 +681,7 @@ async function* runProvider(
   let runtime: ProviderRuntime | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
+  const capabilityApprovals = new Map<string, (approved: boolean) => void>()
   let notifyToolEvent: (() => void) | undefined
   const emitToolEvent = (event: StreamEvent) => {
     pendingToolEvents.push(event)
@@ -785,11 +802,21 @@ async function* runProvider(
     runtime = await waitForProviderOperation(
       createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider }),
       effectiveSignal,
-      async lateRuntime => await lateRuntime.close(),
-      observeLateCleanup,
+      async lateRuntime => {
+        try {
+          await lateRuntime.close()
+        }
+        finally {
+          releaseDeferredRuntimeStopped?.()
+          await workspaceCleanup
+          await rm(root, { force: true, recursive: true })
+        }
+      },
+      deferRuntimeCleanup,
+      () => releaseDeferredRuntimeStopped?.(),
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent)
+    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
@@ -814,6 +841,23 @@ async function* runProvider(
     const prompt = providerPrompt(context.messages, resumed, context.prompt) || (attachments?.length ? "Inspect the attached image." : undefined)
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment.")
     effectiveSignal?.throwIfAborted()
+    const activeRuntime = runtime
+    const invocationId = agentInvocationControlId(context.runtime)
+    if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
+      unregister = registerAgentInvocationInputHandler(invocationId, {
+        async sendInput(input, inputOptions) {
+          if (inputOptions.mode !== "respond") return "unsupported"
+          try {
+            const messages = input.messages || (typeof input.message === "object" ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
+            return await respondToInput(activeRuntime, threadId, messages, capabilityApprovals) ? "accepted" : "unsupported"
+          }
+          catch {
+            return "unavailable"
+          }
+        },
+        support: { respond: true },
+      })
+    }
     const turn = await waitForProviderOperation(
       runtime.sendTurn({ attachments, input: prompt, threadId }),
       effectiveSignal,
@@ -822,7 +866,6 @@ async function* runProvider(
       () => finalizeDeferredRuntime(threadId),
     )
     if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
-    const activeRuntime = runtime
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
       rejectAbort = reject
@@ -833,22 +876,6 @@ async function* runProvider(
     }
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
-    const invocationId = agentInvocationControlId(context.runtime)
-    if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
-      unregister = registerAgentInvocationInputHandler(invocationId, {
-        async sendInput(input, inputOptions) {
-          if (inputOptions.mode !== "respond") return "unsupported"
-          try {
-            const messages = input.messages || (typeof input.message === "object" ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
-            return await respondToInput(activeRuntime, threadId, messages) ? "accepted" : "unsupported"
-          }
-          catch {
-            return "unavailable"
-          }
-        },
-        support: { respond: true },
-      })
-    }
     for (;;) {
       if (pendingToolEvents.length) {
         yield pendingToolEvents.shift()!

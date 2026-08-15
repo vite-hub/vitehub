@@ -396,9 +396,9 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
   const transportSessionId = triggerInput?.run?.threadId ?? triggerInput?.run?.runId
   const selectedSessionId = resolveChatSessionId(messages, options.sessions, triggerInput?.session)
-  const providerSessionId = transportSessionId && selectedSessionId
+  const providerSessionId = triggerInput?.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId
     ? `${transportSessionId}:chat-session:${selectedSessionId}`
-    : transportSessionId
+    : transportSessionId)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
   return {
