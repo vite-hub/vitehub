@@ -87,6 +87,21 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
+  it("passes only host process essentials and explicitly selected environment values", async () => {
+    const threadId = "thread-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
+    const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
+
+    await adapter.generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      environment: expect.objectContaining({ PROVIDER_SELECTED: "selected" }),
+    }))
+    expect((createProviderRuntime.mock.lastCall?.[0] as { environment: Record<string, string> }).environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    vi.unstubAllEnvs()
+  })
+
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
     const agent = defineAgent({ driver: "codex", runtime: false })
 
@@ -345,6 +360,7 @@ describe("Provider Agent Driver", () => {
       tools: {},
     }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
 
     await expect(adapter.generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
@@ -353,11 +369,15 @@ describe("Provider Agent Driver", () => {
       workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
     }) as never)).rejects.toBe("cancelled")
 
-    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
-    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ target: expect.any(String) }))
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+    expect(provider.startSession).not.toHaveBeenCalled()
+    expect(provider.sendTurn).not.toHaveBeenCalled()
+    expect(provider.interruptTurn).not.toHaveBeenCalled()
+    expect(workspace.startSession).not.toHaveBeenCalled()
     expect(session.commit).not.toHaveBeenCalled()
-    expect(session.close).toHaveBeenCalledOnce()
-    expect(provider.close).toHaveBeenCalledOnce()
+    expect(session.close).not.toHaveBeenCalled()
+    expect(provider.close).not.toHaveBeenCalled()
+    providerRuntimes.pop()
   })
 
   it("reports a spontaneous provider abort as a failed UI stream", async () => {
@@ -383,6 +403,20 @@ describe("Provider Agent Driver", () => {
     controller.abort("cancelled")
 
     await expect(result).rejects.toBe("cancelled")
+    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
+    expect(provider.close).toHaveBeenCalledOnce()
+  })
+
+  it("times out a provider turn and releases its resources", async () => {
+    const threadId = "thread-timeout"
+    const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const result = adapter.generate(context(threadId, {
+      input: { prompt: "hello", timeout: 250 },
+    }) as never)
+
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
     expect(provider.close).toHaveBeenCalledOnce()
   })

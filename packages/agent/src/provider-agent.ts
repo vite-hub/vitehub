@@ -80,6 +80,33 @@ function cleanEnvironment(env: Record<string, string | undefined> | undefined): 
   return Object.fromEntries(Object.entries({ ...process.env, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
+const providerHostEnvironmentKeys = [
+  "APPDATA",
+  "ComSpec",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LOCALAPPDATA",
+  "LOGNAME",
+  "PATH",
+  "PATHEXT",
+  "SHELL",
+  "SystemRoot",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "USER",
+  "USERPROFILE",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+] as const
+
+function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
+  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => typeof process.env[key] === "string" ? [[key, process.env[key]]] : []))
+  return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+}
+
 const emptyToolInputSchema = { additionalProperties: false, properties: {}, type: "object" } as const
 
 function toolJsonSchema(schema: AgentToolSchema | undefined): Record<string, unknown> {
@@ -497,6 +524,12 @@ async function* runProvider(
   if (context.providerTools?.length) {
     throw new Error("[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools.")
   }
+  const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
+  const effectiveSignal = context.input.abortSignal && timeoutSignal
+    ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
+    : context.input.abortSignal || timeoutSignal
+  context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+  effectiveSignal?.throwIfAborted()
   const root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
@@ -506,6 +539,7 @@ async function* runProvider(
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
   try {
+    effectiveSignal?.throwIfAborted()
     workspaceSession = await prepareWorkspace(context, root)
     if (workspaceSession) {
       setActiveAgentWorkspaceFiles(context.context, {
@@ -522,14 +556,17 @@ async function* runProvider(
     const instructions = await resolveInstructions(options, context)
       || (options.provider === "claude-code" ? await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined) : undefined)
     if (instructions) await writeFile(join(root, options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"), instructions)
+    effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
-    runtime = await createProviderRuntime({ cwd: root, environment: cleanEnvironment(options.env), provider: options.provider })
-    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, context.input.abortSignal)
+    runtime = await createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider })
+    effectiveSignal?.throwIfAborted()
+    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     const sessionKey = context.runtime.run?.threadId || context.runtime.run?.runId
     const threadId = (sessionKey || crypto.randomUUID()) as ThreadId
     const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
+    effectiveSignal?.throwIfAborted()
     const session = await runtime.startSession({
       cwd: root,
       mcp: toolServer?.mcp,
@@ -541,7 +578,9 @@ async function* runProvider(
     if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
     const prompt = providerPrompt(context.messages, resumed, context.prompt)
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt or user message.")
+    effectiveSignal?.throwIfAborted()
     const attachments = await prepareAttachments(runtime, context, threadId)
+    effectiveSignal?.throwIfAborted()
     const turn = await runtime.sendTurn({ attachments, input: prompt, threadId })
     if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
     const activeRuntime = runtime
@@ -551,10 +590,10 @@ async function* runProvider(
     })
     abort = () => {
       void activeRuntime.interruptTurn(threadId, turn.turnId).catch(() => undefined)
-      rejectAbort?.(context.input.abortSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
+      rejectAbort?.(effectiveSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
     }
-    if (context.input.abortSignal?.aborted) abort()
-    else context.input.abortSignal?.addEventListener("abort", abort, { once: true })
+    if (effectiveSignal?.aborted) abort()
+    else effectiveSignal?.addEventListener("abort", abort, { once: true })
     const invocationId = agentInvocationControlId(context.runtime)
     if (invocationId) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
@@ -580,10 +619,10 @@ async function* runProvider(
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)
       if (current.value.turnId === turn.turnId && current.value.type === "turn.aborted") {
-        caught = context.input.abortSignal?.aborted
-          ? context.input.abortSignal.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError")
+        caught = effectiveSignal?.aborted
+          ? effectiveSignal.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError")
           : new Error(`[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}`)
-        if (context.input.abortSignal?.aborted) throw caught
+        if (effectiveSignal?.aborted) throw caught
       }
       if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
       for (const event of normalized) yield event
@@ -598,7 +637,7 @@ async function* runProvider(
   finally {
     unregister?.()
     setActiveAgentWorkspaceFiles(context.context, undefined)
-    if (abort) context.input.abortSignal?.removeEventListener("abort", abort)
+    if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
     for (const result of await Promise.allSettled([runtime?.close(), toolServer?.close()])) {
       if (result.status === "rejected") cleanupErrors.push(result.reason)
