@@ -1,6 +1,6 @@
 import { readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { dirname, relative, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
@@ -35,7 +35,7 @@ export interface EmailVitePluginOptions {
 
 export interface EmailVitePluginAPI {
   getDefinition: () => GeneratedEmailDefinition | undefined
-  prepareTypes: (options: { projectRoot: string, serverDirs?: string[] }) => Promise<void>
+  prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<void>
 }
 
 export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
@@ -211,6 +211,11 @@ function templateName(root: string, file: string): string {
   return relative(root, file).replace(/\\/g, "/").replace(/\.md$/, "")
 }
 
+function isInside(directory: string, file: string): boolean {
+  const path = relative(directory, file)
+  return path === "" || (!path.startsWith("..") && !isAbsolute(path))
+}
+
 function renderEmailTemplateTypes(names: string[]): string {
   return names.map(name => [
     `declare module ${JSON.stringify(`${emailTemplatePrefix}${name}`)} {`,
@@ -221,6 +226,7 @@ function renderEmailTemplateTypes(names: string[]): string {
 }
 
 async function materializeEmailTemplates(templatesRoot: string, outputRoot: string, rootDir: string): Promise<void> {
+  await rm(outputRoot, { force: true, recursive: true })
   for (const file of await listEmailTemplates(templatesRoot)) {
     const target = resolve(outputRoot, templateName(templatesRoot, file))
     const entry = `${target}.entry.mjs`
@@ -250,13 +256,24 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let serverDirs: string[] | undefined
   let templatesRoot = resolve(process.cwd(), "server", "emails")
   let materializedRoot = resolve(process.cwd(), ".vitehub", "email", "templates")
+  let projectRoot = process.cwd()
+  let materialized = false
 
-  const prepareTypes = async (options: { projectRoot: string, serverDirs?: string[] }) => {
-    templatesRoot = resolve(options.serverDirs?.[0] ?? resolve(options.projectRoot, "server"), "emails")
+  const prepareTypes = async (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => {
+    const nextTemplatesRoot = resolve(options.serverDirs?.[0] ?? resolve(options.projectRoot, "server"), "emails")
+    if (nextTemplatesRoot !== templatesRoot || options.projectRoot !== projectRoot) materialized = false
+    projectRoot = options.projectRoot
+    templatesRoot = nextTemplatesRoot
     materializedRoot = resolve(options.projectRoot, ".vitehub", "email", "templates")
     const names = (await listEmailTemplates(templatesRoot)).map(file => templateName(templatesRoot, file))
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
-    await materializeEmailTemplates(templatesRoot, materializedRoot, options.projectRoot)
+    if (options.materialize) {
+      await materializeEmailTemplates(templatesRoot, materializedRoot, options.projectRoot)
+      materialized = true
+    }
+  }
+  const prepareTypesOnce = async () => {
+    await prepareTypes({ materialize: vercel && !materialized, projectRoot, serverDirs })
   }
 
   return {
@@ -271,8 +288,11 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const hosting = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>))
       cloudflare = hosting === "cloudflare"
       vercel = hosting === "vercel"
-      const projectRoot = resolveViteHubProjectRoot(config.root ?? process.cwd())
-      templatesRoot = resolve(serverDirs?.[0] ?? resolve(projectRoot, "server"), "emails")
+      const nextProjectRoot = resolveViteHubProjectRoot(config.root ?? process.cwd())
+      const nextTemplatesRoot = resolve(serverDirs?.[0] ?? resolve(nextProjectRoot, "server"), "emails")
+      if (nextProjectRoot !== projectRoot || nextTemplatesRoot !== templatesRoot) materialized = false
+      projectRoot = nextProjectRoot
+      templatesRoot = nextTemplatesRoot
       materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       return {
@@ -281,9 +301,12 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       }
     },
     async configResolved(config) {
-      const projectRoot = resolveViteHubProjectRoot(config.root)
-      templatesRoot = resolve(serverDirs?.[0] ?? resolve(projectRoot, "server"), "emails")
-      await prepareTypes({ projectRoot, serverDirs })
+      const nextProjectRoot = resolveViteHubProjectRoot(config.root)
+      const nextTemplatesRoot = resolve(serverDirs?.[0] ?? resolve(nextProjectRoot, "server"), "emails")
+      if (nextProjectRoot !== projectRoot || nextTemplatesRoot !== templatesRoot) materialized = false
+      projectRoot = nextProjectRoot
+      templatesRoot = nextTemplatesRoot
+      await prepareTypesOnce()
       definition = {
         ...configured,
         handler: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs"),
@@ -302,6 +325,21 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       finally {
         await rm(entry, { force: true })
       }
+    },
+    async buildStart() {
+      await prepareTypesOnce()
+      for (const file of await listEmailTemplates(templatesRoot)) this.addWatchFile(file)
+    },
+    configureServer(server) {
+      server.watcher.add(templatesRoot)
+      const refreshForFile = async (file: string) => {
+        if (!isInside(templatesRoot, file)) return
+        await prepareTypes({ materialize: vercel, projectRoot, serverDirs })
+        server.ws.send({ type: "full-reload" })
+      }
+      server.watcher.on("add", file => void refreshForFile(file).catch(error => server.config.logger.error(String(error))))
+      server.watcher.on("change", file => void refreshForFile(file).catch(error => server.config.logger.error(String(error))))
+      server.watcher.on("unlink", file => void refreshForFile(file).catch(error => server.config.logger.error(String(error))))
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return

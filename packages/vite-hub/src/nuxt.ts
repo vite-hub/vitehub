@@ -332,9 +332,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     for (const plugin of replayPlugins) deploymentOutputEnvPluginHandler(plugin)?.(replayEnvPlugin)
   }
   const emailPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
-    api?: { prepareTypes?: (options: { projectRoot: string, serverDirs?: string[] }) => Promise<void> }
+    api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<void> }
   } | undefined
   await emailPlugin?.api?.prepareTypes?.({
+    materialize: options.preset === "vercel",
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   })
@@ -386,6 +387,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const generatedAliases = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
+    ...(options.preset === "vercel" && options.email
+      ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
+      : {}),
     "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
   }
   nuxt.hook?.("nitro:config", async (config) => {

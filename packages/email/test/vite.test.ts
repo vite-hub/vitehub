@@ -137,8 +137,16 @@ describe("hubEmail", () => {
       "}",
       "",
     ].join("\n"))
+    await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+    await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
       .toContain("Hello {{name}}")
+    await rm(template)
+    await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
+    await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+    expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe("")
     expect(() => (plugin.resolveId as (id: string) => string)("#vitehub/emails/../secret"))
       .toThrow("Invalid Email template")
   })

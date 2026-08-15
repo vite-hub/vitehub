@@ -438,6 +438,19 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+
+    await viteHubNuxtModule({ email: true, preset: "vercel" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+    expect(((nuxt.options as typeof nuxt.options & { nitro: { alias: Record<string, string> } }).nitro).alias["#vitehub/emails"]).toBe(emailTemplates)
+    expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
+  })
+
   it("includes generated types from a configured Env project root", async () => {
     const { nuxt } = createNuxt()
 
