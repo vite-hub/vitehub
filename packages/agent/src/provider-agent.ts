@@ -297,10 +297,18 @@ function localWorkspaceHost(): WorkspaceSessionHost {
         })
         let stdout = ""
         let stderr = ""
+        let executionError: unknown
         child.stdout.setEncoding("utf8").on("data", chunk => stdout += chunk)
         child.stderr.setEncoding("utf8").on("data", chunk => stderr += chunk)
-        child.once("error", reject)
-        child.once("close", code => resolve({ code: code ?? 1, stderr, stdout }))
+        // An aborted child emits `error` when termination is requested and
+        // `close` only after its stdio and process have actually closed. Keep
+        // the original failure, but do not let Workspace cleanup race the
+        // still-live child.
+        child.once("error", error => executionError = error)
+        child.once("close", (code) => {
+          if (executionError) reject(executionError)
+          else resolve({ code: code ?? 1, stderr, stdout })
+        })
       })
     },
   }

@@ -367,6 +367,44 @@ describe("Provider Agent Driver", () => {
     expect(execute).toHaveBeenCalledWith({ query: "vitehub" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
   })
 
+  it("waits for an aborted Workspace child to close before settling execution", async () => {
+    const threadId = "thread-workspace-child-close"
+    let host: { exec: (command: string, args: string[], options: { signal: AbortSignal }) => Promise<unknown> } | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        const controller = new AbortController()
+        const startedAt = performance.now()
+        const execution = host!.exec(process.execPath, ["-e", "process.on('SIGTERM',()=>setTimeout(()=>process.exit(0),200));setInterval(()=>{},1000)"], { signal: controller.signal })
+        setTimeout(() => controller.abort(), 50)
+        await expect(execution).rejects.toMatchObject({ name: "AbortError" })
+        expect(performance.now() - startedAt).toBeGreaterThanOrEqual(200)
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { host: typeof host }) => {
+        host = options.host
+        return session
+      }),
+      tools: {},
+    }
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("writes successful workspace sessions back before cleanup", async () => {
     const threadId = "thread-workspace"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
