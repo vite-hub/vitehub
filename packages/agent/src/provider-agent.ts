@@ -363,13 +363,14 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
         // the original failure, but do not let Workspace cleanup race the
         // still-live child.
         child.once("error", error => executionError = error)
+        child.once("exit", terminate)
         child.once("close", (code) => {
           terminate()
           void termination!.then(() => {
-          signal?.removeEventListener("abort", terminate)
-          if (forceKill && !signal?.aborted) clearTimeout(forceKill)
-          if (executionError) reject(executionError)
-          else resolve({ code: code ?? 1, stderr, stdout })
+            signal?.removeEventListener("abort", terminate)
+            if (forceKill && !signal?.aborted) clearTimeout(forceKill)
+            if (executionError) reject(executionError)
+            else resolve({ code: code ?? 1, stderr, stdout })
           })
         })
       })
@@ -700,9 +701,8 @@ async function* runProvider(
     notifyToolEvent?.()
     notifyToolEvent = undefined
   }
-  const nextToolEvent = async () => {
+  const waitForToolEvent = async () => {
     if (!pendingToolEvents.length) await new Promise<void>(resolve => notifyToolEvent = resolve)
-    return pendingToolEvents.shift()!
   }
   let caught: unknown
   let completed = false
@@ -898,11 +898,11 @@ async function* runProvider(
       }
       const raced = await Promise.race([
         nextEvent.then(result => ({ provider: result })),
-        nextToolEvent().then(event => ({ tool: event })),
+        waitForToolEvent().then(() => ({ tool: true as const })),
         aborted,
       ])
       if ("tool" in raced) {
-        yield raced.tool
+        yield pendingToolEvents.shift()!
         continue
       }
       const current = raced.provider
@@ -919,6 +919,7 @@ async function* runProvider(
         if (effectiveSignal?.aborted) throw caught
       }
       if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
+      while (pendingToolEvents.length) yield pendingToolEvents.shift()!
       for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break

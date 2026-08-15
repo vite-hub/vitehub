@@ -429,13 +429,8 @@ describe("Provider Agent Driver", () => {
 
   it("publishes Capability approval requests raised through MCP", async () => {
     let toolCall!: Promise<unknown>
-    let toolCallReady!: () => void
-    const ready = new Promise<void>(resolve => toolCallReady = resolve)
+    const policy = vi.fn(() => "require-approval" as const)
     runtime("thread-tool-approval", [event("turn.completed", "thread-tool-approval", { state: "completed" }, { turnId: "turn-1" })], {
-      async beforeEvent() {
-        await ready
-        await toolCall
-      },
       async onSendTurn(mcp) {
         const client = new McpClient({ name: "provider-test", version: "1" })
         const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
@@ -443,7 +438,8 @@ describe("Provider Agent Driver", () => {
         })
         await client.connect(transport)
         toolCall = client.callTool({ arguments: { recipient: "team@example.com" }, name: "email_send" }).finally(() => client.close())
-        toolCallReady()
+        await vi.waitFor(() => expect(policy).toHaveBeenCalledOnce())
+        await Promise.resolve()
       },
     })
     const reportToolStep = vi.fn(async () => undefined)
@@ -451,7 +447,7 @@ describe("Provider Agent Driver", () => {
       email_send: {
         execute: vi.fn(async () => undefined),
         name: "email_send",
-        policy: "require-approval" as const,
+        policy,
       },
     })!), reportToolStep)
 
@@ -513,7 +509,7 @@ describe("Provider Agent Driver", () => {
   it("reaps Workspace process groups after successful commands", async () => {
     const heartbeatFile = `/tmp/vitehub-provider-success-descendant-${crypto.randomUUID()}`
     const descendant = `const fs=require('node:fs');const file=${JSON.stringify(heartbeatFile)};process.on('SIGTERM',()=>{});setInterval(()=>fs.writeFileSync(file,String(Date.now())),20)`
-    const command = `const{spawn}=require('node:child_process');const{existsSync}=require('node:fs');spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'}).unref();const wait=()=>existsSync(${JSON.stringify(heartbeatFile)})?process.exit(0):setTimeout(wait,5);wait()`
+    const command = `const{spawn}=require('node:child_process');const{existsSync}=require('node:fs');spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','inherit','inherit']}).unref();const wait=()=>existsSync(${JSON.stringify(heartbeatFile)})?process.exit(0):setTimeout(wait,5);wait()`
 
     await expect(localWorkspaceHost().exec(process.execPath, ["-e", command])).resolves.toMatchObject({ code: 0 })
     const stoppedAt = await readFile(heartbeatFile, "utf8")
