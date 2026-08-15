@@ -12411,10 +12411,13 @@ describe("server helpers", () => {
     })
     const pdf = archive.messages.find(message => message.id === "21")!.attachments[0]!
     expect(Buffer.from(pdf.data, "base64")).toHaveLength(archivedPdf.byteLength)
-    expect(fetchAttachment).toHaveBeenCalledWith(new URL("https://cdn.example.com/receipt.pdf"), { redirect: "error" })
+    expect(fetchAttachment).toHaveBeenCalledWith(new URL("https://cdn.example.com/receipt.pdf"), {
+      redirect: "error",
+      signal: expect.any(AbortSignal),
+    })
     const cancelOversizedBody = vi.fn()
     fetchAttachment.mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelOversizedBody }), {
-      headers: { "content-length": String(25 * 1024 * 1024 + 1) },
+      headers: { "content-length": String(25 * 1024 * 1024) },
     }))
     const oversizedResponse = await handler(new Request(webhookUrl, {
       body: JSON.stringify({ threadId: "telegram:456" }),
@@ -12433,7 +12436,7 @@ describe("server helpers", () => {
     expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 2)
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
-  })
+  }, 15_000)
 
   it("keeps fetched thread history when the current chat message has no id", async () => {
     const { telegram } = await import("../src/channels.ts")

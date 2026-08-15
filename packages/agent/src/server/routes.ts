@@ -3815,17 +3815,20 @@ function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   return bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
 }
 
-async function fetchChannelHistoryAttachmentBytes(url: string): Promise<Uint8Array | undefined> {
+async function fetchChannelHistoryAttachmentBytes(url: string, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | undefined> {
   const parsed = new URL(url)
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) return
-  const response = await fetch(parsed, { redirect: "error" })
+  const response = await fetch(parsed, {
+    redirect: "error",
+    signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+  })
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined)
     return
   }
   const contentLengthHeader = response.headers.get("content-length")
   const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
-  if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength > channelHistoryAttachmentMaxBytes) {
+  if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength > maxBytes) {
     await response.body?.cancel().catch(() => undefined)
     return
   }
@@ -3838,7 +3841,7 @@ async function fetchChannelHistoryAttachmentBytes(url: string): Promise<Uint8Arr
     if (done) break
     const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
     byteLength += chunk.byteLength
-    if (byteLength > channelHistoryAttachmentMaxBytes) {
+    if (byteLength > maxBytes) {
       await reader.cancel().catch(() => undefined)
       return
     }
@@ -3853,12 +3856,18 @@ async function fetchChannelHistoryAttachmentBytes(url: string): Promise<Uint8Arr
   return bytes
 }
 
-async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter): Promise<Record<string, unknown>> {
+async function channelHistoryAttachment(
+  attachment: Attachment,
+  adapter: Adapter,
+  budget: { remaining: number },
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
   const rehydrate = (adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }).rehydrateAttachment
   const resolved = rehydrate && !attachment.fetchData ? rehydrate.call(adapter, attachment) : attachment
-  let data: unknown = typeof resolved.size === "number" && resolved.size > channelHistoryAttachmentMaxBytes ? undefined : resolved.data
-  if (data instanceof Blob) data = data.size <= channelHistoryAttachmentMaxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
-  if (!data && resolved.fetchData && !(typeof resolved.size === "number" && resolved.size > channelHistoryAttachmentMaxBytes)) {
+  const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
+  let data: unknown = typeof resolved.size === "number" && resolved.size > maxBytes ? undefined : resolved.data
+  if (data instanceof Blob) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  if (!data && resolved.fetchData && !(typeof resolved.size === "number" && resolved.size > maxBytes)) {
     try {
       data = await resolved.fetchData()
     }
@@ -3866,14 +3875,15 @@ async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter
   }
   if (!data && resolved.url) {
     try {
-      data = await fetchChannelHistoryAttachmentBytes(resolved.url)
+      data = await fetchChannelHistoryAttachmentBytes(resolved.url, maxBytes, signal)
     }
     catch {}
   }
   const bytes = typeof data === "string"
     ? attachmentStringBytes(data, resolved.mimeType || "application/octet-stream")
     : channelHistoryAttachmentBytes(data)
-  const boundedBytes = bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
+  const boundedBytes = bytes && bytes.byteLength <= maxBytes ? bytes : undefined
+  if (boundedBytes) budget.remaining -= boundedBytes.byteLength
   return objectWithoutUndefined({
     data: boundedBytes ? historyBytesToBase64(boundedBytes) : undefined,
     fetchMetadata: resolved.fetchMetadata,
@@ -3888,9 +3898,18 @@ async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter
   })
 }
 
-async function channelHistoryMessage(message: ChatSdkMessage, adapter: Adapter): Promise<Record<string, unknown>> {
+async function channelHistoryMessage(
+  message: ChatSdkMessage,
+  adapter: Adapter,
+  budget: { remaining: number },
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const attachments: Record<string, unknown>[] = []
+  for (const attachment of message.attachments) {
+    attachments.push(await channelHistoryAttachment(attachment, adapter, budget, signal))
+  }
   return objectWithoutUndefined({
-    attachments: await Promise.all(message.attachments.map(attachment => channelHistoryAttachment(attachment, adapter))),
+    attachments,
     author: message.author,
     formatted: message.formatted,
     id: message.id,
@@ -3901,7 +3920,7 @@ async function channelHistoryMessage(message: ChatSdkMessage, adapter: Adapter):
       edited: message.metadata.edited,
       editedAt: isoDate(message.metadata.editedAt),
     }),
-    replyTo: message.replyTo ? await channelHistoryMessage(message.replyTo, adapter) : undefined,
+    replyTo: message.replyTo ? await channelHistoryMessage(message.replyTo, adapter, budget, signal) : undefined,
     text: message.text,
     threadId: message.threadId,
   })
@@ -3928,9 +3947,10 @@ async function createChannelHistoryResponse(
   await state.state.connect()
   const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options, undefined, state)
   const messages: Record<string, unknown>[] = []
+  const attachmentBudget = { remaining: channelHistoryAttachmentMaxBytes }
   try {
     for await (const message of chat.thread(body.threadId.trim()).allMessages) {
-      messages.push(await channelHistoryMessage(message, adapter))
+      messages.push(await channelHistoryMessage(message, adapter, attachmentBudget, request.signal))
     }
   }
   catch (error) {
