@@ -11,7 +11,7 @@ import type { ViteDevServer } from "vite"
 import type { DiscoveredAgentDefinition } from "../src/index.ts"
 
 function settings(agent: unknown) {
-  return (agent as { __vitehubAgentSettings?: { driver?: { instructions?: unknown } } }).__vitehubAgentSettings
+  return (agent as { __vitehubAgentSettings?: { driver?: { execution?: unknown, instructions?: unknown } } }).__vitehubAgentSettings
 }
 
 describe("colocated Agent instructions", () => {
@@ -35,11 +35,12 @@ describe("colocated Agent instructions", () => {
   })
 
   it("adds instructions to provider Agents without a Workspace", () => {
-    const agent = defineAgent({ driver: "codex", runtime: false })
+    const agent = defineAgent({ driver: { execution: { attachments: { maxBytes: 1024 } }, kind: "codex" }, runtime: false })
     const resolved = agentWithColocatedInstructions(agent, "Review the local invocation.")
 
     expect(resolved).not.toBe(agent)
     expect(settings(resolved)?.driver?.instructions).toBe("Review the local invocation.")
+    expect(settings(resolved)?.driver?.execution).toEqual({ attachments: { maxBytes: 1024 } })
   })
 
   it("preserves properties and descriptors added to an Agent Definition", () => {

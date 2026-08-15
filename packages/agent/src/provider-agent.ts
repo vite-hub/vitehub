@@ -411,36 +411,13 @@ function attachmentId(threadId: string): string {
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
 
-async function boundedResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
-  if (!response.ok) throw new Error(`[vitehub] Provider attachment download failed with HTTP ${response.status}.`)
-  const length = Number(response.headers.get("content-length"))
-  if (Number.isFinite(length) && length > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
-  if (!response.body) return new Uint8Array()
-  const chunks: Uint8Array[] = []
-  let size = 0
-  for await (const chunk of response.body) {
-    size += chunk.byteLength
-    if (size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
-    chunks.push(chunk)
-  }
-  const bytes = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
-
-async function attachmentBytes(part: AttachmentPart, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array> {
+async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
   if (typeof part.size === "number" && part.size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
   const data = await resolveAttachmentData(part)
   if (data === undefined && part.url) {
-    const url = new URL(part.url)
-    if (url.protocol !== "https:") throw new TypeError("[vitehub] Provider attachment URLs must use HTTPS.")
-    return await boundedResponseBytes(await fetch(url, { redirect: "error", signal }), maxBytes)
+    throw new TypeError("[vitehub] Provider attachment URLs require application-owned fetchData() resolution.")
   }
-  if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data, fetchData(), or an HTTPS url.`)
+  if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data or fetchData().`)
   const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
   if (declaredSize !== undefined && declaredSize > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
   if (typeof data === "string" && data.length > maxBytes * 2) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
@@ -461,7 +438,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     if (part.type !== "image") throw new TypeError("[vitehub] Provider Agent Drivers currently support image attachments only.")
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
-    const bytes = await attachmentBytes(part, remaining, context.input.abortSignal)
+    const bytes = await attachmentBytes(part, remaining)
     remaining -= bytes.byteLength
     await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
     attachments.push({
@@ -642,9 +619,11 @@ async function* runProvider(
   let originalGeneratedInstructions: Uint8Array | undefined
   let generatedInstructionFileExisted = false
   let runtimeCleanupDeferred = false
+  let deferredRuntimeCleanup: Promise<void> | undefined
   const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
+    deferredRuntimeCleanup = cleanup
     observeLateCleanup(cleanup)
   }
   const finalizeDeferredRuntime = async (sessionThreadId?: ThreadId, turnId?: TurnId) => {
@@ -676,8 +655,11 @@ async function* runProvider(
         },
       })
     }
-    const instructions = await resolveInstructions(options, context)
-      || (options.provider === "claude-code" ? await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined) : undefined)
+    let instructions = await resolveInstructions(options, context)
+    if (!instructions && options.provider === "claude-code") {
+      const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
+      if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+    }
     if (instructions) {
       generatedInstructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       originalGeneratedInstructions = await readFile(join(root, generatedInstructionFile)).catch(() => undefined)
@@ -708,10 +690,9 @@ async function* runProvider(
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
-    const prompt = providerPrompt(context.messages, resumed, context.prompt)
-    if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt or user message.")
-    effectiveSignal?.throwIfAborted()
     const attachments = await waitForProviderOperation(prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes), effectiveSignal)
+    const prompt = providerPrompt(context.messages, resumed, context.prompt) || (attachments?.length ? "Inspect the attached image." : undefined)
+    if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment.")
     effectiveSignal?.throwIfAborted()
     const turn = await waitForProviderOperation(
       runtime.sendTurn({ attachments, input: prompt, threadId }),
@@ -804,7 +785,8 @@ async function* runProvider(
         cleanupErrors.push(error)
       }
     }
-    releaseSessionLock?.()
+    if (deferredRuntimeCleanup) void deferredRuntimeCleanup.then(releaseSessionLock, releaseSessionLock)
+    else releaseSessionLock?.()
     if (cleanupErrors.length) {
       throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
     }

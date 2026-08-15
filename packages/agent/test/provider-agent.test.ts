@@ -221,40 +221,46 @@ describe("Provider Agent Driver", () => {
     expect(fetchData).not.toHaveBeenCalled()
   })
 
-  it("materializes HTTPS-only image attachments for the provider", async () => {
+  it("materializes application-resolved image attachments for the provider", async () => {
     const threadId = "thread-attachment-url"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-length": "3" } }))
-    vi.stubGlobal("fetch", fetchMock)
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
     await adapter.generate(context(threadId, {
-      messages: [{ parts: [{ text: "inspect", type: "text" }, { mediaType: "image/png", type: "image", url: "https://assets.example/image.png" }], role: "user" }],
+      messages: [{ parts: [{ text: "inspect", type: "text" }, { fetchData, mediaType: "image/png", type: "image", url: "https://assets.example/image.png" }], role: "user" }],
     }) as never)
 
-    expect(fetchMock).toHaveBeenCalledWith(new URL("https://assets.example/image.png"), { redirect: "error", signal: undefined })
+    expect(fetchData).toHaveBeenCalledOnce()
     expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
       attachments: [expect.objectContaining({ mimeType: "image/png", sizeBytes: 3, type: "image" })],
     }))
-    vi.unstubAllGlobals()
     await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
-  it("does not follow provider attachment redirects", async () => {
-    const threadId = "thread-attachment-redirect"
+  it("requires application-owned resolution for provider attachment URLs", async () => {
+    const threadId = "thread-attachment-url"
     runtime(threadId, [])
-    const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => {
-      expect(init?.redirect).toBe("error")
-      throw new TypeError("fetch failed: redirect mode is set to error")
-    })
-    vi.stubGlobal("fetch", fetchMock)
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
     await expect(adapter.generate(context(threadId, {
-      messages: [{ parts: [{ text: "inspect", type: "text" }, { mediaType: "image/png", type: "image", url: "https://assets.example/redirect" }], role: "user" }],
-    }) as never)).rejects.toThrow("redirect mode is set to error")
+      messages: [{ parts: [{ text: "inspect", type: "text" }, { mediaType: "image/png", type: "image", url: "https://assets.example/image.png" }], role: "user" }],
+    }) as never)).rejects.toThrow("application-owned fetchData() resolution")
+  })
 
-    vi.unstubAllGlobals()
+  it("accepts an image-only provider turn", async () => {
+    const threadId = "thread-attachment-only"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await adapter.generate(context(threadId, {
+      input: {},
+      messages: [{ parts: [{ data: new Uint8Array([1]), mediaType: "image/png", type: "image" }], role: "user" }],
+      prompt: undefined,
+    }) as never)
+
+    expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "Inspect the attached image." }))
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
   it("does not replay historical approval and input responses on a resumed turn", async () => {

@@ -1602,6 +1602,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
       : {
           capacity: driver.capacity,
           env: driver.env,
+          execution: driver.execution,
           instructions,
           kind: driver.provider,
           model: driver.model,
