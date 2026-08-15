@@ -9460,7 +9460,7 @@ describe("server helpers", () => {
       await expect(handler(ignoredRequest(92_010), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       await expect(handler(ignoredRequest(92_014), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       const queuedDeliveries = await handler.deliveries(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })
-      expect(queuedDeliveries.find(delivery => delivery.sourceId === "92011")?.status).toBe("queued")
+      expect(queuedDeliveries.find(delivery => delivery.sourceId === "92011")?.status).toBe("accepted")
       expect(queuedDeliveries.find(delivery => delivery.sourceId === "92010")?.status).not.toBe("completed")
       expect(queuedDeliveries.find(delivery => delivery.sourceId === "92014")?.status).toBe("completed")
       await vi.advanceTimersByTimeAsync(31_000)

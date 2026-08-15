@@ -195,7 +195,13 @@ export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<
     if (!indexed.includes(delivery.id)) await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
   }
   const opened = tracker(state, delivery, !created)
-  await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
+  try {
+    await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
+  }
+  catch (error) {
+    detachAgentChannelDelivery(opened)
+    throw error
+  }
   return opened
 }
 

@@ -1275,11 +1275,9 @@ async function executeQueuedWebhookDelivery(
       }))
       return retryAt
     }
-    if (channelDelivery) await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", {
-      attempt: delivery.attempts + 1,
-      error: channelDeliveryError(error),
-      runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
-    })
+    // A failed retry transition means this worker no longer owns the lease.
+    // The worker that reclaimed it owns the eventual terminal evidence.
+    if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   }
   finally {
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
@@ -4436,10 +4434,10 @@ export function createChannelWebhookRouteHandler(
       const webhookDeliveryState = await resolveAgentWebhookState(context, registration, handlerOptions)
       const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
       const workflowCustody = await hasActiveWorkflowRuntime(agent, context)
-      const chatDeliveryState = webhookDeliveryState && !workflowCustody
-        ? undefined
-        : await resolveChatState(chatOptions, context, registration, workflowCustody ? {} : handlerOptions)
-      const deliveryState = (workflowCustody ? undefined : webhookDeliveryState) || (chatDeliveryState
+      const chatDeliveryState = trigger.id === "chat.message" || workflowCustody || !webhookDeliveryState
+        ? await resolveChatState(chatOptions, context, registration, workflowCustody ? {} : handlerOptions)
+        : undefined
+      const deliveryState = (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) || (chatDeliveryState
         ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state }
         : undefined)
       if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
@@ -4531,12 +4529,14 @@ export function createChannelWebhookRouteHandler(
                   }))
                 }
                 else await recordChannelDeliveryEvidence(channelDelivery, { type: outcome.queued ? "queued" : outcome.response.ok ? "completed" : "rejected", runId: invocation.run?.runId })
+                if (outcome.queued) detachAgentChannelDelivery(channelDelivery)
                 return outcome.response
               }
             }
             const queued = await webhookState.state.enqueueWebhookDelivery(delivery)
             await registerQueue(backendId, webhookState.keyPrefix, webhookState.state, handlerOptions)
             await channelDelivery.event({ type: queued ? "queued" : "duplicate", runId: invocation.run?.runId })
+            if (queued) detachAgentChannelDelivery(channelDelivery)
             return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
@@ -4635,6 +4635,7 @@ export function createChannelWebhookRouteHandler(
                 else {
                   durableHandoff = true
                   await recordChannelDeliveryEvidence(channelDelivery, { type: "queued", runId: invocation.run?.runId })
+                  detachAgentChannelDelivery(channelDelivery)
                 }
               }
               finally {
@@ -4695,7 +4696,10 @@ export function createChannelWebhookRouteHandler(
               .then(body => isRecord(body) && body.ignored === true)
               .catch(() => false)
             await recordChannelDeliveryEvidence(channelDelivery, {
-              type: response.ok ? serial && !ignored ? "queued" : "completed" : response.status >= 500 ? "failed" : "rejected",
+              // Chat SDK may evict or expire serial entries without exposing
+              // their identity. Record transport acceptance until a drain
+              // claims this delivery instead of promising durable queue custody.
+              type: response.ok ? serial && !ignored ? "accepted" : "completed" : response.status >= 500 ? "failed" : "rejected",
             })
           }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
