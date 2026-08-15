@@ -11,7 +11,8 @@ describe("frontmatter HTML", () => {
   it.each([
     { sentinel: true, value: null },
     { sentinel: false, value: "" },
-  ])("round-trips delimiter-only value $value", ({ sentinel, value }) => {
+    { sentinel: false, value: "\nname: docs" },
+  ])("round-trips frontmatter value $value", ({ sentinel, value }) => {
     const { document, window } = parseHTML("<!doctype html><html><body></body></html>")
     Object.defineProperty(document, "implementation", {
       value: { createHTMLDocument: () => parseHTML("<!doctype html><html><body></body></html>").document },
@@ -32,7 +33,7 @@ describe("frontmatter HTML", () => {
     const serialized = parseHTML(html).document.querySelector("pre")!
     expect(serialized.hasAttribute("data-frontmatter")).toBe(true)
     expect(serialized.hasAttribute("data-frontmatter-empty")).toBe(sentinel)
-    expect(serialized.textContent).toBe("")
+    expect(serialized.getAttribute("data-frontmatter-value")).toBe(value)
 
     const parsedDocument = parseHTML(`<!doctype html><html><body>${html}</body></html>`).document
     const parsed = DOMParser.fromSchema(source.schema).parse(parsedDocument.body)

@@ -16,7 +16,9 @@ export const Frontmatter = Node.create({
     return [{
       tag: "pre[data-frontmatter]",
       getAttrs: element => ({
-        value: element.hasAttribute("data-frontmatter-empty") ? null : element.textContent || "",
+        value: element.hasAttribute("data-frontmatter-empty")
+          ? null
+          : element.getAttribute("data-frontmatter-value") || "",
       }),
     }]
   },
@@ -25,6 +27,7 @@ export const Frontmatter = Node.create({
     return ["pre", {
       "data-frontmatter": "",
       "data-frontmatter-empty": node.attrs.value === null ? "" : undefined,
+      "data-frontmatter-value": node.attrs.value ?? undefined,
       contenteditable: "false",
     }, node.attrs.value ?? ""]
   },
