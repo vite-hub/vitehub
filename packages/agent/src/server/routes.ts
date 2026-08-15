@@ -3804,12 +3804,55 @@ function historyBytesToBase64(data: Uint8Array): string {
   return btoa(binary)
 }
 
+const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
+
+function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
+  const bytes = value instanceof Blob
+    ? undefined
+    : value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : value instanceof Uint8Array ? value : undefined
+  return bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
+}
+
+async function fetchChannelHistoryAttachmentBytes(url: string): Promise<Uint8Array | undefined> {
+  const parsed = new URL(url)
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) return
+  const response = await fetch(parsed, { redirect: "error" })
+  if (!response.ok) return
+  const contentLengthHeader = response.headers.get("content-length")
+  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
+  if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength > channelHistoryAttachmentMaxBytes) return
+  if (!response.body) return channelHistoryAttachmentBytes(await response.arrayBuffer())
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
+    byteLength += chunk.byteLength
+    if (byteLength > channelHistoryAttachmentMaxBytes) {
+      await reader.cancel().catch(() => undefined)
+      return
+    }
+    chunks.push(chunk)
+  }
+  const bytes = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
 async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter): Promise<Record<string, unknown>> {
   const rehydrate = (adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }).rehydrateAttachment
   const resolved = rehydrate && !attachment.fetchData ? rehydrate.call(adapter, attachment) : attachment
-  let data = resolved.data
-  let fetchedBytes: Uint8Array | undefined
-  if (!data && resolved.fetchData) {
+  let data: unknown = typeof resolved.size === "number" && resolved.size > channelHistoryAttachmentMaxBytes ? undefined : resolved.data
+  if (data instanceof Blob) data = data.size <= channelHistoryAttachmentMaxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  if (!data && resolved.fetchData && !(typeof resolved.size === "number" && resolved.size > channelHistoryAttachmentMaxBytes)) {
     try {
       data = await resolved.fetchData()
     }
@@ -3817,25 +3860,24 @@ async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter
   }
   if (!data && resolved.url) {
     try {
-      fetchedBytes = await fetchTextAttachmentBytes(resolved.url)
+      data = await fetchChannelHistoryAttachmentBytes(resolved.url)
     }
     catch {}
   }
-  const bytes = fetchedBytes ?? (typeof data === "string"
+  const bytes = typeof data === "string"
     ? attachmentStringBytes(data, resolved.mimeType || "application/octet-stream")
-    : data instanceof Blob
-      ? new Uint8Array(await data.arrayBuffer())
-      : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : undefined)
+    : channelHistoryAttachmentBytes(data)
+  const boundedBytes = bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
   return objectWithoutUndefined({
-    data: bytes ? historyBytesToBase64(bytes) : undefined,
+    data: boundedBytes ? historyBytesToBase64(boundedBytes) : undefined,
     fetchMetadata: resolved.fetchMetadata,
     height: resolved.height,
     mimeType: resolved.mimeType,
     name: resolved.name,
     size: resolved.size,
     type: resolved.type,
-    unavailable: !bytes || undefined,
-    url: bytes ? undefined : resolved.url,
+    unavailable: !boundedBytes || undefined,
+    url: boundedBytes ? undefined : resolved.url,
     width: resolved.width,
   })
 }

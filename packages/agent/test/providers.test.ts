@@ -12380,7 +12380,8 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
     await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledTimes(2))
-    const fetchAttachment = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(Uint8Array.from([4, 5, 6])))
+    const archivedPdf = new Uint8Array(8 * 1024 * 1024 + 1).fill(4)
+    const fetchAttachment = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(archivedPdf))
 
     const connectsBeforeHistory = connect.mock.calls.length
     const response = await handler(new Request(webhookUrl, {
@@ -12393,13 +12394,14 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
+    const archive = await response.json()
+    expect(archive).toMatchObject({
       messages: expect.arrayContaining([expect.objectContaining({
         attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" })]),
         id: "20",
         threadId: "telegram:456",
       }), expect.objectContaining({
-        attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([4, 5, 6]).toString("base64"), name: "receipt.pdf", type: "file" })]),
+        attachments: expect.arrayContaining([expect.objectContaining({ data: expect.any(String), name: "receipt.pdf", type: "file" })]),
         id: "21",
         threadId: "telegram:456",
       })]),
@@ -12407,7 +12409,9 @@ describe("server helpers", () => {
       schemaVersion: 1,
       threadId: "telegram:456",
     })
-    expect(fetchAttachment).toHaveBeenCalledWith("https://cdn.example.com/receipt.pdf")
+    const pdf = archive.messages.find((message: { id: string }) => message.id === "21").attachments[0]
+    expect(Buffer.from(pdf.data, "base64")).toHaveLength(archivedPdf.byteLength)
+    expect(fetchAttachment).toHaveBeenCalledWith(new URL("https://cdn.example.com/receipt.pdf"), { redirect: "error" })
     fetchAttachment.mockRestore()
     expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 1)
     await state.disconnect()

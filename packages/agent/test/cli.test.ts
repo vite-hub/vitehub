@@ -986,6 +986,15 @@ describe("agent CLI", () => {
         "})",
         "",
       ].join("\n"), "utf8")
+      await writeFile(join(rootDir, "server", "agents", "undeployed.ts"), [
+        'import { defineAgent } from "@vite-hub/agent"',
+        'import { discord } from "@vite-hub/agent/channels"',
+        "export default defineAgent({",
+        "  channels: { discord: discord() },",
+        "  driver: { run: () => 'ok' },",
+        "})",
+        "",
+      ].join("\n"), "utf8")
 
       const historyFetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
         expect(new Headers(init?.headers).get("x-telegram-bot-api-secret-token")).toBe("stage-webhook-token")
