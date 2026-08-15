@@ -316,7 +316,6 @@ function localWorkspaceHost(): WorkspaceSessionHost {
               killProcessGroup("SIGKILL")
               resolve()
             }, 250)
-            forceKill.unref()
           })
         }
         signal?.addEventListener("abort", terminate, { once: true })

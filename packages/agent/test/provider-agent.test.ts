@@ -374,7 +374,7 @@ describe("Provider Agent Driver", () => {
       async onSendTurn() {
         const controller = new AbortController()
         const startedAt = performance.now()
-        const execution = host!.exec(process.execPath, ["-e", "const{spawn}=require('node:child_process');spawn(process.execPath,['-e',\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\"],{stdio:'inherit'});process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"], { signal: controller.signal })
+        const execution = host!.exec(process.execPath, ["-e", "const{spawn}=require('node:child_process');spawn(process.execPath,['-e',\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\"],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)"], { signal: controller.signal })
         setTimeout(() => controller.abort(), 50)
         await expect(execution).rejects.toMatchObject({ name: "AbortError" })
         expect(performance.now() - startedAt).toBeGreaterThanOrEqual(250)

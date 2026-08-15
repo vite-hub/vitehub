@@ -67,6 +67,8 @@ export default defineAgent({
 
 Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. Provider Workspaces additionally require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
+Provider runtime cursors resume a thread while the Agent Definition process remains active. They are process-local and do not survive restarts or resume on another worker; use the Agent Invocation message history as the durable conversation boundary.
+
 Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
 | Option | Purpose |
