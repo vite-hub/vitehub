@@ -932,13 +932,15 @@ async function runAgentAsWorkflow<
       ? context.run.runId
       : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
-      const invocationJournal = await bindAgentInvocations(agent.invocations, {
-        ...context,
-        run: { ...context.run, runId: failedRunId },
-      }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
-      if (!ambiguous) await invocationJournal?.finish("failed", error)
-      else if (workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId) {
-        await deferRecovery(workflowRunId, failedRunId)
+      const recoveryAccepted = !ambiguous
+        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
+        || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
+      if (recoveryAccepted) {
+        const invocationJournal = await bindAgentInvocations(agent.invocations, {
+          ...context,
+          run: { ...context.run, runId: failedRunId },
+        }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
+        if (!ambiguous) await invocationJournal?.finish("failed", error)
       }
     }
     throw error
