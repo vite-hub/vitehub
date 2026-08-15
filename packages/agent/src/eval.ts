@@ -155,18 +155,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
+function providerVariantModel(model: AgentModelInput): string {
+  const record = isRecord(model) ? model as Record<string, unknown> : undefined
+  const id = typeof model === "string"
+    ? model
+    : typeof record?.modelId === "string"
+      ? record.modelId
+      : typeof record?.id === "string"
+        ? record.id
+        : undefined
+  if (!id?.trim()) throw new TypeError("[vitehub] Provider Agent Evaluation model variants require a model id.")
+  return id
+}
+
 function applyVariantToExplicitDriver(
   driver: unknown,
   variant: AgentEvalVariant,
 ): Record<string, unknown> {
+  if (driver === "codex" || driver === "claude-code") {
+    return {
+      kind: driver,
+      ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
+      ...(variant.model !== undefined ? { model: providerVariantModel(variant.model) } : {}),
+    }
+  }
   if (!isRecord(driver)) {
     throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
   }
-  if ("model" in driver) {
+  if ("model" in driver || driver.kind === "codex" || driver.kind === "claude-code") {
+    const provider = driver.kind === "codex" || driver.kind === "claude-code"
     return {
       ...driver,
       ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
-      ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+      ...(variant.model !== undefined ? { model: provider ? providerVariantModel(variant.model) : variant.model } : {}),
     }
   }
   throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")

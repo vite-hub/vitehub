@@ -24,9 +24,13 @@ function otlpAnyValue(value: unknown): OtlpAnyValue {
   if (typeof value === "boolean") return { boolValue: value }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
-    return Number.isInteger(value) ? { intValue: String(value) } : { doubleValue: value }
+    return Number.isSafeInteger(value) ? { intValue: String(value) } : { doubleValue: value }
   }
-  if (typeof value === "bigint") return { intValue: String(value) }
+  if (typeof value === "bigint") {
+    return value >= -9_223_372_036_854_775_808n && value <= 9_223_372_036_854_775_807n
+      ? { intValue: String(value) }
+      : { stringValue: String(value) }
+  }
   if (typeof value === "string") return { stringValue: value }
   if (Array.isArray(value)) return { arrayValue: { values: value.map(otlpAnyValue) } }
   if (value && typeof value === "object") {

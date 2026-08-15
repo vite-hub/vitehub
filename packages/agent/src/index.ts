@@ -20,6 +20,7 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
@@ -896,14 +897,14 @@ async function runAgentAsWorkflow<
     : undefined
   const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
     if (!hasAgentDefinition(agent)) return false
-    const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
-    const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
-      agent,
-      agentWorkflowRecoveryName(handle.name),
-      Boolean(context.agentIdentity),
-      true,
-    )
     try {
+      const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
+      const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
+        agent,
+        agentWorkflowRecoveryName(handle.name),
+        Boolean(context.agentIdentity),
+        true,
+      )
       await deferAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
@@ -932,13 +933,15 @@ async function runAgentAsWorkflow<
       ? context.run.runId
       : workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
-      const invocationJournal = await bindAgentInvocations(agent.invocations, {
-        ...context,
-        run: { ...context.run, runId: failedRunId },
-      }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
-      if (!ambiguous) await invocationJournal?.finish("failed", error)
-      else if (workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId) {
-        await deferRecovery(workflowRunId, failedRunId)
+      const recoveryAccepted = !ambiguous
+        || !(workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId)
+        || (Boolean(agent.invocations) && await deferRecovery(workflowRunId, failedRunId))
+      if (recoveryAccepted) {
+        const invocationJournal = await bindAgentInvocations(agent.invocations, {
+          ...context,
+          run: { ...context.run, runId: failedRunId },
+        }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
+        if (!ambiguous) await invocationJournal?.finish("failed", error)
       }
     }
     throw error
@@ -2036,26 +2039,29 @@ function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
 ): void {
   const traceLog = runtime.traceLog
   if (!telemetry || !traceLog) return
-  const runs = deriveTraceRuns(traceLog.entries())
-  const id = runtime.run?.runId || runtime.trace?.id
-  const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
-  if (!run || run.status === "running") return
-  const name = runtime.agentIdentity?.name || agent.name
-  const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) => index
-    ? span
-    : {
-        ...span,
-        attributes: {
-          ...span.attributes,
-          "gen_ai.operation.name": "invoke_agent",
-          ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
-          ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
-          "vitehub.runtime.name": runtime.runtime,
-        },
-      })
   const task = Promise.resolve()
-    .then(() => telemetry({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans }))
+    .then(async () => {
+      const runs = deriveTraceRuns(traceLog.entries())
+      const id = runtime.run?.runId || runtime.trace?.id
+      const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
+      if (!run || run.status === "running") return
+      const name = runtime.agentIdentity?.name || agent.name
+      const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) => index
+        ? span
+        : {
+            ...span,
+            attributes: {
+              ...span.attributes,
+              "gen_ai.operation.name": "invoke_agent",
+              ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
+              ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
+              "vitehub.runtime.name": runtime.runtime,
+            },
+          })
+      await telemetry({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans })
+    })
     .catch(() => console.error("[vitehub] Agent telemetry export failed."))
+  Object.defineProperty(task, agentTelemetryTask, { value: true })
   registerAgentBackgroundTask(runtime, task)
 }
 

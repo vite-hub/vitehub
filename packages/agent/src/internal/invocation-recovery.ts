@@ -24,5 +24,8 @@ export function registerAgentInvocationRecovery(context: AgentRuntimeContext, pr
     if (index !== -1) tasks.splice(index, 1)
     if (tasks.length === 0) invocationRecoveryTasksByMemo.delete(context.memo)
   })
-  context.waitUntil(task)
+  try {
+    context.waitUntil(task)
+  }
+  catch {}
 }

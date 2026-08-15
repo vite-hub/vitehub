@@ -517,9 +517,15 @@ describe("Provider Agent Driver", () => {
       name: "email_send",
       type: "approval-request",
     }))
-    await expect(sendAgentInvocationInput("run-thread-tool-approval", {
-      messages: [{ id: "approval", parts: [{ approved: true, id: (approval.value as { id: string }).id, type: "approval-decision" }], role: "user" }],
-    }, { mode: "respond" })).resolves.toBe("accepted")
+    const approvalId = (approval.value as { id: string }).id
+    await expect(Promise.all([
+      sendAgentInvocationInput("run-thread-tool-approval", {
+        messages: [{ id: "approval", parts: [{ approved: true, id: approvalId, type: "approval-decision" }], role: "user" }],
+      }, { mode: "respond" }),
+      sendAgentInvocationInput("run-thread-tool-approval", {
+        messages: [{ id: "duplicate", parts: [{ approved: false, id: approvalId, type: "approval-decision" }], role: "user" }],
+      }, { mode: "respond" }),
+    ])).resolves.toEqual(["accepted", "unsupported"])
     await expect(toolCall).resolves.toMatchObject({ content: [{ text: "null", type: "text" }] })
     expect(reportToolStep).toHaveBeenCalledWith(expect.objectContaining({ toolResults: [expect.objectContaining({ output: null })] }))
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
@@ -530,7 +536,7 @@ describe("Provider Agent Driver", () => {
     const controller = new AbortController()
     const execute = vi.fn(async () => undefined)
     const policy = vi.fn(() => "require-approval" as const)
-    runtime("thread-tool-cancel", [event("turn.completed", "thread-tool-cancel", { state: "completed" }, { turnId: "turn-1" })], {
+    const provider = runtime("thread-tool-cancel", [event("turn.completed", "thread-tool-cancel", { state: "completed" }, { turnId: "turn-1" })], {
       async onSendTurn(mcp) {
         const client = new McpClient({ name: "provider-test", version: "1" })
         const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
@@ -549,11 +555,23 @@ describe("Provider Agent Driver", () => {
     const stream = output[Symbol.asyncIterator]()
     const approval = await stream.next()
 
+    await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
     await expect(sendAgentInvocationInput("run-thread-tool-cancel", {
       messages: [{ id: "approval", parts: [{ approved: true, id: (approval.value as { id: string }).id, type: "approval-decision" }], role: "user" }],
-    }, { mode: "respond" })).resolves.toBe("accepted")
-    await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
+    }, { mode: "respond" })).resolves.not.toBe("accepted")
     expect(execute).not.toHaveBeenCalled()
+    expect(provider.respondToRequest).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["clean", { exitKind: "clean" }],
+    ["recoverable error", { exitKind: "error", reason: "provider restarted", recoverable: true }],
+  ])("fails when the active provider session exits with a %s result", async (_name, payload) => {
+    const threadId = "thread-session-exited"
+    runtime(threadId, [event("session.exited", threadId, payload)])
+
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never))
+      .rejects.toThrow(/session exited before the turn completed/)
   })
 
   it("force-closes an aborted Workspace process tree before settling execution", async () => {

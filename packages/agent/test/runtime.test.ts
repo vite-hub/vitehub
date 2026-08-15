@@ -10438,6 +10438,65 @@ describe("agent message protocol", () => {
           },
         })
         await expect(invocations.getByRunId("accepted/workflow", "ambiguous-cloudflare-agent")).resolves.toMatchObject({ status: "pending" })
+
+        defer.mockRejectedValue(new Error("recovery unavailable"))
+        await expect(runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          name: "ambiguous-cloudflare-agent",
+          runtime: workflow("ambiguous-cloudflare-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { runId: "orphaned/workflow" },
+          runtime: "cloudflare-agents",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+        expect(defer).toHaveBeenCalledTimes(4)
+        await expect(invocations.getByRunId("orphaned/workflow", "ambiguous-cloudflare-agent")).resolves.toBeUndefined()
+
+        await expect(runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          name: "unobserved-cloudflare-agent",
+          runtime: workflow("unobserved-cloudflare-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { runId: "unobserved/workflow" },
+          runtime: "cloudflare-agents",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+        expect(defer).toHaveBeenCalledTimes(4)
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("preserves accepted Workflow starts when recovery setup fails", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const accepted = { id: "accepted-run", provider: "cloudflare" as const, status: "queued" as const }
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          registerInlineWorkflowDefinition: () => { throw new Error("recovery registration failed") },
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        workflow: async () => ({ createWorkflow: () => ({ run: async () => accepted }) }) as never,
+      })
+      try {
+        const result = await runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }),
+          runtime: workflow("accepted-recovery-setup"),
+        }), { memo: vi.fn(), runtime: "cloudflare-agents", waitUntil: vi.fn() }, {})
+
+        expect(result).toBe(accepted)
       }
       finally {
         setAgentWorkflowRuntimeLoaders({
@@ -10967,10 +11026,12 @@ describe("agent message protocol", () => {
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const memory = createMemoryAgentInvocationStore()
       let storeAvailable = false
+      let terminalAttempts = 0
       const invocations = defineAgentInvocations({
         store: {
           ...memory,
           update(id, input, claimId) {
+            if (input.status === "completed") terminalAttempts++
             if (input.status === "completed" && !storeAvailable) throw new Error("store unavailable")
             return memory.update(id, input, claimId)
           },
@@ -11004,7 +11065,9 @@ describe("agent message protocol", () => {
         await vi.waitFor(async () => {
           await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "pending" })
         })
-        await vi.advanceTimersByTimeAsync(60_000)
+        await vi.waitFor(() => expect(terminalAttempts).toBeGreaterThan(0))
+        vi.setSystemTime(Date.now() + 61_000)
+        await vi.advanceTimersByTimeAsync(1_000)
         storeAvailable = true
         await vi.advanceTimersByTimeAsync(2_000)
         await recovery
@@ -11057,6 +11120,33 @@ describe("agent message protocol", () => {
       background.resolve()
     })
 
+    it("retains telemetry work through Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const telemetry = deferred<void>()
+      const telemetryStarted = deferred<void>()
+      let completed = false
+      const agent = defineAgent({
+        telemetry: () => {
+          telemetryStarted.resolve()
+          return telemetry.promise
+        },
+        driver: { run: () => "done" },
+      })
+
+      const result = runAgentWorkflowDefinition(agent, {
+        id: "telemetry-source-run",
+        name: "telemetry-source-run",
+        payload: { run: { runId: "telemetry-source-run" } },
+        provider: "vercel",
+      }, runAgent as never).finally(() => { completed = true })
+
+      await telemetryStarted.promise
+      expect(completed).toBe(false)
+      telemetry.resolve()
+      await expect(result).resolves.toBe("done")
+    })
+
     it("releases settled Workflow recovery tasks", async () => {
       const { agentInvocationRecoveryTasks, registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()
@@ -11069,6 +11159,20 @@ describe("agent message protocol", () => {
       expect(agentInvocationRecoveryTasks(context)).toHaveLength(1)
       recovery.resolve()
       await recovery.promise
+      await vi.waitFor(() => expect(agentInvocationRecoveryTasks(context)).toHaveLength(0))
+    })
+
+    it("keeps recovery best effort when waitUntil registration fails", async () => {
+      const { agentInvocationRecoveryTasks, registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
+      const recovery = deferred<void>()
+      const context = {
+        memo: vi.fn(),
+        waitUntil: () => { throw new Error("waitUntil unavailable") },
+      } as never
+
+      expect(() => registerAgentInvocationRecovery(context, recovery.promise)).not.toThrow()
+      expect(agentInvocationRecoveryTasks(context)).toHaveLength(1)
+      recovery.resolve()
       await vi.waitFor(() => expect(agentInvocationRecoveryTasks(context)).toHaveLength(0))
     })
 
