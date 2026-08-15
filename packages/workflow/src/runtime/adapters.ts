@@ -91,7 +91,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           "cloudflare",
           "create",
           async () => (await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id),
-          { acknowledgementUnknown: () => true },
+          { acknowledgementUnknown: (_error, status) => status === undefined },
         )
         const creation = start().catch(() => start())
         const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined

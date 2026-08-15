@@ -5,7 +5,6 @@ import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
-import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
 import { agentInvocationRunId } from "../invocation-context.ts"
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
@@ -304,10 +303,6 @@ export async function runAgentWorkflowDefinition<
       await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "failed", runId }).catch(() => undefined)
     }
     throw error
-  }
-  finally {
-    const recoveryTasks = agentInvocationRecoveryTasks(runtimeContext)
-    while (recoveryTasks.length) await Promise.all([...recoveryTasks])
   }
 }
 

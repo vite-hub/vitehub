@@ -349,14 +349,14 @@ function createInvocationId(): string {
 function journalTraceLog(
   traceLog: TraceEventLog,
   observe: (entry: TraceEventLogEntry) => Promise<void>,
+  nextSequence: () => number,
 ): TraceEventLog {
-  let sequence = 0
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       const safeEntry = {
         ...await createTraceEventLog().append(entry),
-        sequence: ++sequence,
+        sequence: nextSequence(),
       }
       void observe(safeEntry)
       return entry
@@ -384,6 +384,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let finished = false
       let ownsRecord = false
       let observationCount = 0
+      let observationSequence = 0
       let created = false
       let creationTimedOut = false
       let creationTask: Promise<AgentInvocationStoreCreateResult | undefined> | undefined
@@ -409,6 +410,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
               observationCount = result.record.observations.length
+              observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
               created = true
             }
             else if (creationTask === task) {
@@ -489,7 +491,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence),
         },
         async finish(status, error) {
           if (finished) return

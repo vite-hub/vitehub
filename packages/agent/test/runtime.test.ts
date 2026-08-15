@@ -12191,6 +12191,7 @@ describe("agent message protocol", () => {
       let initialStatus = "running"
       let deferredRecovery: unknown
       let recoveryAttempts = 0
+      let recoveryAvailable = true
       setAgentWorkflowRuntimeLoaders({
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
@@ -12204,14 +12205,14 @@ describe("agent message protocol", () => {
             ? {
                 defer: async (payload: unknown) => {
                   recoveryAttempts++
-                  if (recoveryAttempts < 3) throw new Error("recovery provider unavailable")
+                  if (!recoveryAvailable || recoveryAttempts < 3) throw new Error("recovery provider unavailable")
                   deferredRecovery = payload
                   return { id: "recovery", provider: "openworkflow", status: "queued" }
                 },
               }
             : {
                 name,
-                run: async () => ({ id: `${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }),
+                run: async () => ({ id: `${name}-${initialStatus}-before-worker`, provider: "openworkflow", status: initialStatus }),
               },
         }) as never,
       })
@@ -12233,6 +12234,19 @@ describe("agent message protocol", () => {
         expect(deferredRecovery).toMatchObject({
           invocationRecovery: { runId: run.id, sourceRunId: run.id, workflowName: "non-queued-agent" },
         })
+
+        recoveryAvailable = false
+        const unrecoveredRun = await runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          runtime: workflow("unrecovered-agent"),
+        }), {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string }
+        expect(recoveryAttempts).toBe(6)
+        await expect(invocations.getByRunId(unrecoveredRun.id)).resolves.toBeUndefined()
 
         initialStatus = "failed"
         const terminalRun = await runAgent(defineAgent({
@@ -12363,7 +12377,7 @@ describe("agent message protocol", () => {
       }, async () => result)).resolves.not.toHaveProperty("raw.initialResponseMessages")
     })
 
-    it("owns deferred recovery for Workflow runs with source origins", async () => {
+    it("keeps deferred journal recovery off Workflow completion", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()
@@ -12382,10 +12396,9 @@ describe("agent message protocol", () => {
         return value
       })
 
-      await Promise.resolve()
-      expect(completed).toBe(false)
-      recovery.resolve()
       await expect(result).resolves.toBe("done")
+      expect(completed).toBe(true)
+      recovery.resolve()
     })
 
     it("reconciles pre-worker failures from a durable Workflow run", async () => {
@@ -12442,7 +12455,7 @@ describe("agent message protocol", () => {
       }
     })
 
-    it("owns deferred recovery before rethrowing Workflow failures", async () => {
+    it("keeps deferred journal recovery off Workflow failure propagation", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const { registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()
@@ -12458,10 +12471,9 @@ describe("agent message protocol", () => {
         throw failure
       }).finally(() => { completed = true })
 
-      await Promise.resolve()
-      expect(completed).toBe(false)
-      recovery.resolve()
       await expect(result).rejects.toBe(failure)
+      expect(completed).toBe(true)
+      recovery.resolve()
     })
 
     it("does not make public waitUntil work block Workflow completion", async () => {

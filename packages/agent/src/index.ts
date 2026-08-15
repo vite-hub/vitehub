@@ -914,18 +914,10 @@ async function runAgentAsWorkflow<
   }
   // Vercel's native Workflow owns durable suspension, but arbitrary Agent Definitions cannot
   // be compiled into that deterministic bundle. Its journal begins in the Agent worker instead.
-  const invocationJournal = hasAgentDefinition(agent) && run.provider !== "vercel"
-    ? await bindAgentInvocations(agent.invocations, {
-      ...context,
-      run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
-    }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
-    : undefined
-  if (invocationJournal) {
+  let invocationJournal: AgentInvocationJournal<TRuntimeConfig> | undefined
+  if (hasAgentDefinition(agent) && run.provider !== "vercel") {
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
-    if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
-      await invocationJournal.finish(snapshot.status, snapshot.error)
-    }
-    else {
+    if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
       const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id
       const recoveryId = await portableAgentWorkflowRunId(`${run.id}-invocation-recovery`)
       const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
@@ -934,15 +926,27 @@ async function runAgentAsWorkflow<
         Boolean(context.agentIdentity),
         true,
       )
-      context.waitUntil(deferAgentWorkflowRecovery(recoveryHandle, {
-        invocationRecovery: {
-          ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
-          runId: run.id,
-          sourceRunId,
-          workflowName: handle.name,
-        },
-        ...(context.trace ? { trace: context.trace } : {}),
-      }, run.provider === "vercel" ? {} : { id: recoveryId }))
+      try {
+        await deferAgentWorkflowRecovery(recoveryHandle, {
+          invocationRecovery: {
+            ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
+            runId: run.id,
+            sourceRunId,
+            workflowName: handle.name,
+          },
+          ...(context.trace ? { trace: context.trace } : {}),
+        }, { id: recoveryId })
+      }
+      catch {
+        return { handle, run }
+      }
+    }
+    invocationJournal = await bindAgentInvocations(agent.invocations, {
+      ...context,
+      run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
+    }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
+    if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+      await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
   }
   return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }

@@ -55,6 +55,21 @@ describe("Workflow provider operation errors", () => {
     expect(deterministic.details).toEqual({ operation: "create", provider: "cloudflare" })
   })
 
+  it("passes normalized HTTP status to acknowledgement classification", async () => {
+    let classifiedStatus: number | undefined
+    const error = await runWorkflowProviderOperation("cloudflare", "create", () => {
+      throw Object.assign(new Error("rejected"), { status: 403 })
+    }, {
+      acknowledgementUnknown: (_error, status) => {
+        classifiedStatus = status
+        return status === undefined
+      },
+    }).catch(error => error)
+
+    expect(classifiedStatus).toBe(403)
+    expect(error.details).toEqual({ operation: "create", provider: "cloudflare", status: 403 })
+  })
+
   it("preserves ViteHub and abort errors by exact identity", async () => {
     const custom = new ViteHubError("CUSTOM_WORKFLOW_FAILURE", "Custom failure.")
     const abort = new DOMException("cancelled", "AbortError")
