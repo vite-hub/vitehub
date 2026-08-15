@@ -136,6 +136,7 @@ import type {
   AgentDefinition,
   AgentDriver,
   BuiltInAgentDriver,
+  BuiltInAgentDriverName,
   ClaudeCodeDriverOptions,
   CodexDriverOptions,
   AgentDriverContribution,
@@ -1614,16 +1615,34 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
       : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
     : TCapabilities
 
-export function codexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(
-  options: CodexDriverOptions<TOutput> = {},
-): Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "codex" }> {
-  return { ...options, kind: "codex" } as Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "codex" }>
+type ProviderDriverBuilder<
+  Name extends BuiltInAgentDriverName,
+  TOutput,
+> = Extract<BuiltInAgentDriver<unknown, TOutput>, { kind: Name }> & {
+  withCallOptions<CALL_OPTIONS>(): Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: Name }>
 }
 
-export function claudeCodeDriver<CALL_OPTIONS = unknown, TOutput = unknown>(
+function providerDriverBuilder<Name extends BuiltInAgentDriverName, TOutput>(
+  name: Name,
+  options: CodexDriverOptions<TOutput> | ClaudeCodeDriverOptions<TOutput>,
+): ProviderDriverBuilder<Name, TOutput> {
+  const driver = { ...options, kind: name } as ProviderDriverBuilder<Name, TOutput>
+  Object.defineProperty(driver, "withCallOptions", {
+    value: () => driver,
+  })
+  return driver
+}
+
+export function codexDriver<TOutput = unknown>(
+  options: CodexDriverOptions<TOutput> = {},
+): ProviderDriverBuilder<"codex", TOutput> {
+  return providerDriverBuilder("codex", options)
+}
+
+export function claudeCodeDriver<TOutput = unknown>(
   options: ClaudeCodeDriverOptions<TOutput> = {},
-): Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "claude-code" }> {
-  return { ...options, kind: "claude-code" } as Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "claude-code" }>
+): ProviderDriverBuilder<"claude-code", TOutput> {
+  return providerDriverBuilder("claude-code", options)
 }
 
 export interface DefineAgent {
