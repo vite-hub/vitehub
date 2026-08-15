@@ -46,37 +46,6 @@ describe("renderMarkdownTemplate", () => {
       data: { url: "https://example.com/a) [Injected](https://evil.test?q=\"x\"" },
     })).resolves.toBe("[Open recap](https://example.com/a%29%20%5BInjected%5D%28https://evil.test?q=%22x%22)")
 
-    const characterReferenceUrl = "https://example.com/?x=&#x29;*Injected*"
-    const characterReferenceMarkdown = await renderMarkdownTemplate("[Open recap]({{ url }})", {
-      data: { url: characterReferenceUrl },
-    })
-    expect(characterReferenceMarkdown).toBe("[Open recap](https://example.com/?x=&#x%329;*Injected*)")
-    const renderedUrl = new URL(characterReferenceMarkdown.slice("[Open recap](".length, -1))
-    const sourceUrl = new URL(characterReferenceUrl)
-    expect(renderedUrl.pathname).toBe(sourceUrl.pathname)
-    expect(renderedUrl.search).toBe(sourceUrl.search)
-    expect(decodeURIComponent(renderedUrl.hash)).toBe(sourceUrl.hash)
-
-    const namedReferenceUrl = "https://example.com/?a=1&amp;b=2"
-    const namedReferenceMarkdown = await renderMarkdownTemplate("[Open recap]({{ url }})", {
-      data: { url: namedReferenceUrl },
-    })
-    expect(namedReferenceMarkdown).toBe("[Open recap](https://example.com/?a=1&%61mp;b=2)")
-    const namedReferenceRenderedUrl = new URL(namedReferenceMarkdown.slice("[Open recap](".length, -1))
-    expect([...namedReferenceRenderedUrl.searchParams]).toEqual([...new URL(namedReferenceUrl).searchParams])
-
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
-      data: { url: "http://[::1]/recap" },
-    })).resolves.toBe("[Open recap](http://[::1]/recap)")
-
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
-      data: { url: "http://[0:0:0:0:0:0:0:1]/recap" },
-    })).resolves.toBe("[Open recap](http://[0:0:0:0:0:0:0:1]/recap)")
-
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
-      data: { url: "//[::1]/recap" },
-    })).resolves.toBe("[Open recap](//[::1]/recap)")
-
     await expect(renderMarkdownTemplate("[Open recap]({{ url }} \"Monthly recap\")", {
       data: { url: "https://prs.onmax.me/recap/2026-07" },
     })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
@@ -92,6 +61,9 @@ describe("renderMarkdownTemplate", () => {
       "data:text/html,<script>alert(1)</script>",
       "https://example.com/first\n[Injected](https://evil.test)",
       "https://example.com/\uD800",
+      "https://example.com/?x=&#x29;*Injected*",
+      "https://example.com/?a=1&amp;b=2",
+      "http://[::1]/recap",
     ]) {
       await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url } }))
         .rejects.toThrow("must resolve to a safe destination")

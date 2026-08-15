@@ -996,9 +996,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      parse5:
-        specifier: 8.0.1
-        version: 8.0.1
       publint:
         specifier: catalog:tooling
         version: 0.3.21

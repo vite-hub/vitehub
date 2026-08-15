@@ -55,7 +55,6 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "parse5": "8.0.1",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

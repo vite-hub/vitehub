@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { parseFragment } from "parse5"
-
 import { renderEmailMarkdown } from "../src/markdown.ts"
 
 describe("renderEmailMarkdown", () => {
@@ -42,23 +40,9 @@ describe("renderEmailMarkdown", () => {
     })
   })
 
-  it("keeps character references inside a scalar link destination", async () => {
-    const url = "https://example.com/?x=&#x29;*Injected*"
-    const rendered = await renderEmailMarkdown("[Open recap]({{ url }})", { data: { url } })
-    expect(rendered).toEqual({
-      html: "<p><a href=\"https://example.com/?x=&#x%329;*Injected*\">Open recap</a></p>",
-      text: "[Open recap](https://example.com/?x=&#x%329;*Injected*)",
-    })
-
-    const paragraph = parseFragment(rendered.html).childNodes[0]!
-    expect("childNodes" in paragraph).toBe(true)
-    if (!("childNodes" in paragraph)) return
-    const anchor = paragraph.childNodes[0]!
-    expect("attrs" in anchor).toBe(true)
-    if (!("attrs" in anchor)) return
-    const parsedUrl = new URL(anchor.attrs.find(attribute => attribute.name === "href")!.value)
-    const sourceUrl = new URL(url)
-    expect(parsedUrl.search).toBe(sourceUrl.search)
-    expect(decodeURIComponent(parsedUrl.hash)).toBe(sourceUrl.hash)
+  it("rejects a scalar link destination whose meaning would change", async () => {
+    await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?x=&#x29;*Injected*" },
+    })).rejects.toThrow("must resolve to a safe destination")
   })
 })

@@ -141,7 +141,7 @@ function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
 
 async function safeLinkDestination(path: string, data: Record<string, unknown>): Promise<string> {
   const value = scalarValue(path, data)
-  if ([...value].some((character) => {
+  if (/^[a-z][a-z\d+.-]*:\/\/(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
     const codePoint = character.codePointAt(0)!
     return codePoint < 32 || codePoint === 127
   })) {
@@ -149,18 +149,9 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
   }
   let encoded: string
   try {
-    const ipv6Authority = value.match(/^((?:[a-z][a-z\d+.-]*:)?\/\/(?:[^/?#]*@)?)\[([^\]]+)]/i)
-    const parsed = ipv6Authority ? new URL(value, "https://vitehub.invalid") : undefined
-    encoded = ipv6Authority && parsed?.hostname.startsWith("[") && parsed.hostname.endsWith("]")
-      ? `${encodeURI(ipv6Authority[1]!)}[${encodeURI(ipv6Authority[2]!)}]${encodeURI(value.slice(ipv6Authority[0].length))}`
-      : encodeURI(value)
+    encoded = encodeURI(value)
     encoded = encoded
       .replace(/%25([\dA-F]{2})/gi, "%$1")
-      .replace(/&(?:#\d{1,7}|#[xX][\dA-F]{1,6}|[A-Za-z][A-Za-z\d]{1,31});/g, (reference) => {
-        const index = /^&#[xX]/.test(reference) ? 3 : reference.startsWith("&#") ? 2 : 1
-        const character = reference[index]!
-        return `${reference.slice(0, index)}%${character.codePointAt(0)!.toString(16).toUpperCase()}${reference.slice(index + 1)}`
-      })
       .replace(/[()]/g, character => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`)
   }
   catch {
@@ -170,7 +161,7 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
   const tree = await parseTemplateMarkdown(`[link](<${encoded}>)`)
   const paragraph = tree.nodes[0]
   const link = isElement(paragraph) && paragraph[0] === "p" ? paragraph[2] : undefined
-  if (!link || !isElement(link) || link[0] !== "a" || typeof link[1].href !== "string") {
+  if (!link || !isElement(link) || link[0] !== "a" || link[1].href !== encoded) {
     throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
   }
   return encoded
