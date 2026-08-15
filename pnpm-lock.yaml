@@ -1124,6 +1124,9 @@ importers:
 
   packages/markdown-template:
     dependencies:
+      character-entities-legacy:
+        specifier: 3.0.0
+        version: 3.0.0
       comark:
         specifier: catalog:ui
         version: 0.5.1(shiki@4.3.1)

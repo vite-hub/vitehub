@@ -1,3 +1,4 @@
+import { characterEntitiesLegacy } from "character-entities-legacy"
 import { renderMarkdown } from "comark/render"
 
 import { evaluateCondition, templatePathValue } from "./condition.ts"
@@ -20,6 +21,8 @@ interface RenderState {
   data: Record<string, unknown>
   fragmentToken: string
   fragments: Array<{ path: string }>
+  linkToken: string
+  links: Array<{ path: string }>
   validateConditionPath?: (path: string) => boolean
 }
 
@@ -33,6 +36,9 @@ const templatePathSource = String.raw`[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*`
 const templatePathPattern = new RegExp(`^${templatePathSource}$`)
 const tripleBindingPattern = new RegExp(String.raw`\{\{\{\s*(${templatePathSource})\s*\}\}\}`, "g")
 const tagBindingPattern = new RegExp(String.raw`(?<!\{)\{\{(?!\{)\s*(${templatePathSource})\s*\}\}(?!\})`, "g")
+const legacyHtmlReferences = new Set(characterEntitiesLegacy)
+const closesLinkDestinationPattern = /(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
+const closesEnclosedLinkDestinationPattern = /\s*>(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
 
 interface TemplatePreparation {
   prepare: (value: string) => Promise<string>
@@ -74,17 +80,116 @@ export async function renderMarkdownTemplateInternal(
       }, preparation)
     : shorthand
   validateConditionalDirectives(await directiveValidationSource(imported))
+  const normalizedLinks = await normalizeLinkBindings(imported)
   const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${crypto.randomUUID().replaceAll("-", "")}`
-  const normalized = await normalizeTripleBindings(imported, fragmentToken, preparation.runtime)
+  const normalized = await normalizeTripleBindings(normalizedLinks.template, fragmentToken, preparation.runtime)
   const tree = await parseTemplateMarkdown(normalized.template, true)
   const nodes = await composeNodes(tree.nodes, {
     data,
     fragmentToken,
     fragments: normalized.fragments,
+    linkToken: normalizedLinks.token,
+    links: normalizedLinks.links,
     validateConditionPath: options.validateConditionPath,
   })
   const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: preparation.runtime.components }))
   return restoreTemplateTokens(restoreTemplateTags(rendered, preparation.tagTokens, data), preparation.protectedTokens)
+}
+
+async function normalizeLinkBindings(template: string): Promise<{
+  links: RenderState["links"]
+  template: string
+  token: string
+}> {
+  const token = `VITEHUBMARKDOWNTEMPLATELINK${crypto.randomUUID().replaceAll("-", "")}`
+  const candidates: Array<{ binding: string, path: string }> = []
+  const prepared = template.replace(tagBindingPattern, (binding, path: string, offset: number, source: string) => {
+    const suffixOffset = offset + binding.length
+    closesLinkDestinationPattern.lastIndex = suffixOffset
+    closesEnclosedLinkDestinationPattern.lastIndex = suffixOffset
+    const completeDestination = hasLinkDestinationPrefix(source, offset, false)
+      && closesLinkDestinationPattern.test(source)
+    const completeEnclosedDestination = hasLinkDestinationPrefix(source, offset, true)
+      && closesEnclosedLinkDestinationPattern.test(source)
+    if (!completeDestination && !completeEnclosedDestination) {
+      return binding
+    }
+    const index = candidates.push({ binding, path }) - 1
+    return `${token}${index}END`
+  })
+  if (!candidates.length) return { links: [], template, token }
+
+  const tree = await parseTemplateMarkdown(prepared)
+  const linked = linkBindingIndices(tree.nodes, token)
+  let rendered = prepared
+  for (let index = 0; index < candidates.length; index++) {
+    const candidate = candidates[index]!
+    if (!linked.has(index)) rendered = rendered.replace(`${token}${index}END`, candidate.binding)
+  }
+  return { links: candidates, template: rendered, token }
+}
+
+function hasLinkDestinationPrefix(source: string, offset: number, enclosed: boolean): boolean {
+  let cursor = offset
+  while (cursor > 0 && /\s/.test(source[cursor - 1]!)) cursor--
+  if (enclosed) {
+    if (source[cursor - 1] !== "<") return false
+    cursor--
+    while (cursor > 0 && /\s/.test(source[cursor - 1]!)) cursor--
+  }
+  return source[cursor - 2] === "]" && source[cursor - 1] === "("
+}
+
+function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
+  const found = new Set<number>()
+  for (const node of nodes) {
+    if (!isElement(node)) continue
+    if (node[0] === "a" && typeof node[1].href === "string") {
+      const match = node[1].href.match(new RegExp(`^${token}(\\d+)END$`))
+      if (match) found.add(Number(match[1]))
+    }
+    for (const index of linkBindingIndices(node.slice(2) as ComarkNode[], token)) found.add(index)
+  }
+  return found
+}
+
+async function safeLinkDestination(path: string, data: Record<string, unknown>): Promise<string> {
+  const value = scalarValue(path, data)
+  const suffixIndex = value.search(/[?#]/)
+  const scheme = value.match(/^([a-z][a-z\d+.-]*):/i)
+  const hierarchical = !scheme
+    || /^(?:file|ftp|https?|wss?)$/i.test(scheme[1]!)
+  const hasPathBackslash = hierarchical
+    && value.slice(0, suffixIndex < 0 ? undefined : suffixIndex).includes("\\")
+  const hasHtmlReferencePrefix = /&#(?:\d+|x[\dA-F]+)/i.test(value)
+    || [...value.matchAll(/&([A-Za-z][A-Za-z\d]*)(?=[^=A-Za-z\d]|$)/g)]
+      .some(match => legacyHtmlReferences.has(match[1]!))
+  const hasBracketedAuthority = /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value)
+    || /^(?:file|ftp|https?|wss?):\/*(?:[^/?#]*@)?\[/i.test(value)
+  if (value.startsWith(" ") || value.endsWith(" ") || /%(?![\dA-F]{2})/i.test(value) || hasPathBackslash || hasHtmlReferencePrefix || hasBracketedAuthority || [...value].some((character) => {
+    const codePoint = character.codePointAt(0)!
+    return codePoint < 32 || codePoint === 127
+  })) {
+    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+  }
+  let encoded: string
+  try {
+    encoded = encodeURI(value)
+    encoded = encoded
+      .replace(/%25([\dA-F]{2})/gi, "%$1")
+      .replace(/[()]/g, character => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`)
+  }
+  catch {
+    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+  }
+
+  const tree = await parseTemplateMarkdown(`[link](<${encoded}>)`)
+  const paragraph = tree.nodes[0]
+  const link = isElement(paragraph) && paragraph[0] === "p" ? paragraph[2] : undefined
+  if (!link || !isElement(link) || link[0] !== "a" || link[1].href !== encoded) {
+    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+  }
+  return encoded
 }
 
 function assertTemplate(template: string): void {
@@ -315,12 +420,23 @@ async function composeNode(
   if (tag === "binding") return [renderBinding(attrs, state.data)]
   if (tag === "code") return [node]
   if (tag === "p") return await composeParagraph(attrs, children, state)
-  return [[tag, attrs, ...(await composeNodes(
+  const composedAttrs = tag === "a" ? await composeLinkAttributes(attrs, state) : attrs
+  return [[tag, composedAttrs, ...(await composeNodes(
     children,
     state,
     tag,
     inlineFragments,
   ))] as ComarkElement]
+}
+
+async function composeLinkAttributes(
+  attrs: Record<string, unknown>,
+  state: RenderState,
+): Promise<Record<string, unknown>> {
+  if (typeof attrs.href !== "string") return attrs
+  const match = attrs.href.match(new RegExp(`^${state.linkToken}(\\d+)END$`))
+  const link = match ? state.links[Number(match[1])] : undefined
+  return link ? { ...attrs, href: await safeLinkDestination(link.path, state.data) } : attrs
 }
 
 async function composeParagraph(

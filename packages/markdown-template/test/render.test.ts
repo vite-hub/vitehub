@@ -29,6 +29,113 @@ describe("renderMarkdownTemplate", () => {
     ].join("\n"))
   })
 
+  it("renders scalar bindings as complete Markdown link destinations", async () => {
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://prs.onmax.me/recap/2026-07" },
+    })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07)")
+
+    await expect(renderMarkdownTemplate("[Open page]({{ page }})", {
+      data: { page: 42 },
+    })).resolves.toBe("[Open page](42)")
+
+    await expect(renderMarkdownTemplate("[Open state]({{ enabled }})", {
+      data: { enabled: true },
+    })).resolves.toBe("[Open state](true)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "/recap/July 2026_(final)?share=team&from=email#top" },
+    })).resolves.toBe("[Open recap](/recap/July%202026_%28final%29?share=team&from=email#top)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/recap/July%202026?signature=a%2Fb%3D" },
+    })).resolves.toBe("[Open recap](https://example.com/recap/July%202026?signature=a%2Fb%3D)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?a=1&debug" },
+    })).resolves.toBe("[Open recap](https://example.com/?a=1&debug)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?q=a\\b" },
+    })).resolves.toBe("[Open recap](https://example.com/?q=a%5Cb)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "/recap\u00A0" },
+    })).resolves.toBe("[Open recap](/recap%C2%A0)")
+
+    await expect(renderMarkdownTemplate("[Open item]({{ url }})", {
+      data: { url: "web+demo:/folder\\item" },
+    })).resolves.toBe("[Open item](web+demo:/folder%5Citem)")
+
+    await expect(renderMarkdownTemplate("[Open item]({{ url }})", {
+      data: { url: "web+demo://host/folder\\item" },
+    })).resolves.toBe("[Open item](web+demo://host/folder%5Citem)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/a) [Injected](https://evil.test?q=\"x\"" },
+    })).resolves.toBe("[Open recap](https://example.com/a%29%20%5BInjected%5D%28https://evil.test?q=%22x%22)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }} \"Monthly recap\")", {
+      data: { url: "https://prs.onmax.me/recap/2026-07" },
+    })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
+
+    await expect(renderMarkdownTemplate("[Open recap](<{{ url }}> \"Monthly recap\")", {
+      data: { url: "https://prs.onmax.me/recap/2026-07" },
+    })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
+  })
+
+  it("rejects unsafe Markdown link destinations", async () => {
+    for (const url of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "https://example.com/first\n[Injected](https://evil.test)",
+      " https://example.com/recap",
+      "https://example.com/recap ",
+      "https://example.com/\uD800",
+      "https://example.com/%zz",
+      "https://example.com/?q=%",
+      "https://example.com/a\\b",
+      "https://example.com/?x=&#x29;*Injected*",
+      "https://example.com/?x=&#65/foo",
+      "https://example.com/?x=&copy/foo",
+      "https://example.com/?a=1&amp;b=2",
+      "http://[::1]/recap",
+      "http:[::1]/recap",
+      "ftp:/[::1]/recap",
+      "//[::1]/recap",
+      "///[::1]/recap",
+    ]) {
+      await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url } }))
+        .rejects.toThrow("must resolve to a safe destination")
+    }
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})"))
+      .rejects.toThrow("binding \"{{ url }}\" is not defined")
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url: {} } }))
+      .rejects.toThrow("must resolve to a scalar value")
+
+    await expect(renderMarkdownTemplate([
+      "::if{enabled}",
+      "[Open recap]({{ missing }})",
+      "::else",
+      "No recap",
+      "::",
+    ].join("\n"), { data: { enabled: false } })).resolves.toBe("No recap")
+  })
+
+  it("keeps scalar bindings in other Markdown destinations unchanged", async () => {
+    await expect(renderMarkdownTemplate("[Open item](/items/{{ id }})", {
+      data: { id: "abc" },
+    })).resolves.toBe("\\[Open item\\](/items/abc)")
+
+    await expect(renderMarkdownTemplate("![Preview]({{ url }})", {
+      data: { url: "https://example.com/preview.png" },
+    })).resolves.toBe("!\\[Preview\\](https://example.com/preview.png)")
+
+    await expect(renderMarkdownTemplate("[Open item][item]\n\n[item]: {{ url }}", {
+      data: { url: "https://example.com/item" },
+    })).resolves.toBe("\\[Open item\\][item]\n\n[item]: https://example.com/item")
+  })
+
   it("renders Markdown fragments without recursively evaluating template syntax", async () => {
     const template = [
       "# Review",
