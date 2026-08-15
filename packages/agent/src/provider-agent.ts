@@ -107,7 +107,12 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
-async function waitForProviderOperation<T>(operation: Promise<T>, signal: AbortSignal | undefined, disposeLateResult?: (value: T) => void | Promise<void>): Promise<T> {
+async function waitForProviderOperation<T>(
+  operation: Promise<T>,
+  signal: AbortSignal | undefined,
+  disposeLateResult?: (value: T) => void | Promise<void>,
+  observeLateCleanup?: (cleanup: Promise<void>) => void,
+): Promise<T> {
   signal?.throwIfAborted()
   if (!signal) return await operation
   let rejectAbort: ((reason: unknown) => void) | undefined
@@ -120,7 +125,11 @@ async function waitForProviderOperation<T>(operation: Promise<T>, signal: AbortS
     return await Promise.race([operation, aborted])
   }
   catch (error) {
-    if (signal.aborted && disposeLateResult) void operation.then(disposeLateResult, () => undefined)
+    if (signal.aborted && disposeLateResult) {
+      const cleanup = operation.then(disposeLateResult, () => undefined)
+      observeLateCleanup?.(cleanup)
+      void cleanup.catch(() => undefined)
+    }
     throw error
   }
   finally {
@@ -311,7 +320,6 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     host: localWorkspaceHost(),
     paths,
     target: root,
-    writeBack: { exclude: ["AGENTS.md", "CLAUDE.md"] },
   })
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
   return session
@@ -560,6 +568,10 @@ async function* runProvider(
   let completed = false
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
+  let generatedInstructionFile: string | undefined
+  let originalGeneratedInstructions: Uint8Array | undefined
+  let generatedInstructionFileExisted = false
+  const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
   try {
     effectiveSignal?.throwIfAborted()
     workspaceSession = await prepareWorkspace(context, root)
@@ -577,13 +589,19 @@ async function* runProvider(
     }
     const instructions = await resolveInstructions(options, context)
       || (options.provider === "claude-code" ? await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined) : undefined)
-    if (instructions) await writeFile(join(root, options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"), instructions)
+    if (instructions) {
+      generatedInstructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
+      originalGeneratedInstructions = await readFile(join(root, generatedInstructionFile)).catch(() => undefined)
+      generatedInstructionFileExisted = originalGeneratedInstructions !== undefined
+      await writeFile(join(root, generatedInstructionFile), instructions)
+    }
     effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
     runtime = await waitForProviderOperation(
       createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider }),
       effectiveSignal,
       async lateRuntime => await lateRuntime.close(),
+      observeLateCleanup,
     )
     effectiveSignal?.throwIfAborted()
     if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal)
@@ -600,14 +618,19 @@ async function* runProvider(
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
       threadId,
-    }), effectiveSignal)
+    }), effectiveSignal, async () => await runtime!.close(), observeLateCleanup)
     if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
     const prompt = providerPrompt(context.messages, resumed, context.prompt)
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt or user message.")
     effectiveSignal?.throwIfAborted()
     const attachments = await waitForProviderOperation(prepareAttachments(runtime, context, threadId), effectiveSignal)
     effectiveSignal?.throwIfAborted()
-    const turn = await waitForProviderOperation(runtime.sendTurn({ attachments, input: prompt, threadId }), effectiveSignal)
+    const turn = await waitForProviderOperation(
+      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      effectiveSignal,
+      async () => await runtime!.close(),
+      observeLateCleanup,
+    )
     if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
     const activeRuntime = runtime
     let rejectAbort: ((reason: unknown) => void) | undefined
@@ -668,8 +691,18 @@ async function* runProvider(
     for (const result of await Promise.allSettled([runtime?.close(), toolServer?.close()])) {
       if (result.status === "rejected") cleanupErrors.push(result.reason)
     }
+    if (generatedInstructionFile) {
+      try {
+        const path = join(root, generatedInstructionFile)
+        if (generatedInstructionFileExisted) await writeFile(path, originalGeneratedInstructions!)
+        else await rm(path, { force: true })
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+    }
     try {
-      await closeWorkspace(context, workspaceSession, caught ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")))
+      await closeWorkspace(context, workspaceSession, caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")))
     }
     catch (error) {
       cleanupErrors.push(error)

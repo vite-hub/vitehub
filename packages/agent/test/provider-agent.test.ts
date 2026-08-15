@@ -295,6 +295,7 @@ describe("Provider Agent Driver", () => {
     }) as never)
 
     expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ paths: undefined, target: expect.any(String) }))
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
     expect(session.commit).toHaveBeenCalledWith({ message: "chore: save provider work" })
     expect(session.close).toHaveBeenCalledOnce()
   })
@@ -489,6 +490,29 @@ describe("Provider Agent Driver", () => {
     expect(provider.startSession).toHaveBeenCalledOnce()
     expect(provider.sendTurn).not.toHaveBeenCalled()
     expect(provider.close).toHaveBeenCalledOnce()
+  })
+
+  it("closes a provider runtime again when startup settles after timeout", async () => {
+    const threadId = "thread-late-start"
+    let finishStartup!: () => void
+    const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise.catch(() => undefined))
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const result = adapter.generate(context(threadId, {
+      input: { prompt: "hello", timeout: 50 },
+      runtime: {
+        memo: (_key: string, create: () => unknown) => create(),
+        run: { runId: `run-${threadId}`, threadId },
+        runtime: "vite",
+        runtimeConfig: {},
+        waitUntil,
+      },
+    }) as never)
+
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    finishStartup()
+    await vi.waitFor(() => expect(provider.close).toHaveBeenCalledTimes(2))
+    expect(waitUntil).toHaveBeenCalledOnce()
   })
 
   it("closes the Workspace when provider shutdown fails", async () => {
