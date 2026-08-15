@@ -149,8 +149,8 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
   }
   let encoded: string
   try {
-    const ipv6Authority = value.match(/^([a-z][a-z\d+.-]*:\/\/(?:[^/?#]*@)?)\[([^\]]+)]/i)
-    const parsed = ipv6Authority ? new URL(value) : undefined
+    const ipv6Authority = value.match(/^((?:[a-z][a-z\d+.-]*:)?\/\/(?:[^/?#]*@)?)\[([^\]]+)]/i)
+    const parsed = ipv6Authority ? new URL(value, "https://vitehub.invalid") : undefined
     encoded = ipv6Authority && parsed?.hostname.startsWith("[") && parsed.hostname.endsWith("]")
       ? `${encodeURI(ipv6Authority[1]!)}[${encodeURI(ipv6Authority[2]!)}]${encodeURI(value.slice(ipv6Authority[0].length))}`
       : encodeURI(value)
