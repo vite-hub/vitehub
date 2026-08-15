@@ -755,7 +755,7 @@ function isAmbiguousWorkflowStartFailure(error: unknown): boolean {
     && Boolean(details && typeof details === "object"
       && (details as { provider?: unknown }).provider === "cloudflare"
       && (details as { operation?: unknown }).operation === "create"
-      && !("status" in details))
+      && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
 }
 
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
@@ -863,9 +863,7 @@ async function runAgentAsWorkflow<
   }
   catch (error) {
     const ambiguous = isAmbiguousWorkflowStartFailure(error)
-    const failedRunId = ambiguous && context.run?.runId
-      ? context.run.runId
-      : workflowRunId || (ambiguous ? undefined : createTraceId())
+    const failedRunId = context.run?.runId || workflowRunId || (ambiguous ? undefined : createTraceId())
     if (hasAgentDefinition(agent) && failedRunId) {
       const invocationJournal = await bindAgentInvocations(agent.invocations, {
         ...context,

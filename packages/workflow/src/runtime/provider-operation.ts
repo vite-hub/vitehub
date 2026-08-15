@@ -50,6 +50,7 @@ export async function runWorkflowProviderOperation<T>(
   provider: WorkflowProvider,
   operation: WorkflowProviderOperation,
   run: () => T | PromiseLike<T>,
+  options: { acknowledgementUnknown?: (error: unknown) => boolean } = {},
 ): Promise<T> {
   try {
     return await run()
@@ -58,10 +59,11 @@ export async function runWorkflowProviderOperation<T>(
     if (isWorkflowBoundaryError(error)) throw error
 
     const status = getProviderStatus(error)
+    const acknowledgement = options.acknowledgementUnknown?.(error) === true ? "unknown" : undefined
     throw createWorkflowError({
       cause: error,
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-      details: { operation, provider, ...(status === undefined ? {} : { status }) },
+      details: { operation, provider, ...(acknowledgement ? { acknowledgement } : {}), ...(status === undefined ? {} : { status }) },
     })
   }
 }

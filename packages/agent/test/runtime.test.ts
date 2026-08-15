@@ -12010,7 +12010,7 @@ describe("agent message protocol", () => {
       let providerRunId = ""
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-        details: { operation: "create", provider: "cloudflare" },
+        details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
       })
       setAgentWorkflowRuntimeLoaders({
         state: async () => ({
@@ -12082,12 +12082,12 @@ describe("agent message protocol", () => {
           runtime: workflow("rejected-start-agent"),
         }), {
           memo: vi.fn(),
-          run: { runId: "rejected-start" },
+          run: { runId: "rejected/start" },
           runtime: "unknown",
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
 
-        await expect(invocations.getByRunId("rejected-start", "rejected-start-agent")).resolves.toMatchObject({
+        await expect(invocations.getByRunId("rejected/start", "rejected-start-agent")).resolves.toMatchObject({
           error: { message: failure.message },
           status: "failed",
         })

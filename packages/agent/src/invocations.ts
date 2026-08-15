@@ -22,6 +22,8 @@ const CLAIM_LEASE_MS = 30_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
 const TERMINAL_RETRY_INTERVAL_MS = 1_000
 const TERMINAL_RETRY_TIMEOUT_MS = 60_000
+const STORE_OPERATION_TIMEOUT_MS = 1_000
+const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -123,6 +125,26 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
     ...(record.annotations ? { annotations: { ...record.annotations } } : {}),
     ...(record.error ? { error: { ...record.error } } : {}),
     observations: record.observations.map(cloneObservation),
+  }
+}
+
+async function boundedStoreOperation<T>(operation: () => MaybePromise<T>): Promise<T | undefined | typeof storeOperationTimedOut> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise<typeof storeOperationTimedOut>((resolve) => {
+        timer = setTimeout(() => resolve(storeOperationTimedOut), STORE_OPERATION_TIMEOUT_MS)
+        const unref = (timer as unknown as { unref?: () => void }).unref
+        if (unref) unref.call(timer)
+      }),
+    ])
+  }
+  catch {
+    return undefined
+  }
+  finally {
+    if (timer !== undefined) clearTimeout(timer)
   }
 }
 
@@ -365,6 +387,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let ownsRecord = false
       let observationCount = 0
       let created = false
+      let creationDisabled = false
       let runningPersisted = false
       let runningRequested = false
       let createInput: AgentInvocationStoreCreateInput
@@ -382,19 +405,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (unref) unref.call(heartbeat)
       }
       const ensureCreated = async (): Promise<boolean> => {
-        if (created) return true
-        try {
-          const result = await store.create(createInput)
+        if (created || creationDisabled) return created
+        const result = await boundedStoreOperation(() => store.create(createInput))
+        if (result === storeOperationTimedOut) creationDisabled = true
+        else if (result) {
           observationCount = result.record.observations.length
           created = true
         }
-        catch {}
         return created
       }
       const renew = async (force = false): Promise<boolean> => {
         if (!await ensureCreated()) return false
-        try { ownsRecord = await store.claim(recordId, claimId, CLAIM_LEASE_MS, force) }
-        catch { ownsRecord = false }
+        const claim = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, force))
+        ownsRecord = claim === true
         if (ownsRecord) startHeartbeat()
         else stopHeartbeat()
         return ownsRecord
@@ -427,7 +450,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         let updated = false
         await write(async () => {
           if (!await renew(force)) return
-          updated = await store.update(recordId, input, claimId) !== undefined
+          const result = await boundedStoreOperation(() => store.update(recordId, input, claimId))
+          updated = result !== undefined && result !== storeOperationTimedOut
         })
         return updated
       }
@@ -439,11 +463,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           timestamp,
           ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
         })
-        const updated = await store.update(recordId, {
+        const updated = await boundedStoreOperation(() => store.update(recordId, {
           observation: persistedObservation,
           timestamp,
-        }, claimId)
-        if (updated) observationCount = updated.observations.length
+        }, claimId))
+        if (updated && updated !== storeOperationTimedOut) observationCount = updated.observations.length
       })
       return {
         context: {
@@ -466,7 +490,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (finished || !await update(finishInput, bindOptions.terminalTakeover)) return false
             finished = true
             stopHeartbeat()
-            if (ownsRecord) await write(() => store.release(recordId, claimId))
+            if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
             ownsRecord = false
             return true
           }
@@ -483,7 +507,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
             if (!finished) {
               stopHeartbeat()
-              if (ownsRecord) await write(() => store.release(recordId, claimId))
+              if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
               ownsRecord = false
             }
           })()

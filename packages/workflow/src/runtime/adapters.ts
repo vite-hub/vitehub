@@ -85,7 +85,19 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async run({ definition, event, id, name, options, payload }) {
       const binding = resolveCloudflareBinding(event, config.binding, name)
       if (binding) {
-        const start = runWorkflowProviderOperation("cloudflare", "create", () => binding.create({ id, params: payload }))
+        const start = runWorkflowProviderOperation(
+          "cloudflare",
+          "create",
+          () => binding.create({ id, params: payload }),
+          {
+            acknowledgementUnknown: error => Boolean(
+              error
+              && typeof error === "object"
+              && "acknowledgementUnknown" in error
+              && (error as { acknowledgementUnknown?: unknown }).acknowledgementUnknown === true,
+            ),
+          },
+        )
         const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined
         if (waitUntil) {
           waitUntil(start)

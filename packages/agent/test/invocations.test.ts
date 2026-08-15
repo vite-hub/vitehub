@@ -21,6 +21,23 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("does not let a stalled store block Agent execution", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        create: () => new Promise(() => {}),
+      },
+    })
+    const run = vi.fn(() => "done")
+
+    const invocation = runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("stalled-store"), {})
+
+    await expect(invocation).resolves.toBe("done")
+    expect(run).toHaveBeenCalledOnce()
+    await expect(invocations.getByRunId("stalled-store")).resolves.toBeUndefined()
+  }, 10_000)
+
   it("records safe lifecycle observations while keeping list rows bounded", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     let runtimeTraceId: string | undefined
