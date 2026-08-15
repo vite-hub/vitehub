@@ -11130,6 +11130,20 @@ describe("agent message protocol", () => {
       await vi.waitFor(() => expect(agentInvocationRecoveryTasks(context)).toHaveLength(0))
     })
 
+    it("keeps recovery best effort when waitUntil registration fails", async () => {
+      const { agentInvocationRecoveryTasks, registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
+      const recovery = deferred<void>()
+      const context = {
+        memo: vi.fn(),
+        waitUntil: () => { throw new Error("waitUntil unavailable") },
+      } as never
+
+      expect(() => registerAgentInvocationRecovery(context, recovery.promise)).not.toThrow()
+      expect(agentInvocationRecoveryTasks(context)).toHaveLength(1)
+      recovery.resolve()
+      await vi.waitFor(() => expect(agentInvocationRecoveryTasks(context)).toHaveLength(0))
+    })
+
     it("rejects structured-cloneable results outside the Workflow JSON contract", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
