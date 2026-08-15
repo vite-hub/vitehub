@@ -91,6 +91,7 @@ import {
   withJsonCompatibleToolOutputs,
 } from "./tool-runtime.ts"
 import {
+  createAgentStreamEventTracer,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentInvocationFinish,
@@ -2393,39 +2394,17 @@ function maybeTraceAgentStream<
   const toolNames = new Map<string, string>()
   const toolActivities = new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const tracer = createAgentStreamEventTracer(toTraceContext(context))
   return (async function* () {
-    let pendingText: Extract<StreamEvent, { type: "text-delta" }> | undefined
-    const flushText = async () => {
-      if (!pendingText) return
-      const event = pendingText
-      pendingText = undefined
-      await traceAgentStreamEvent(toTraceContext(context), event)
-    }
     try {
       for await (const event of stream) {
         const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities) || event
-        if (normalized.type === "text-delta") {
-          if (pendingText
-            && pendingText.id === normalized.id
-            && pendingText.messageId === normalized.messageId
-            && pendingText.phase === normalized.phase
-            && pendingText.role === normalized.role) {
-            pendingText = { ...pendingText, text: pendingText.text + normalized.text }
-          }
-          else {
-            await flushText()
-            pendingText = normalized
-          }
-        }
-        else {
-          await flushText()
-          await traceAgentStreamEvent(toTraceContext(context), normalized)
-        }
+        await tracer.write(normalized)
         yield event
       }
     }
     finally {
-      await flushText()
+      await tracer.flush()
     }
   })()
 }

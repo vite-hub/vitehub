@@ -5241,6 +5241,31 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("records configured titles when an invocation journal observes the run", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => "Readable session" })],
+      driver: { run: () => ({ text: "ok" }) },
+      invocations,
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "titled-run" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Name this run" })],
+    })
+
+    const record = await invocations.getByRunId("titled-run")
+    expect(record?.observations.find(event => event.name === "agent.title.recorded")?.attributes).toMatchObject({
+      "vitehub.session.title": "Readable session",
+    })
+  })
+
   it("auto-commits workspace writes when finish delivery effects are inactive", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const { defineWorkspace, useWorkspace } = await import("@vite-hub/workspace")

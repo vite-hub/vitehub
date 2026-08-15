@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process"
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { createTraceEventLog } from "@vite-hub/runtime"
 
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: unknown) => providerRuntimes.shift()))
@@ -210,6 +211,32 @@ describe("Provider Agent Driver", () => {
       expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-call" }),
       expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-result" }),
     ])
+  })
+
+  it("traces provider-native activity during generated runs", async () => {
+    const threadId = "thread-generate-trace"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "Inspecting ", streamKind: "reasoning_text" }, { turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "files", streamKind: "reasoning_text" }, { turnId: "turn-1" }),
+      event("item.started", threadId, { data: { command: "git status" }, itemType: "command_execution", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("item.completed", threadId, { data: { output: "clean" }, itemType: "command_execution", status: "completed", title: "Shell" }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "Done", streamKind: "assistant_text" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const traceLog = createTraceEventLog({ content: "content" })
+    const runContext = context(threadId)
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await adapter.generate({ ...runContext, runtime: { ...runContext.runtime, traceLog } } as never)
+
+    expect(traceLog.entries().map(entry => entry.name)).toEqual([
+      "agent.reasoning",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.message",
+      "agent.stream.finish",
+    ])
+    expect(traceLog.entries()[0]?.attributes?.["message.content"]).toBe("Inspecting files")
   })
 
   it("continues a thread with the previous provider cursor", async () => {

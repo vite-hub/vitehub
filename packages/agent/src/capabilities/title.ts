@@ -15,6 +15,7 @@ import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
 import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
+import { agentInvocationJournalTraceLogSymbol, traceAgentEvent } from "../trace.ts"
 
 import type {
   AgentAdapterRunContext,
@@ -888,6 +889,26 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       let title: Promise<TitleResolutionValue> | undefined
       let titleClaimed = false
       let titleSkipped = false
+      let titleTraced = false
+      const invocationJournalObservesRun = Boolean(
+        context.runtimeContext?.traceLog
+        && agentInvocationJournalTraceLogSymbol in context.runtimeContext.traceLog,
+      )
+      const traceTitle = async (value: TitleResolutionValue) => {
+        if (!invocationJournalObservesRun || titleTraced || typeof value !== "string" || !context.runtimeContext?.traceLog) return
+        titleTraced = true
+        await traceAgentEvent({
+          context: context.context,
+          input: context.input.get(),
+          invoker: context.invoker,
+          run: context.run,
+          runtime: context.runtimeContext,
+        }, {
+          attributes: { "vitehub.session.title": value.trim() },
+          name: "agent.title.recorded",
+          type: "run",
+        })
+      }
       const titleInput = (source: TitleSource, text: string): TitleExecuteInput | undefined => {
         const messages = context.input.messages()
         const message = firstUserMessage(messages)
@@ -940,9 +961,15 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           context.context.set(responseTitleFallbackContextKey, true)
           return
         }
-        if (!shouldProvideTitleFinishExtension(context)) return
+        const provideFinishExtension = shouldProvideTitleFinishExtension(context)
+        if (!provideFinishExtension && !invocationJournalObservesRun) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
         const resolvedTitle = await getTitle()
+        await traceTitle(resolvedTitle)
+        if (!provideFinishExtension) {
+          await releaseChannelDeliveryAttempt()
+          return
+        }
         if (typeof resolvedTitle !== "string" || !supportsTitleDelivery(context)) {
           await releaseChannelDeliveryAttempt()
           return

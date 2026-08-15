@@ -14,6 +14,8 @@ import type {
 import type { Telemetry } from "ai"
 import type { TraceEvent } from "@vite-hub/runtime"
 
+export const agentInvocationJournalTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalTraceLog")
+
 export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   context: AgentInvocationContextStore
   input: AgentRunInput
@@ -231,6 +233,38 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     name,
     type: streamEvent.type.startsWith("approval") ? "approval" : streamEvent.type === "error" || (streamEvent.type === "tool-result" && streamEvent.error) ? "error" : "run",
   })
+}
+
+export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentTraceContext<TRuntimeConfig>,
+) {
+  let pendingText: Extract<StreamEvent, { type: "text-delta" }> | undefined
+  const flush = async () => {
+    if (!pendingText) return
+    const event = pendingText
+    pendingText = undefined
+    await traceAgentStreamEvent(context, event)
+  }
+  return {
+    flush,
+    async write(event: StreamEvent) {
+      if (event.type !== "text-delta") {
+        await flush()
+        await traceAgentStreamEvent(context, event)
+        return
+      }
+      if (pendingText
+        && pendingText.id === event.id
+        && pendingText.messageId === event.messageId
+        && pendingText.phase === event.phase
+        && pendingText.role === event.role) {
+        pendingText = { ...pendingText, text: pendingText.text + event.text }
+        return
+      }
+      await flush()
+      pendingText = event
+    },
+  }
 }
 
 export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig>(

@@ -1,5 +1,6 @@
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
+import { agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
@@ -372,6 +373,7 @@ function journalTraceLog(
   content: TraceEventContentPolicy,
 ): TraceEventLog {
   return {
+    [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
       try {
@@ -385,7 +387,7 @@ function journalTraceLog(
       return entry
     },
     entries: () => traceLog.entries(),
-  }
+  } as TraceEventLog
 }
 
 export function defineAgentInvocations(options: AgentInvocationsOptions): AgentInvocations {

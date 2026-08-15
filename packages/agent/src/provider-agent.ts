@@ -19,6 +19,7 @@ import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } fro
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
+import { createAgentStreamEventTracer } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -1092,15 +1093,27 @@ async function* runProvider(
   }
 }
 
-async function generateProvider(iterable: AsyncIterable<StreamEvent>): Promise<AgentAdapterResult> {
+async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntimeConfig>(
+  iterable: AsyncIterable<StreamEvent>,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+): Promise<AgentAdapterResult> {
   let text = ""
   let finishReason: unknown
   let usageRecord: AgentAdapterResult["usageRecord"]
-  for await (const event of iterable) {
-    if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
-    else if (event.type === "usage") usageRecord = event.usageRecord
-    else if (event.type === "finish") finishReason = event.reason
-    else if (event.type === "error" && !event.recoverable) throw new Error(event.error)
+  const tracer = context.runtime.traceLog
+    ? createAgentStreamEventTracer({ context: context.context, input: context.input, invoker: context.invoker, run: context.runtime.run, runtime: context.runtime })
+    : undefined
+  try {
+    for await (const event of iterable) {
+      await tracer?.write(event)
+      if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
+      else if (event.type === "usage") usageRecord = event.usageRecord
+      else if (event.type === "finish") finishReason = event.reason
+      else if (event.type === "error" && !event.recoverable) throw new Error(event.error)
+    }
+  }
+  finally {
+    await tracer?.flush()
   }
   return { finishReason, text, usageRecord }
 }
@@ -1112,7 +1125,7 @@ export function createProviderAgentAdapter<
   const resumeCursors = new Map<string, unknown>()
   const sessionLocks = new Map<string, Promise<void>>()
   return {
-    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context)),
+    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context), context),
     async metadata(context) {
       const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
       const instructions = await Promise.all(parts.map(part => typeof part === "function" ? part(context) : part))
