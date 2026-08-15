@@ -1782,7 +1782,7 @@ async function generateAgentWebhookRouteHandler(
     "    headers: getRequestHeaders(event),",
     "    method: event.method || 'POST',",
     "    node: event.node,",
-    "    signal: event.req.signal,",
+    "    signal: event.req?.signal,",
     "    url: getRequestURL(event),",
     "  })",
     "}",

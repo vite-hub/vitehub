@@ -16,7 +16,7 @@ export interface AgentWebhookRequestInput {
     req?: AgentWebhookNodeRequest
     res?: AgentWebhookNodeResponse
   }
-  signal: AbortSignal
+  signal?: AbortSignal
   url: string | URL
 }
 
@@ -32,6 +32,6 @@ export function createAgentWebhookRequest(input: AgentWebhookRequestInput): Requ
     body: input.body,
     headers: input.headers,
     method: input.method,
-    signal: AbortSignal.any([input.signal, controller.signal]),
+    signal: input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal,
   })
 }
