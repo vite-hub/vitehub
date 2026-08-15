@@ -238,7 +238,7 @@ async function resolvedChannelValue(value: unknown, context: unknown): Promise<u
     : resolved
 }
 
-async function channelRegistration(
+export async function channelRegistration(
   channelId: string,
   channel: AgentChannelDefinition,
   context: unknown,
@@ -246,40 +246,31 @@ async function channelRegistration(
 ): Promise<LoadedChannelSyncTarget["registration"]> {
   const webhooks = channel.webhooks
   if (webhooks === false) return
-  if (Array.isArray(webhooks)) {
-    const matching = registrationId
-      ? webhooks.filter(registration => (registration.id || channelId) === registrationId)
-      : webhooks
-    if (matching.length !== 1) {
-      throw new TypeError(
-        registrationId
-          ? `Channel ${channelId} has no unique webhook registration named ${registrationId}.`
-          : `Channel ${channelId} must declare exactly one webhook registration or select one with --webhook.`,
-      )
-    }
-    const registration = matching[0]!
-    const secretToken = await resolvedChannelValue(registration.secretToken, context)
-    return {
-      id: registration.id || channelId,
-      ...(registration.path ? { path: registration.path } : {}),
-      ...(registration.secretHeader ? { secretHeader: registration.secretHeader } : {}),
-      ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
-      ...(registration.signature ? { signature: registration.signature } : {}),
-      ...(registration.url ? { url: registration.url } : {}),
-    }
+  const authored = webhooks === true || webhooks === undefined ? [{}] : Array.isArray(webhooks) ? webhooks : [webhooks]
+  const registrations = authored.map((registration, index) => ({
+    ...registration,
+    id: registration.id || (authored.length > 1 ? `${channelId}-${index + 1}` : channelId),
+  }))
+  const matching = registrationId
+    ? registrations.filter(registration => registration.id === registrationId)
+    : registrations
+  if (matching.length !== 1) {
+    throw new TypeError(
+      registrationId
+        ? `Channel ${channelId} has no unique webhook registration named ${registrationId}.`
+        : `Channel ${channelId} must declare exactly one webhook registration or select one with --webhook.`,
+    )
   }
-  if (webhooks && webhooks !== true) {
-    const secretToken = await resolvedChannelValue(webhooks.secretToken, context)
-    return {
-      id: webhooks.id || channelId,
-      ...(webhooks.path ? { path: webhooks.path } : {}),
-      ...(webhooks.secretHeader ? { secretHeader: webhooks.secretHeader } : {}),
-      ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
-      ...(webhooks.signature ? { signature: webhooks.signature } : {}),
-      ...(webhooks.url ? { url: webhooks.url } : {}),
-    }
+  const registration = matching[0]!
+  const secretToken = await resolvedChannelValue(registration.secretToken, context)
+  return {
+    id: registration.id,
+    ...(registration.path ? { path: registration.path } : {}),
+    ...(registration.secretHeader ? { secretHeader: registration.secretHeader } : {}),
+    ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
+    ...(registration.signature ? { signature: registration.signature } : {}),
+    ...(registration.url ? { url: registration.url } : {}),
   }
-  return { id: channelId }
 }
 
 function uniqueAgentDefinitions(

@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli } from "../src/cli.ts"
 import { runAgentChannelHistoryCli } from "../src/internal/channel-history-cli.ts"
-import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
+import { channelRegistration, runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 import { createTelegramChannelSyncProvider } from "../src/internal/telegram-channel-sync.ts"
@@ -275,6 +275,26 @@ describe("agent CLI", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("uses deployed webhook IDs when selecting Channel history registrations", async () => {
+    const channel = {
+      kind: "http",
+      webhooks: [
+        { path: "/first", secretToken: "first" },
+        { path: "/second", secretToken: "second" },
+      ],
+    } as never
+
+    await expect(channelRegistration("support", channel, {}, "support-2")).resolves.toMatchObject({
+      id: "support-2",
+      path: "/second",
+      secretToken: "second",
+    })
+    await expect(channelRegistration("support", channel, {}, "support"))
+      .rejects.toThrow("no unique webhook registration named support")
+    await expect(channelRegistration("support", { kind: "http", webhooks: { id: "primary" } } as never, {}, "other"))
+      .rejects.toThrow("no unique webhook registration named other")
   })
 
   it("publishes Channel history atomically and preserves existing output", async () => {
