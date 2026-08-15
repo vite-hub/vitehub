@@ -4031,13 +4031,19 @@ async function createChannelHistoryResponse(
   const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options, undefined, state)
   const messages: Record<string, unknown>[] = []
   const attachmentBudget = { remaining: channelHistoryAttachmentMaxBytes }
+  let completed = false
+  let iterator: AsyncIterator<ChatSdkMessage> | undefined
   try {
-    const iterator = chat.thread(body.threadId.trim()).allMessages[Symbol.asyncIterator]()
+    const historyIterator = chat.thread(body.threadId.trim()).allMessages[Symbol.asyncIterator]()
+    iterator = historyIterator
     while (true) {
-      const next = await boundedChannelHistoryOperation(() => iterator.next(), request.signal)
+      const next = await boundedChannelHistoryOperation(() => historyIterator.next(), request.signal)
       if (!next || typeof next !== "object" || !("done" in next)) throw new Error("Channel history provider returned an invalid result.")
       const result = next as IteratorResult<ChatSdkMessage>
-      if (result.done) break
+      if (result.done) {
+        completed = true
+        break
+      }
       const message = result.value
       messages.push(await channelHistoryMessage(message, adapter, attachmentBudget, request.signal))
       if (request.signal.aborted) break
@@ -4045,6 +4051,14 @@ async function createChannelHistoryResponse(
   }
   catch (error) {
     return createJsonErrorResponse(400, error instanceof Error ? error.message : "Channel history export failed.")
+  }
+  finally {
+    if (!completed && iterator?.return) {
+      try {
+        await boundedChannelHistoryOperation(() => iterator!.return!(), AbortSignal.timeout(30_000))
+      }
+      catch {}
+    }
   }
   const configuredHistory = isRecord(chatOptions?.threadHistory) ? chatOptions.threadHistory : {}
   return Response.json({

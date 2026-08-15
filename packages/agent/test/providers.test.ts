@@ -12466,8 +12466,30 @@ describe("server helpers", () => {
     expect(malformedResponse.status).toBe(200)
     const malformedArchive = await malformedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
     expect(malformedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
+    const chatThread = (adapter._chatInstance()! as unknown as { thread: (id: string) => { allMessages: AsyncIterable<Message> } }).thread("telegram:456")
+    const threadPrototype = Object.getPrototypeOf(chatThread) as { allMessages: AsyncIterable<Message> }
+    const closeFailedHistory = vi.fn(async () => ({ done: true as const, value: undefined }))
+    const failedHistory = vi.spyOn(threadPrototype, "allMessages", "get").mockReturnValue({
+      [Symbol.asyncIterator]: () => ({
+        next: vi.fn(async () => { throw new Error("provider history failed") }),
+        return: closeFailedHistory,
+      }),
+    })
+    const failedResponse = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(failedResponse.status).toBe(400)
+    await expect(failedResponse.json()).resolves.toMatchObject({ message: "provider history failed" })
+    expect(closeFailedHistory).toHaveBeenCalledOnce()
+    failedHistory.mockRestore()
     fetchAttachment.mockRestore()
-    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 4)
+    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 5)
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
   }, 15_000)
