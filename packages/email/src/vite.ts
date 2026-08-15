@@ -246,7 +246,7 @@ async function materializeEmailTemplates(templatesRoot: string, outputRoot: stri
   await rm(backupRoot, { force: true, recursive: true })
   await mkdir(stagingRoot, { recursive: true })
   for (const file of await listEmailTemplates(templatesRoot)) {
-    const target = resolve(stagingRoot, `${templateName(templatesRoot, file)}.mjs`)
+    const target = resolve(stagingRoot, templateName(templatesRoot, file), "index.mjs")
     const entry = `${target}.entry.mjs`
     await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
@@ -389,12 +389,14 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
           refreshPending = false
           try {
             await prepareTypes({ materialize: materializationRequested || cloudflare || vercel, projectRoot, serverDirs })
-            server.watcher.add([...watchFiles])
             refreshed = true
           }
           catch (error) {
             refreshed = false
             server.config.logger.error(String(error))
+          }
+          finally {
+            server.watcher.add([...watchFiles])
           }
         } while (refreshPending)
         if (refreshed) server.ws.send({ type: "full-reload" })
