@@ -2440,7 +2440,7 @@ describe("server helpers", () => {
       )
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
       const selectedChatSessionId = run.mock.calls[0]?.[0].input.context?.["chat.sessionId"]
-      expect(selectedChatSessionId).toMatch(/^http:support:portal-thread:chat-session:session-1:manual:/)
+      expect(selectedChatSessionId).toBe("http:support:portal-thread:chat-session:session-1")
 
       const continued = await handler(request("approval-1", "user-1", "session-1", true, false), { agentName: "support", state })
       expect(continued.status).toBe(200)
