@@ -12101,6 +12101,33 @@ describe("agent message protocol", () => {
           },
         })
         await expect(invocations.getByRunId("accepted/workflow", "ambiguous-cloudflare-agent")).resolves.toMatchObject({ status: "pending" })
+
+        defer.mockRejectedValue(new Error("recovery unavailable"))
+        await expect(runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          name: "ambiguous-cloudflare-agent",
+          runtime: workflow("ambiguous-cloudflare-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { runId: "orphaned/workflow" },
+          runtime: "cloudflare-agents",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+        expect(defer).toHaveBeenCalledTimes(4)
+        await expect(invocations.getByRunId("orphaned/workflow", "ambiguous-cloudflare-agent")).resolves.toBeUndefined()
+
+        await expect(runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          name: "unobserved-cloudflare-agent",
+          runtime: workflow("unobserved-cloudflare-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { runId: "unobserved/workflow" },
+          runtime: "cloudflare-agents",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+        expect(defer).toHaveBeenCalledTimes(4)
       }
       finally {
         setAgentWorkflowRuntimeLoaders({
@@ -12630,10 +12657,12 @@ describe("agent message protocol", () => {
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const memory = createMemoryAgentInvocationStore()
       let storeAvailable = false
+      let terminalAttempts = 0
       const invocations = defineAgentInvocations({
         store: {
           ...memory,
           update(id, input, claimId) {
+            if (input.status === "completed") terminalAttempts++
             if (input.status === "completed" && !storeAvailable) throw new Error("store unavailable")
             return memory.update(id, input, claimId)
           },
@@ -12667,7 +12696,9 @@ describe("agent message protocol", () => {
         await vi.waitFor(async () => {
           await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "pending" })
         })
-        await vi.advanceTimersByTimeAsync(60_000)
+        await vi.waitFor(() => expect(terminalAttempts).toBeGreaterThan(0))
+        vi.setSystemTime(Date.now() + 61_000)
+        await vi.advanceTimersByTimeAsync(1_000)
         storeAvailable = true
         await vi.advanceTimersByTimeAsync(2_000)
         await recovery
