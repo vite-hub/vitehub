@@ -156,9 +156,11 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
       : encodeURI(value)
     encoded = encoded
       .replace(/%25([\dA-F]{2})/gi, "%$1")
-      .replace(/&(?:#\d{1,7}|#[xX][\dA-F]{1,6}|[A-Za-z][A-Za-z\d]{1,31});/g, reference =>
-        reference.replace(/([A-Za-z\d]);$/, (_suffix, character: string) =>
-          `%${character.codePointAt(0)!.toString(16).toUpperCase()};`))
+      .replace(/&(?:#\d{1,7}|#[xX][\dA-F]{1,6}|[A-Za-z][A-Za-z\d]{1,31});/g, (reference) => {
+        const index = /^&#[xX]/.test(reference) ? 3 : reference.startsWith("&#") ? 2 : 1
+        const character = reference[index]!
+        return `${reference.slice(0, index)}%${character.codePointAt(0)!.toString(16).toUpperCase()}${reference.slice(index + 1)}`
+      })
       .replace(/[()]/g, character => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`)
   }
   catch {

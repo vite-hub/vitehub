@@ -50,7 +50,7 @@ describe("renderMarkdownTemplate", () => {
     const characterReferenceMarkdown = await renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: characterReferenceUrl },
     })
-    expect(characterReferenceMarkdown).toBe("[Open recap](https://example.com/?x=&#x2%39;*Injected*)")
+    expect(characterReferenceMarkdown).toBe("[Open recap](https://example.com/?x=&#x%329;*Injected*)")
     const renderedUrl = new URL(characterReferenceMarkdown.slice("[Open recap](".length, -1))
     const sourceUrl = new URL(characterReferenceUrl)
     expect(renderedUrl.pathname).toBe(sourceUrl.pathname)
@@ -61,7 +61,7 @@ describe("renderMarkdownTemplate", () => {
     const namedReferenceMarkdown = await renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: namedReferenceUrl },
     })
-    expect(namedReferenceMarkdown).toBe("[Open recap](https://example.com/?a=1&am%70;b=2)")
+    expect(namedReferenceMarkdown).toBe("[Open recap](https://example.com/?a=1&%61mp;b=2)")
     const namedReferenceRenderedUrl = new URL(namedReferenceMarkdown.slice("[Open recap](".length, -1))
     expect([...namedReferenceRenderedUrl.searchParams]).toEqual([...new URL(namedReferenceUrl).searchParams])
 
