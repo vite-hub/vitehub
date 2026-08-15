@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -117,6 +117,28 @@ describe("hubEmail", () => {
     expect(source).toContain("binding:vitehubEmailEnv.EMAIL")
     expect(source).toContain("EmailMessage")
     expect(source).not.toContain("fileURLToPath(import.meta.url)")
+  })
+
+  it("generates exact virtual module types for discovered Email templates", async () => {
+    const root = await createTempProject()
+    const template = join(root, "server", "emails", "monthly-recap.md")
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(template, "Hello {{name}}")
+    const plugin = hubEmail({ driver: "unemail/driver/cloudflare-email" })
+
+    await resolvePlugin(plugin, root)
+
+    expect((plugin.resolveId as (id: string) => string)("#vitehub/emails/monthly-recap"))
+      .toBe(`/@fs/${template}?markdown-template`)
+    expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
+      'declare module "#vitehub/emails/monthly-recap" {',
+      "  const render: (data?: Record<string, unknown>) => Promise<string>",
+      "  export default render",
+      "}",
+      "",
+    ].join("\n"))
+    expect(() => (plugin.resolveId as (id: string) => string)("#vitehub/emails/../secret"))
+      .toThrow("Invalid Email template")
   })
 
   it("uses the development Nitro preset instead of the deployment target", async () => {

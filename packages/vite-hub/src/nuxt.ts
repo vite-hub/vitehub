@@ -331,6 +331,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (replayEnvPlugin) {
     for (const plugin of replayPlugins) deploymentOutputEnvPluginHandler(plugin)?.(replayEnvPlugin)
   }
+  const emailPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
+    api?: { prepareTypes?: (options: { projectRoot: string, serverDirs?: string[] }) => Promise<void> }
+  } | undefined
+  await emailPlugin?.api?.prepareTypes?.({
+    projectRoot,
+    serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+  })
+  const typesPlugin = installedPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+    api?: { prepareTypes?: (root: string) => Promise<void> }
+  } | undefined
+  await typesPlugin?.api?.prepareTypes?.(projectRoot)
 
   nuxt.options.vite ??= {}
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {

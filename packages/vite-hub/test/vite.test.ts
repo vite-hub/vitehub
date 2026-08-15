@@ -304,6 +304,26 @@ describe("vitehub", () => {
     expect(() => vitehub({ email: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
   })
 
+  it("derives standalone Schedule output from the Vercel preset", () => {
+    vitehub({ preset: "cloudflare", schedule: true, workflow: true })
+
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      providerOutput: expect.anything(),
+    }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      provider: expect.anything(),
+    }))
+
+    vitehub({ preset: "vercel", schedule: true, workflow: true })
+
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining({
+      providerOutput: "standalone",
+    }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      provider: expect.anything(),
+    }))
+  })
+
   it("uses framework subpaths in generated Env modules", () => {
     vitehub({ preset: "node" })
 

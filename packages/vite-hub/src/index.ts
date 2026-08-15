@@ -731,6 +731,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.schedule) {
     plugins.push(hubSchedule({
+      ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       importBase: `${generatedImportBase}/schedule`,
       providerImportAliases,

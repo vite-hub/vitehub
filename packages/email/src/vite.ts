@@ -1,11 +1,11 @@
-import { rm } from "node:fs/promises"
+import { readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { dirname, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
@@ -35,6 +35,7 @@ export interface EmailVitePluginOptions {
 
 export interface EmailVitePluginAPI {
   getDefinition: () => GeneratedEmailDefinition | undefined
+  prepareTypes: (options: { projectRoot: string, serverDirs?: string[] }) => Promise<void>
 }
 
 export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
@@ -175,6 +176,64 @@ function configureNitroCloudflareWorkers(config: Record<string, unknown>, email:
   }
 }
 
+const emailTemplatePrefix = "#vitehub/emails/"
+
+function emailTemplateName(id: string): string | undefined {
+  if (!id.startsWith(emailTemplatePrefix)) return
+  const name = id.slice(emailTemplatePrefix.length)
+  const segments = name.split("/")
+  if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) {
+    throw new TypeError(`[vitehub] Invalid Email template ${JSON.stringify(id)}.`)
+  }
+  return name
+}
+
+async function listEmailTemplates(root: string, directory = root): Promise<string[]> {
+  let entries
+  try {
+    entries = await readdir(directory, { withFileTypes: true })
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw error
+  }
+
+  const files: string[] = []
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = resolve(directory, entry.name)
+    if (entry.isDirectory() && !entry.isSymbolicLink()) files.push(...await listEmailTemplates(root, path))
+    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(path)
+  }
+  return files
+}
+
+function templateName(root: string, file: string): string {
+  return relative(root, file).replace(/\\/g, "/").replace(/\.md$/, "")
+}
+
+function renderEmailTemplateTypes(names: string[]): string {
+  return names.map(name => [
+    `declare module ${JSON.stringify(`${emailTemplatePrefix}${name}`)} {`,
+    "  const render: (data?: Record<string, unknown>) => Promise<string>",
+    "  export default render",
+    "}",
+  ].join("\n")).join("\n\n") + (names.length ? "\n" : "")
+}
+
+async function materializeEmailTemplates(templatesRoot: string, outputRoot: string, rootDir: string): Promise<void> {
+  for (const file of await listEmailTemplates(templatesRoot)) {
+    const target = resolve(outputRoot, templateName(templatesRoot, file))
+    const entry = `${target}.entry.mjs`
+    await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
+    try {
+      await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir })
+    }
+    finally {
+      await rm(entry, { force: true })
+    }
+  }
+}
+
 export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
     throw new TypeError("[vitehub] Email requires an unemail/driver/* driver.")
@@ -185,23 +244,46 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   const runtimeEnvImport = internalOptions.runtimeEnvImport
     ?? resolve(dirname(resolvePackageImport("@vite-hub/env/package.json")), "dist/server.js")
   let cloudflare = false
+  let vercel = false
   const cloudflareEmail = configured.driver === "unemail/driver/cloudflare-email"
   let definition: GeneratedEmailDefinition | undefined
+  let serverDirs: string[] | undefined
+  let templatesRoot = resolve(process.cwd(), "server", "emails")
+  let materializedRoot = resolve(process.cwd(), ".vitehub", "email", "templates")
+
+  const prepareTypes = async (options: { projectRoot: string, serverDirs?: string[] }) => {
+    templatesRoot = resolve(options.serverDirs?.[0] ?? resolve(options.projectRoot, "server"), "emails")
+    const names = (await listEmailTemplates(templatesRoot)).map(file => templateName(templatesRoot, file))
+    await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
+  }
 
   return {
     name: EMAIL_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
       getDefinition: () => definition,
+      prepareTypes,
     },
     config(config) {
-      cloudflare = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>)) === "cloudflare"
+      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+      const hosting = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>))
+      cloudflare = hosting === "cloudflare"
+      vercel = hosting === "vercel"
+      const projectRoot = resolveViteHubProjectRoot(config.root ?? process.cwd())
+      templatesRoot = resolve(serverDirs?.[0] ?? resolve(projectRoot, "server"), "emails")
+      materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
       return {
+        ...(vercel ? { resolve: { alias: { "#vitehub/emails": materializedRoot } } } : {}),
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }
     },
     async configResolved(config) {
+      const projectRoot = resolveViteHubProjectRoot(config.root)
+      templatesRoot = resolve(serverDirs?.[0] ?? resolve(projectRoot, "server"), "emails")
+      materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
+      await prepareTypes({ projectRoot, serverDirs })
+      if (vercel) await materializeEmailTemplates(templatesRoot, materializedRoot, config.root)
       definition = {
         ...configured,
         handler: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs"),
@@ -229,6 +311,8 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     },
     resolveId(id) {
       if (id === EMAIL_DEFINITION_ID) return resolvedEmailDefinitionId
+      const name = emailTemplateName(id)
+      if (name) return `/@fs/${resolve(templatesRoot, `${name}.md`)}?markdown-template`
     },
     load(id) {
       if (id === resolvedEmailDefinitionId && definition) {
