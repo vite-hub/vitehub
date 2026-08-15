@@ -12007,6 +12007,7 @@ describe("agent message protocol", () => {
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const store = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({ store })
+      let providerRunId = ""
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
         details: { operation: "create", provider: "cloudflare" },
@@ -12014,13 +12015,16 @@ describe("agent message protocol", () => {
       setAgentWorkflowRuntimeLoaders({
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
         workflow: async () => ({
           createWorkflow: () => ({
-            run: async () => { throw failure },
+            run: async (_payload: unknown, options: { id?: string }) => {
+              providerRunId = options.id || ""
+              throw failure
+            },
           }),
         }) as never,
       })
@@ -12031,14 +12035,62 @@ describe("agent message protocol", () => {
           runtime: workflow("ambiguous-start-agent"),
         }), {
           memo: vi.fn(),
-          run: { runId: "accepted-workflow" },
+          run: { runId: "accepted/workflow" },
           runtime: "unknown",
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
 
-        await expect(invocations.getByRunId("accepted-workflow")).resolves.toMatchObject({ status: "pending" })
-        const record = await invocations.getByRunId("accepted-workflow")
+        expect(providerRunId).toMatch(/^vitehub-invalid-/)
+        await expect(invocations.getByRunId("accepted/workflow")).resolves.toMatchObject({ status: "pending" })
+        await expect(invocations.getByRunId(providerRunId)).resolves.toBeUndefined()
+        const record = await invocations.getByRunId("accepted/workflow")
         expect(record && await store.claim(record.id, "accepted-worker", 30_000)).toBe(true)
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("terminalizes deterministic wrapped Workflow start failures", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const failure = Object.assign(new Error("provider rejected start"), {
+        code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+        details: { operation: "create", provider: "cloudflare", status: 403 },
+      })
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        workflow: async () => ({
+          createWorkflow: () => ({ run: async () => { throw failure } }),
+        }) as never,
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          name: "rejected-start-agent",
+          runtime: workflow("rejected-start-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { runId: "rejected-start" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+
+        await expect(invocations.getByRunId("rejected-start", "rejected-start-agent")).resolves.toMatchObject({
+          error: { message: failure.message },
+          status: "failed",
+        })
       }
       finally {
         setAgentWorkflowRuntimeLoaders({
