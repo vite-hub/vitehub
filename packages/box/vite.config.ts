@@ -2,13 +2,15 @@ import { defineConfig } from "vite-plus"
 
 export default defineConfig({
   pack: {
-    entry: ["src/index.ts", "src/internal/cloudflare.ts", "src/internal/vercel.ts"],
+    entry: ["src/index.ts", "src/internal/cloudflare.ts", "src/internal/trusted-host.ts", "src/internal/vercel.ts"],
     exports: {
       customExports(exports) {
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => [
             key === "./internal/cloudflare"
               ? "./_internal/cloudflare"
+              : key === "./internal/trusted-host"
+                ? "./_internal/trusted-host"
               : key === "./internal/vercel"
                 ? "./_internal/vercel"
                 : key,

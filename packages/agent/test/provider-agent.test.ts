@@ -1,4 +1,4 @@
-import { access, chmod, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 
 import { describe, expect, it, vi } from "vitest"
@@ -107,6 +107,39 @@ describe("Provider Agent Driver", () => {
     }))
     expect((createProviderRuntime.mock.lastCall?.[0] as { environment: Record<string, string> }).environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
+  })
+
+  it("runs provider sessions in the resolved trusted-host Box", async () => {
+    const threadId = "thread-box"
+    const checkout = `/tmp/vitehub-provider-box-${crypto.randomUUID()}`
+    await mkdir(checkout, { recursive: true })
+    let resolvedCwd: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        resolvedCwd = await realpath((createProviderRuntime.mock.lastCall?.[0] as { cwd: string }).cwd)
+      },
+    })
+    const adapter = createProviderAgentAdapter({
+      box: {
+        cwd: ({ input }) => (input.options as { checkout: string }).checkout,
+        env: { PROVIDER_BOX: "selected" },
+        runtime: "trusted-host",
+      },
+      provider: "codex",
+    })
+
+    try {
+      await adapter.generate(context(threadId, { input: { options: { checkout }, prompt: "hello" } }) as never)
+
+      expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+        environment: expect.objectContaining({ PROVIDER_BOX: "selected" }),
+      }))
+      expect(resolvedCwd).toBe(await realpath(checkout))
+      await expect(access(checkout)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(checkout, { force: true, recursive: true })
+    }
   })
 
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {

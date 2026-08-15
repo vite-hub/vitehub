@@ -37,10 +37,12 @@ import type {
   AgentAdapterRunContext,
   AgentProviderPermissions,
   AgentRuntimeConfig,
+  AgentRunCallbackContext,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
 } from "./types.ts"
+import type { BoxDefinition, BoxSession } from "@vite-hub/box"
 import type { AttachmentPart, Message, StreamEvent } from "./messages.ts"
 import type {
   ReadonlyWorkspaceFacade,
@@ -50,7 +52,11 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 
-export interface ProviderAgentAdapterOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+export interface ProviderAgentAdapterOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>>
   env?: Record<string, string | undefined>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
@@ -451,7 +457,10 @@ async function closeWorkspace(context: AgentAdapterRunContext, session: Workspac
   }
 }
 
-async function resolveInstructions(options: ProviderAgentAdapterOptions, context: AgentAdapterRunContext): Promise<string | undefined> {
+async function resolveInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
     ...agentInvocationCallbackContextValues(context.context),
@@ -474,6 +483,37 @@ async function resolveInstructions(options: ProviderAgentAdapterOptions, context
     context: context.context.toJSON(),
     workspace: context.workspaceInstructionBindings,
   }) : undefined
+}
+
+async function openProviderBox(
+  options: ProviderAgentAdapterOptions<any, any>,
+  context: AgentAdapterRunContext<any, any>,
+  signal: AbortSignal | undefined,
+): Promise<{ environment: Readonly<Record<string, string>>, session: BoxSession } | undefined> {
+  if (!options.box) return
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  const callbackContext = {
+    ...agentInvocationCallbackContextValues(context.context),
+    ...runtime,
+    actor: context.actor,
+    context: context.context,
+    input: context.input,
+    invoker: context.invoker,
+    run: context.runtime.run,
+  } as AgentRunCallbackContext
+  const { resolveBox } = await import("@vite-hub/box")
+  const box = await resolveBox(options.box, callbackContext)
+  if (box.plan.runtime !== "trusted-host") {
+    throw new Error(`[vitehub] Provider Agent Drivers support only trusted-host Boxes; received ${box.plan.runtime}.`)
+  }
+  const session = await box.open({ signal })
+  const { getTrustedHostBoxExecution } = await import("@vite-hub/box/_internal/trusted-host")
+  const execution = getTrustedHostBoxExecution(session)
+  if (!execution) {
+    await session.close()
+    throw new Error("[vitehub] Provider Agent Driver could not bind the trusted-host Box execution environment.")
+  }
+  return { environment: execution.environment, session }
 }
 
 function latestUserMessages(messages: Message[]): Message[] {
@@ -693,10 +733,10 @@ function isTerminalEvent(event: ProviderRuntimeEvent, turnId: TurnId): boolean {
 }
 
 async function* runProvider(
-  options: ProviderAgentAdapterOptions,
+  options: ProviderAgentAdapterOptions<any, any>,
   resumeCursors: Map<string, unknown>,
   sessionLocks: Map<string, Promise<void>>,
-  context: AgentAdapterRunContext,
+  context: AgentAdapterRunContext<any, any>,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
     throw new Error(`[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.`)
@@ -718,9 +758,14 @@ async function* runProvider(
     : undefined
   const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
+  let boxSession: BoxSession | undefined
+  let providerEnvironmentOverrides = options.env
   try {
     effectiveSignal?.throwIfAborted()
-    root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
+    const box = await openProviderBox(options, context, effectiveSignal)
+    boxSession = box?.session
+    root = boxSession?.cwd ?? await mkdtemp(join(tmpdir(), "vitehub-provider-"))
+    if (box) providerEnvironmentOverrides = { ...options.env, ...box.environment }
   }
   catch (error) {
     releaseSessionLock?.()
@@ -755,6 +800,10 @@ async function* runProvider(
   const deferredRuntimeStopped = new Promise<void>((resolve) => {
     releaseDeferredRuntimeStopped = resolve
   })
+  let rootCleanup: Promise<void> | undefined
+  const cleanupRoot = () => rootCleanup ??= boxSession
+    ? boxSession.close()
+    : rm(root, { force: true, recursive: true })
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -787,7 +836,7 @@ async function* runProvider(
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
-        await rm(root, { force: true, recursive: true })
+        await cleanupRoot()
       }
     }
   }
@@ -801,11 +850,11 @@ async function* runProvider(
           await lateSession?.close()
         }
         finally {
-          await rm(root, { force: true, recursive: true })
+          await cleanupRoot()
         }
       },
       deferWorkspaceSessionCleanup,
-      async () => await rm(root, { force: true, recursive: true }),
+      cleanupRoot,
     )
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
@@ -850,10 +899,10 @@ async function* runProvider(
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
-      await rm(root, { force: true, recursive: true })
+      await cleanupRoot()
     }
     runtime = await waitForProviderOperation(
-      createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider }),
+      createProviderRuntime({ cwd: root, environment: providerEnvironment(providerEnvironmentOverrides), provider: options.provider }),
       effectiveSignal,
       async lateRuntime => {
         try {
@@ -1010,7 +1059,7 @@ async function* runProvider(
     else await finalizeWorkspace()
     if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
       try {
-        await rm(root, { force: true, recursive: true })
+        await cleanupRoot()
       }
       catch (error) {
         cleanupErrors.push(error)
@@ -1041,7 +1090,7 @@ async function generateProvider(iterable: AsyncIterable<StreamEvent>): Promise<A
 export function createProviderAgentAdapter<
   CALL_OPTIONS = unknown,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
->(options: ProviderAgentAdapterOptions<TRuntimeConfig>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
+>(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const resumeCursors = new Map<string, unknown>()
   const sessionLocks = new Map<string, Promise<void>>()
   return {

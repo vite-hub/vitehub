@@ -47,9 +47,25 @@ async function settle() {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("Agent Invocation Vue composables", () => {
+  it("uses the same-origin endpoint when no requester is configured", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invocations: [] }), {
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({ immediate: false }))!;
+
+    await expect(resource.refresh()).resolves.toEqual({ invocations: [] });
+    expect(fetchMock).toHaveBeenCalledWith("/api/invocations", {
+      signal: expect.any(AbortSignal),
+    });
+    scope.stop();
+  });
+
   it("reacts to list queries and ignores superseded requests", async () => {
     const { calls, request } = controlledRequester();
     const query = ref({ status: ["queued", "running"], limit: 20 });

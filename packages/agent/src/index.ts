@@ -1291,8 +1291,11 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, telemetry, uiMessageStream, version, workspace } = options
+  const { box, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, telemetry, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
+  if (box && driver.kind !== "provider") {
+    throw new Error("[vitehub] defineAgent({ box }) requires a built-in Codex or Claude Code Agent Driver.")
+  }
   const run = driver.kind === "run" ? driver.run : undefined
   const capabilitiesResolver = typeof capabilities === "function"
     ? capabilities as AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
@@ -1320,7 +1323,8 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
-        ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS>({
+        ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+            box,
             env: driver.env,
             execution: driver.execution,
             instructions: driver.instructions,
@@ -1344,6 +1348,7 @@ function defineBaseAgent<
     ...(driver.output ? { [baseAgentOutput]: driver.output } : {}),
     ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
+    box,
     channels,
     chat,
     cli,
