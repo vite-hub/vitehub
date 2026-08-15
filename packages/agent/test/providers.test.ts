@@ -673,8 +673,8 @@ describe("agent Vite plugin", () => {
         root,
       } as never)
       const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
-      expect(cloudflareRegistry).toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
-      expect(cloudflareRegistry).toContain("context.cloudflare?.env?.CHAT_STATE")
+      expect(cloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
+      expect(cloudflareRegistry).toContain("(context.cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
 
       await cloudflareConfigResolved({
@@ -684,7 +684,7 @@ describe("agent Vite plugin", () => {
         root,
       })
       const nestedCloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
-      expect(nestedCloudflareRegistry).toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
+      expect(nestedCloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
       expect(nestedCloudflareRegistry).not.toContain("createLibsqlAgentState")
     }
     finally {

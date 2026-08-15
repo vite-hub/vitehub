@@ -284,7 +284,7 @@ function transformGeneratedAgentWorkflowRegistry(
       ]
     : state.cloudflare
       ? [
-          `import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
+          `import { createCloudflareAgentState, getActiveCloudflareEnv } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
           `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
         ]
       : []
@@ -297,7 +297,7 @@ function transformGeneratedAgentWorkflowRegistry(
     : state.cloudflare
       ? [
           `setAgentChannelDeliveryWorkflowStateResolver(context => {`,
-          `  const namespace = context.cloudflare?.env?.${defaultCloudflareAgentStateBinding}`,
+          `  const namespace = (context.cloudflare?.env || getActiveCloudflareEnv())?.${defaultCloudflareAgentStateBinding}`,
           "  return namespace ? { state: createCloudflareAgentState({ namespace }) } : {}",
           "})",
           "",
