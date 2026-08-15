@@ -518,4 +518,44 @@ describe("@vite-hub/runtime", () => {
     expect(spans[1]!.parentSpanId).toBe(spans[0]!.spanId)
     expect(spans[1]!.traceId).toBe(spans[0]!.traceId)
   })
+
+  it("redacts content and preserves invocation metadata at the OpenTelemetry export seam", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: {
+        "agent.run.id": "run-1",
+        prompt: "secret prompt",
+        "runtime.name": "vercel",
+      },
+      name: "agent.invocation.start",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "trace-1" },
+      type: "run",
+    })
+    await log.append({
+      attributes: {
+        "agent.run.id": "run-1",
+        "error.message": "provider failed",
+        result: "secret result",
+      },
+      name: "agent.invocation.error",
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "trace-1" },
+      type: "error",
+    })
+
+    const [span] = traceEventsToOpenTelemetrySpans(log.entries(), { content: "metadata" })
+
+    expect(span).toMatchObject({
+      attributes: {
+        "agent.run.id": "run-1",
+        "content.omitted": ["result"],
+        "error.message": "provider failed",
+        "runtime.name": "vercel",
+      },
+      status: { code: "ERROR", message: "provider failed" },
+    })
+    expect(JSON.stringify(span)).not.toContain("secret prompt")
+    expect(JSON.stringify(span)).not.toContain("secret result")
+  })
 })

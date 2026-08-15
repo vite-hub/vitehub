@@ -169,6 +169,10 @@ export interface OpenTelemetrySpanView {
   traceId: string
 }
 
+export interface OpenTelemetrySpanViewOptions {
+  content?: TraceEventContentPolicy
+}
+
 export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
   capabilities?: RuntimeCapabilities
   cloudflare?: {
@@ -488,16 +492,22 @@ function openTelemetryId(value: string, length: 16 | 32): string {
   return /^0+$/.test(id) ? `1${id.slice(1)}` : id
 }
 
-export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>): OpenTelemetrySpanView[] {
-  return deriveTraceRuns(events).flatMap((run) => {
+export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
+  const entries = [...events].map(entry => options.content === "metadata"
+    ? { ...entry, attributes: metadataAttributes(entry.attributes) }
+    : entry)
+  return deriveTraceRuns(entries).flatMap((run) => {
     const rawParentSpanId = traceRunParentId(run)
     const rawTraceId = traceRunTraceId(run)
     const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
     const spanId = openTelemetryId(run.id, 16)
     const traceId = openTelemetryId(rawTraceId, 32)
+    const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
+    const errorMessage = firstString(...run.events.slice().reverse().map(event => event.attributes?.["error.message"]))
     return [
       {
         attributes: {
+          ...attributes,
           "vitehub.run.id": run.id,
           ...(rawParentSpanId ? { "vitehub.trace.parentId": rawParentSpanId } : {}),
           "vitehub.trace.id": rawTraceId,
@@ -507,7 +517,10 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         ...(parentSpanId ? { parentSpanId } : {}),
         spanId,
         startTime: run.startTime,
-        status: { code: run.status === "failed" ? "ERROR" : "OK" },
+        status: {
+          code: run.status === "failed" ? "ERROR" : "OK",
+          ...(run.status === "failed" && errorMessage ? { message: errorMessage } : {}),
+        },
         traceId,
       } satisfies OpenTelemetrySpanView,
       ...run.steps.map(step => ({
@@ -516,12 +529,15 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
           "vitehub.run.id": run.id,
           "vitehub.step.id": step.id,
         },
-        endTime: step.endTime,
+        endTime: step.endTime || run.endTime,
         name: step.name,
         parentSpanId: spanId,
         spanId: openTelemetryId(`${run.id}:${step.id}`, 16),
         startTime: step.startTime,
-        status: { code: step.status === "failed" ? "ERROR" : "OK" } as const,
+        status: {
+          code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",
+          ...(typeof step.attributes?.["error.message"] === "string" ? { message: step.attributes["error.message"] } : {}),
+        } as const,
         traceId,
       })),
     ]

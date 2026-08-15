@@ -19,7 +19,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, getViteHubErrorShape, resolveRuntimeContext } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, resolveRuntimeContext, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
@@ -45,7 +45,7 @@ import {
   webChat as builtInWebChat,
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
-import { bindAgentRunEvents } from "./run-events.ts"
+import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
 import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
@@ -162,6 +162,7 @@ import type {
   AgentSettings,
   AgentStaticCapabilitiesList,
   IsTypedAgentStaticCapabilitiesList,
+  AgentTelemetry,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -402,6 +403,8 @@ export type {
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
+  AgentTelemetry,
+  AgentTelemetryExportContext,
   AgentTriggerContext,
   AgentTriggerDefinition,
   AgentTriggerInvokeResult,
@@ -424,6 +427,9 @@ export type {
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
+
+export { otlpHttpJson } from "./telemetry.ts"
+export type { OtlpHttpJsonOptions, OtlpResourceAttributes } from "./telemetry.ts"
 
 export {
   createAgentInspectionMetadata,
@@ -1284,7 +1290,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, telemetry, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" ? driver.run : undefined
   const capabilitiesResolver = typeof capabilities === "function"
@@ -1348,6 +1354,7 @@ function defineBaseAgent<
     name,
     runtime,
     runEvents,
+    telemetry,
     run,
     uiMessageStream,
     version,
@@ -1916,6 +1923,8 @@ type AgentInvocationContext<
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   startTask?: Promise<void>
+  telemetry?: AgentTelemetry<TRuntimeConfig>
+  telemetryAgent: { name?: string, version?: string }
   instructions?: string
   startedAt: number
   actor: AgentInvoker
@@ -2006,6 +2015,44 @@ async function registerResolvedAgentWorkspaceDefinition(name: string, definition
   registerWorkspace(name, workspace)
 }
 
+function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, "waitUntil">, task: Promise<unknown>): void {
+  void task.catch(() => {})
+  try {
+    runtime.waitUntil(task)
+  }
+  catch {}
+}
+
+function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
+  telemetry: AgentTelemetry<TRuntimeConfig> | undefined,
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  agent: { name?: string, version?: string },
+): void {
+  const traceLog = runtime.traceLog
+  if (!telemetry || !traceLog) return
+  const runs = deriveTraceRuns(traceLog.entries())
+  const id = runtime.run?.runId || runtime.trace?.id
+  const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
+  if (!run || run.status === "running") return
+  const name = runtime.agentIdentity?.name || agent.name
+  const spans = traceEventsToOpenTelemetrySpans(run.events, { content: "metadata" }).map((span, index) => index
+    ? span
+    : {
+        ...span,
+        attributes: {
+          ...span.attributes,
+          "gen_ai.operation.name": "invoke_agent",
+          ...(name ? { "gen_ai.agent.name": name, "vitehub.agent.name": name } : {}),
+          ...(agent.version ? { "gen_ai.agent.version": agent.version, "vitehub.agent.version": agent.version } : {}),
+          "vitehub.runtime.name": runtime.runtime,
+        },
+      })
+  const task = Promise.resolve()
+    .then(() => telemetry({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, spans }))
+    .catch(() => console.error("[vitehub] Agent telemetry export failed."))
+  registerAgentBackgroundTask(runtime, task)
+}
+
 async function createAgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -2025,22 +2072,23 @@ async function createAgentInvocationContext<
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
       }
-  const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
-  const runtimeContext = boundRunEvents
-    ? { ...tracedRuntimeContext, runEvents: boundRunEvents }
-    : tracedRuntimeContext
-  const callbackContext = createAgentCallbackContext(runtimeContext)
+  let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   const invocationContext = createAgentInvocationContextStore(input.context)
-  bindMessageChannelInstructions(
-    invocationContext,
-    activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
-  )
-  invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
-  invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
-  const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
-  invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
+    const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
+    runtimeContext = boundRunEvents
+      ? { ...tracedRuntimeContext, runEvents: boundRunEvents }
+      : tracedRuntimeContext
+    const callbackContext = createAgentCallbackContext(runtimeContext)
+    bindMessageChannelInstructions(
+      invocationContext,
+      activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel,
+    )
+    invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
+    invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
+    const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
+    invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
     invoker = await resolveAgentInvoker(
       definition?.invoker,
       callbackContext,
@@ -2198,6 +2246,8 @@ async function createAgentInvocationContext<
       runtimeContext,
       startTask: undefined as Promise<void> | undefined,
       startedAt,
+      telemetry: definition?.telemetry,
+      telemetryAgent: { name: definition?.name, version: definition?.version },
       tools,
       workspace: activeWorkspace,
       workspaceAutoCommit,
@@ -2236,6 +2286,7 @@ async function createAgentInvocationContext<
       run: context.run,
       runtime: runtimeContext,
     }, error)
+    scheduleAgentTelemetry(definition?.telemetry, runtimeContext, { name: definition?.name, version: definition?.version })
     throw error
   }
 }
@@ -2264,6 +2315,8 @@ type InvocationRunContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
+  telemetry?: AgentTelemetry<TRuntimeConfig>
+  telemetryAgent: { name?: string, version?: string }
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
@@ -3032,6 +3085,9 @@ async function finishAgentInvocation<
     )
     throw finishError
   }
+  finally {
+    scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent)
+  }
 }
 
 async function finalizeAgentInvocationResult<
@@ -3223,47 +3279,15 @@ type AgentInvocationExecutionOptions =
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
   }
 
-async function closePreparedInvocationAfterFailure<
+function deferPreparedInvocationFailure<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
   preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   error: unknown,
-  message: string,
-): Promise<never> {
-  const errors = [error]
-  try {
-    await preparedInvocation.startTask
-  }
-  catch (startError) {
-    errors.push(startError)
-  }
-  try {
-    await preparedInvocation.close()
-  }
-  catch (closeError) {
-    errors.push(closeError)
-  }
-  if (errors.length > 1) throw new AggregateError(errors, message)
-  throw error
-}
-
-function deferPreparedInvocationCloseAfterFailure<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
 ): void {
-  const cleanupTask = (async () => {
-    try {
-      await preparedInvocation.startTask
-    }
-    finally {
-      await preparedInvocation.close()
-    }
-  })()
-  preparedInvocation.runtimeContext.waitUntil?.(cleanupTask)
-  void cleanupTask.catch(() => {})
+  const finishTask = finishAgentInvocation(preparedInvocation, { error, status: "error" })
+  registerAgentBackgroundTask(preparedInvocation.runtimeContext, finishTask)
 }
 
 async function executeAgentInvocationWithCapacityLease<
@@ -3279,16 +3303,6 @@ async function executeAgentInvocationWithCapacityLease<
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
-  let adapter: AgentAdapter<CALL_OPTIONS> | undefined
-  try {
-    adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
-  }
-  catch (error) {
-    if (preparedInvocation) {
-      return await closePreparedInvocationAfterFailure(preparedInvocation, error, "[vitehub] Agent Driver resolution and invocation cleanup failed.")
-    }
-    throw error
-  }
   const definition = hasAgentDefinition(agent)
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
@@ -3318,6 +3332,13 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
+  let adapter: AgentAdapter<CALL_OPTIONS> | undefined
+  try {
+    adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, invocation.runtimeContext)
+  }
+  catch (error) {
+    return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+  }
   let result: unknown
   try {
     const adapterContext = toAgentAdapterRunContext(invocation)
@@ -4064,7 +4085,7 @@ async function executeAgentInvocation<
   }
   catch (error) {
     if (preparedInvocation) {
-      deferPreparedInvocationCloseAfterFailure(preparedInvocation)
+      deferPreparedInvocationFailure(preparedInvocation, error)
     }
     await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     throw error

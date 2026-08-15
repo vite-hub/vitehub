@@ -14,6 +14,7 @@ import type {
   RuntimeCapabilityHandle,
   RuntimeHostContext,
   RuntimeWaitUntil,
+  OpenTelemetrySpanView,
 } from "@vite-hub/runtime"
 import type {
   ReadonlyWorkspaceFacade,
@@ -205,6 +206,20 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
   runId: string
   threadId?: string
 }
+
+export interface AgentTelemetryExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  agent: {
+    name?: string
+    version?: string
+  }
+  run?: AgentRunMetadata
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  spans: readonly OpenTelemetrySpanView[]
+}
+
+export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = (
+  context: AgentTelemetryExportContext<TRuntimeConfig>,
+) => MaybePromise<void>
 
 export interface AgentChannelDelivery {
   agentName: string
@@ -1189,6 +1204,7 @@ type AgentSharedSettings<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
+  telemetry?: AgentTelemetry<TRuntimeConfig>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
@@ -1228,6 +1244,7 @@ export interface AgentDefinition<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
+  telemetry?: AgentTelemetry<TRuntimeConfig>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
