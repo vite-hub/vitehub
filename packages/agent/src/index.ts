@@ -844,10 +844,23 @@ async function runAgentAsWorkflow<
       ? await portableAgentWorkflowRunId(context.run.runId)
       : context.run.runId
     : undefined
-  const run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
-    payload,
-    workflowRunId ? { id: workflowRunId } : {},
-  ))
+  let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+  try {
+    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
+      payload,
+      workflowRunId ? { id: workflowRunId } : {},
+    )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+  }
+  catch (error) {
+    if (hasAgentDefinition(agent)) {
+      const invocationJournal = await bindAgentInvocations(agent.invocations, {
+        ...context,
+        run: { ...context.run, runId: workflowRunId || createTraceId() },
+      }, { agentName: agent.name, terminalTakeover: true })
+      await invocationJournal?.finish("failed", error)
+    }
+    throw error
+  }
   const invocationJournal = hasAgentDefinition(agent)
     ? await bindAgentInvocations(agent.invocations, {
       ...context,

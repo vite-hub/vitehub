@@ -11959,6 +11959,48 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("journals Workflow provider start failures", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const failure = new Error("provider start failed")
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        workflow: async () => ({
+          createWorkflow: () => ({
+            run: async () => { throw failure },
+          }),
+        }) as never,
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          runtime: workflow("start-failure-agent"),
+        }), {
+          memo: vi.fn(),
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+
+        await expect(invocations.list()).resolves.toMatchObject({
+          invocations: [{ error: { message: failure.message }, status: "failed" }],
+        })
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("reconciles controlled queued runs without caller inspection", async () => {
       const { defineAgent, startAgentInvocation } = await import("../src/index.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")

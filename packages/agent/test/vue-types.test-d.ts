@@ -57,5 +57,10 @@ describe("Agent Vue client types", () => {
     expectTypeOf(detail.observations).toEqualTypeOf<ShallowRef<readonly TraceEventLogEntry[]>>()
     expectTypeOf(detail.refresh).toBeFunction()
     expectTypeOf(detail.stop).toBeFunction()
+
+    // @ts-expect-error Invocation consoles must provide the transport their server exposes.
+    useAgentInvocations({ immediate: false })
+    // @ts-expect-error Invocation consoles must provide the transport their server exposes.
+    useAgentInvocation("inv-1", { immediate: false })
   })
 })
