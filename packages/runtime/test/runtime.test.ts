@@ -582,6 +582,16 @@ describe("@vite-hub/runtime", () => {
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
   })
 
+  it("preserves success after a recoverable stream error", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
+    await log.append({ attributes: { "error.recoverable": true }, name: "agent.stream.error", trace: { id: "trace-1" }, type: "error" })
+    await log.append({ name: "agent.invocation.finish", trace: { id: "trace-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())[0]?.status).toBe("completed")
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
+  })
+
   it("derives child span ids from the invocation-specific root", async () => {
     const event = (invocationId: string, sequence: number) => [
       { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.start", sequence, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "host-trace" }, type: "run" as const },

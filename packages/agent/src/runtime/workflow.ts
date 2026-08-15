@@ -248,7 +248,9 @@ export async function runAgentWorkflowDefinition<
     throw error
   }
   finally {
-    await Promise.allSettled(backgroundTasks)
+    while (backgroundTasks.length) {
+      await Promise.allSettled(backgroundTasks.splice(0))
+    }
   }
 }
 

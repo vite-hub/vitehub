@@ -1935,9 +1935,9 @@ function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeConte
       return traceLog.append({
         ...event,
         attributes: {
+          ...event.attributes,
           "agent.invocation.id": invocationId,
           ...(runId ? { "agent.run.id": runId } : {}),
-          ...event.attributes,
         },
       })
     },

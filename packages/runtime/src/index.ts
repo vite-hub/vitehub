@@ -448,7 +448,7 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
     }
 
     const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = sorted.some(event => event.name === "agent.stream.error" || event.name === "run.error")
+    const status: TraceRunStatus = sorted.some(event => (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true) || event.name === "run.error")
       ? "failed"
       : terminal
         ? isTraceRunError(terminal) ? "failed" : "completed"

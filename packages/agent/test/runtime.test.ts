@@ -12218,6 +12218,38 @@ describe("agent message protocol", () => {
       else await expect(workflow).resolves.toBe("ok")
     })
 
+    it("retains Workflow background work registered during cleanup", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let releaseFirst!: () => void
+      let releaseSecond!: () => void
+      const second = new Promise<void>(resolve => { releaseSecond = resolve })
+      let runtimeContext!: { waitUntil: (task: Promise<unknown>) => void }
+      const first = new Promise<void>(resolve => { releaseFirst = resolve }).then(() => runtimeContext.waitUntil(second))
+      let markRegistered!: () => void
+      const registered = new Promise<void>(resolve => { markRegistered = resolve })
+      let settled = false
+      const workflow = runAgentWorkflowDefinition({} as never, {
+        id: "nested-background",
+        name: "nested-background",
+        payload: {},
+        provider: "vercel",
+      }, async (_agent, context) => {
+        runtimeContext = context
+        context.waitUntil(first)
+        markRegistered()
+        return "ok"
+      })
+      void workflow.finally(() => { settled = true })
+
+      await registered
+      releaseFirst()
+      await first
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      releaseSecond()
+      await expect(workflow).resolves.toBe("ok")
+    })
+
     it("observes Workflow background failures while the invocation is pending", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       let rejectTask!: (error: Error) => void
