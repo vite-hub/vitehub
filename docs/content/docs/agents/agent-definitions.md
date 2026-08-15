@@ -109,6 +109,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
 | `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. |
 | `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
+| `telemetry` | Exports completed invocation traces without changing Agent output. |
 | `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |
 | `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |
 

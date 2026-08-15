@@ -142,7 +142,25 @@ export default defineAgent({
 })
 ```
 
-Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary. Supply your own trace sink when the application needs durable observability.
+Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
+
+Use the Agent telemetry option to send completed invocation spans to an OTLP/HTTP JSON receiver:
+
+```ts [server/agents/support.ts]
+import { defineAgent, otlpHttpJson } from '@vite-hub/agent'
+
+export default defineAgent({
+  name: 'support',
+  telemetry: otlpHttpJson({
+    endpoint: 'https://console.example/v1/traces',
+    headers: { authorization: `Bearer ${process.env.CONSOLE_TOKEN!}` },
+    resource: { 'service.namespace': 'quiver' },
+  }),
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+Pass the complete traces endpoint, including `/v1/traces` when the receiver uses the conventional OTLP path. ViteHub exports only metadata, even when the invocation uses a caller-supplied content trace log, and includes setup failures that occur before the Driver starts. Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. Receivers should deduplicate spans by trace and span id because retries can deliver the same invocation more than once.
 
 ## Control child work
 
