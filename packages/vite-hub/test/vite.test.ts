@@ -339,6 +339,21 @@ describe("vitehub", () => {
     }))
   })
 
+  it("carries Cloudflare Agent State into generated Workflow builds", () => {
+    vitehub({ agent: true, preset: "cloudflare" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      providers: { state: { provider: "cloudflare" } },
+    }))
+
+    vitehub({
+      agent: { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } },
+      preset: "cloudflare",
+    })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+    }))
+  })
+
   it("resolves only package-owned imports from generated modules", async () => {
     const resolveId = dependencyResolver()
 

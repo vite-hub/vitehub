@@ -574,8 +574,17 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as SandboxPublicOptions))
   }
   if (options.agent) {
+    const agentOptions = options.agent === true ? {} : options.agent
     plugins.push(hubAgent({
-      ...(options.agent === true ? {} : options.agent),
+      ...agentOptions,
+      ...(plan.preset === "cloudflare"
+        ? {
+            providers: {
+              ...agentOptions.providers,
+              state: { provider: "cloudflare", ...agentOptions.providers?.state },
+            },
+          }
+        : {}),
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
       importBase: `${generatedImportBase}/agent`,
       processDiscordGateway: plan.preset === "node",
