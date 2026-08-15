@@ -100,7 +100,10 @@ async function normalizeLinkBindings(template: string): Promise<{
   const token = `VITEHUBMARKDOWNTEMPLATELINK${crypto.randomUUID().replaceAll("-", "")}`
   const candidates: Array<{ binding: string, path: string }> = []
   const prepared = template.replace(tagBindingPattern, (binding, path: string, offset: number, source: string) => {
-    if (!/\]\(\s*$/.test(source.slice(0, offset)) || !/^\s*\)/.test(source.slice(offset + binding.length))) {
+    const suffix = source.slice(offset + binding.length)
+    const closesDestination = /^\s*\)/.test(suffix)
+      || /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\)/.test(suffix)
+    if (!/\]\(\s*$/.test(source.slice(0, offset)) || !closesDestination) {
       return binding
     }
     const index = candidates.push({ binding, path }) - 1

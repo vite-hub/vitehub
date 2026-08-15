@@ -45,6 +45,10 @@ describe("renderMarkdownTemplate", () => {
     await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: "https://example.com/a) [Injected](https://evil.test?q=\"x\"" },
     })).resolves.toBe("[Open recap](https://example.com/a%29%20%5BInjected%5D%28https://evil.test?q=%22x%22)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }} \"Monthly recap\")", {
+      data: { url: "https://prs.onmax.me/recap/2026-07" },
+    })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
   })
 
   it("rejects unsafe Markdown link destinations", async () => {
