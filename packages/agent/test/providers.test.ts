@@ -676,6 +676,16 @@ describe("agent Vite plugin", () => {
       expect(cloudflareRegistry).toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(cloudflareRegistry).toContain("context.cloudflare?.env?.CHAT_STATE")
       expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
+
+      await cloudflareConfigResolved({
+        command: "build",
+        createResolver: () => async (id: string) => `/app/node_modules/${id}`,
+        plugins: [],
+        root,
+      })
+      const nestedCloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      expect(nestedCloudflareRegistry).toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
+      expect(nestedCloudflareRegistry).not.toContain("createLibsqlAgentState")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1762,10 +1772,11 @@ export default defineAgent({
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
+      expect(webhookRoute).toContain("import { createCloudflareAgentState, getActiveCloudflareEnv } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("filter(([, agent]) => hasChannelChatRoute(agent))")
       expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare:")
+      expect(webhookRoute).toContain("(cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
     }
     finally {

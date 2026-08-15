@@ -1,6 +1,7 @@
 import type { Plugin } from "vite"
 
 export { createCloudflareAgentState, ViteHubAgentStateAdapter } from "./state/providers/cloudflare.ts"
+export { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 export type {
   CloudflareAgentStateOptions,
   ViteHubAgentStateDurableObjectNamespace,

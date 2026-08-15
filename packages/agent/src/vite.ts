@@ -1525,7 +1525,7 @@ function generatedCloudflareChatStateHelper(): string[] {
   return [
     "",
     "function chatStateFromCloudflare(cloudflare: ViteHubGeneratedCloudflare | undefined) {",
-    `  const namespace = cloudflare?.env?.${defaultCloudflareAgentStateBinding} as ViteHubAgentStateDurableObjectNamespace | undefined`,
+    `  const namespace = (cloudflare?.env || getActiveCloudflareEnv())?.${defaultCloudflareAgentStateBinding} as ViteHubAgentStateDurableObjectNamespace | undefined`,
     "  const state = namespace ? createCloudflareAgentState({ namespace }) : undefined",
     "  if (state) Object.assign(state, { workflowCustody: true })",
     "  return state",
@@ -1761,7 +1761,7 @@ async function generateAgentWebhookRouteHandler(
     ...deploymentCatalog.imports,
     ...(options.cloudflareState
       ? [
-          `import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
+          `import { createCloudflareAgentState, getActiveCloudflareEnv } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
           `import type { ViteHubAgentStateDurableObjectNamespace } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
         ]
       : []),
@@ -2346,12 +2346,22 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   const eveExtensionOwners = new Map<string, string>()
+  let installsCloudflareState = false
   let resolved: ResolvedConfig | undefined
   let serverDirs: string[] | undefined
 
   function clearEveExtensionOwnership(owner: string): void {
     for (const [specifier, currentOwner] of eveExtensionOwners) {
       if (currentOwner === owner) eveExtensionOwners.delete(specifier)
+    }
+  }
+
+  function workflowState(config: ResolvedConfig) {
+    const normalized = normalizeAgentOptions(agent)
+    installsCloudflareState ||= shouldInstallCloudflareAgentState(normalized, config)
+    return {
+      cloudflare: installsCloudflareState,
+      libsql: installsCloudflareState ? undefined : resolveLibsqlAgentState(normalized, config),
     }
   }
 
@@ -2528,10 +2538,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           code,
           runtimeCapabilities,
           getAgentImportBase(agent, frameworkOptions),
-          {
-            cloudflare: shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), resolved!),
-            libsql: resolveLibsqlAgentState(normalizeAgentOptions(agent), resolved!),
-          },
+          workflowState(resolved!),
         )
       }
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
@@ -2559,10 +2566,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               code,
               runtimeCapabilities,
               getAgentImportBase(agent, frameworkOptions),
-              {
-                cloudflare: shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), resolved!),
-                libsql: resolveLibsqlAgentState(normalizeAgentOptions(agent), resolved!),
-              },
+              workflowState(resolved!),
             )
           : code,
       },
@@ -2592,6 +2596,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const denoOutput = resolved && resolved.runtime === "deno"
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
+      installsCloudflareState ||= installCloudflareState
       const stateProvider = resolved && resolved.providers.state.provider
       const installWebhookQueue = Boolean(
         resolved
@@ -2661,6 +2666,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async configResolved(config) {
       resolved = config
       agent = config.agent ?? agent
+      installsCloudflareState ||= shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), config)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
