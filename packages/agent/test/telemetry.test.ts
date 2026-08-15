@@ -103,7 +103,7 @@ describe("Agent telemetry", () => {
       driver: {
         async run(context) {
           await context.traceLog?.append({
-            attributes: { prompt: "secret prompt" },
+            attributes: { prompt: "secret prompt", source: "custom" },
             name: "application.content",
             type: "run",
           })
@@ -128,6 +128,7 @@ describe("Agent telemetry", () => {
       run: { runId: "run-1" },
       spans: [{
         attributes: {
+          source: "custom",
           "gen_ai.agent.name": "support",
           "gen_ai.operation.name": "invoke_agent",
           "vitehub.agent.name": "support",

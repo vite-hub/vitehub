@@ -581,4 +581,17 @@ describe("@vite-hub/runtime", () => {
     expect(deriveTraceRuns(log.entries())[0]?.status).toBe("completed")
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
   })
+
+  it("derives child span ids from the invocation-specific root", async () => {
+    const event = (invocationId: string, sequence: number) => [
+      { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.start", sequence, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "host-trace" }, type: "run" as const },
+      { attributes: { "agent.invocation.id": invocationId, "step.id": "model" }, name: "agent.model.finish", sequence: sequence + 1, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "host-trace" }, type: "run" as const },
+      { attributes: { "agent.invocation.id": invocationId }, name: "agent.invocation.finish", sequence: sequence + 2, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "host-trace" }, type: "run" as const },
+    ]
+
+    const [firstRoot, firstChild] = traceEventsToOpenTelemetrySpans(event("invocation-1", 1))
+    const [secondRoot, secondChild] = traceEventsToOpenTelemetrySpans(event("invocation-2", 4))
+    expect(firstRoot?.spanId).not.toBe(secondRoot?.spanId)
+    expect(firstChild?.spanId).not.toBe(secondChild?.spanId)
+  })
 })

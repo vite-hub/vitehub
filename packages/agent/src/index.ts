@@ -1929,6 +1929,22 @@ function registerAgentBackgroundTask(runtime: Pick<ResolvedAgentRuntimeContext, 
   catch {}
 }
 
+function agentInvocationTraceLog(traceLog: NonNullable<ResolvedAgentRuntimeContext["traceLog"]>, invocationId: string, runId?: string): NonNullable<ResolvedAgentRuntimeContext["traceLog"]> {
+  return {
+    append(event) {
+      return traceLog.append({
+        ...event,
+        attributes: {
+          "agent.invocation.id": invocationId,
+          ...(runId ? { "agent.run.id": runId } : {}),
+          ...event.attributes,
+        },
+      })
+    },
+    entries: () => traceLog.entries(),
+  }
+}
+
 function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   telemetry: AgentTelemetry<TRuntimeConfig> | undefined,
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
@@ -1973,17 +1989,20 @@ async function createAgentInvocationContext<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
-  const tracedRuntimeContext = resolvedContext.trace && resolvedContext.traceLog
+  const invocationContext = createAgentInvocationContextStore(input.context)
+  const telemetryInvocationId = createTraceId()
+  invocationContext.set(agentInvocationTraceIdContextKey, telemetryInvocationId, { overwrite: true })
+  const tracedRuntimeContextBase = resolvedContext.trace && resolvedContext.traceLog
     ? resolvedContext
     : {
         ...resolvedContext,
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
       }
+  const tracedRuntimeContext = definition?.telemetry && tracedRuntimeContextBase.traceLog
+    ? { ...tracedRuntimeContextBase, traceLog: agentInvocationTraceLog(tracedRuntimeContextBase.traceLog, telemetryInvocationId, context.run?.runId) }
+    : tracedRuntimeContextBase
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
-  const invocationContext = createAgentInvocationContextStore(input.context)
-  const telemetryInvocationId = createTraceId()
-  invocationContext.set(agentInvocationTraceIdContextKey, telemetryInvocationId, { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)

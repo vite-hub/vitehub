@@ -539,7 +539,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         endTime: step.endTime || run.endTime,
         name: step.name,
         parentSpanId: spanId,
-        spanId: openTelemetryId(`${run.id}:${step.id}`, 16),
+        spanId: openTelemetryId(`${spanId}:${step.id}`, 16),
         startTime: step.startTime,
         status: {
           code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",
