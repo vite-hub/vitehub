@@ -54,6 +54,10 @@ describe("renderMarkdownTemplate", () => {
       data: { url: "http://[::1]/recap" },
     })).resolves.toBe("[Open recap](http://[::1]/recap)")
 
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "http://[0:0:0:0:0:0:0:1]/recap" },
+    })).resolves.toBe("[Open recap](http://[0:0:0:0:0:0:0:1]/recap)")
+
     await expect(renderMarkdownTemplate("[Open recap]({{ url }} \"Monthly recap\")", {
       data: { url: "https://prs.onmax.me/recap/2026-07" },
     })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
