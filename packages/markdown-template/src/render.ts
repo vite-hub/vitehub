@@ -159,7 +159,6 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
   const scheme = value.match(/^([a-z][a-z\d+.-]*):/i)
   const hierarchical = !scheme
     || /^(?:file|ftp|https?|wss?)$/i.test(scheme[1]!)
-    || value[scheme[0].length] === "/"
   const hasPathBackslash = hierarchical
     && value.slice(0, suffixIndex < 0 ? undefined : suffixIndex).includes("\\")
   const hasHtmlReferencePrefix = /&#(?:\d+|x[\dA-F]+)/i.test(value)
