@@ -4571,8 +4571,7 @@ export function createChannelWebhookRouteHandler(
       const chatDeliveryState = trigger.id === "chat.message" || workflowCustody || !webhookDeliveryState
         ? {
             ...await resolveChatState(chatOptions, context, registration, handlerOptions),
-            workflowCustodySupported: chatOptions?.state !== undefined
-              || stateResolverSupportsWorkflowCustody(handlerOptions.state),
+            workflowCustodySupported: stateResolverSupportsWorkflowCustody(chatOptions?.state ?? handlerOptions.state),
           }
         : undefined
       const deliveryState = (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) || (chatDeliveryState

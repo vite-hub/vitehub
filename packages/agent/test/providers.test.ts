@@ -10244,7 +10244,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-default-workflow-state-"))
-    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
     let observedTimeout: number | undefined | "not-run" = "not-run"
@@ -10350,18 +10350,21 @@ describe("server helpers", () => {
     }
   })
 
-  it("rejects Workflow custody without reconstructable State", async () => {
+  it("rejects Channel State without reconstructable Workflow custody", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-unmarked-workflow-state-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
           adapter: () => adapter as never,
-          messages: { delivery: "manual" },
+          messages: { delivery: "manual", state },
         }),
       },
       driver: { run },
@@ -10370,6 +10373,7 @@ describe("server helpers", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
     try {
+      await state.connect()
       await expect(handler(chatWebhookRequest(91_110), "telegram", {
         agentIdentity: { name: "calories" },
       })).rejects.toThrow("requires reconstructable State across Agent Workflow custody")
@@ -10377,6 +10381,8 @@ describe("server helpers", () => {
     }
     finally {
       resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
     }
   })
 
@@ -10388,7 +10394,7 @@ describe("server helpers", () => {
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
     const { resetWorkflowRuntime } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-workflow-state-"))
-    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
     let workflowPayload: { input?: { timeout?: number } } | undefined
@@ -10447,7 +10453,7 @@ describe("server helpers", () => {
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-opt-out-state-"))
-    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
     const create = vi.fn()
     const run = vi.fn(() => "internal output")
@@ -10492,7 +10498,7 @@ describe("server helpers", () => {
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
     const { resetWorkflowRuntime } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-handoff-failure-state-"))
-    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
     const agent = defineAgent({
