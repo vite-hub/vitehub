@@ -1676,6 +1676,8 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).not.toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
       expect(webhookRoute).toContain("const body = await readRawBody(event)")
+      expect(webhookRoute).toContain("const nodeRequest = event.node?.req")
+      expect(webhookRoute).toContain("signal: AbortSignal.any([event.req.signal, controller.signal])")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
       expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
