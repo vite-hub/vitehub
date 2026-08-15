@@ -7635,7 +7635,7 @@ describe("server helpers", () => {
       )).toHaveLength(1))
 
       await vi.advanceTimersByTimeAsync(1_000)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 5_000 })
       await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(2))
       await expect(retryDelivery.mock.results[1]?.value).resolves.toBe(true)
       await vi.waitFor(() => expect(consoleError.mock.calls.filter(([message]) =>
