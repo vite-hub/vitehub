@@ -115,6 +115,11 @@ export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOp
   event?: unknown
 }
 
+export interface AgentChannelChatRouteHandler {
+  (request: Request, options?: AgentChannelChatRouteRequestOptions): Promise<Response>
+  deliveries(request: Request, options?: AgentChannelChatRouteRequestOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
+}
+
 export interface AgentChannelChatRouteStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
   value: T
@@ -4152,9 +4157,9 @@ function agentChatFetchErrorResponse(error: unknown): Response {
 export function createChannelChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
-): (request: Request, options?: AgentChannelChatRouteRequestOptions) => Promise<Response> {
+): AgentChannelChatRouteHandler {
   const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
-  return async (request, handlerOptions = {}) => {
+  const handler: AgentChannelChatRouteHandler = async (request, handlerOptions = {}) => {
     if (request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
     }
@@ -4275,6 +4280,28 @@ export function createChannelChatRouteHandler(
       return agentChatFetchErrorResponse(error)
     }
   }
+  handler.deliveries = async (request, handlerOptions = {}) => {
+    const context = createRuntimeContext(
+      request,
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    const agentName = context.agentIdentity?.name || "agent"
+    const registration = {
+      channelId: routeOptions.channelId || "http",
+      id: routeOptions.channelId || "http",
+      provider: routeOptions.origin || "http",
+    }
+    const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
+    const { state } = await resolveChatState(chatOptions, context, registration, handlerOptions)
+    await state.connect()
+    return await readAgentChannelDeliveries(state, handlerOptions.limit, `chat:${agentName}:${registration.provider}:`)
+  }
+  return handler
 }
 
 export function createChannelWebhookRouteHandler(
@@ -4701,6 +4728,7 @@ export function createChannelWebhookRouteHandler(
               // claims this delivery instead of promising durable queue custody.
               type: response.ok ? serial && !ignored ? "accepted" : "completed" : response.status >= 500 ? "failed" : "rejected",
             })
+            if (serial && !ignored && response.ok) detachAgentChannelDelivery(channelDelivery)
           }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
             await context.flushWaitUntil?.()

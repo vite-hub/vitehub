@@ -2385,6 +2385,13 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
     await expect(response.text()).resolves.toContain("echo hello for customer:acme via http on unknown from portal-user after anonymous:http")
+    await expect(handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/chat"), { agentName: "support" })).resolves.toEqual([
+      expect.objectContaining({
+        agentName: "support",
+        provider: "http",
+        status: "completed",
+      }),
+    ])
     expect(resolveInvoker).toHaveBeenCalledWith(expect.objectContaining({
       defaultInvoker: expect.objectContaining({
         id: "anonymous:http",

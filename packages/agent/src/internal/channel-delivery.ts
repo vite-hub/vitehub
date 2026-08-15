@@ -125,6 +125,7 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
     await state.set(sourceKey(delivery), delivery, retentionMs)
     await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
     await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
+    await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
   }
   catch (error) {
     console.error(JSON.stringify({
@@ -187,13 +188,6 @@ export async function openAgentChannelDelivery(state: StateAdapter, input: Omit<
   const delivery = created ? candidate : (await state.get<AgentChannelDelivery>(sourceKey(candidate))) || candidate
   await state.set(sourceKey(delivery), delivery, retentionMs)
   await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
-  if (created) {
-    await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
-  }
-  else {
-    const indexed = await state.getList<string>(indexKey)
-    if (!indexed.includes(delivery.id)) await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
-  }
   const opened = tracker(state, delivery, !created)
   try {
     await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
