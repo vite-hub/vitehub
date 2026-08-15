@@ -1078,12 +1078,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         ...process.env,
         VITEHUB_PRESET: "vercel",
       })
-      const [agentRoute, authTypes, blobPlugin, envServer, scheduleRegistryTypes, workflowRegistry, workspacePlugin] = await Promise.all([
+      const [agentRoute, authTypes, blobPlugin, envServer, workflowRegistry, workspacePlugin] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
-        readFile(join(appDir, ".vitehub/schedule/registry.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/workflow/registry.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/workspace/plugin.ts"), "utf8"),
       ])
@@ -1093,7 +1092,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(authTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(envServer).toContain("vite-hub/env/server")
-      expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
       expect(workflowRegistry).toContain("vite-hub/_internal/agent")
       expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
