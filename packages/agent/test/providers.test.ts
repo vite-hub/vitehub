@@ -12358,6 +12358,7 @@ describe("server helpers", () => {
       headers: { "x-test-secret": "history-secret" },
       method: "POST",
     }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
+    await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledTimes(1))
 
     await expect(handler(new Request(webhookUrl, {
       body: JSON.stringify({
@@ -12378,6 +12379,7 @@ describe("server helpers", () => {
       headers: { "x-test-secret": "history-secret" },
       method: "POST",
     }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
+    await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledTimes(2))
     const fetchAttachment = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(Uint8Array.from([4, 5, 6])))
 
     const connectsBeforeHistory = connect.mock.calls.length
