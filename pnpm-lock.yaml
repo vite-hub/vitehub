@@ -134,6 +134,9 @@ catalogs:
     lib0:
       specifier: ^0.2.114
       version: 0.2.117
+    marked:
+      specifier: 17.0.6
+      version: 17.0.6
     y-protocols:
       specifier: ^1.0.6
       version: 1.0.7
@@ -1269,6 +1272,9 @@ importers:
       lib0:
         specifier: catalog:realtime
         version: 0.2.117
+      marked:
+        specifier: catalog:realtime
+        version: 17.0.6
       pathe:
         specifier: catalog:unjs
         version: 2.0.3

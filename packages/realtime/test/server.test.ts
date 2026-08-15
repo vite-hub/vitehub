@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import type { JSONContent } from "@tiptap/core"
+import { marked } from "marked"
 import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
@@ -1059,6 +1060,29 @@ describe("tiptap-markdown documents", () => {
 
     expect(normalized).toBe(markdown)
     expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
+  })
+
+  it("preserves frontmatter independently of its first YAML token", () => {
+    const documents = [
+      "---\n# comment\nname: docs\n---\n\n# Page",
+      "---\n\nname: docs\n---\n\n# Page",
+      "---\n\"navigation.order\": 1\n---\n\n# Page",
+      "---\n- docs\n- api\n---\n\n# Page",
+    ]
+
+    for (const markdown of documents) {
+      expect(yDocToMarkdown(markdownToYDoc(markdown))).toBe(markdown)
+    }
+  })
+
+  it("does not register frontmatter tokenizers on the shared Markdown parser", () => {
+    const extensions = marked.defaults.extensions
+
+    for (let index = 0; index < 5; index++) {
+      yDocToMarkdown(markdownToYDoc("---\nname: docs\n---\n\n# Page"))
+    }
+
+    expect(marked.defaults.extensions).toBe(extensions)
   })
 
   it("recognizes frontmatter only as the first document block", () => {

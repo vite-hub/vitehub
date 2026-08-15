@@ -1,4 +1,10 @@
 import { Node } from "@tiptap/core"
+import { Markdown } from "@tiptap/markdown"
+import { Marked } from "marked"
+
+export function createRealtimeMarkdown() {
+  return Markdown.configure({ marked: new Marked() as unknown as typeof import("marked").marked })
+}
 
 export const Frontmatter = Node.create({
   name: "frontmatter",
@@ -23,10 +29,10 @@ export const Frontmatter = Node.create({
   markdownTokenizer: {
     name: "frontmatter",
     level: "block",
-    start: src => /^---\r?\n(?=[\w-]+:)/.test(src) ? 0 : -1,
+    start: src => /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.test(src) ? 0 : -1,
     tokenize(src, tokens) {
       if (tokens.length) return
-      const match = /^---\r?\n(?=[\w-]+:)([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(src)
+      const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(src)
       if (!match) return
       return { type: "frontmatter", raw: match[0], text: match[1] }
     },
