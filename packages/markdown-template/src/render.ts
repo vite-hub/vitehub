@@ -146,7 +146,7 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
   const hasHtmlReferencePrefix = /&#(?:\d+|x[\dA-F]+)/i.test(value)
     || [...value.matchAll(/&([A-Za-z][A-Za-z\d]*)(?=[^=A-Za-z\d]|$)/g)]
       .some(match => legacyHtmlReferences.has(match[1]!))
-  if (hasHtmlReferencePrefix || /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
+  if (value.includes("\\") || hasHtmlReferencePrefix || /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
     const codePoint = character.codePointAt(0)!
     return codePoint < 32 || codePoint === 127
   })) {
