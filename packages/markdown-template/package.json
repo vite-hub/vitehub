@@ -38,6 +38,7 @@
     "test": "vp run -t @vite-hub/markdown-template#build && vp test"
   },
   "dependencies": {
+    "character-entities-legacy": "3.0.0",
     "comark": "catalog:ui"
   },
   "devDependencies": {

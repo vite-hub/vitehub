@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-
 import { renderEmailMarkdown } from "../src/markdown.ts"
 
 describe("renderEmailMarkdown", () => {
@@ -29,6 +28,60 @@ describe("renderEmailMarkdown", () => {
     })).resolves.toEqual({
       html: "<p>Hello</p>\n<p>Regards, <strong>ViteHub</strong></p>",
       text: "Hello\n\nRegards, **ViteHub**",
+    })
+  })
+
+  it("renders a scalar Markdown link destination as one anchor", async () => {
+    await expect(renderEmailMarkdown("[Open and share your visual recap]({{ url }})", {
+      data: { url: "https://prs.onmax.me/recap/2026-07" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"https://prs.onmax.me/recap/2026-07\">Open and share your visual recap</a></p>",
+      text: "[Open and share your visual recap](https://prs.onmax.me/recap/2026-07)",
+    })
+  })
+
+  it("rejects a scalar link destination whose meaning would change", async () => {
+    await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?x=&#x29;*Injected*" },
+    })).rejects.toThrow("must resolve to a safe destination")
+  })
+
+  it("preserves backslash data in a scalar link query", async () => {
+    await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/?q=a\\b" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"https://example.com/?q=a%5Cb\">Open recap</a></p>",
+      text: "[Open recap](https://example.com/?q=a%5Cb)",
+    })
+  })
+
+  it("preserves backslash data in an opaque scalar destination", async () => {
+    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+      data: { url: "web+demo:folder\\item" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"web+demo:folder%5Citem\">Open item</a></p>",
+      text: "[Open item](web+demo:folder%5Citem)",
+    })
+
+    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+      data: { url: "web+demo:\\folder\\item" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"web+demo:%5Cfolder%5Citem\">Open item</a></p>",
+      text: "[Open item](web+demo:%5Cfolder%5Citem)",
+    })
+
+    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+      data: { url: "web+demo:/folder\\item" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"web+demo:/folder%5Citem\">Open item</a></p>",
+      text: "[Open item](web+demo:/folder%5Citem)",
+    })
+
+    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+      data: { url: "web+demo://host/folder\\item" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"web+demo://host/folder%5Citem\">Open item</a></p>",
+      text: "[Open item](web+demo://host/folder%5Citem)",
     })
   })
 })
