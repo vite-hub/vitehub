@@ -132,6 +132,30 @@ describe("Agent Channel delivery journal", () => {
     error.mockRestore()
   })
 
+  it("preserves committed journal success when lock cleanup fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    state.releaseLock = async () => {
+      throw new Error("lock cleanup unavailable")
+    }
+
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      provider: "github",
+      scope: "webhook:support",
+      sourceId: "release-failure",
+    })
+
+    expect(delivery.delivery.sourceId).toBe("release-failure")
+    expect(error.mock.calls.map(([entry]) => String(entry)).join("\n")).toContain('"event":"journal.lock-release.failed"')
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ sourceId: "release-failure", status: "received" }),
+    ])
+    error.mockRestore()
+    info.mockRestore()
+  })
+
   it("repairs the inspection index after a partially failed open", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()

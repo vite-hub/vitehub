@@ -176,20 +176,54 @@ async function appendEvent(state: StateAdapter, delivery: StoredAgentChannelDeli
   }
   try {
     const lock = await acquireDeliveryLock(state, delivery.id)
+    let ownershipLost = false
+    const renewal = setInterval(() => {
+      void state.extendLock(lock, 30_000)
+        .then((extended) => {
+          if (!extended) ownershipLost = true
+        })
+        .catch(() => {
+          ownershipLost = true
+        })
+    }, 10_000)
+    const renew = async () => {
+      if (ownershipLost || !await state.extendLock(lock, 30_000)) {
+        ownershipLost = true
+        throw new Error("Lost ownership of the Agent Channel delivery journal lock.")
+      }
+    }
     try {
+      await renew()
       const current = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(delivery.id)) || delivery
       const reduced = current.journalStatus
         ? { retrySignaled: current.journalRetrySignaled || false, status: current.journalStatus }
         : reduceDeliveryStatus(await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(delivery.id)))
       const next = advanceDeliveryStatus(reduced.status, reduced.retrySignaled, event)
       const stored = { ...current, journalRetrySignaled: next.retrySignaled, journalStatus: next.status }
+      await renew()
       await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
+      await renew()
       await state.set(sourceKey(stored), stored, retentionMs)
+      await renew()
       await state.set(deliveryRecordKey(stored.id), stored, retentionMs)
+      await renew()
       if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
     }
     finally {
-      await state.releaseLock(lock)
+      clearInterval(renewal)
+      try {
+        await state.releaseLock(lock)
+      }
+      catch (error) {
+        console.error(JSON.stringify({
+          scope: "vitehub.channel.delivery",
+          event: "journal.lock-release.failed",
+          deliveryId: delivery.id,
+          provider: delivery.provider,
+          sourceId: delivery.sourceId,
+          error: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
+        }))
+      }
     }
   }
   catch (error) {
