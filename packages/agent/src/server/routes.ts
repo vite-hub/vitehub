@@ -3817,8 +3817,8 @@ async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter
   const bytes = typeof data === "string"
     ? attachmentStringBytes(data, resolved.mimeType || "application/octet-stream")
     : data instanceof Blob
-    ? new Uint8Array(await data.arrayBuffer())
-    : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : undefined
+      ? new Uint8Array(await data.arrayBuffer())
+      : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : undefined
   return objectWithoutUndefined({
     data: bytes ? historyBytesToBase64(bytes) : undefined,
     fetchMetadata: resolved.fetchMetadata,

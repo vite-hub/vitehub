@@ -914,6 +914,27 @@ describe("agent CLI", () => {
         channel: "telegram",
         desired: { secretToken: "configured" },
       }])
+
+      const historyFetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        expect(new Headers(init?.headers).get("x-telegram-bot-api-secret-token")).toBe("stage-webhook-token")
+        return Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" })
+      })
+      const historyStderr = stream()
+      const historyExitCode = await runAgentChannelHistoryCli([
+        "--stage", "staging",
+        "--url", "https://staging.example.com",
+        "--output", "history-export",
+        "--thread", "telegram:123",
+      ], {
+        cwd: rootDir,
+        env: process.env,
+        rootDir,
+        stderr: historyStderr,
+        stdout: stream(),
+      }, { fetch: historyFetch as never })
+      expect(historyStderr.output()).toBe("")
+      expect(historyExitCode).toBe(0)
+      expect(historyFetch).toHaveBeenCalledOnce()
       expect(process.env.TELEGRAM_BOT_TOKEN).toBe("context-bot-token")
       expect(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN).toBeUndefined()
     }
