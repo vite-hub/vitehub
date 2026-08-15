@@ -12318,6 +12318,10 @@ describe("server helpers", () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const connect = vi.spyOn(state, "connect")
     const adapter = createTestChatAdapter({ attachmentFetchData: async () => Buffer.from([1, 2, 3]), persistThreadHistory: true })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
@@ -12342,8 +12346,9 @@ describe("server helpers", () => {
       }),
       headers: { "x-test-secret": "history-secret" },
       method: "POST",
-    }), "telegram")).resolves.toMatchObject({ status: 200 })
+    }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
 
+    const connectsBeforeHistory = connect.mock.calls.length
     const response = await handler(new Request(webhookUrl, {
       body: JSON.stringify({ threadId: "telegram:456" }),
       headers: {
@@ -12352,18 +12357,21 @@ describe("server helpers", () => {
         "x-vitehub-channel-history": "1",
       },
       method: "POST",
-    }), "telegram")
+    }), "telegram", { state })
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
-      messages: [{
-        attachments: [{ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" }],
+      messages: expect.arrayContaining([expect.objectContaining({
+        attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" })]),
         id: "20",
         threadId: "telegram:456",
-      }],
+      })]),
       provider: "telegram",
       schemaVersion: 1,
       threadId: "telegram:456",
     })
+    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 1)
+    await state.disconnect()
+    await rm(stateDir, { force: true, recursive: true })
   })
 
   it("keeps fetched thread history when the current chat message has no id", async () => {

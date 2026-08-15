@@ -3867,7 +3867,9 @@ async function createChannelHistoryResponse(
   const adapter = adapterName ? adapters[adapterName] : undefined
   if (!adapter) return createJsonErrorResponse(500, "Channel history export could not resolve the configured Chat adapter.")
   const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
-  const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options)
+  const state = await resolveChatState(chatOptions, context, registration, options)
+  await state.state.connect()
+  const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options, undefined, state)
   const messages: Record<string, unknown>[] = []
   try {
     for await (const message of chat.thread(body.threadId.trim()).allMessages) {
