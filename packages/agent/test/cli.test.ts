@@ -212,7 +212,7 @@ describe("agent CLI", () => {
       const exitCode = await runAgentChannelHistoryCli([
         "--stage", "production",
         "--url", "https://example.com",
-        "--output", "export",
+        "--output", "archives/export",
       ], {
         cwd: rootDir,
         env: {},
@@ -234,8 +234,8 @@ describe("agent CLI", () => {
       expect(exitCode).toBe(0)
       expect(stderr.output()).toBe("")
       expect(stdout.output()).toContain("Downloaded 1 messages")
-      await expect(readFile(join(rootDir, "export/media/0001-meal.jpg"))).resolves.toEqual(Buffer.from([1, 2, 3]))
-      await expect(readFile(join(rootDir, "export/history.json"), "utf8")).resolves.toContain('"file": "media/0001-meal.jpg"')
+      await expect(readFile(join(rootDir, "archives/export/media/0001-meal.jpg"))).resolves.toEqual(Buffer.from([1, 2, 3]))
+      await expect(readFile(join(rootDir, "archives/export/history.json"), "utf8")).resolves.toContain('"file": "media/0001-meal.jpg"')
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

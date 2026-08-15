@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
-import { basename, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 
 import { deployedChannelWebhookUrl, loadChannelTargets, type LoadedChannelTarget } from "./channel-sync-cli.ts"
 
@@ -150,6 +150,7 @@ export async function runAgentChannelHistoryCli(
     }
     const history = await response.json()
     const outputDir = resolve(context.cwd, parsed.output)
+    await mkdir(dirname(outputDir), { recursive: true })
     await mkdir(outputDir)
     const materialized = await materializeAttachments(history, join(outputDir, "media"), { value: 0 })
     await writeFile(join(outputDir, "history.json"), `${JSON.stringify(materialized, null, 2)}\n`)
