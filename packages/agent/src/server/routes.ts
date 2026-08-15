@@ -3354,7 +3354,7 @@ async function handleChatSdkMessage(
   message: ChatSdkMessage,
   deliveryKind: AgentMessageDeliveryKind,
   options: AgentChatOptions | undefined,
-  state: { keyPrefix: string, state: StateAdapter },
+  state: { keyPrefix: string, state: StateAdapter, workflowCustodySupported?: boolean },
   messageContext?: MessageContext,
   maximumInvocationDeadline?: number,
   historyThroughCurrent = false,
@@ -3387,7 +3387,7 @@ async function handleChatSdkMessage(
     const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) {
-      await delivery.event({ type: "rejected" })
+      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
 
@@ -3396,7 +3396,7 @@ async function handleChatSdkMessage(
       ? messages.find(item => item.id === message.id)
       : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
-      await delivery.event({ type: "rejected" })
+      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
     const filter = options?.filter
@@ -3411,7 +3411,7 @@ async function handleChatSdkMessage(
           post: async postedMessage => await postChatMessage(thread, postedMessage),
         },
       })) {
-        await delivery.event({ type: "rejected" })
+        await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
         return
       }
     }
@@ -3441,6 +3441,9 @@ async function handleChatSdkMessage(
     )
     const resolvedInvocationInput = invocation.input as AgentRunInput
     if (durableDelivery) {
+      if (state.workflowCustodySupported === false) {
+        throw new Error("[vitehub] Durable Channel delivery cannot hand request-scoped State to an Agent Workflow. Configure Channel state or a generated host State provider.")
+      }
       const durableTyping = startChatTypingRefresh(thread, context)
       const durableTypingTimeout = setTimeout(() => durableTyping.stop(), options?.timeout ?? 28_000)
       try {
@@ -3756,7 +3759,7 @@ async function createChannelChat(
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
   maximumInvocationDeadline?: number,
-  providedState?: { state: StateAdapter, titleKeyPrefix: string },
+  providedState?: { state: StateAdapter, titleKeyPrefix: string, workflowCustodySupported?: boolean },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
 ): Promise<Chat> {
   const resolvedState = providedState || await resolveChatState(options, context, registration, handlerOptions)
@@ -3767,7 +3770,13 @@ async function createChannelChat(
     lockTracker.state,
     options,
   ))
-  const state = { keyPrefix: resolvedState.titleKeyPrefix, state: resolvedState.state }
+  const state = {
+    keyPrefix: resolvedState.titleKeyPrefix,
+    state: resolvedState.state,
+    workflowCustodySupported: "workflowCustodySupported" in resolvedState
+      ? resolvedState.workflowCustodySupported
+      : undefined,
+  }
   const deliveryContext = async () => resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context
   chat.onDirectMessage(async (thread, message, _channel, messageContext) =>
     handleChatSdkMessages(agent, await deliveryContext(), registration, thread, message, () => "direct", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
@@ -4559,16 +4568,13 @@ export function createChannelWebhookRouteHandler(
       const webhookDeliveryState = await resolveAgentWebhookState(context, registration, handlerOptions)
       const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
       const workflowCustody = await hasActiveWorkflowRuntime(agent, context)
-      if (
-        workflowCustody
-        && chatOptions?.state === undefined
-        && handlerOptions.state !== undefined
-        && !stateResolverSupportsWorkflowCustody(handlerOptions.state)
-      ) {
-        throw new Error("[vitehub] Durable Channel delivery cannot hand request-scoped State to an Agent Workflow. Configure Channel state or a generated host State provider.")
-      }
       const chatDeliveryState = trigger.id === "chat.message" || workflowCustody || !webhookDeliveryState
-        ? await resolveChatState(chatOptions, context, registration, handlerOptions)
+        ? {
+            ...await resolveChatState(chatOptions, context, registration, handlerOptions),
+            workflowCustodySupported: chatOptions?.state !== undefined
+              || handlerOptions.state === undefined
+              || stateResolverSupportsWorkflowCustody(handlerOptions.state),
+          }
         : undefined
       const deliveryState = (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) || (chatDeliveryState
         ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state }

@@ -10550,7 +10550,10 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-route-state-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter()
     const waitUntilTasks: Array<Promise<unknown>> = []
     let observedOrigin: string | undefined
@@ -10575,6 +10578,7 @@ describe("server helpers", () => {
     try {
       const response = await handler(chatWebhookRequest(91_101), "telegram", {
         agentIdentity: { name: "calories" },
+        state: () => state,
         waitUntil: task => waitUntilTasks.push(task),
       })
       await Promise.all(waitUntilTasks)
@@ -10585,6 +10589,8 @@ describe("server helpers", () => {
     }
     finally {
       resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
     }
   })
 
@@ -13423,6 +13429,20 @@ describe("server helpers", () => {
     const { access } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-rejection-journal-outage-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    let eventAppends = 0
+    const failingRejectionState = new Proxy(state, {
+      get(target, property, receiver) {
+        if (property !== "appendToList") return Reflect.get(target, property, receiver)
+        return async (...args: Parameters<typeof state.appendToList>) => {
+          eventAppends += 1
+          if (eventAppends > 2) throw new Error("journal unavailable")
+          return await state.appendToList(...args)
+        }
+      },
+    })
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
@@ -13445,23 +13465,30 @@ describe("server helpers", () => {
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-      body: JSON.stringify({
-        update_id: 42,
-        message: {
-          chat: { id: 456, type: "private" },
-          from: { id: 999 },
-          message_id: 7,
-          text: "hello",
-        },
-      }),
-      method: "POST",
-    }), "telegram")
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 42,
+          message: {
+            chat: { id: 456, type: "private" },
+            from: { id: 999 },
+            message_id: 7,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram", { state: () => failingRejectionState })
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(run).not.toHaveBeenCalled()
-    expect(adapter.postMessage).not.toHaveBeenCalled()
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(eventAppends).toBe(3)
+      expect(run).not.toHaveBeenCalled()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("returns Chat SDK adapter webhook responses", async () => {
