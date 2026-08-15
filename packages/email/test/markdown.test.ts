@@ -45,8 +45,8 @@ describe("renderEmailMarkdown", () => {
     await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
       data: { url: "https://example.com/?x=&#x29;*Injected*" },
     })).resolves.toEqual({
-      html: "<p><a href=\"https://example.com/?x=%26%23x29%3B*Injected*\">Open recap</a></p>",
-      text: "[Open recap](https://example.com/?x=%26%23x29%3B*Injected*)",
+      html: "<p><a href=\"https://example.com/?x=%26#x29;*Injected*\">Open recap</a></p>",
+      text: "[Open recap](https://example.com/?x=%26#x29;*Injected*)",
     })
   })
 })

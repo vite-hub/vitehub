@@ -46,9 +46,16 @@ describe("renderMarkdownTemplate", () => {
       data: { url: "https://example.com/a) [Injected](https://evil.test?q=\"x\"" },
     })).resolves.toBe("[Open recap](https://example.com/a%29%20%5BInjected%5D%28https://evil.test?q=%22x%22)")
 
-    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
-      data: { url: "https://example.com/?x=&#x29;*Injected*" },
-    })).resolves.toBe("[Open recap](https://example.com/?x=%26%23x29%3B*Injected*)")
+    const characterReferenceUrl = "https://example.com/?x=&#x29;*Injected*"
+    const characterReferenceMarkdown = await renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: characterReferenceUrl },
+    })
+    expect(characterReferenceMarkdown).toBe("[Open recap](https://example.com/?x=%26#x29;*Injected*)")
+    const renderedUrl = new URL(characterReferenceMarkdown.slice("[Open recap](".length, -1))
+    const sourceUrl = new URL(characterReferenceUrl)
+    expect(renderedUrl.pathname).toBe(sourceUrl.pathname)
+    expect(renderedUrl.search).toBe("?x=%26")
+    expect(renderedUrl.hash).toBe(sourceUrl.hash)
 
     await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: "http://[::1]/recap" },
