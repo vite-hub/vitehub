@@ -36,7 +36,7 @@ export interface EmailVitePluginOptions {
 
 export interface EmailVitePluginAPI {
   getDefinition: () => GeneratedEmailDefinition | undefined
-  prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<void>
+  prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<string[]>
 }
 
 export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
@@ -317,6 +317,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       }
       materialized = true
     }
+    return names
   }
   const prepareTypesOnce = async () => {
     await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && !materialized, projectRoot, serverDirs })

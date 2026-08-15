@@ -338,13 +338,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   if (options.env !== false) await envPlugin?.api?.prepareTypes?.(envConfig, viteRoot)
   const emailPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
-    api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<void> }
+    api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<string[]> }
   } | undefined
-  await emailPlugin?.api?.prepareTypes?.({
+  const emailTemplateNames: string[] = await emailPlugin?.api?.prepareTypes?.({
     materialize: true,
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
-  })
+  }) ?? []
   const typesPlugin = installedPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
     api?: { prepareTypes?: (root: string) => Promise<void> }
   } | undefined
@@ -390,6 +390,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const generatedAliases = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
+    ...Object.fromEntries(emailTemplateNames.map(name => [
+      `#vitehub/emails/${name}`,
+      join(projectRoot, ".vitehub/email/templates", name, "index.mjs"),
+    ])),
     ...(emailPlugin
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
       : {}),

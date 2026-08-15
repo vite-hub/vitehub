@@ -456,7 +456,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("materializes Email templates before Cloudflare Workflow preparation", async () => {
-    const prepareTypes = vi.fn()
+    const prepareTypes = vi.fn().mockResolvedValue(["monthly-recap", "monthly-recap/detail"])
     mocks.vitehub.mockReturnValue([{
       api: { prepareTypes },
       name: "@vite-hub/email/vite",
@@ -471,6 +471,10 @@ describe("ViteHub Nuxt integration", () => {
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
     const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap"])
+      .toBe(`${emailTemplates}/monthly-recap/index.mjs`)
+    expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap/detail"])
+      .toBe(`${emailTemplates}/monthly-recap/detail/index.mjs`)
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
     expect(((nuxt.options as typeof nuxt.options & { nitro: { alias: Record<string, string> } }).nitro).alias["#vitehub/emails"]).toBe(emailTemplates)
   })
