@@ -1091,6 +1091,32 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("preserves definite OpenWorkflow run rejections", async () => {
+    const cause = Object.assign(new Error("provider-secret:forbidden"), { status: 403 })
+    class RejectingOpenWorkflow {
+      defineWorkflow() {
+        return { run: async () => { throw cause } }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}, { id: "source-run" }), cause, {
+      operation: "run",
+      provider: "openworkflow",
+      status: 403,
+    })
+  })
+
   it("recovers OpenWorkflow runs after a lost creation acknowledgement", async () => {
     const run = vi.fn()
       .mockRejectedValueOnce(new Error("creation acknowledgement lost"))

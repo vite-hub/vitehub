@@ -129,6 +129,67 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("does not rearm claim renewal completed after the heartbeat deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseClaim: (() => void) | undefined
+      const startedAt = Date.now()
+      const claim = vi.fn(async (...args: Parameters<typeof memory.claim>) => {
+        if (!releaseClaim && Date.now() - startedAt >= 60 * 60_000 - 10_000) {
+          await new Promise<void>((resolve) => { releaseClaim = resolve })
+        }
+        return memory.claim(...args)
+      })
+      const invocations = defineAgentInvocations({ store: { ...memory, claim } })
+      const journal = await bindAgentInvocations(invocations, runtime("async-abandoned"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+
+      await vi.advanceTimersByTimeAsync(60 * 60_000)
+      releaseClaim?.()
+      await vi.advanceTimersByTimeAsync(0)
+      const claimsAfterDeadline = claim.mock.calls.length
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(claim).toHaveBeenCalledTimes(claimsAfterDeadline)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not queue terminal writes behind stalled observations", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            if (input.observation) return new Promise(() => {})
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("stalled-observations"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      for (let index = 0; index < 100; index++) {
+        journal.context.traceLog?.append({ name: `event-${index}`, type: "run" })
+      }
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(1_000)
+      await finishing
+
+      expect((await invocations.getByRunId("stalled-observations"))?.status).toBe("completed")
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("terminalizes records created after the store timeout", async () => {
     const memory = createMemoryAgentInvocationStore()
     let releaseCreate!: () => void

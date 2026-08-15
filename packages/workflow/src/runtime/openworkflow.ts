@@ -278,7 +278,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
       if (!options.id) throw error
       return start()
     })
-  }, { acknowledgementUnknown: () => true })
+  }, { acknowledgementUnknown: (_error, status) => status === undefined })
   return await runWorkflowProviderOperation("openworkflow", "run", async () => {
     return {
       id: handle.workflowRun.id,

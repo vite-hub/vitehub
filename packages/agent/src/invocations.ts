@@ -129,13 +129,16 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
   }
 }
 
-async function boundedStoreOperation<T>(operation: () => MaybePromise<T>): Promise<T | undefined | typeof storeOperationTimedOut> {
+async function boundedStoreOperation<T>(
+  operation: () => MaybePromise<T>,
+  timeoutMs = STORE_OPERATION_TIMEOUT_MS,
+): Promise<T | undefined | typeof storeOperationTimedOut> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       Promise.resolve().then(operation),
       new Promise<typeof storeOperationTimedOut>((resolve) => {
-        timer = setTimeout(() => resolve(storeOperationTimedOut), STORE_OPERATION_TIMEOUT_MS)
+        timer = setTimeout(() => resolve(storeOperationTimedOut), timeoutMs)
       }),
     ])
   }
@@ -349,7 +352,7 @@ function createInvocationId(): string {
 
 function journalTraceLog(
   traceLog: TraceEventLog,
-  observe: (entry: TraceEventLogEntry) => Promise<void>,
+  observe: (entry: TraceEventLogEntry) => void,
   nextSequence: () => number,
 ): TraceEventLog {
   return {
@@ -399,6 +402,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let terminalRetry: Promise<void> | undefined
       let heartbeat: ReturnType<typeof setInterval> | undefined
       let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
+      let heartbeatDeadline: number | undefined
+      let observationWrite: Promise<void> | undefined
+      const pendingObservations: TraceEventLogEntry[] = []
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
         if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout)
@@ -407,10 +413,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const startHeartbeat = () => {
         if (finished || !ownsRecord || heartbeat !== undefined) return
+        heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
+        if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
         const unref = (heartbeat as unknown as { unref?: () => void }).unref
         if (unref) unref.call(heartbeat)
-        heartbeatTimeout = setTimeout(stopHeartbeat, CLAIM_HEARTBEAT_TIMEOUT_MS)
+        heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
         const unrefTimeout = (heartbeatTimeout as unknown as { unref?: () => void }).unref
         if (unrefTimeout) unrefTimeout.call(heartbeatTimeout)
       }
@@ -482,20 +490,37 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         return updated
       }
-      const observe = (observation: TraceEventLogEntry) => write(async () => {
-        if (finished || observationCount >= MAX_OBSERVATIONS || !await renew()) return
-        const timestamp = normalizedTimestamp(observation.timestamp)
-        const persistedObservation = boundedObservation({
-          ...observation,
-          timestamp,
-          ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+      const writeNextObservation = () => {
+        if (finished || observationWrite) return
+        const observation = pendingObservations.shift()
+        if (!observation) return
+        const task = (async () => {
+          if (finished || !await renew()) return
+          const timestamp = normalizedTimestamp(observation.timestamp)
+          const persistedObservation = boundedObservation({
+            ...observation,
+            timestamp,
+            ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
+          })
+          const updated = await boundedStoreOperation(() => store.update(recordId, {
+            observation: persistedObservation,
+            timestamp,
+          }, claimId))
+          if (updated && updated !== storeOperationTimedOut) observationCount = updated.observations.length
+        })().catch(() => {})
+        const settled = task.finally(() => {
+          if (observationWrite === settled) {
+            observationWrite = undefined
+            writeNextObservation()
+          }
         })
-        const updated = await boundedStoreOperation(() => store.update(recordId, {
-          observation: persistedObservation,
-          timestamp,
-        }, claimId))
-        if (updated && updated !== storeOperationTimedOut) observationCount = updated.observations.length
-      })
+        observationWrite = settled
+      }
+      const observe = (observation: TraceEventLogEntry) => {
+        if (finished || observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS) return
+        pendingObservations.push(observation)
+        writeNextObservation()
+      }
       return {
         context: {
           ...context,
@@ -505,6 +530,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         async finish(status, error) {
           if (finished) return
+          const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
+          while (observationWrite && Date.now() < observationDeadline) {
+            await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
+          }
+          pendingObservations.length = 0
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ status: "running", timestamp: new Date().toISOString() })
           }
