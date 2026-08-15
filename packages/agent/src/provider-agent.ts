@@ -243,7 +243,7 @@ async function startToolServer(tools: AgentToolSet, abortSignal: AbortSignal | u
   }
 }
 
-function localWorkspaceHost(): WorkspaceSessionHost {
+export function localWorkspaceHost(): WorkspaceSessionHost {
   return {
     executionAuthority: normalizeExecutionAuthority({
       credentials: "ambient",
@@ -686,7 +686,12 @@ async function* runProvider(
   }
   try {
     effectiveSignal?.throwIfAborted()
-    workspaceSession = await prepareWorkspace(context, root)
+    workspaceSession = await waitForProviderOperation(
+      prepareWorkspace(context, root),
+      effectiveSignal,
+      async lateSession => await lateSession?.close(),
+      observeLateCleanup,
+    )
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
@@ -827,11 +832,14 @@ async function* runProvider(
       try {
         const path = join(root, generatedInstructionFile)
         if (originalGeneratedInstructionLink !== undefined) {
-          await rm(path, { force: true })
+          await rm(path, { force: true, recursive: true })
           await symlink(originalGeneratedInstructionLink, path)
         }
-        else if (generatedInstructionFileExisted) await writeFile(path, originalGeneratedInstructions!)
-        else await rm(path, { force: true })
+        else if (generatedInstructionFileExisted) {
+          await rm(path, { force: true, recursive: true })
+          await writeFile(path, originalGeneratedInstructions!)
+        }
+        else await rm(path, { force: true, recursive: true })
       }
       catch (error) {
         cleanupErrors.push(error)

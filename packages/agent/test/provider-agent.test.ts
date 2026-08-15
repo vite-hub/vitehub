@@ -1,4 +1,5 @@
 import { access, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { spawnSync } from "node:child_process"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -404,6 +405,29 @@ describe("Provider Agent Driver", () => {
     }) as never)
 
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a one-shot host alive until process-group escalation settles", async () => {
+    const script = `
+      const { spawn } = require('node:child_process')
+      const child = spawn(process.execPath, ['-e', "const{spawn}=require('node:child_process');spawn(process.execPath,['-e',\\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\\"],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)"], { detached: true, stdio: 'ignore' })
+      setTimeout(() => {
+        process.kill(-child.pid, 'SIGTERM')
+        setTimeout(() => {
+          try { process.kill(-child.pid, 'SIGKILL') } catch {}
+          console.log('settled')
+        }, 250)
+      }, 50)
+    `
+    const result = spawnSync(process.execPath, ["-e", script], {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      timeout: 3_000,
+    })
+
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout.trim()).toBe("settled")
+    expect(await readFile(new URL("../src/provider-agent.ts", import.meta.url), "utf8")).not.toContain("forceKill.unref()")
   })
 
   it("bounds asynchronous instruction resolution by the invocation timeout", async () => {
