@@ -1676,8 +1676,9 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).not.toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
       expect(webhookRoute).toContain("const body = await readRawBody(event)")
-      expect(webhookRoute).toContain("const nodeRequest = event.node?.req")
-      expect(webhookRoute).toContain("signal: AbortSignal.any([event.req.signal, controller.signal])")
+      expect(webhookRoute).toContain("createAgentWebhookRequest({")
+      expect(webhookRoute).toContain("node: event.node")
+      expect(webhookRoute).toContain("signal: event.req.signal")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
       expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
@@ -1698,6 +1699,61 @@ describe("agent Vite plugin", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("preserves portable and Node webhook abort lifecycles", async () => {
+    const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
+    const portableController = new AbortController()
+    const portable = createAgentWebhookRequest({
+      method: "POST",
+      signal: portableController.signal,
+      url: "https://example.com/webhook",
+    })
+    expect(portable.signal.aborted).toBe(false)
+    portableController.abort(new Error("host stopped"))
+    expect(portable.signal.aborted).toBe(true)
+    expect(portable.signal.reason).toEqual(new Error("host stopped"))
+
+    let abortRequest!: () => void
+    let closeResponse!: () => void
+    const nodeResponse = { writableEnded: true }
+    const node = createAgentWebhookRequest({
+      method: "POST",
+      node: {
+        req: {
+          aborted: false,
+          once: vi.fn((_event, listener) => { abortRequest = listener }),
+        },
+        res: {
+          ...nodeResponse,
+          once: vi.fn((_event, listener) => { closeResponse = listener }),
+        },
+      },
+      signal: new AbortController().signal,
+      url: "https://example.com/webhook",
+    })
+    closeResponse()
+    expect(node.signal.aborted).toBe(false)
+    abortRequest()
+    expect(node.signal.aborted).toBe(true)
+    expect(node.signal.reason).toMatchObject({ name: "AbortError" })
+
+    let closeIncompleteResponse!: () => void
+    const incomplete = createAgentWebhookRequest({
+      method: "POST",
+      node: {
+        req: { aborted: false, once: vi.fn() },
+        res: {
+          writableEnded: false,
+          once: vi.fn((_event, listener) => { closeIncompleteResponse = listener }),
+        },
+      },
+      signal: new AbortController().signal,
+      url: "https://example.com/webhook",
+    })
+    closeIncompleteResponse()
+    expect(incomplete.signal.aborted).toBe(true)
+    expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
   })
 
   it("writes generated Nitro handlers that compile under strict TypeScript", async () => {
