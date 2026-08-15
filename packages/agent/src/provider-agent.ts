@@ -332,15 +332,21 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
         let forceKill: ReturnType<typeof setTimeout> | undefined
         let termination: Promise<void> | undefined
         const killProcessGroup = (killSignal: NodeJS.Signals) => {
-          if (!child.pid) return
+          if (!child.pid) return false
           try {
             process.kill(-child.pid, killSignal)
+            return true
           }
-          catch {}
+          catch {
+            return false
+          }
         }
         const terminate = () => {
           if (termination) return
-          killProcessGroup("SIGTERM")
+          if (!killProcessGroup("SIGTERM")) {
+            termination = Promise.resolve()
+            return
+          }
           termination = new Promise((resolve) => {
             forceKill = setTimeout(() => {
               killProcessGroup("SIGKILL")
@@ -357,12 +363,15 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
         // the original failure, but do not let Workspace cleanup race the
         // still-live child.
         child.once("error", error => executionError = error)
-        child.once("close", (code) => void (termination || Promise.resolve()).then(() => {
+        child.once("close", (code) => {
+          terminate()
+          void termination!.then(() => {
           signal?.removeEventListener("abort", terminate)
           if (forceKill && !signal?.aborted) clearTimeout(forceKill)
           if (executionError) reject(executionError)
           else resolve({ code: code ?? 1, stderr, stdout })
-        }))
+          })
+        })
       })
     },
   }

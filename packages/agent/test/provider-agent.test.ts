@@ -10,7 +10,7 @@ const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: unknown) =
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 
-import { createProviderAgentAdapter } from "../src/provider-agent.ts"
+import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { defineAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -508,6 +508,18 @@ describe("Provider Agent Driver", () => {
     }) as never)
 
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("reaps Workspace process groups after successful commands", async () => {
+    const heartbeatFile = `/tmp/vitehub-provider-success-descendant-${crypto.randomUUID()}`
+    const descendant = `const fs=require('node:fs');const file=${JSON.stringify(heartbeatFile)};process.on('SIGTERM',()=>{});setInterval(()=>fs.writeFileSync(file,String(Date.now())),20)`
+    const command = `const{spawn}=require('node:child_process');const{existsSync}=require('node:fs');spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'}).unref();const wait=()=>existsSync(${JSON.stringify(heartbeatFile)})?process.exit(0):setTimeout(wait,5);wait()`
+
+    await expect(localWorkspaceHost().exec(process.execPath, ["-e", command])).resolves.toMatchObject({ code: 0 })
+    const stoppedAt = await readFile(heartbeatFile, "utf8")
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await expect(readFile(heartbeatFile, "utf8")).resolves.toBe(stoppedAt)
+    await rm(heartbeatFile, { force: true })
   })
 
   it("keeps a one-shot host alive until process-group escalation settles", async () => {
