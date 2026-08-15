@@ -518,9 +518,10 @@ describe("agent eval", () => {
   })
 
   it.each([
-    ["provider name", "codex"],
-    ["tagged provider", { kind: "codex" }],
-  ])("applies model variants to the %s form", async (_name, driver) => {
+    ["provider name", "codex", "o4-mini"],
+    ["tagged provider", { kind: "codex" }, { id: "o4-mini" }],
+    ["LanguageModel", { kind: "codex" }, { doGenerate() {}, doStream() {}, modelId: "o4-mini", provider: "openai" }],
+  ])("applies model variants to the %s form", async (_name, driver, model) => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
 
@@ -528,7 +529,7 @@ describe("agent eval", () => {
       agent: defineAgent({ driver: driver as never }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
-      variants: [{ instructions: "Variant instructions.", model: "o4-mini" as never, name: "variant" }],
+      variants: [{ instructions: "Variant instructions.", model: model as never, name: "variant" }],
     })
 
     await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
