@@ -421,6 +421,16 @@ describe("Agent Invocations", () => {
     expect(await invocations.getByRunId("run-1", "support")).toMatchObject({ agentName: "support" })
   })
 
+  it("uses the Agent Definition name instead of a different host identity", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ name: "support", driver: { run: () => "done" }, invocations, runtime: false })
+
+    await runAgent(agent, { ...runtime("aliased-run"), agentIdentity: { name: "host-alias" } }, {})
+
+    await expect(invocations.getByRunId("aliased-run", "support")).resolves.toMatchObject({ agentName: "support" })
+    await expect(invocations.getByRunId("aliased-run", "host-alias")).resolves.toBeUndefined()
+  })
+
   it("isolates matching source run IDs by Agent Definition", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const support = defineAgent({ name: "support", driver: { run: () => "support" }, invocations, runtime: false })

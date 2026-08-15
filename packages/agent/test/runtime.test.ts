@@ -11919,7 +11919,7 @@ describe("agent message protocol", () => {
         provider: "vercel",
         status: "queued",
       })
-      await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "pending" })
+      await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toBeUndefined()
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent", run.id)).resolves.toMatchObject({
         result: "received hello",
@@ -11930,9 +11930,8 @@ describe("agent message protocol", () => {
       expect(record?.observations.every(observation => observation.trace?.id === record.traceId)).toBe(true)
     })
 
-    it("reconciles ordinary queued runs that fail before the Agent worker starts", async () => {
-      const { defineAgent, runAgent, runAgentInline } = await import("../src/index.ts")
-      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    it("leaves Vercel pre-worker failures to Workflow inspection", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
@@ -11944,9 +11943,6 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
         "broken-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
-        "vitehub-agent-invocation-recovery-broken-agent": async () => ({
-          handler: async context => await runAgentWorkflowDefinition(agent, context as never, runAgentInline as never),
-        }),
       })
       try {
         const run = await runAgent(agent, {
@@ -11956,9 +11952,8 @@ describe("agent message protocol", () => {
           waitUntil: promise => waitUntilTasks.push(promise),
         }, {}) as { id: string }
 
-        await vi.waitFor(async () => {
-          await expect(invocations.getByRunId(run.id, "broken-agent")).resolves.toMatchObject({ status: "failed" })
-        })
+        await Promise.all(waitUntilTasks)
+        await expect(invocations.getByRunId(run.id, "broken-agent")).resolves.toBeUndefined()
       }
       finally {
         setWorkflowRuntimeRegistry(undefined)
@@ -12157,9 +12152,8 @@ describe("agent message protocol", () => {
       }
     })
 
-    it("reconciles controlled queued runs without caller inspection", async () => {
-      const { defineAgent, runAgentInline, startAgentInvocation } = await import("../src/index.ts")
-      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    it("leaves controlled Vercel pre-worker failures to Workflow inspection", async () => {
+      const { defineAgent, startAgentInvocation } = await import("../src/index.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
@@ -12171,9 +12165,6 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ provider: "vercel" })
       setWorkflowRuntimeRegistry({
         "broken-controlled-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
-        "vitehub-agent-invocation-recovery-broken-controlled-agent": async () => ({
-          handler: async context => await runAgentWorkflowDefinition(agent, context as never, runAgentInline as never),
-        }),
       })
       try {
         const controller = await startAgentInvocation(agent, {
@@ -12183,9 +12174,8 @@ describe("agent message protocol", () => {
           waitUntil: promise => waitUntilTasks.push(promise),
         }, {})
 
-        await vi.waitFor(async () => {
-          await expect(invocations.getByRunId(controller.id, "broken-controlled-agent")).resolves.toMatchObject({ status: "failed" })
-        })
+        await Promise.all(waitUntilTasks)
+        await expect(invocations.getByRunId(controller.id, "broken-controlled-agent")).resolves.toBeUndefined()
       }
       finally {
         setWorkflowRuntimeRegistry(undefined)
@@ -12200,6 +12190,7 @@ describe("agent message protocol", () => {
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       let initialStatus = "running"
       let deferredRecovery: unknown
+      let recoveryAttempts = 0
       setAgentWorkflowRuntimeLoaders({
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
@@ -12212,6 +12203,8 @@ describe("agent message protocol", () => {
           createWorkflow: (name: string) => name.startsWith("vitehub-agent-invocation-recovery-")
             ? {
                 defer: async (payload: unknown) => {
+                  recoveryAttempts++
+                  if (recoveryAttempts < 3) throw new Error("recovery provider unavailable")
                   deferredRecovery = payload
                   return { id: "recovery", provider: "openworkflow", status: "queued" }
                 },
@@ -12236,6 +12229,7 @@ describe("agent message protocol", () => {
         expect(run.status).not.toBe("queued")
         await expect(invocations.getByRunId(run.id)).resolves.toMatchObject({ status: "pending" })
         await Promise.all(waitUntilTasks)
+        expect(recoveryAttempts).toBe(3)
         expect(deferredRecovery).toMatchObject({
           invocationRecovery: { runId: run.id, sourceRunId: run.id, workflowName: "non-queued-agent" },
         })

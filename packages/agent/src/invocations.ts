@@ -375,7 +375,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       bindOptions: { agentName?: string, deferClaim?: boolean, terminalTakeover?: boolean } = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
-      const agentName = context.agentIdentity?.name || bindOptions.agentName
+      const agentName = bindOptions.agentName || context.agentIdentity?.name
       const recordId = await boundedIdentity(invocationIdentity(runId, agentName))
       const claimId = createInvocationId()
       const traceId = await boundedIdentity(context.trace?.id || runId)

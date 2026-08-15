@@ -163,6 +163,8 @@ export default defineAgent({
 
 The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
 
+Cloudflare and OpenWorkflow create the journal before dispatch and reconcile failures that happen before the Agent worker starts. Vercel starts the journal in the Agent worker because arbitrary Agent Definitions cannot be embedded in its deterministic native Workflow bundle; a Vercel run that fails before that worker starts is available through Workflow inspection, but has no Agent Invocation journal record.
+
 ## Control child work
 
 Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. Use the [Subagents Capability](/docs/capabilities/subagents) when the active model should delegate work itself.

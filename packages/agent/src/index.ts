@@ -723,6 +723,24 @@ function agentWorkflowRecoveryName(name: string): string {
   return `vitehub-agent-invocation-recovery-${name}`
 }
 
+async function deferAgentWorkflowRecovery<TPayload, TResult>(
+  handle: WorkflowHandle<TPayload, TResult>,
+  payload: TPayload,
+  options: { id?: string },
+): Promise<void> {
+  let failure: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await handle.defer(payload, options)
+      return
+    }
+    catch (error) {
+      failure = error
+    }
+  }
+  throw failure
+}
+
 async function getAgentWorkflowHandle<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -894,7 +912,9 @@ async function runAgentAsWorkflow<
     }
     throw error
   }
-  const invocationJournal = hasAgentDefinition(agent)
+  // Vercel's native Workflow owns durable suspension, but arbitrary Agent Definitions cannot
+  // be compiled into that deterministic bundle. Its journal begins in the Agent worker instead.
+  const invocationJournal = hasAgentDefinition(agent) && run.provider !== "vercel"
     ? await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
@@ -914,7 +934,7 @@ async function runAgentAsWorkflow<
         Boolean(context.agentIdentity),
         true,
       )
-      context.waitUntil(recoveryHandle.defer({
+      context.waitUntil(deferAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
           runId: run.id,
@@ -922,7 +942,7 @@ async function runAgentAsWorkflow<
           workflowName: handle.name,
         },
         ...(context.trace ? { trace: context.trace } : {}),
-      }, run.provider === "vercel" ? {} : { id: recoveryId }).then(() => undefined, () => undefined))
+      }, run.provider === "vercel" ? {} : { id: recoveryId }))
     }
   }
   return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
