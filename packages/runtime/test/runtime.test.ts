@@ -303,7 +303,7 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
-  it("uses the terminal invocation event after contained errors", async () => {
+  it("derives yielded stream errors as failed runs even when finish follows", async () => {
     const log = createTraceEventLog()
     await log.append({
       name: "agent.invocation.start",
@@ -330,12 +330,22 @@ describe("@vite-hub/runtime", () => {
         durationMs: 20,
         endTime: "2026-01-01T00:00:00.020Z",
         id: "run-1",
-        status: "completed",
+        status: "failed",
       }),
     ])
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({
-      status: { code: "OK" },
+      status: { code: "ERROR" },
     })
+  })
+
+  it("uses the terminal invocation event after contained lifecycle errors", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })
+    await log.append({ name: "agent.invocation.error", timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "error" })
+    await log.append({ name: "agent.invocation.finish", timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())).toEqual([expect.objectContaining({ status: "completed" })])
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({ status: { code: "OK" } })
   })
 
   it("keeps runs successful after recoverable stream warnings", async () => {

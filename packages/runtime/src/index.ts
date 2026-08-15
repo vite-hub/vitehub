@@ -420,6 +420,10 @@ function isTraceRunError(event: TraceEventLogEntry): boolean {
     || event.name === "run.error"
 }
 
+function isTraceRunTerminal(event: TraceEventLogEntry): boolean {
+  return isTraceRunFinish(event) || event.name === "agent.invocation.error" || event.name === "run.error"
+}
+
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
   const groups = new Map<string, TraceEventLogEntry[]>()
   for (const event of events) {
@@ -458,9 +462,12 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
       }
     }
 
-    const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = terminal
-      ? isTraceRunError(terminal) ? "failed" : "completed"
+    const terminal = sorted.slice().reverse().find(isTraceRunTerminal)
+    const failedStream = sorted.some(event => event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true)
+    const status: TraceRunStatus = failedStream || (terminal && isTraceRunError(terminal))
+      ? "failed"
+      : terminal
+        ? "completed"
       : "running"
     const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
