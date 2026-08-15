@@ -59,6 +59,7 @@ catalogs:
     "@tiptap/extension-image": ^3.29.2
     "@tiptap/extension-table": ^3.29.2
     "@tiptap/markdown": ^3.29.2
+    "@tiptap/pm": ^3.29.2
     "@tiptap/starter-kit": ^3.29.2
     "@tiptap/y-tiptap": ^3.0.8
     lib0: ^0.2.114

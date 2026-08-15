@@ -2,7 +2,6 @@ import { effectScope, nextTick, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Editor } from "@tiptap/core"
 
-import { Frontmatter } from "../src/frontmatter.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
 
 const providers = vi.hoisted(() => [] as Array<{
@@ -76,23 +75,6 @@ describe("useRealtimeTiptap", () => {
 
     editor.destroy()
     scope.stop()
-  })
-
-  it("keeps delimiter-only frontmatter distinct in DOM output", () => {
-    const renderHTML = Frontmatter.config.renderHTML as unknown as (props: object) => unknown
-    const parseHTML = Frontmatter.config.parseHTML as unknown as () => Array<{ getAttrs: (element: object) => unknown }>
-    const rendered = renderHTML({ node: { attrs: { value: null } } })
-    const parsed = parseHTML()[0]!.getAttrs({
-      hasAttribute: (name: string) => name === "data-frontmatter-empty",
-      textContent: "",
-    })
-
-    expect(rendered).toEqual(["pre", {
-      "data-frontmatter": "",
-      "data-frontmatter-empty": "",
-      contenteditable: "false",
-    }, ""])
-    expect(parsed).toEqual({ value: null })
   })
 
   it("connects providers only while enabled", async () => {

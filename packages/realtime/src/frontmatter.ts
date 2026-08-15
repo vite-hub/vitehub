@@ -4,6 +4,7 @@ const frontmatterPattern = /^---\r?\n(?:---(?:\r?\n|$)|([\s\S]*?)\r?\n---(?:\r?\
 
 export const Frontmatter = Node.create({
   name: "frontmatter",
+  priority: 1_000,
   atom: true,
   selectable: false,
 

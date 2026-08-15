@@ -61,7 +61,9 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@tiptap/pm": "catalog:realtime",
     "@vite-hub/internal": "workspace:*",
+    "linkedom": "^0.18.12",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
