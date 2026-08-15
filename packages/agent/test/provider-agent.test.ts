@@ -21,6 +21,7 @@ function event(type: string, threadId: string, payload: Record<string, unknown>,
 function runtime(threadId: string, events: unknown[], options: {
   afterEvents?: () => Promise<void>
   onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
+  onStartSession?: () => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
   resumeCursor?: string
   turnResumeCursor?: string
@@ -46,6 +47,7 @@ function runtime(threadId: string, events: unknown[], options: {
       return { resumeCursor: options.turnResumeCursor, threadId, turnId: "turn-1" }
     }),
     startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
+      await options.onStartSession?.()
       mcp = input.mcp
       return { resumeCursor: options.resumeCursor, threadId }
     }),
@@ -418,6 +420,20 @@ describe("Provider Agent Driver", () => {
     await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
+    expect(provider.close).toHaveBeenCalledOnce()
+  })
+
+  it("bounds provider startup by the invocation timeout", async () => {
+    const threadId = "thread-start-timeout"
+    const provider = runtime(threadId, [], { onStartSession: () => new Promise(() => {}) })
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await expect(adapter.generate(context(threadId, {
+      input: { prompt: "hello", timeout: 50 },
+    }) as never)).rejects.toMatchObject({ name: "TimeoutError" })
+
+    expect(provider.startSession).toHaveBeenCalledOnce()
+    expect(provider.sendTurn).not.toHaveBeenCalled()
     expect(provider.close).toHaveBeenCalledOnce()
   })
 

@@ -107,6 +107,27 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
+async function waitForProviderOperation<T>(operation: Promise<T>, signal: AbortSignal | undefined, disposeLateResult?: (value: T) => void | Promise<void>): Promise<T> {
+  signal?.throwIfAborted()
+  if (!signal) return await operation
+  let rejectAbort: ((reason: unknown) => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject
+  })
+  const abort = () => rejectAbort?.(signal.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
+  signal.addEventListener("abort", abort, { once: true })
+  try {
+    return await Promise.race([operation, aborted])
+  }
+  catch (error) {
+    if (signal.aborted && disposeLateResult) void operation.then(disposeLateResult, () => undefined)
+    throw error
+  }
+  finally {
+    signal.removeEventListener("abort", abort)
+  }
+}
+
 const emptyToolInputSchema = { additionalProperties: false, properties: {}, type: "object" } as const
 
 function toolJsonSchema(schema: AgentToolSchema | undefined): Record<string, unknown> {
@@ -558,7 +579,11 @@ async function* runProvider(
     if (instructions) await writeFile(join(root, options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"), instructions)
     effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
-    runtime = await createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider })
+    runtime = await waitForProviderOperation(
+      createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider }),
+      effectiveSignal,
+      async lateRuntime => await lateRuntime.close(),
+    )
     effectiveSignal?.throwIfAborted()
     if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal)
     const events = runtime.events[Symbol.asyncIterator]()
@@ -567,21 +592,21 @@ async function* runProvider(
     const threadId = (sessionKey || crypto.randomUUID()) as ThreadId
     const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
-    const session = await runtime.startSession({
+    const session = await waitForProviderOperation(runtime.startSession({
       cwd: root,
       mcp: toolServer?.mcp,
       model: options.model,
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
       threadId,
-    })
+    }), effectiveSignal)
     if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
     const prompt = providerPrompt(context.messages, resumed, context.prompt)
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt or user message.")
     effectiveSignal?.throwIfAborted()
-    const attachments = await prepareAttachments(runtime, context, threadId)
+    const attachments = await waitForProviderOperation(prepareAttachments(runtime, context, threadId), effectiveSignal)
     effectiveSignal?.throwIfAborted()
-    const turn = await runtime.sendTurn({ attachments, input: prompt, threadId })
+    const turn = await waitForProviderOperation(runtime.sendTurn({ attachments, input: prompt, threadId }), effectiveSignal)
     if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
     const activeRuntime = runtime
     let rejectAbort: ((reason: unknown) => void) | undefined

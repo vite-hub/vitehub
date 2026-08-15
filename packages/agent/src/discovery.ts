@@ -16,7 +16,7 @@ const folderAgentPattern = /^agent\.(?:c|m)?[jt]s$/i
 const legacyFolderAgentPattern = /^config\.(?:c|m)?[jt]s$/i
 const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
 const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
-const colocatedAgentResourceDirectories = new Set(["skills"])
+const colocatedAgentResourceDirectories = new Set(["home", "skills"])
 
 export const agentEvalFileConvention = {
   include: [
