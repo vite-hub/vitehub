@@ -3961,6 +3961,116 @@ describe("server helpers", () => {
     }
   })
 
+  it("keeps alias persistence failures observable without disrupting adapter delivery", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-delivery-alias-failure-"))
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const adapter = createTestChatAdapter()
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const set = state.set.bind(state)
+    vi.spyOn(state, "set").mockImplementation(async (key, value, ttlMs) => {
+      if (key.startsWith("deliveries:message:")) throw new Error("alias unavailable")
+      await set(key, value, ttlMs)
+    })
+    const agent = defineAgent({
+      capabilities: [defineChatCapability({
+        platforms: { telegram: () => adapter as never },
+        stream: false,
+        webhooks: { telegram: {} },
+      })],
+      driver: { run: () => "agent answer" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const body = JSON.stringify({
+      update_id: 43,
+      message: {
+        chat: { id: 456, type: "private" },
+        date: 1781092800,
+        from: { first_name: "Maxi", id: 123, username: "maxi" },
+        message_id: 8,
+        text: "hello",
+      },
+    })
+    const options = { agentName: "support", state: () => state }
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" }), "telegram", options)
+      expect(response.status).toBe(200)
+      await response.json()
+      expect(adapter.postMessage).toHaveBeenCalledOnce()
+      expect(error.mock.calls.map(([entry]) => String(entry))).toEqual(expect.arrayContaining([
+        expect.stringContaining('"event":"alias.failed","alias":"message"'),
+      ]))
+      const deliveries = await handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" }), "telegram", options)
+      expect(deliveries.find(delivery => delivery.sourceId === "43")?.status).toBe("completed")
+    }
+    finally {
+      error.mockRestore()
+      info.mockRestore()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("settles handled webhook custody only after its response stream finishes", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-delivery-handled-stream-"))
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    let finish!: () => void
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("accepted"))
+        finish = () => controller.close()
+      },
+    }))
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => response } },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run: () => "unexpected" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const url = "https://example.com/api/_vitehub/agents/review/webhooks/github"
+    const request = () => new Request(url, {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "handled-stream-1",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    const options = { agentName: "review", webhookState: () => state }
+
+    try {
+      const handled = await handler(request(), "github", options)
+      const reader = handled.body!.getReader()
+      await expect(reader.read()).resolves.toMatchObject({ done: false })
+      let delivery = (await handler.deliveries(request(), "github", options)).find(item => item.sourceId === "handled-stream-1")
+      expect(delivery?.events.some(event => event.type === "completed")).toBe(false)
+      finish()
+      await expect(reader.read()).resolves.toMatchObject({ done: true })
+      delivery = (await handler.deliveries(request(), "github", options)).find(item => item.sourceId === "handled-stream-1")
+      expect(delivery?.status).toBe("completed")
+    }
+    finally {
+      info.mockRestore()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("settles custody when an adapter ignores a webhook without claiming a message", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-delivery-ignored-"))
     const info = vi.spyOn(console, "info").mockImplementation(() => {})

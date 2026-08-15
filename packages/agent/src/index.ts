@@ -981,7 +981,10 @@ async function applyChannelDeliveryEffectIntents<
     for (const handler of handlers) {
       let handlerCompleted = false
       try {
-        await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
+        try {
+          await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
+        }
+        catch {}
         await runObservedAgentHook(context.hooks, {
           ids: { channelId: active.channelId, runId: context.run?.runId },
           metadata,

@@ -632,6 +632,48 @@ async function terminalChannelDeliveryResponse(
   return response
 }
 
+async function observeHandledChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker): Promise<Response> {
+  const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
+  if (!response.body) {
+    await recordChannelDeliveryEvidence(delivery, { type: terminalType })
+    return response
+  }
+  const reader = response.body.getReader()
+  let finished = false
+  const settle = async (type: "completed" | "failed" | "rejected", error?: unknown) => {
+    if (finished) return
+    finished = true
+    await recordChannelDeliveryEvidence(delivery, {
+      ...(error === undefined ? {} : { error: channelDeliveryError(error) }),
+      type,
+    })
+  }
+  return new Response(new ReadableStream({
+    async pull(controller) {
+      try {
+        const next = await reader.read()
+        if (next.done) {
+          await settle(terminalType)
+          controller.close()
+        }
+        else controller.enqueue(next.value)
+      }
+      catch (error) {
+        await settle("failed", error)
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        await settle("failed", reason || new Error("Channel response stream was cancelled."))
+      }
+    },
+  }), response)
+}
+
 function logChannelListener(event: string, provider: string, listenerId: string, extra: Record<string, unknown> = {}): void {
   console.info(JSON.stringify({ scope: "vitehub.channel.listener", event, provider, listenerId, ...extra }))
 }
@@ -4541,10 +4583,7 @@ export function createChannelWebhookRouteHandler(
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
             await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
             await context.flushWaitUntil?.()
-            await recordChannelDeliveryEvidence(channelDelivery, {
-              type: invocation.response.ok ? "completed" : invocation.response.status >= 500 ? "failed" : "rejected",
-            })
-            return invocation.response
+            return await observeHandledChannelDeliveryResponse(invocation.response, channelDelivery)
           }
           if (invocation.webhook?.busy === "steer" && (invocation.webhook.concurrencyKey === undefined || invocation.webhook.concurrencyLimit === undefined)) {
             return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.'))
