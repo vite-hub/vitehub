@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload } from "../src/internal/channel-delivery.ts"
 
-import type { StateAdapter } from "chat"
+import type { Lock, StateAdapter } from "chat"
 
 describe("Agent Channel delivery source identity", () => {
   it("scopes top-level activity IDs to providers that define them", () => {
@@ -27,13 +27,20 @@ describe("Agent Channel delivery source identity", () => {
 function stateAdapter(): StateAdapter {
   const values = new Map<string, unknown>()
   const lists = new Map<string, unknown[]>()
+  const locks = new Set<string>()
   return {
+    acquireLock: async (key: string) => {
+      if (locks.has(key)) return null
+      locks.add(key)
+      return { expiresAt: Date.now() + 5_000, threadId: key, token: key }
+    },
     appendToList: async (key: string, value: unknown, options?: { maxLength?: number }) => {
       const list = [...(lists.get(key) || []), value]
       lists.set(key, options?.maxLength ? list.slice(-options.maxLength) : list)
     },
     get: async (key: string) => (values.get(key) as never) ?? null,
     getList: async (key: string) => [...(lists.get(key) || [])] as never,
+    releaseLock: async (lock: Lock) => void locks.delete(lock.threadId),
     set: async (key: string, value: unknown) => void values.set(key, value),
     setIfNotExists: async (key: string, value: unknown) => {
       if (values.has(key)) return false
@@ -126,14 +133,14 @@ describe("Agent Channel delivery journal", () => {
   it("repairs the inspection index after a partially failed open", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
-    const appendToList = state.appendToList.bind(state)
+    const set = state.set.bind(state)
     let failIndex = true
-    state.appendToList = async (key, value, options) => {
+    state.set = async (key, value, ttlMs) => {
       if (key === "deliveries:index" && failIndex) {
         failIndex = false
         throw new Error("index unavailable")
       }
-      await appendToList(key, value, options)
+      await set(key, value, ttlMs)
     }
     const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10" }
 
@@ -160,6 +167,28 @@ describe("Agent Channel delivery journal", () => {
     expect(getList.mock.calls.filter(([key]) => String(key).endsWith(":events"))).toHaveLength(1)
     info.mockRestore()
   })
+
+  it("bounds the inspection index by recently updated distinct deliveries", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const first = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-0" })
+    let secondId: string | undefined
+    for (let index = 1; index < 10_000; index++) {
+      const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: `delivery-${index}` })
+      if (index === 1) secondId = delivery.delivery.id
+    }
+
+    await first.event({ type: "accepted" })
+    const newest = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10000" })
+    const ids = await state.get<string[]>("deliveries:index")
+
+    expect(ids).toHaveLength(10_000)
+    expect(new Set(ids)).toHaveLength(10_000)
+    expect(ids).not.toContain(secondId)
+    expect(ids?.at(-2)).toBe(first.delivery.id)
+    expect(ids?.at(-1)).toBe(newest.delivery.id)
+    info.mockRestore()
+  }, 10_000)
 
   it("keeps terminal settlement when a delayed queued event arrives", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resolveBox } from "../src/index.ts"
 import { createCrabboxRuntime, pruneWorkspaceForArchive, rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
@@ -145,6 +145,81 @@ describe("createCrabboxRuntime", () => {
       await session.close()
 
       await expect(stat(sessionRoot)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  }, 30_000)
+
+  it.skipIf(process.platform !== "linux")("reclaims only reparented processes owned by the disposable root", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
+      const session = await boxProvider(box).createSession()
+      const spawnOrphan = async (argument: string, cwd?: string, boxRoot?: string) => {
+        const result = await session.run({
+          command: `node -e 'const { spawn } = require("node:child_process"); const cwd = process.argv[2] || undefined; const env = { PATH: process.env.PATH, PWD: cwd || "/", ...(process.argv[3] ? { BOX_ROOT: process.argv[3] } : {}) }; const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", process.argv[1]], { cwd, detached: true, env, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${argument}' '${cwd || ""}' '${boxRoot || ""}'`,
+        })
+        expect(result.exitCode).toBe(0)
+        return Number(result.stdout.trim())
+      }
+      const ownedPid = await spawnOrphan(`${session.root}/owned`)
+      const cwdOwnedPid = await spawnOrphan("unmarked", session.root)
+      await session.run({ command: `mkdir -p -- '${session.root}.other'` })
+      const envOwnedPid = await spawnOrphan("unmarked", `${session.root}.other`, session.root)
+      const fdTree = await session.run({
+        command: `node -e 'const { openSync } = require("node:fs"); const { spawn } = require("node:child_process"); const fd = openSync(process.argv[1], "a"); const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { cwd: process.argv[2], detached: true, env: { PATH: process.env.PATH, PWD: process.argv[2] }, stdio: ["ignore", "ignore", "ignore", fd] }); child.unref(); console.log(child.pid)' '${session.root}/fd-owned' '${session.root}.other'`,
+      })
+      const fdOwnedPid = Number(fdTree.stdout.trim())
+      const commandOwnedPid = await spawnOrphan(`sleep 5; echo x >> ${session.root}/late-write`, `${session.root}.other`)
+      const treePidFile = `${session.root}/tree-child.pid`
+      const tree = await session.run({
+        command: `node -e 'const { spawn } = require("node:child_process"); const child = spawn(process.execPath, ["-e", "const { spawn } = require(\\"node:child_process\\"); const child = spawn(process.execPath, [\\"-e\\", \\"setInterval(() => {}, 60000)\\"], { stdio: \\"ignore\\" }); require(\\"node:fs\\").writeFileSync(process.argv[1], String(child.pid)); setInterval(() => {}, 60000)", process.argv[1]], { cwd: process.argv[2], detached: true, stdio: "ignore" }); child.unref(); console.log(child.pid)' '${treePidFile}' '${session.root}'`,
+      })
+      const treeParentPid = Number(tree.stdout.trim())
+      const treeChildPid = Number(await vi.waitFor(async () => await readFile(treePidFile, "utf8")))
+      const unrelatedPid = await spawnOrphan(`${session.root}.other/keep`, `${session.root}.other`)
+
+      try {
+        await vi.waitFor(async () => {
+          await expect(readFile(`/proc/${ownedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${cwdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${treeParentPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${envOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${fdOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${commandOwnedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+          await expect(readFile(`/proc/${unrelatedPid}/status`, "utf8")).resolves.toContain("PPid:\t1")
+        })
+        await session.destroy()
+        await expect(stat(session.root)).rejects.toMatchObject({ code: "ENOENT" })
+        await vi.waitFor(async () => {
+          const status = await readFile(`/proc/${ownedPid}/status`, "utf8").catch(() => undefined)
+          expect(status === undefined || /^State:\s+Z/m.test(status)).toBe(true)
+          const cwdStatus = await readFile(`/proc/${cwdOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(cwdStatus === undefined || /^State:\s+Z/m.test(cwdStatus)).toBe(true)
+          const treeChildStatus = await readFile(`/proc/${treeChildPid}/status`, "utf8").catch(() => undefined)
+          expect(treeChildStatus === undefined || /^State:\s+Z/m.test(treeChildStatus)).toBe(true)
+          const envStatus = await readFile(`/proc/${envOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(envStatus === undefined || /^State:\s+Z/m.test(envStatus)).toBe(true)
+          const fdStatus = await readFile(`/proc/${fdOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(fdStatus === undefined || /^State:\s+Z/m.test(fdStatus)).toBe(true)
+          const commandStatus = await readFile(`/proc/${commandOwnedPid}/status`, "utf8").catch(() => undefined)
+          expect(commandStatus === undefined || /^State:\s+Z/m.test(commandStatus)).toBe(true)
+        })
+        expect(() => process.kill(unrelatedPid, 0)).not.toThrow()
+      }
+      finally {
+        try { process.kill(unrelatedPid, "SIGKILL") } catch {}
+        try { process.kill(ownedPid, "SIGKILL") } catch {}
+        try { process.kill(cwdOwnedPid, "SIGKILL") } catch {}
+        try { process.kill(treeParentPid, "SIGKILL") } catch {}
+        try { process.kill(treeChildPid, "SIGKILL") } catch {}
+        try { process.kill(envOwnedPid, "SIGKILL") } catch {}
+        try { process.kill(fdOwnedPid, "SIGKILL") } catch {}
+        try { process.kill(commandOwnedPid, "SIGKILL") } catch {}
+      }
     })
   }, 30_000)
 

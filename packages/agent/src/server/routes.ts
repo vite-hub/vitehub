@@ -586,13 +586,13 @@ function deliverySourceValue(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : typeof value === "number" || typeof value === "bigint" ? String(value) : undefined
 }
 
-async function webhookDeliverySourceId(request: Request, provider: string): Promise<string> {
+async function webhookDeliverySourceId(request: Request, provider: string, payload: unknown): Promise<string> {
   const header = request.headers.get("x-github-delivery") || request.headers.get("x-vitehub-delivery-id") || request.headers.get("idempotency-key")
   if (header) return header
-  const payload = parseWebhookPayload(await request.clone().text())
   const source = agentChannelDeliverySourceId(provider, payload)
   if (source) return source
-  return randomToken()
+  const fingerprint = await agentChannelDeliveryPayloadFingerprint(payload)
+  return fingerprint ? `payload:${fingerprint}` : randomToken()
 }
 
 function channelDeliveryError(error: unknown): string {
@@ -795,6 +795,7 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
 }
 
 const defaultWebhookQueueRetryMs = 1_000
+const maxWebhookQueueAttempts = 3
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -938,7 +939,7 @@ async function steerQueuedWebhookDelivery(
           await state.set(claimKey, "steering")
         }
         catch {
-          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
           await state.delete(claimKey).catch(() => undefined)
           return { queued: true, response: await fallback(true) }
         }
@@ -955,7 +956,7 @@ async function steerQueuedWebhookDelivery(
         catch {}
         if (steeringLeaseLost || sendLockLost) {
           stopDeliveryHeartbeat()
-          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
           await state.delete(claimKey)
           return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
         }
@@ -990,7 +991,7 @@ async function steerQueuedWebhookDelivery(
           return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }), settlement }
         }
         stopDeliveryHeartbeat()
-        await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+        await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
         await state.set(claimKey, "queued")
         return { queued: true, response: await fallback(true) }
       }
@@ -1133,6 +1134,12 @@ async function executeQueuedWebhookDelivery(
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
+  if (delivery.attempts >= maxWebhookQueueAttempts) {
+    if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" exhausted ${maxWebhookQueueAttempts} execution leases and will not be retried.`)
+    }
+    return
+  }
   let resolveActiveCompletion: (() => void) | undefined
   let rejectActiveCompletion: ((reason?: unknown) => void) | undefined
   const request = requestFromPersistedWebhook(delivery)
@@ -1159,7 +1166,6 @@ async function executeQueuedWebhookDelivery(
     ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
   })
   const stopForLifecycle = () => {
-    stopHeartbeat()
     ownershipAbort.abort(lifecycleSignal.reason)
   }
   if (lifecycleSignal.aborted) stopForLifecycle()
@@ -1252,11 +1258,17 @@ async function executeQueuedWebhookDelivery(
   }
   catch (error) {
     rejectActiveCompletion?.(error)
+    if (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts) {
+      if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+        console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed after ${maxWebhookQueueAttempts} attempts and will not be retried.`, error)
+      }
+      return
+    }
     const retryDelay = lifecycleSignal.aborted
       ? 0
       : Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
     const retryAt = Date.now() + retryDelay
-    if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt)) {
+    if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: !lifecycleSignal.aborted })) {
       if (channelDelivery) await recordChannelDeliveryEvidence(channelDelivery, {
         attempt: delivery.attempts + 1,
         error: channelDeliveryError(error),
@@ -3663,6 +3675,7 @@ async function createChannelChat(
   handlerOptions: AgentChannelWebhookRouteOptions,
   maximumInvocationDeadline?: number,
   providedState?: { state: StateAdapter, titleKeyPrefix: string },
+  resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
 ): Promise<Chat> {
   const resolvedState = providedState || await resolveChatState(options, context, registration, handlerOptions)
   const lockTracker = createChatLockTracker(resolvedState.state)
@@ -3673,18 +3686,20 @@ async function createChannelChat(
     options,
   ))
   const state = { keyPrefix: resolvedState.titleKeyPrefix, state: resolvedState.state }
-  chat.onDirectMessage((thread, message, _channel, messageContext) =>
-    handleChatSdkMessages(agent, context, registration, thread, message, () => "direct", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
+  const deliveryContext = async () => resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context
+  chat.onDirectMessage(async (thread, message, _channel, messageContext) =>
+    handleChatSdkMessages(agent, await deliveryContext(), registration, thread, message, () => "direct", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
   chat.onNewMention(async (thread, message, messageContext) => {
+    const messageRuntimeContext = await deliveryContext()
     if (chatSdkOption<string>(options, "concurrency") !== "serial") {
       await thread.subscribe().catch(() => undefined)
-      await handleChatSdkMessages(agent, context, registration, thread, message, () => "mention", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline)
+      await handleChatSdkMessages(agent, messageRuntimeContext, registration, thread, message, () => "mention", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline)
       return
     }
-    await handleChatSdkMessages(agent, context, registration, thread, message, () => "mention", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline)
+    await handleChatSdkMessages(agent, messageRuntimeContext, registration, thread, message, () => "mention", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline)
   })
-  chat.onSubscribedMessage((thread, message, messageContext) =>
-    handleChatSdkMessages(agent, context, registration, thread, message, queuedMessage => queuedMessage.isMention ? "mention" : "subscribed", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
+  chat.onSubscribedMessage(async (thread, message, messageContext) =>
+    handleChatSdkMessages(agent, await deliveryContext(), registration, thread, message, queuedMessage => queuedMessage.isMention ? "mention" : "subscribed", options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline))
 
   return chat
 }
@@ -3699,8 +3714,9 @@ async function createChatWebhookHandler(
   handlerOptions: AgentChannelWebhookRouteOptions,
   maximumInvocationDeadline?: number,
   state?: { state: StateAdapter, titleKeyPrefix: string },
+  resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
-  const chat = await createChannelChat(agent, context, registration, adapterName, adapter, options, handlerOptions, maximumInvocationDeadline, state)
+  const chat = await createChannelChat(agent, context, registration, adapterName, adapter, options, handlerOptions, maximumInvocationDeadline, state, resolveDelivery)
   const handler = chat.webhooks[adapterName]
   if (!handler) {
     throw new Error(`[vitehub] Chat adapter "${adapterName}" did not expose a webhook handler.`)
@@ -4357,7 +4373,7 @@ export function createChannelWebhookRouteHandler(
           break
         }
         if (queueStopped) {
-          await queue.state.retryWebhookDelivery(queue.scope, delivery.deliveryId, delivery.leaseToken, Date.now()).catch(() => undefined)
+          await queue.state.retryWebhookDelivery(queue.scope, delivery.deliveryId, delivery.leaseToken, Date.now(), { incrementAttempts: false }).catch(() => undefined)
           break
         }
         const controller = new AbortController()
@@ -4470,24 +4486,32 @@ export function createChannelWebhookRouteHandler(
       if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       await deliveryState.state.connect()
       const webhookPayload = parseWebhookPayload(await request.clone().text())
-      const channelDelivery = await openAgentChannelDelivery(deliveryState.state, {
-        agentName: context.agentIdentity?.name || "agent",
-        channelId: registration.channelId,
-        provider: registration.provider,
-        scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
-        sourceId: await webhookDeliverySourceId(request, registration.provider),
-      })
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
-      if (messageIdentity) {
-        await bindAgentChannelDeliveryMessage(deliveryState.state, channelDelivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId)
-      }
       const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(webhookPayload)
-      if (payloadFingerprint) {
-        await bindAgentChannelDeliveryPayload(deliveryState.state, channelDelivery, registration.provider, payloadFingerprint)
+      let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
+      const resolveChannelDelivery = async () => {
+        channelDeliveryPromise ??= (async () => {
+          const delivery = await openAgentChannelDelivery(deliveryState.state, {
+            agentName: context.agentIdentity?.name || "agent",
+            channelId: registration.channelId,
+            provider: registration.provider,
+            scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
+            sourceId: await webhookDeliverySourceId(request, registration.provider, webhookPayload),
+          })
+          if (messageIdentity) {
+            await bindAgentChannelDeliveryMessage(deliveryState.state, delivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId)
+          }
+          if (payloadFingerprint) {
+            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, registration.provider, payloadFingerprint)
+          }
+          return delivery
+        })()
+        return await channelDeliveryPromise
       }
-      context = withAgentChannelDelivery(context, channelDelivery)
 
       if (trigger.id !== "chat.message") {
+        const channelDelivery = await resolveChannelDelivery()
+        context = withAgentChannelDelivery(context, channelDelivery)
         try {
           const input = await createAgentWebhookTriggerInput(request, registration)
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
@@ -4709,14 +4733,16 @@ export function createChannelWebhookRouteHandler(
         const adapterName = resolveChatAdapterName(adapters, registration)
         const adapter = adapterName ? adapters[adapterName] : undefined
         if (!adapter) {
-          return await terminalChannelDeliveryResponse(channelDelivery, createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`))
+          return await terminalChannelDeliveryResponse(await resolveChannelDelivery(), createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`))
         }
 
         try {
           const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
-          const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline, chatDeliveryState)
+          const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions, maximumInvocationDeadline, chatDeliveryState, resolveChannelDelivery)
           webhookDeadlineAbort?.signal.throwIfAborted()
           const response = await handler(request, { waitUntil: context.waitUntil })
+          if (response.status === 401 || response.status === 403) return response
+          const channelDelivery = await resolveChannelDelivery()
           if (!channelDelivery.claimed && !channelDelivery.duplicate) {
             const serial = chatSdkOption<string>(chatOptions, "concurrency") === "serial"
             const ignored = serial && response.ok && await response.clone().json()
@@ -4736,8 +4762,10 @@ export function createChannelWebhookRouteHandler(
           return response
         }
         catch (error) {
-          await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           const response = toHttpErrorResponse(error)
+          if (response?.status === 401 || response?.status === 403) return response
+          const channelDelivery = await resolveChannelDelivery()
+          await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           if (response) return response
           throw error
         }

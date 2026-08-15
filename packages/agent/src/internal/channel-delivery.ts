@@ -6,6 +6,7 @@ const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
 const maximumDeliveries = 10_000
 const indexKey = "deliveries:index"
+const indexLockKey = "deliveries:index:lock"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 
@@ -113,6 +114,21 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
   )
 }
 
+async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
+  let lock = await state.acquireLock(indexLockKey, 5_000)
+  while (!lock) {
+    await new Promise(resolve => setTimeout(resolve, 1))
+    lock = await state.acquireLock(indexLockKey, 5_000)
+  }
+  try {
+    const ids = await state.get<string[]>(indexKey) || []
+    await state.set(indexKey, [...ids.filter(id => id !== deliveryId), deliveryId].slice(-maximumDeliveries), retentionMs)
+  }
+  finally {
+    await state.releaseLock(lock)
+  }
+}
+
 async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent> {
   const event: AgentChannelDeliveryEvent = {
     ...input,
@@ -125,7 +141,7 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
     await state.set(sourceKey(delivery), delivery, retentionMs)
     await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
     await state.appendToList(deliveryEventsKey(delivery.id), event, { maxLength: maximumEvents, ttlMs: retentionMs })
-    await state.appendToList(indexKey, delivery.id, { maxLength: maximumDeliveries })
+    await touchDeliveryIndex(state, delivery.id)
   }
   catch (error) {
     console.error(JSON.stringify({
@@ -259,10 +275,10 @@ export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context:
 }
 
 export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get" | "getList">, limit = 100, scopePrefix?: string): Promise<AgentChannelDeliveryInspection[]> {
-  const ids = await state.getList<string>(indexKey)
+  const ids = await state.get<string[]>(indexKey) || []
   const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[] }> = []
   const maximum = Math.max(0, limit)
-  for (const id of new Set([...ids].reverse())) {
+  for (const id of [...ids].reverse()) {
     if (stored.length >= maximum) break
     const delivery = await state.get<AgentChannelDelivery>(deliveryRecordKey(id))
     if (!delivery || (scopePrefix && !delivery.scope.startsWith(scopePrefix))) continue
