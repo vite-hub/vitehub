@@ -118,6 +118,7 @@ async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Prom
 }
 
 async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent> {
+  const terminal = input.type === "completed" || input.type === "failed" || input.type === "rejected"
   const event: AgentChannelDeliveryEvent = {
     ...input,
     ...(input.error ? { error: input.error.slice(0, 2_000) } : {}),
@@ -144,8 +145,10 @@ async function appendEvent(state: StateAdapter, delivery: AgentChannelDelivery, 
     }))
     throw error
   }
+  finally {
+    if (terminal) activeDeliveries.delete(delivery.id)
+  }
   log(event, delivery)
-  if (event.type === "completed" || event.type === "failed" || event.type === "rejected") activeDeliveries.delete(delivery.id)
   return event
 }
 

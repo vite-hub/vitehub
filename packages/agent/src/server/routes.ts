@@ -595,6 +595,18 @@ function channelDeliveryError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 2_000)
 }
 
+function logChannelDeliveryAliasFailure(delivery: AgentChannelDeliveryTracker, alias: "message" | "payload", error: unknown): void {
+  console.error(JSON.stringify({
+    scope: "vitehub.channel.delivery",
+    event: "alias.failed",
+    alias,
+    deliveryId: delivery.delivery.id,
+    provider: delivery.delivery.provider,
+    sourceId: delivery.delivery.sourceId,
+    error: channelDeliveryError(error),
+  }))
+}
+
 async function recordChannelDeliveryEvidence(delivery: AgentChannelDeliveryTracker, input: AgentChannelDeliveryEventInput): Promise<void> {
   try {
     await delivery.event(input)
@@ -4509,10 +4521,12 @@ export function createChannelWebhookRouteHandler(
             sourceId: await webhookDeliverySourceId(request, registration.provider, webhookPayload),
           })
           if (messageIdentity) {
-            await bindAgentChannelDeliveryMessage(deliveryState.state, delivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId).catch(() => undefined)
+            await bindAgentChannelDeliveryMessage(deliveryState.state, delivery, registration.provider, messageIdentity.threadId, messageIdentity.messageId)
+              .catch(error => logChannelDeliveryAliasFailure(delivery, "message", error))
           }
           if (payloadFingerprint) {
-            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, registration.provider, payloadFingerprint).catch(() => undefined)
+            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, registration.provider, payloadFingerprint)
+              .catch(error => logChannelDeliveryAliasFailure(delivery, "payload", error))
           }
           return delivery
         })()

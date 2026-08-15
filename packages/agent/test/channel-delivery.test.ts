@@ -300,6 +300,20 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   })
 
+  it("does not retain a tracker when terminal evidence cannot be written", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "terminal-write-failure" })
+    state.appendToList = async () => { throw new Error("state unavailable") }
+
+    await expect(delivery.event({ type: "completed" })).rejects.toThrow("state unavailable")
+
+    expect(activeAgentChannelDelivery(delivery.delivery.id)).toBeUndefined()
+    error.mockRestore()
+    info.mockRestore()
+  })
+
   it("detaches process-local custody after durable handoff", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const delivery = await openAgentChannelDelivery(stateAdapter(), {
