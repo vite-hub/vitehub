@@ -71,6 +71,8 @@ describe("renderMarkdownTemplate", () => {
       " https://example.com/recap",
       "https://example.com/recap ",
       "https://example.com/\uD800",
+      "https://example.com/%zz",
+      "https://example.com/?q=%",
       "https://example.com/a\\b",
       "https://example.com/?x=&#x29;*Injected*",
       "https://example.com/?x=&#65/foo",
