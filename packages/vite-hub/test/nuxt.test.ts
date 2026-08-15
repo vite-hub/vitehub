@@ -482,6 +482,27 @@ describe("ViteHub Nuxt integration", () => {
     expect(((nuxt.options as typeof nuxt.options & { nitro: { alias: Record<string, string> } }).nitro).alias["#vitehub/emails"]).toBe(emailTemplates)
   })
 
+  it("resolves live-added nested Email templates dynamically during Nuxt development", async () => {
+    const prepareTypes = vi.fn().mockResolvedValue({
+      monthly: "/tmp/vitehub-nuxt/.vitehub/email/templates/monthly.mjs",
+    })
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "@vite-hub/email/vite",
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+
+    await viteHubNuxtModule({ email: true, preset: "vercel" }, nuxt)
+    const nitroConfig: Record<string, unknown> = {}
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nuxt.options.alias).not.toHaveProperty("#vitehub/emails/monthly")
+    const rollupConfig = nitroConfig.rollupConfig as { plugins: Array<{ name: string, resolveId: (id: string) => string | undefined }> }
+    const resolver = rollupConfig.plugins.find(plugin => plugin.name === "vite-hub/nuxt-email-templates")
+    expect(resolver?.resolveId("#vitehub/emails/monthly/detail"))
+      .toBe("/tmp/vitehub-nuxt/.vitehub/email/templates/monthly%2Fdetail.mjs")
+  })
+
   it("exposes templates from a directly installed Email plugin", async () => {
     const prepareTypes = vi.fn()
     const { nuxt, runNitroConfigHook } = createNuxt(false, [{

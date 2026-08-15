@@ -267,8 +267,14 @@ describe("hubEmail", () => {
     const send = vi.fn()
     const logError = vi.fn()
     const addWatchPaths = vi.fn()
+    const generatedModule = { id: join(root, ".vitehub", "email", "templates", "monthly-recap.mjs") }
+    const invalidateModule = vi.fn()
     ;(plugin.configureServer as unknown as (server: Record<string, unknown>) => void)({
       config: { logger: { error: logError } },
+      moduleGraph: {
+        idToModuleMap: new Map([[generatedModule.id, generatedModule]]),
+        invalidateModule,
+      },
       watcher: {
         add: addWatchPaths,
         on: (event: string, handler: (file: string) => void) => handlers.set(event, handler),
@@ -281,6 +287,7 @@ describe("hubEmail", () => {
     handlers.get("change")?.(sharedTemplate)
 
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+    expect(invalidateModule).toHaveBeenCalledWith(generatedModule)
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated footer")
 
@@ -324,6 +331,7 @@ describe("hubEmail", () => {
     const send = vi.fn()
     ;(plugin.configureServer as unknown as (server: Record<string, unknown>) => void)({
       config: { logger: { error: vi.fn() } },
+      moduleGraph: { idToModuleMap: new Map(), invalidateModule: vi.fn() },
       watcher: {
         add: vi.fn(),
         on: (event: string, handler: (file: string) => void) => handlers.set(event, handler),

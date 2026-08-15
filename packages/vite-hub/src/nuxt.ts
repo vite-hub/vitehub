@@ -45,6 +45,28 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useChat"]
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
+function emailTemplateResolver(root: string): Plugin {
+  const prefix = "#vitehub/emails/"
+  return {
+    name: "vite-hub/nuxt-email-templates",
+    resolveId(id) {
+      if (!id.startsWith(prefix)) return
+      const name = id.slice(prefix.length)
+      const segments = name.split("/")
+      if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) return
+      return join(root, `${encodeURIComponent(name)}.mjs`)
+    },
+  }
+}
+
+function installEmailTemplateResolver(config: Record<string, unknown>, root: string): void {
+  const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
+  const plugins = (rollupConfig.plugins ??= []) as Plugin[]
+  if (!plugins.some(plugin => plugin.name === "vite-hub/nuxt-email-templates")) {
+    plugins.push(emailTemplateResolver(root))
+  }
+}
+
 function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[]): void {
   const typescript = (options.typescript ??= {}) as Record<string, unknown>
   const tsConfig = (typescript.tsConfig ??= {}) as Record<string, unknown>
@@ -390,17 +412,20 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const generatedAliases = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
-    ...Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [
-      `#vitehub/emails/${name}`,
-      path,
-    ])),
-    ...(emailPlugin
+    ...(!nuxt.options.dev ? Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [
+        `#vitehub/emails/${name}`,
+        path,
+      ])) : {}),
+    ...(emailPlugin && !nuxt.options.dev
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
       : {}),
     "#vitehub/templates": join(projectRoot, ".vitehub/markdown-template/templates.mjs"),
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt)
+    if (emailPlugin && nuxt.options.dev) {
+      installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
+    }
     const alias = (config.alias ??= {}) as Record<string, string>
     for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
   })
@@ -418,6 +443,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const nuxtAlias = (nuxt.options.alias ??= {})
   const nitroAlias = ((nuxt.options.nitro ??= {}).alias ??= {}) as Record<string, string>
+  if (emailPlugin && nuxt.options.dev) {
+    installEmailTemplateResolver(nuxt.options.nitro, join(projectRoot, ".vitehub/email/templates"))
+  }
   for (const [name, path] of Object.entries(generatedAliases)) {
     nuxtAlias[name] ??= path
     nitroAlias[name] ??= path

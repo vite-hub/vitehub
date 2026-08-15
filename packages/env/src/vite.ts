@@ -18,6 +18,7 @@ import { loadEnv } from "vite"
 import { formatDiagnostics } from "./core/diagnostics.ts"
 import { env, isDefaultStringEnvVariable } from "./core/declarations.ts"
 import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
+import { parseSchema } from "./schema.ts"
 
 export { createRuntimeRegistry as createRuntimeEnvRegistry } from "./core/resolve.ts"
 
@@ -372,12 +373,17 @@ function createPublicTypeEntries(publicConfig: Record<string, unknown>): Record<
 }
 
 function createPreparedPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"]): Record<string, string> {
-  return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => [
-    key,
-    `${declaration.type
-      ?? (isDefaultStringEnvVariable(declaration) ? "string" : undefined)
-      ?? (declaration.default === null ? "null" : typeof declaration.default === "undefined" ? "unknown" : typeof declaration.default)}${!declaration.required && typeof declaration.default === "undefined" ? " | undefined" : ""}`,
-  ]))
+  return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => {
+    const parsedDefault = typeof declaration.default === "undefined"
+      ? undefined
+      : parseSchema(declaration.schema, declaration.default, `env.public.${key}`)
+    return [
+      key,
+      `${declaration.type
+        ?? (isDefaultStringEnvVariable(declaration) ? "string" : undefined)
+        ?? (parsedDefault === null ? "null" : typeof parsedDefault === "undefined" ? "unknown" : typeof parsedDefault)}${!declaration.required && typeof declaration.default === "undefined" ? " | undefined" : ""}`,
+    ]
+  }))
 }
 
 function createPublicTypeFields(publicTypes: Record<string, string>, indent: number): string[] {

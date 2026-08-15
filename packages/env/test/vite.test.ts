@@ -37,6 +37,11 @@ describe("Vite plugin", () => {
       public: {
         appName: env({ mode: "build" }),
         debug: env({ mode: "build", schema: booleanSchema(), type: "boolean" }),
+        port: env({
+          default: "3000",
+          mode: "build",
+          schema: { safeParse: (input: unknown) => ({ data: Number(input), success: true as const }) },
+        }),
         optionalLabel: env({ mode: "build", optional: true }),
       },
       server: {
@@ -47,6 +52,7 @@ describe("Vite plugin", () => {
     const types = await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")
     expect(types).toContain("\"appName\": string")
     expect(types).toContain("\"debug\": boolean")
+    expect(types).toContain("\"port\": number")
     expect(types).toContain("\"optionalLabel\": string | undefined")
     expect(types).toContain("\"githubToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export interface PublicEnv")

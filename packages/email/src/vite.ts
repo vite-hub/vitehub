@@ -433,7 +433,12 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
             server.watcher.add([...watchFiles])
           }
         } while (refreshPending)
-        if (refreshed) server.ws.send({ type: "full-reload" })
+        if (refreshed) {
+          for (const module of server.moduleGraph.idToModuleMap.values()) {
+            if (module.id && isInside(materializedRoot, module.id.split("?", 1)[0])) server.moduleGraph.invalidateModule(module)
+          }
+          server.ws.send({ type: "full-reload" })
+        }
       }
       const refreshForFile = (file: string) => {
         if (!templatesRoots.some(root => isInside(root, file)) && !watchFiles.has(file)) return
