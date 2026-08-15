@@ -6,7 +6,7 @@ import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-outpu
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { materializeAgentUsageCost } from "./internal/usage-pricing.ts"
 
-import type { AgentMessagePhase, StreamEvent } from "./messages.ts"
+import type { AgentActivity, AgentMessagePhase, StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
@@ -402,6 +402,18 @@ function optionalDurationMs(durationMs: number | undefined): { durationMs?: numb
   return durationMs === undefined ? {} : { durationMs }
 }
 
+function agentActivity(value: unknown): AgentActivity | undefined {
+  if (!value || typeof value !== "object") return
+  const activity = value as { kind?: unknown, name?: unknown }
+  if (activity.kind === "tool") return { kind: "tool" }
+  if (activity.kind === "action" && typeof activity.name === "string" && activity.name) return { kind: "action", name: activity.name }
+}
+
+function optionalAgentActivity(value: unknown): { activity?: AgentActivity } {
+  const activity = agentActivity(value)
+  return activity ? { activity } : {}
+}
+
 export function toAgentStreamEvent(
   chunk: unknown,
   toolNames?: Map<string, string>,
@@ -453,17 +465,17 @@ export function toAgentStreamEvent(
     const id = String(value.id || value.toolCallId)
     const name = String(value.toolName || value.name || toolNames?.get(id) || "tool")
     toolNames?.set(id, name)
-    return { id, input: value.input, ...optionalMessageId(messageId), name, type: "tool-input-start" }
+    return { ...optionalAgentActivity(value.activity), id, input: value.input, ...optionalMessageId(messageId), name, type: "tool-input-start" }
   }
   if (type === "tool-call" || type === "tool-input-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
     toolNames?.set(id, name)
-    return { id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, type: "tool-call" }
+    return { ...optionalAgentActivity(value.activity), id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, type: "tool-call" }
   }
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
-    return { ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { ...optionalAgentActivity(value.activity), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "tool-error" || type === "tool-output-error") {
     const id = String(value.toolCallId ?? value.id)
@@ -472,7 +484,7 @@ export function toAgentStreamEvent(
       : typeof value.errorText === "string"
         ? value.errorText
         : String(value.error || "Unknown tool error")
-    return { ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { ...optionalAgentActivity(value.activity), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "approval-request") {
     return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-request" }

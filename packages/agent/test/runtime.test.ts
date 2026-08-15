@@ -2,7 +2,7 @@ import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
-import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { chat, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
@@ -1065,6 +1065,30 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
+  })
+
+  it("exports product actions as execute_tool spans with ViteHub rendering semantics", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { activity: { kind: "action", name: "repository-host.write" }, id: "action-1", name: "repository_host_write", type: "tool-call" }
+          yield { activity: { kind: "action", name: "repository-host.write" }, id: "action-1", name: "repository_host_write", type: "tool-result" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {})
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    const span = traceEventsToOpenTelemetrySpans(traceLog.entries()).find(item => item.attributes?.["vitehub.step.id"] === "action-1")
+    expect(span?.attributes).toMatchObject({
+      "gen_ai.operation.name": "execute_tool",
+      "gen_ai.tool.call.id": "action-1",
+      "gen_ai.tool.name": "repository_host_write",
+      "vitehub.action.name": "repository-host.write",
+      "vitehub.activity.kind": "action",
+    })
   })
 
   it("captures yielded usage in runAgent invocation data", async () => {

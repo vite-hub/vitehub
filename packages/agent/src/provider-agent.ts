@@ -597,7 +597,29 @@ function isProviderToolItem(itemId: string | undefined, itemType: string): itemI
   return Boolean(itemId) && !providerDataItemTypes.has(itemType)
 }
 
-function providerEvent(event: ProviderRuntimeEvent): StreamEvent[] {
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function providerToolName(event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>): string | undefined {
+  const data = record(event.payload.data)
+  const item = record(data?.item)
+  return typeof data?.toolName === "string"
+    ? data.toolName
+    : typeof item?.tool === "string"
+      ? item.tool
+      : undefined
+}
+
+function providerToolActivity(
+  event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>,
+  tools: AgentToolSet | undefined,
+) {
+  const name = providerToolName(event)
+  return name && tools?.[name]?.activity ? tools[name].activity : { kind: "tool" as const }
+}
+
+function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
@@ -607,14 +629,15 @@ function providerEvent(event: ProviderRuntimeEvent): StreamEvent[] {
       return [{ data: { kind: "content", value: event.payload.delta }, type: "data-agent-event" }]
     case "item.started":
       return isProviderToolItem(event.itemId, event.payload.itemType)
-        ? [{ id: event.itemId, input: event.payload.data, name: event.payload.title || event.payload.itemType, type: "tool-call" }]
+        ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: event.payload.data, name: providerToolName(event) || event.payload.title || event.payload.itemType, type: "tool-call" }]
         : [providerDataEvent(event)]
     case "item.completed":
       return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{
+            activity: providerToolActivity(event, tools),
             error: event.payload.status === "failed" ? event.payload.detail || "Provider tool failed." : undefined,
             id: event.itemId,
-            name: event.payload.title || event.payload.itemType,
+            name: providerToolName(event) || event.payload.title || event.payload.itemType,
             output: event.payload.data ?? event.payload.detail,
             type: "tool-result",
           }]
@@ -922,7 +945,7 @@ async function* runProvider(
       if (current.done) throw new Error("[vitehub] Provider Agent Driver event stream ended before the turn completed.")
       nextEvent = events.next()
       if (current.value.threadId && current.value.threadId !== threadId) continue
-      const normalized = providerEvent(current.value)
+      const normalized = providerEvent(current.value, context.tools)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)
       if (current.value.turnId === turn.turnId && current.value.type === "turn.aborted") {

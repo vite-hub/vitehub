@@ -44,19 +44,29 @@ function invocationAttributes(context: AgentTraceContext, extra: Record<string, 
 function eventAttributes(event: StreamEvent): Record<string, unknown> {
   if (event.type === "tool-call" || event.type === "tool-input-start") {
     return {
+      "gen_ai.operation.name": "execute_tool",
+      "gen_ai.tool.call.id": event.id,
+      "gen_ai.tool.name": event.name,
       "step.id": event.id,
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasInput": event.input !== undefined,
+      "vitehub.activity.kind": event.activity?.kind || "tool",
+      "vitehub.action.name": event.activity?.kind === "action" ? event.activity.name : undefined,
     }
   }
   if (event.type === "tool-result") {
     return {
+      "gen_ai.operation.name": "execute_tool",
+      "gen_ai.tool.call.id": event.id,
+      "gen_ai.tool.name": event.name,
       "step.id": event.id,
       "tool.id": event.id,
       "tool.name": event.name,
       "tool.hasOutput": event.output !== undefined,
       "tool.error": event.error,
+      "vitehub.activity.kind": event.activity?.kind || "tool",
+      "vitehub.action.name": event.activity?.kind === "action" ? event.activity.name : undefined,
     }
   }
   if (event.type === "approval-request") {

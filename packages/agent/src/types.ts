@@ -1,4 +1,4 @@
-import type { Message, StreamEvent } from "./messages.ts"
+import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
@@ -1605,6 +1605,7 @@ export interface AgentToolExecutionContext {
 }
 
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
+  activity?: AgentActivity
   description?: string
   execute?: (input: TInput, context?: AgentToolExecutionContext) => MaybePromise<TOutput>
   inputSchema?: AgentToolSchema<TInput>

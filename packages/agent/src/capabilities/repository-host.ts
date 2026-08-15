@@ -129,6 +129,7 @@ function repositoryHostTools(mode: AgentCapabilityMode, options: RepositoryHostO
     }
     if (mode === "write") {
       tools.repository_host_write = createTool<RepositoryHostWriteRequest>({
+        activity: { kind: "action", name: "repository-host.write" },
         description: "Create repository-hosted comments or reactions through the configured provider client.",
         execute(input) {
           if (!client.write) throw new Error("[vitehub] repository_host_write requires the Repository Host client to expose write().")

@@ -154,6 +154,31 @@ describe("Provider Agent Driver", () => {
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("preserves Capability action annotations from provider-native tool items", async () => {
+    const threadId = "thread-actions"
+    runtime(threadId, [
+      event("item.started", threadId, { data: { item: { tool: "repository_host_write" } }, itemType: "mcp_tool_call" }, { itemId: "action-1", turnId: "turn-1" }),
+      event("item.completed", threadId, { data: { item: { tool: "repository_host_write" } }, itemType: "mcp_tool_call", status: "completed" }, { itemId: "action-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    const events = await collect(await adapter.stream!(context(threadId, {
+      tools: {
+        repository_host_write: {
+          activity: { kind: "action", name: "repository-host.write" },
+          execute: vi.fn(),
+          name: "repository_host_write",
+        },
+      },
+    }) as never)) as Array<Record<string, unknown>>
+
+    expect(events.slice(0, 2)).toEqual([
+      expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-call" }),
+      expect.objectContaining({ activity: { kind: "action", name: "repository-host.write" }, name: "repository_host_write", type: "tool-result" }),
+    ])
+  })
+
   it("continues a thread with the previous provider cursor", async () => {
     const threadId = "thread-resume"
     const first = runtime(threadId, [

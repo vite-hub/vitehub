@@ -451,6 +451,7 @@ export type {
 } from "./workspace-agent.ts"
 
 export type {
+  AgentActivity,
   AgentMessagePhase,
   Message,
   MessageMetadata,
