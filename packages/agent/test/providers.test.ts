@@ -12333,7 +12333,8 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const connect = vi.spyOn(state, "connect")
-    const adapter = createTestChatAdapter({ attachmentFetchData: async () => "data:image/jpeg;base64,AQID" as never, persistThreadHistory: true })
+    const attachmentFetchData = vi.fn<() => Promise<Buffer>>(async () => "data:image/jpeg;base64,AQID" as unknown as Buffer)
+    const adapter = createTestChatAdapter({ attachmentFetchData, persistThreadHistory: true })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
         platforms: { telegram: () => adapter as never },
@@ -12432,8 +12433,28 @@ describe("server helpers", () => {
     const oversizedArchive = await oversizedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
     expect(oversizedArchive.messages.find(message => message.id === "21")!.attachments[0]).toMatchObject({ unavailable: true })
     expect(cancelOversizedBody).toHaveBeenCalledOnce()
+    let finishLateRead!: (value: Buffer) => void
+    attachmentFetchData.mockImplementationOnce(() => new Promise(resolve => { finishLateRead = resolve }))
+    const abortController = new AbortController()
+    const abortedHistory = handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+      signal: abortController.signal,
+    }), "telegram", { state })
+    await vi.waitFor(() => expect(attachmentFetchData).toHaveBeenCalledTimes(3))
+    abortController.abort(new Error("client stopped waiting"))
+    const abortedResponse = await abortedHistory
+    expect(abortedResponse.status).toBe(200)
+    const abortedArchive = await abortedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
+    expect(abortedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
+    finishLateRead(Buffer.from([1, 2, 3]))
     fetchAttachment.mockRestore()
-    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 2)
+    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 3)
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
   }, 15_000)
