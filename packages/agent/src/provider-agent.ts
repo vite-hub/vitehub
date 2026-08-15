@@ -620,6 +620,11 @@ async function* runProvider(
   let generatedInstructionFileExisted = false
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
+  const activeWorkspaceCommands = new Set<Promise<unknown>>()
+  let releaseWorkspaceCleanup: (() => void) | undefined
+  const workspaceCleanup = new Promise<void>((resolve) => {
+    releaseWorkspaceCleanup = resolve
+  })
   let clearActiveWorkspaceCommands: (() => void) | undefined
   let clearActiveWorkspaceFiles: (() => void) | undefined
   const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
@@ -638,6 +643,7 @@ async function* runProvider(
         await runtime!.close()
       }
       finally {
+        await workspaceCleanup
         await rm(root, { force: true, recursive: true })
       }
     }
@@ -656,7 +662,12 @@ async function* runProvider(
           }
         },
       })
-      clearActiveWorkspaceCommands = setActiveAgentWorkspaceCommands(context.context, (command, args, execOptions) => workspaceSession!.exec(command, args, execOptions))
+      clearActiveWorkspaceCommands = setActiveAgentWorkspaceCommands(context.context, (command, args, execOptions) => {
+        const execution = workspaceSession!.exec(command, args, execOptions)
+        activeWorkspaceCommands.add(execution)
+        void execution.finally(() => activeWorkspaceCommands.delete(execution)).catch(() => undefined)
+        return execution
+      })
     }
     let instructions = await resolveInstructions(options, context)
     if (!instructions && options.provider === "claude-code") {
@@ -765,6 +776,9 @@ async function* runProvider(
     for (const result of await Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()])) {
       if (result.status === "rejected") cleanupErrors.push(result.reason)
     }
+    for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
+      if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
+    }
     if (generatedInstructionFile) {
       try {
         const path = join(root, generatedInstructionFile)
@@ -781,6 +795,7 @@ async function* runProvider(
     catch (error) {
       cleanupErrors.push(error)
     }
+    releaseWorkspaceCleanup?.()
     if (!runtimeCleanupDeferred) {
       try {
         await rm(root, { force: true, recursive: true })

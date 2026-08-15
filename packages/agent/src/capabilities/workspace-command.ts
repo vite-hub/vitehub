@@ -4,6 +4,7 @@ import { activeAgentWorkspaceCommands } from "../agent-workspace-runtime.ts"
 import type {
   AgentCapabilityMode,
   AgentInvocationContextStore,
+  AgentToolExecutionContext,
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
@@ -238,7 +239,7 @@ export function workspaceCommandTools(
         type: "object",
       },
       name: toolName,
-      async execute(input: unknown) {
+      async execute(input: unknown, execution?: AgentToolExecutionContext) {
         const value = input as WorkspaceCommandInput
         if (!value || typeof value.command !== "string") throw new TypeError(`[vitehub] ${toolName} requires a command.`)
         if (unrestricted) normalizeWorkspaceCommandEntries([value.command], `${toolName} command`)
@@ -250,6 +251,7 @@ export function workspaceCommandTools(
         assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an execution-capable writable Workspace Session.")
         return await executeWorkspaceCommand(workspace, value.command, args, {
           ...(mode === "write" ? { commitMessage: options.commitMessage || "workspace shell command" } : {}),
+          abortSignal: execution?.abortSignal,
           cwd,
           env,
           timeout: commandTimeout,
