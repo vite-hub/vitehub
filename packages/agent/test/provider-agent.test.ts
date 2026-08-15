@@ -408,26 +408,30 @@ describe("Provider Agent Driver", () => {
   })
 
   it("keeps a one-shot host alive until process-group escalation settles", async () => {
+    const pidFile = `/tmp/vitehub-provider-descendant-${crypto.randomUUID()}`
     const script = `
-      const { spawn } = require('node:child_process')
-      const child = spawn(process.execPath, ['-e', "const{spawn}=require('node:child_process');spawn(process.execPath,['-e',\\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\\"],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)"], { detached: true, stdio: 'ignore' })
-      setTimeout(() => {
-        process.kill(-child.pid, 'SIGTERM')
-        setTimeout(() => {
-          try { process.kill(-child.pid, 'SIGKILL') } catch {}
+      import { readFileSync } from 'node:fs'
+      import { localWorkspaceHost } from './src/provider-agent.ts'
+      const controller = new AbortController()
+      localWorkspaceHost().exec(process.execPath, ['-e', "const{spawn}=require('node:child_process');const{writeFileSync}=require('node:fs');const child=spawn(process.execPath,['-e',\\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\\"],{stdio:'ignore'});writeFileSync(process.argv[1],String(child.pid));process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)", process.env.PID_FILE], { signal: controller.signal })
+        .then(() => { throw new Error('expected abort') }, () => {
+          const pid = Number(readFileSync(process.env.PID_FILE, 'utf8'))
+          try { process.kill(pid, 0); throw new Error('descendant survived') }
+          catch (error) { if (error.code !== 'ESRCH') throw error }
           console.log('settled')
-        }, 250)
-      }, 50)
+        })
+      setTimeout(() => controller.abort(), 50)
     `
-    const result = spawnSync(process.execPath, ["-e", script], {
+    const result = spawnSync(process.execPath, ["--experimental-transform-types", "--no-warnings", "--input-type=module", "-e", script], {
       cwd: new URL("..", import.meta.url),
       encoding: "utf8",
+      env: { ...process.env, PID_FILE: pidFile },
       timeout: 3_000,
     })
 
+    await rm(pidFile, { force: true })
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout.trim()).toBe("settled")
-    expect(await readFile(new URL("../src/provider-agent.ts", import.meta.url), "utf8")).not.toContain("forceKill.unref()")
   })
 
   it("bounds asynchronous instruction resolution by the invocation timeout", async () => {
