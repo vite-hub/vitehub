@@ -226,7 +226,11 @@ export function deployedChannelWebhookUrl(target: LoadedChannelTarget, origin: s
 }
 
 async function resolvedChannelValue(value: unknown, context: unknown): Promise<unknown> {
-  const resolved = typeof value === "function" ? await value(context) : value
+  const resolved = typeof value === "function"
+    ? await value(context)
+    : value && typeof value === "object" && "resolve" in value && typeof value.resolve === "function"
+      ? await value.resolve(context)
+      : value
   return resolved && typeof resolved === "object" && "unseal" in resolved && typeof resolved.unseal === "function"
     ? resolved.unseal()
     : resolved

@@ -12322,7 +12322,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const connect = vi.spyOn(state, "connect")
-    const adapter = createTestChatAdapter({ attachmentFetchData: async () => Buffer.from([1, 2, 3]), persistThreadHistory: true })
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => "data:image/jpeg;base64,AQID" as never, persistThreadHistory: true })
     const agent = defineAgent({
       capabilities: [defineChatCapability({
         platforms: { telegram: () => adapter as never },

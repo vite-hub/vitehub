@@ -17,7 +17,7 @@ import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities,
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
-import { isAttachmentData } from "../messages.ts"
+import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
@@ -3814,7 +3814,9 @@ async function channelHistoryAttachment(attachment: Attachment, adapter: Adapter
     }
     catch {}
   }
-  const bytes = data instanceof Blob
+  const bytes = typeof data === "string"
+    ? attachmentStringBytes(data, resolved.mimeType || "application/octet-stream")
+    : data instanceof Blob
     ? new Uint8Array(await data.arrayBuffer())
     : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : undefined
   return objectWithoutUndefined({
