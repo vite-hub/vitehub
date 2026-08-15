@@ -23,7 +23,7 @@ type ExampleProject = {
   files: ProjectFile[]
 }
 
-type AgentPropertyKey = "driver" | "runtime" | "box" | "workspace" | "capabilities" | "channels"
+type AgentPropertyKey = "driver" | "runtime" | "workspace" | "capabilities" | "channels"
 
 type PlaygroundOption = {
   code: string
@@ -37,7 +37,6 @@ type AgentConfig = {
   visiblePropertyKeys: AgentPropertyKey[]
   driverKey: string
   runtimeKey: string
-  boxKey: string
   workspaceKey: string
   capabilityKeys: string[]
   channelKeys: string[]
@@ -269,7 +268,7 @@ const agentProperties: Record<AgentPropertyKey, {
   to: string
 }> = {
   driver: {
-    description: "Chooses how each invocation runs: through a coding harness, a model, or your own function.",
+    description: "Chooses how each invocation runs: through a coding provider, a model, or your own function.",
     icon: "i-lucide-bot",
     label: "driver",
     title: "Agent Driver",
@@ -281,13 +280,6 @@ const agentProperties: Record<AgentPropertyKey, {
     label: "runtime",
     title: "Execution runtime",
     to: "/docs/server-primitives/workflows/",
-  },
-  box: {
-    description: "Prepares the harness process environment, private Home, and execution boundary on a trusted host or Crabbox.",
-    icon: "i-lucide-package-open",
-    label: "box",
-    title: "Execution box",
-    to: "/docs/agents/boxes/",
   },
   workspace: {
     description: "Provides the persistent file tree and selects where the Agent's working state is stored.",
@@ -314,8 +306,8 @@ const agentProperties: Record<AgentPropertyKey, {
 const agentPropertyOrder = Object.keys(agentProperties) as AgentPropertyKey[]
 
 const driverOptions = [
-  { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex harness" },
-  { code: "{ kind: 'claude-code', sandbox: false }", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code harness" },
+  { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
+  { code: "{ kind: 'claude-code', permissions: 'ask' }", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code provider" },
   { code: "{ model: 'openai/gpt-5.1-mini' }", icon: "i-simple-icons-vercel", key: "model", label: "Bare model" },
   { code: "{ run: customAgent }", icon: "i-lucide-braces", key: "custom", label: "Custom runner" },
 ] satisfies PlaygroundOption[]
@@ -323,10 +315,6 @@ const driverOptions = [
 const runtimeOptions = [
   { code: "workflow('agent')", icon: "i-lucide-workflow", key: "workflow", label: "Durable workflow" },
   { code: "false", icon: "i-lucide-zap", key: "inline", label: "Inline execution" },
-] satisfies PlaygroundOption[]
-
-const boxOptions = [
-  { code: "{ runtime: 'trusted-host' }", icon: "i-lucide-server-cog", key: "trusted", label: "Trusted host" },
 ] satisfies PlaygroundOption[]
 
 const workspaceOptions = [
@@ -405,11 +393,10 @@ const frameworkKey = ref("nuxt")
 const hostKey = ref("cloudflare")
 const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
   reviewer: {
-    defaultPropertyKeys: ["driver", "box", "workspace"],
-    visiblePropertyKeys: ["driver", "runtime", "box", "workspace", "capabilities", "channels"],
+    defaultPropertyKeys: ["driver", "workspace"],
+    visiblePropertyKeys: ["driver", "runtime", "workspace", "capabilities", "channels"],
     driverKey: "codex",
     runtimeKey: "workflow",
-    boxKey: "trusted",
     workspaceKey: "github",
     capabilityKeys: ["browser", "repository", "skills"],
     channelKeys: ["github"],
@@ -419,17 +406,15 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
     visiblePropertyKeys: ["driver", "runtime", "workspace", "capabilities", "channels"],
     driverKey: "model",
     runtimeKey: "workflow",
-    boxKey: "trusted",
     workspaceKey: "local",
     capabilityKeys: ["mcp", "rate-limit", "skills"],
     channelKeys: ["http"],
   },
   status: {
-    defaultPropertyKeys: ["driver", "box", "workspace"],
-    visiblePropertyKeys: ["driver", "runtime", "box", "workspace", "capabilities", "channels"],
+    defaultPropertyKeys: ["driver", "workspace"],
+    visiblePropertyKeys: ["driver", "runtime", "workspace", "capabilities", "channels"],
     driverKey: "claude",
     runtimeKey: "workflow",
-    boxKey: "trusted",
     workspaceKey: "local",
     capabilityKeys: ["web-search", "browser", "memory", "skills"],
     channelKeys: ["web-chat"],
@@ -482,30 +467,26 @@ const selectedFile = computed(() =>
   ?? selectedProject.value.files[0]!,
 )
 const selectedAgentConfig = computed(() => projectAgentConfigs[selectedProjectId.value]!)
-const hasVisibleBox = computed(() => selectedAgentConfig.value.visiblePropertyKeys.includes("box"))
 const hasVisibleChannels = computed(() => selectedAgentConfig.value.visiblePropertyKeys.includes("channels"))
-const hasHarnessDriver = computed(() =>
+const hasProviderDriver = computed(() =>
   selectedAgentConfig.value.driverKey === "codex" || selectedAgentConfig.value.driverKey === "claude",
 )
-const hasHarnessOnlyCapability = computed(() => selectedAgentConfig.value.capabilityKeys.includes("access"))
+const hasProviderOnlyCapability = computed(() => selectedAgentConfig.value.capabilityKeys.some(key => key === "access" || key === "browser"))
 const driverItems = computed(() => driverOptions
   .filter(option =>
-    (!hasVisibleBox.value && !hasHarnessOnlyCapability.value)
+    !hasProviderOnlyCapability.value
     || option.key === "codex"
     || option.key === "claude",
   )
   .map(option => ({ icon: option.icon, label: option.label, value: option.key })))
 const runtimeItems = runtimeOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
-const boxItems = boxOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
 const workspaceItems = workspaceOptions.map(option => ({ icon: option.icon, label: option.label, value: option.key }))
 const selectedDriver = computed(() => driverOptions.find(option => option.key === selectedAgentConfig.value.driverKey)!)
 const selectedRuntime = computed(() => runtimeOptions.find(option => option.key === selectedAgentConfig.value.runtimeKey)!)
-const selectedBox = computed(() => boxOptions.find(option => option.key === selectedAgentConfig.value.boxKey)!)
 const selectedWorkspace = computed(() => workspaceOptions.find(option => option.key === selectedAgentConfig.value.workspaceKey)!)
 const availablePropertyItems = computed(() => agentPropertyOrder
   .filter(key =>
     !selectedAgentConfig.value.visiblePropertyKeys.includes(key)
-    && (key !== "box" || selectedAgentConfig.value.driverKey === "codex" || selectedAgentConfig.value.driverKey === "claude")
     && (key !== "channels" || !selectedAgentConfig.value.capabilityKeys.includes("chat")),
   )
   .map(key => ({
@@ -516,8 +497,8 @@ const availablePropertyItems = computed(() => agentPropertyOrder
 const availableCapabilityItems = computed(() => capabilityOptions
   .filter(option =>
     !selectedAgentConfig.value.capabilityKeys.includes(option.key)
-    && (option.key !== "access" || hasHarnessDriver.value)
-    && (option.key !== "browser" || hasVisibleBox.value)
+    && (option.key !== "access" || hasProviderDriver.value)
+    && (option.key !== "browser" || hasProviderDriver.value)
     && (
       option.key !== "chat"
       || !hasVisibleChannels.value
@@ -668,9 +649,9 @@ function capabilityItemsFor(currentKey: string, index: number) {
       option.key === currentKey
       || (
         !selectedAgentConfig.value.capabilityKeys.includes(option.key)
-        && (option.key !== "access" || hasHarnessDriver.value)
+        && (option.key !== "access" || hasProviderDriver.value)
         && (option.key !== "access" || index === 0)
-        && (option.key !== "browser" || hasVisibleBox.value)
+        && (option.key !== "browser" || hasProviderDriver.value)
         && (
           option.key !== "chat"
           || !hasVisibleChannels.value
@@ -726,10 +707,6 @@ function removeProperty(key: AgentPropertyKey) {
   }
   if (key === "channels") {
     selectedAgentConfig.value.channelKeys = []
-  }
-  if (key === "box") {
-    selectedAgentConfig.value.capabilityKeys = selectedAgentConfig.value.capabilityKeys
-      .filter(capabilityKey => capabilityKey !== "browser")
   }
 }
 
@@ -872,25 +849,6 @@ function selectHost(key: string) {
               >
                 <template #default>
                   <span>{{ selectedRuntime.code }}</span>
-                </template>
-              </USelect>
-
-              <USelect
-                v-else-if="propertyKey === 'box'"
-                v-model="selectedAgentConfig.boxKey"
-                :items="boxItems"
-                :icon="selectedBox.icon"
-                :content="selectContent"
-                :ui="selectUi"
-                value-key="value"
-                aria-label="Agent execution box"
-                size="xs"
-                color="neutral"
-                variant="outline"
-                class="code-select box-select"
-              >
-                <template #default>
-                  <span>{{ selectedBox.code }}</span>
                 </template>
               </USelect>
 
@@ -1284,13 +1242,6 @@ function selectHost(key: string) {
   background: color-mix(in srgb, #f59e0b 10%, var(--ui-bg));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 30%, transparent);
   color: #b45309;
-}
-
-.box-select {
-  min-width: 16rem;
-  background: color-mix(in srgb, #f97316 9%, var(--ui-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f97316 28%, transparent);
-  color: #c2410c;
 }
 
 .workspace-select {

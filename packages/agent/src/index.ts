@@ -182,12 +182,8 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceName,
-  WorkspaceSession,
-  WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
-import type { Box, BoxRequirement } from "@vite-hub/box"
-import { isHarnessBoxActive, shareBoxSessions } from "./harness/shared-box.ts"
 
 export type {
   AgentInvocationControlOutcome,
@@ -294,7 +290,7 @@ export type {
   AgentInspectionConfigValue,
   AgentInspectionDriverMetadata,
   AgentInspectionFileTreeItem,
-  AgentInspectionHarnessMetadata,
+  AgentInspectionProviderMetadata,
   AgentInspectionMetadata,
   AgentInspectionModelExecutionMetadata,
   AgentInspectionModelMetadata,
@@ -314,14 +310,8 @@ export type {
   AgentFinishHook,
   AgentFinishHookEvent,
   AgentHostIdentity,
-  AgentHarnessCredentialSource,
-  AgentHarnessDriver,
-  AgentHarnessDriverInput,
-  AgentHarnessInstructions,
-  AgentHarnessSandboxProvider,
-  AgentHarnessSandboxProviderInput,
-  AgentHarnessSessionKey,
-  AgentHarnessWorkDir,
+  AgentProviderDriverOptions,
+  AgentProviderPermissions,
   AgentInput,
   AgentInputHook,
   AgentIntegrationOption,
@@ -406,12 +396,8 @@ export type {
   AgentToolResolver,
   AgentToolStep,
   AgentWaitUntil,
-  ClaudeCodeAuthOptions,
   ClaudeCodeDriverOptions,
-  ClaudeCodeThinkingConfig,
-  CodexAuthOptions,
   CodexDriverOptions,
-  CodexDriverSandboxOptions,
   CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
@@ -474,7 +460,6 @@ const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const baseAgentDefinitionResolve = Symbol.for("vitehub.baseAgentDefinitionResolve")
 const baseAgentOutput = Symbol.for("vitehub.baseAgentOutput")
-const baseAgentBoxRequirements = Symbol.for("vitehub.baseAgentBoxRequirements")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
 type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
@@ -614,7 +599,6 @@ type AgentDefinitionWithBaseResolve<
   CALL_OPTIONS = unknown,
   TOutput = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput> & {
-  [baseAgentBoxRequirements]?: readonly BoxRequirement[]
   [baseAgentCapabilitiesResolver]?: AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
   [baseAgentDriverKind]?: AgentDriverKind
   [baseAgentOutput]?: AgentOutputDefinition<TOutput>
@@ -1163,14 +1147,8 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
-  if (box && driver.kind !== "harness") {
-    throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
-  }
-  if (box && driver.kind === "harness" && (driver.hasSandbox || driver.sandbox !== undefined || driver.workDir !== undefined)) {
-    throw new Error("[vitehub] defineAgent({ box }) owns harness execution. Move driver.sandbox and driver.workDir to the Box.")
-  }
   const run = driver.kind === "run" ? driver.run : undefined
   const capabilitiesResolver = typeof capabilities === "function"
     ? capabilities as AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
@@ -1187,9 +1165,9 @@ function defineBaseAgent<
     ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
     : baseCapabilities
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
-    hasBox: Boolean(box),
     hasWorkspace: false,
   })
+  let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
@@ -1197,10 +1175,14 @@ function defineBaseAgent<
           instructions: driver.instructions,
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
-      : driver.kind === "harness"
-        ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(
-            (driver.resolve ? await driver.resolve() : driver) as never,
-          )
+      : driver.kind === "provider"
+        ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS>({
+            env: driver.env,
+            instructions: driver.instructions,
+            model: driver.model,
+            permissions: driver.permissions,
+            provider: driver.provider,
+          })))
         : undefined
     if (!resolvedAdapter) {
       throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
@@ -1212,13 +1194,11 @@ function defineBaseAgent<
   }
 
   const definition = {
-    ...(driver.kind === "harness" && driver.requires?.length ? { [baseAgentBoxRequirements]: driver.requires } : {}),
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
     ...(driver.output ? { [baseAgentOutput]: driver.output } : {}),
     ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
-    box,
     channels,
     chat,
     cli,
@@ -1557,7 +1537,6 @@ function createWorkspaceAgentDefinition<
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   if (Array.isArray(options.capabilities)) {
     validateAgentCapabilityComposition(options.capabilities, {
-      hasBox: Boolean(options.box),
       hasWorkspace: true,
       workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
     })
@@ -1614,13 +1593,20 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
   if (!settings || settings.workspace) return agent
   const driver = normalizeAgentDriver(settings)
-  if (driver.kind !== "model" || driver.instructions !== undefined) return agent
+  if (driver.kind === "run" || driver.instructions !== undefined) return agent
   const definition = defineAgent({
     ...settings,
-    driver: {
-      ...(settings.driver as AgentModelDriver),
-      instructions,
-    },
+    driver: driver.kind === "model"
+      ? { ...(settings.driver as AgentModelDriver), instructions }
+      : {
+          capacity: driver.capacity,
+          env: driver.env,
+          instructions,
+          kind: driver.provider,
+          model: driver.model,
+          output: driver.output,
+          permissions: driver.permissions,
+        },
   } as never) as Agent
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
   delete decorations.__vitehubAgentSettings
@@ -1754,7 +1740,6 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  box?: Box
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -1766,8 +1751,6 @@ type AgentInvocationContext<
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hasCapabilityCleanup: boolean
-  harnessSandboxProvider?: object
-  harnessWorkDir?: string
   hooks?: AgentHookObserverHooks
   modelExecutionInstrumentation: AgentCapabilityRegistries["modelExecutionInstrumentation"]
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
@@ -1796,7 +1779,6 @@ function toAgentAdapterRunContext<
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
-    box: context.box,
     instructions: context.instructions,
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
     nativeStructuredOutput: !context.outputRenderers.length && !context.finalOutputRenderers.length,
@@ -1812,51 +1794,6 @@ async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<
   catch (error) {
     if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
     throw error
-  }
-}
-
-function withBoxWorkspaceSessions<Name extends WorkspaceName>(
-  workspace: WritableWorkspaceFacade<Name>,
-  box: Box,
-): WritableWorkspaceFacade<Name> {
-  async function startBoxSession(target: WritableWorkspaceFacade<Name>, options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
-    if (options?.host) return await target.startSession(options)
-    const host = await box.open()
-    try {
-      const session = await target.startSession({
-        ...options,
-        attach: isHarnessBoxActive(box),
-        host,
-        target: options?.target || host.cwd,
-      })
-      let closePromise: Promise<void> | undefined
-      return { ...session, async close() {
-        closePromise ??= (async () => {
-          let sessionError: unknown
-          try { await session.close() }
-          catch (error) { sessionError = error }
-          try { await host.close() }
-          catch (error) {
-            if (sessionError) throw new AggregateError([sessionError, error], "[vitehub] Workspace and Box session cleanup failed.")
-            throw error
-          }
-          if (sessionError) throw sessionError
-        })()
-        await closePromise
-      } }
-    }
-    catch (error) {
-      try { await host.close() }
-      catch (closeError) { throw new AggregateError([error, closeError], "[vitehub] Workspace session setup and Box cleanup failed.") }
-      throw error
-    }
-  }
-  return {
-    ...workspace,
-    [Symbol.for("vitehub.workspace.start-box-session")]: startBoxSession,
-    async startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
-      return await startBoxSession(workspace, options)
-    },
   }
 }
 
@@ -1978,29 +1915,9 @@ async function createAgentInvocationContext<
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
-      hasBox: Boolean(definition?.box),
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
-    const boxDefinition = definition?.box
-    if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
-      throw new Error("[vitehub] defineAgent({ box, workspace }) cannot combine a Workspace with Box cwd or checkout because both own the same working tree. Remove cwd/checkout and let Workspace materialize into the Box.")
-    }
-    const box = boxDefinition
-      ? shareBoxSessions(await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
-          ...callbackContext,
-          actor: invoker,
-          context: invocationContext,
-          input,
-          invoker,
-          run: context.run,
-        }, {
-          requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
-        }))
-      : undefined
-    const harnessSandboxProvider = box
-      ? (await import("./harness/box-sandbox.ts")).createBoxHarnessSandbox(box)
-      : undefined
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
       : undefined
@@ -2030,19 +1947,15 @@ async function createAgentInvocationContext<
         ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
         : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
       : undefined
-    const workspace = box && baseWorkspace && workspaceMode === "write"
-      ? withBoxWorkspaceSessions(baseWorkspace as WritableWorkspaceFacade<WorkspaceName>, box)
-      : baseWorkspace
+    const workspace = baseWorkspace
     const capabilityOptions = resolvedCapabilityDefinitions.length
       ? { capabilities: resolvedCapabilityDefinitions, hooks: definition?.hooks as never }
       : undefined
     const agentModel = internalDefinition?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
-      box,
       context: invocationContext,
       driverKind,
-      harnessSandboxProvider,
       invocationKind,
       invoker,
       model: agentModel as never,
@@ -2096,7 +2009,6 @@ async function createAgentInvocationContext<
     const invocation = {
       ...callbackContext,
       actor: invoker,
-      box,
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
@@ -2108,10 +2020,8 @@ async function createAgentInvocationContext<
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       errorHook: definition?.hooks?.["agent:error"] as never,
       finishHook: definition?.hooks?.["agent:finish"] as never,
-      globalSkills: capabilities.globalSkills,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
-      harnessSandboxProvider,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
@@ -2132,7 +2042,7 @@ async function createAgentInvocationContext<
       workspaceAutoCommit,
       workspaceDefinition: activeWorkspaceDefinition,
       workspaceInstructionBindings,
-      workspaceMaterializationSource: box ? activeWorkspace : undefined,
+      workspaceMaterializationSource: activeWorkspace,
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }
@@ -2229,10 +2139,7 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
-    const toolNames = new Map<string, string>()
-    const textPhases = new Map<string, AgentMessagePhase | "hidden">()
     for await (const chunk of stream) {
-      const event = toAgentStreamEvent(chunk, toolNames, textPhases)
       const usageRecord = usageRecordFromStreamChunk(chunk, result)
       if (!usageRecord) {
         yield chunk

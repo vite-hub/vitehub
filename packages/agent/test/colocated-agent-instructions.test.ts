@@ -34,6 +34,14 @@ describe("colocated Agent instructions", () => {
     expect(agentWithColocatedInstructions(agent, "Use colocated instructions.")).toBe(agent)
   })
 
+  it("adds instructions to provider Agents without a Workspace", () => {
+    const agent = defineAgent({ driver: "codex", runtime: false })
+    const resolved = agentWithColocatedInstructions(agent, "Review the local invocation.")
+
+    expect(resolved).not.toBe(agent)
+    expect(settings(resolved)?.driver?.instructions).toBe("Review the local invocation.")
+  })
+
   it("preserves properties and descriptors added to an Agent Definition", () => {
     const agent = defineAgent({ driver: { model }, runtime: false })
     const resolve = async () => ({ generate: async () => ({ text: "decorated" }) })

@@ -30,12 +30,12 @@ export default defineAgent({
   driver: {
     kind: 'codex',
     model: 'gpt-5.5',
-    reasoningEffort: 'low',
+    permissions: 'ask',
   },
 })
 ```
 
-For application-supplied execution, use exactly one structural Driver variant: `{ model }`, `{ harness }`, or `{ run }`.
+For application-supplied execution, use exactly one structural Driver variant: `{ model }` or `{ run }`.
 
 ## Add abilities and context
 
@@ -61,7 +61,7 @@ export default defineAgent({
 })
 ```
 
-Declaring a Workspace does not automatically grant file access. The Driver receives only the surfaces contributed by attached Capabilities or its harness environment.
+Declaring a Workspace does not automatically grant model-backed or custom Drivers file access. Provider Drivers receive the selected Workspace as their working directory; Capabilities still control additional tools and invocation behavior.
 
 ## Return structured output
 
@@ -97,7 +97,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 
 | Option | Purpose |
 | --- | --- |
-| `driver` | Required. Selects one built-in, model-backed, harness-backed, or custom-run execution path. |
+| `driver` | Required. Selects one built-in provider, model-backed, or custom-run execution path. |
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
 | `driver.instructions` | Configures instructions on the selected Driver; see [Instructions](/docs/agents/instructions). |
@@ -105,11 +105,10 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `channels` | Declares named Agent Channels and generated routes. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
-| `box` | Prepares an explicit process environment for a harness Driver. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
 | `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. |
 | `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
 | `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |
 | `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |
 
-Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), [Boxes](/docs/agents/boxes), and [Invocations](/docs/agents/invocations).
+Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), and [Invocations](/docs/agents/invocations).

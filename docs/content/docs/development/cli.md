@@ -129,7 +129,7 @@ pnpm vitehub agent eval --watch
 pnpm vitehub agent eval --no-cache
 ```
 
-Use `--watch` to rerun affected evals after file changes and `--no-cache` to bypass cached model output. Set `agent.eval.testTimeout` in `vite.config.ts` for long-running model or harness evals.
+Use `--watch` to rerun affected evals after file changes and `--no-cache` to bypass cached model output. Set `agent.eval.testTimeout` in `vite.config.ts` for long-running model or provider evals.
 
 ## Inspect an Agent Definition
 
@@ -192,7 +192,7 @@ pnpm vitehub agent dev --agent support --timeout 180000 -p "/summary"
 
 Use `--cli` when a Capability attached to the Agent declares a Capability CLI.
 Everything after `--` is parsed as the nested Capability CLI command.
-Attached Capability CLI Contributions are available to the Agent Dev Loop by default, including for harness-backed Agents; set `defineAgent({ cli: { capabilities: false } })` to hide them from this surface.
+Attached Capability CLI Contributions are available to the Agent Dev Loop by default, including for provider-backed Agents; set `defineAgent({ cli: { capabilities: false } })` to hide them from this surface.
 During Agent runs, ViteHub renders operation tool calls as command lines, such as `api listCustomers --query '{"status":"active"}'`, instead of dumping the raw input object.
 
 ```bash [Terminal]
@@ -268,7 +268,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | Provision dry-run reports no actions | A package plan skipped provider lookup because its read credentials are missing. | Supply the provider credentials to inspect existing resources; `--dry-run` still prevents `apply()`. |
 | Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the active Blob store is not `vercel-blob`. | Set the project id and select the Vercel Blob driver before rerunning the plan. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` disables the Agent Eval Runner. | Re-enable the Agent integration option for local development. |
-| Agent eval times out | The eval case, model call, or harness run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
+| Agent eval times out | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |

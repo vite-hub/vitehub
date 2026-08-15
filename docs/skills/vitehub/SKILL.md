@@ -17,7 +17,7 @@ Orientation is complete when the current setup, target outcome, host boundary, a
 
 ## 2. Route before code
 
-Choose one primary lane. Server Primitives serve application behavior through Vite Integrations and Runtime Helpers. Agents serve model-backed, harness-backed, or custom-run behavior through Agent Definitions; they may compose Server Primitives without changing the primary lane.
+Choose one primary lane. Server Primitives serve application behavior through Vite Integrations and Runtime Helpers. Agents serve model-backed, provider-backed, or custom-run behavior through Agent Definitions; they may compose Server Primitives without changing the primary lane.
 
 Read only the references whose conditions match, but read them before writing code:
 

@@ -5,7 +5,6 @@ import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
 } from "./capability-cli.ts"
-import { normalizeWorkspaceCommandEntries, workspaceCommandTools } from "./capabilities/workspace-command.ts"
 import { createMessage, memoizeMessageAttachmentData } from "./messages.ts"
 import { agentInvocationCallbackContextValues, agentInvocationSourceContext, createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
@@ -23,7 +22,6 @@ import type {
   AgentCallbackContext,
   AgentCapabilityCliContribution,
   AgentCapabilityContext,
-  AgentCapabilityBashCommand,
   AgentCapabilityDefinition,
   AgentCapabilityWorkspaceContribution,
   AgentCapabilityTypeContract,
@@ -40,7 +38,6 @@ import type {
   AgentFinishEvent,
   AgentFinishExtensionValues,
   AgentFinishExtensionProvider,
-  AgentGlobalSkill,
   AgentHookObserverHooks,
   AgentInvocationExtensions,
   AgentOutputExtensionValues,
@@ -63,7 +60,6 @@ import type {
 } from "./types.ts"
 import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
-import type { Box } from "@vite-hub/box"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputExtensions) => MaybePromise<unknown>) & {
@@ -71,7 +67,6 @@ type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputEx
   providerCount: number
 }
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
-export const globalSkillsSymbol: unique symbol = Symbol.for("vitehub.agent.globalSkills")
 export const capabilityInvocationStartSymbol: unique symbol = Symbol("vitehub.agent.capabilityInvocationStart")
 export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
 type InternalAgentCapabilityDefinition<
@@ -80,10 +75,8 @@ type InternalAgentCapabilityDefinition<
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
   [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   [eagerFinishExtensionSymbol]?: boolean
-  [globalSkillsSymbol]?: AgentGlobalSkill
   [workspaceMaterializationPathsSymbol]?: readonly string[]
 }
-type AgentCapabilityBashEntry = Extract<AgentCapabilityBashCommand, { command: string }>
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 type AgentCapabilityDefinitionInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -133,10 +126,8 @@ export interface AgentCapabilityInvocationOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  box?: Box
   context?: AgentInvocationContextStore
   driverKind?: AgentDriverKind
-  harnessSandboxProvider?: object
   invocationKind?: "run" | "stream"
   invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
@@ -149,7 +140,6 @@ export interface AgentCapabilityInvocationOptions<
 export interface ResolvedAgentCapabilities {
   close: () => Promise<void>
   driverContributions: AgentDriverContribution[]
-  globalSkills: readonly AgentGlobalSkill[]
   hasCloseCallbacks: boolean
   input: AgentRunInput
   messages: Message[]
@@ -181,29 +171,6 @@ function assertTriggerName(name: unknown, capabilityId: string): asserts name is
   }
 }
 
-function capabilityBashCommands(capabilities: readonly AgentCapabilityDefinition[]): AgentCapabilityBashEntry[] {
-  const commands = new Map<string, AgentCapabilityBashEntry>()
-  for (const capability of capabilities) {
-    if (!capability.bash?.length) continue
-    for (const entry of normalizeWorkspaceCommandEntries(capability.bash, `${capability.id} bash`)) {
-      if (!commands.has(entry.command)) commands.set(entry.command, entry)
-    }
-  }
-  return [...commands.values()]
-}
-
-function createBashTools(capabilities: readonly AgentCapabilityDefinition[], workspace: unknown): AgentToolSet | undefined {
-  const commands = capabilityBashCommands(capabilities)
-  if (!commands.length) return
-  const summary = commands.map(entry => entry.description ? `${entry.command} (${entry.description})` : entry.command).join(", ")
-  return workspaceCommandTools(commands, "write", undefined, workspace, {
-    commitMessage: "bash command",
-    description: `Run one registered command in a trusted Workspace Session. Available commands: ${summary}.`,
-    missingWorkspaceMessage: "[vitehub] bash requires an executable Workspace Session.",
-    toolName: "bash",
-  })
-}
-
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -221,9 +188,6 @@ export function defineCapability<
   assertCapabilityId((capability as { id?: unknown }).id)
   const cli = (capability as AgentCapabilityDefinition).cli
   if (typeof cli !== "function") assertCapabilityCliContribution((capability as { id: string }).id, cli)
-  if ((capability as AgentCapabilityDefinition).bash !== undefined) {
-    normalizeWorkspaceCommandEntries((capability as AgentCapabilityDefinition).bash, `${(capability as { id: string }).id} bash`)
-  }
   return capability
 }
 
@@ -327,19 +291,15 @@ function capabilityRequiresWorkspace(capability: AgentCapabilityDefinition): boo
     || capability.id === "workspace-shell"
     || sandboxCommands
     || accessWorkspace
-    || Boolean(capability.bash?.length)
 }
 
 export function validateAgentCapabilityComposition(
   capabilities: readonly AgentCapabilityDefinition[],
-  options: { hasBox?: boolean, hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
+  options: { hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
 ): void {
   for (const capability of normalizeCapabilities(capabilities)) {
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
-    }
-    if (capability.requires?.some(requirement => requirement.primitive === "box") && !options.hasBox) {
-      throw new Error(`[vitehub] ${capability.id}() requires defineAgent({ box }).`)
     }
     if (!options.hasWorkspace) {
       if (capabilityRequiresWorkspace(capability)) {
@@ -351,23 +311,9 @@ export function validateAgentCapabilityComposition(
 
     const workspaceMode = options.workspaceMode || "read"
     if (capability.id === "workspace-shell") {
-      const metadata = capability.metadata as { commands?: unknown } | undefined
-      const requiresWritableSession = metadata?.commands !== undefined
-      if (requiresWritableSession && workspaceMode !== "write") {
-        throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
-      }
-      if (requiresWritableSession && !options.hasBox) {
-        throw new Error("[vitehub] workspaceShell({ commands }) requires defineAgent({ box }).")
-      }
-      if (!requiresWritableSession && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
+      if (normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
         throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
       }
-    }
-    if (capability.bash?.length && workspaceMode !== "write") {
-      throw new Error(`[vitehub] ${capability.id}() bash requires workspace.mode: "write".`)
-    }
-    if (capability.bash?.length && !options.hasBox) {
-      throw new Error(`[vitehub] ${capability.id}() bash requires defineAgent({ box }).`)
     }
   }
 }
@@ -871,11 +817,11 @@ export async function resolveAgentCapabilities<
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
   const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
   const driverKind = invocationOptions.driverKind || "model"
-  const resolveCapabilityCli = invocationOptions.resolveCapabilityCli ?? driverKind !== "harness"
+  const resolveCapabilityCli = invocationOptions.resolveCapabilityCli ?? driverKind !== "provider"
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
-  const workspaceMaterializationPaths = driverKind === "harness"
+  const workspaceMaterializationPaths = driverKind === "provider"
     ? compactWorkspacePaths(capabilities.flatMap(capability =>
         [
           ...((capability as InternalAgentCapabilityDefinition)[workspaceMaterializationPathsSymbol] || []),
@@ -883,10 +829,6 @@ export async function resolveAgentCapabilities<
         ],
       ))
     : []
-  const globalSkills = capabilities.flatMap((capability) => {
-    const skill = (capability as InternalAgentCapabilityDefinition)[globalSkillsSymbol]
-    return skill ? [skill] : []
-  })
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
@@ -1002,11 +944,9 @@ export async function resolveAgentCapabilities<
         ...runtimeContext,
         abortSignal: currentInput.abortSignal,
         actor: invoker,
-        box: invocationOptions.box,
         context: invocationContext,
         driver: { kind: driverKind },
         fs: currentWorkspace?.fs,
-        harnessSandboxProvider: invocationOptions.harnessSandboxProvider,
         invoker,
         runtimeContext: runtime,
         workspace: currentWorkspace,
@@ -1195,7 +1135,6 @@ export async function resolveAgentCapabilities<
           return {
             close: closeCapabilities,
             driverContributions,
-            globalSkills,
             hasCloseCallbacks: Boolean(capabilityScope),
             input: currentInput,
             messages,
@@ -1211,13 +1150,6 @@ export async function resolveAgentCapabilities<
       }
     }
     await applyWorkspaceContributions()
-    if (invocationOptions.resolveTools !== false) {
-      const bashTools = createBashTools(capabilities, currentWorkspace)
-      if (bashTools) {
-        recordDriverContribution("Capability tools", "bash", Object.keys(bashTools))
-        tools = { ...tools, ...bashTools }
-      }
-    }
     for (const { capability, context } of capabilityContexts) {
       let cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined
       if (capability.cli && resolveCapabilityCli && invocationOptions.resolveTools !== false) {
@@ -1256,7 +1188,6 @@ export async function resolveAgentCapabilities<
   return {
     close: closeCapabilities,
     driverContributions,
-    globalSkills,
     hasCloseCallbacks: Boolean(capabilityScope),
     input: currentInput,
     messages,

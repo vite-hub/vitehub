@@ -62,8 +62,8 @@ import {
 
 | Ability | Capability | Use it when |
 | --- | --- | --- |
-| Browser automation | [`browser()`](/docs/capabilities/browser) | The Agent needs headless browser evidence through the global `bash` tool and an included browser skill file. |
-| Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files, or run allowlisted Workspace-session commands, through constrained Workspace tools. |
+| Browser automation | [`browser()`](/docs/capabilities/browser) | A Provider Agent needs headless browser guidance and the `agent-browser` CLI is installed. |
+| Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files, or run explicitly configured Workspace-session commands. |
 | Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
 | Skills file | [`skills()`](/docs/capabilities/skills) | The Agent requires a Workspace skill file at invocation time. |
 | Durable memory | [`memory()`](/docs/capabilities/memory) | The Agent needs scoped durable records across invocations. |
@@ -90,7 +90,7 @@ import {
 | Fetch tools | [`fetch()`](/docs/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |
 | OpenAPI tools | [`openapi()`](/docs/capabilities/openapi) | The Agent needs a selected OpenAPI operation catalog exposed as bounded HTTP tools or a generated Capability CLI. |
 | Transcription | [`transcribe()`](/docs/capabilities/transcribe) | Audio input parts should become text before model execution. |
-| Gmail | [`gmail()`](/docs/capabilities/gmail) | A Harness Agent should search Gmail or create unsent drafts through structured tools. |
+| Gmail | [`gmail()`](/docs/capabilities/gmail) | The Agent should search Gmail or create unsent drafts through structured tools. |
 
 ### Decisions and output
 

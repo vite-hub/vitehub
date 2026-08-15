@@ -2,27 +2,18 @@ import { isPlainObject } from "@vite-hub/internal/object"
 
 import type {
   AgentAdapterInstructions,
-  AgentHarnessCredentialSource,
-  AgentHarnessDriver,
-  AgentHarnessDriverInput,
-  AgentHarnessInstructions,
-  AgentHarnessSandboxProviderInput,
-  AgentHarnessSessionKey,
-  AgentHarnessWorkDir,
   AgentDriverCapacityOptions,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
   AgentModelResolver,
   AgentOutputDefinition,
+  AgentProviderPermissions,
   AgentRunHandler,
   AgentRuntimeConfig,
   AgentSettings,
-  ClaudeCodeDriverOptions,
-  CodexDriverOptions,
 } from "../types.ts"
-import type { BoxRequirement } from "@vite-hub/box"
 
-type NormalizedAgentDriver<
+export type NormalizedAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,
@@ -35,18 +26,13 @@ type NormalizedAgentDriver<
     output?: AgentOutputDefinition<TOutput>
   }
   | {
-    credentials?: AgentHarnessCredentialSource
-    harness?: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
-    hasSandbox?: boolean
-    instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS>
-    kind: "harness"
+    env?: Record<string, string | undefined>
+    instructions?: AgentAdapterInstructions<TRuntimeConfig>
+    kind: "provider"
+    model?: string
     output?: AgentOutputDefinition<TOutput>
-    provider?: string
-    requires?: readonly BoxRequirement[]
-    resolve?: () => Promise<AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>>
-    sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
-    sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
-    workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS>
+    permissions?: AgentProviderPermissions
+    provider: "claude-code" | "codex"
   }
   | {
     kind: "run"
@@ -59,60 +45,22 @@ function hasOwnDefined(value: Record<string, unknown>, key: string): boolean {
   return Object.hasOwn(value, key) && value[key] !== undefined
 }
 
-function assertNoUnsupportedOptions(
-  value: Record<string, unknown>,
-  allowed: Set<string>,
-  label: string,
-): void {
+function assertNoUnsupportedOptions(value: Record<string, unknown>, allowed: Set<string>, label: string): void {
   const unsupported = Object.keys(value).filter(key => value[key] !== undefined && !allowed.has(key))
   if (unsupported.length) {
     throw new Error(`[vitehub] ${label} does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
   }
 }
 
-function validateNoHarnessPermissionOption(driver: Record<string, unknown>): void {
-  if (hasOwnDefined(driver, "permissions") || hasOwnDefined(driver, "permissionMode")) {
-    throw new Error("[vitehub] defineAgent({ driver }) does not expose harness permissions in V1.")
-  }
-}
-
-function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentialSource | undefined {
-  if (value === undefined) return undefined
-  if (!isPlainObject(value)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a credential source object.")
-  }
-  if (hasOwnDefined(value, "value")) {
-    throw new Error("[vitehub] defineAgent({ driver.credentials.value }) is not supported by the generic harness adapter yet. Provider credentials belong on the harness adapter constructor, or credentials must be omitted for ambient adapter auth.")
-  }
-
-  const label = value.label
-  const source = value.source
-  if (label !== undefined && typeof label !== "string") {
-    throw new TypeError("[vitehub] defineAgent({ driver.credentials.label }) must be a string.")
-  }
-  if (source !== undefined && typeof source !== "string") {
-    throw new TypeError("[vitehub] defineAgent({ driver.credentials.source }) must be a string.")
-  }
-
-  return {
-    ...(label ? { label } : {}),
-    ...(source ? { source: source as AgentHarnessCredentialSource["source"] } : {}),
-  }
-}
-
 function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOptions | undefined {
   if (value === undefined) return
-  if (!isPlainObject(value)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity }) must be an object.")
-  }
+  if (!isPlainObject(value)) throw new TypeError("[vitehub] defineAgent({ driver.capacity }) must be an object.")
   assertNoUnsupportedOptions(value, new Set(["concurrency", "queue"]), "defineAgent({ driver.capacity })")
   if (!Number.isInteger(value.concurrency) || (value.concurrency as number) <= 0) {
     throw new TypeError("[vitehub] defineAgent({ driver.capacity.concurrency }) must be a positive integer.")
   }
   if (value.queue === undefined) return { concurrency: value.concurrency as number }
-  if (!isPlainObject(value.queue)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.")
-  }
+  if (!isPlainObject(value.queue)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.")
   assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })")
   if (!Number.isInteger(value.queue.maxPending) || (value.queue.maxPending as number) <= 0) {
     throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.")
@@ -131,135 +79,54 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const harnessDriverKeys = new Set(["capacity", "credentials", "harness", "instructions", "output", "requires", "sandbox", "sessionKey", "workDir"])
+const providerDriverKeys = new Set(["capacity", "env", "instructions", "kind", "model", "output", "permissions"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
-const codexDriverKeys = new Set([
-  "auth",
-  "capacity",
-  "credentials",
-  "env",
-  "instructions",
-  "kind",
-  "model",
-  "output",
-  "port",
-  "reasoningEffort",
-  "sandbox",
-  "startupTimeoutMs",
-  "webSearch",
-  "workDir",
-])
-const claudeCodeDriverKeys = new Set([
-  "auth",
-  "capacity",
-  "credentials",
-  "env",
-  "kind",
-  "maxTurns",
-  "model",
-  "output",
-  "port",
-  "sandbox",
-  "startupTimeoutMs",
-  "thinking",
-])
 
-function validateHarnessSandboxProviderInput(value: unknown): void {
+function normalizeProviderEnvironment(value: unknown): Record<string, string | undefined> | undefined {
   if (value === undefined) return
-  if (!value || (typeof value !== "object" && typeof value !== "function")) {
-    throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be a harness sandbox provider object or resolver function.")
+  if (!isPlainObject(value) || Object.values(value).some(item => item !== undefined && typeof item !== "string")) {
+    throw new TypeError("[vitehub] defineAgent({ driver.env }) must contain only string or undefined values.")
   }
+  return value as Record<string, string | undefined>
 }
 
-function configuredHarnessSandboxProvider<
+function normalizeProviderPermissions(value: unknown): AgentProviderPermissions | undefined {
+  if (value === undefined) return
+  if (value !== "ask" && value !== "allow-edits" && value !== "allow-all") {
+    throw new TypeError('[vitehub] defineAgent({ driver.permissions }) must be "ask", "allow-edits", or "allow-all".')
+  }
+  return value
+}
+
+function normalizeProviderDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
->(
-  value: CodexDriverOptions<CALL_OPTIONS>["sandbox"],
-): AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined {
-  if (typeof value === "function") {
-    return value as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
+>(provider: "claude-code" | "codex", value: Record<string, unknown>): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
+  assertNoUnsupportedOptions(value, providerDriverKeys, `defineAgent({ driver: { kind: "${provider}" } })`)
+  if (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) {
+    throw new TypeError("[vitehub] defineAgent({ driver.model }) must be a non-empty string.")
   }
-  if (!value || typeof value !== "object") return
-  const provider = value as { createSession?: unknown, specificationVersion?: unknown }
-  return typeof provider.createSession === "function" || provider.specificationVersion === "harness-sandbox-v1"
-    ? value as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
-    : undefined
-}
-
-function once<T>(resolve: () => Promise<T>): () => Promise<T> {
-  let pending: Promise<T> | undefined
-  return () => pending ??= resolve()
-}
-
-function normalizeBuiltInAgentDriver<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  name: "claude-code" | "codex",
-  value: Record<string, unknown>,
-): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
-  validateNoHarnessPermissionOption(value)
-  normalizeHarnessCredentialSource(value.credentials)
-  const capacity = normalizeAgentDriverCapacity(value.capacity)
-
-  if (name === "codex") {
-    assertNoUnsupportedOptions(value, codexDriverKeys, `defineAgent({ driver: { kind: "codex" } })`)
-    const options = Object.fromEntries(
-      Object.entries(value).filter(([key]) => key !== "kind" && key !== "capacity"),
-    ) as CodexDriverOptions<CALL_OPTIONS>
-    const resolve = once(async () => {
-      const { createCodexDriver } = await import("../harness/codex.ts")
-      return createCodexDriver(options) as AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
-    })
-    return {
-      capacity,
-      credentials: options.credentials ?? { label: "Codex", source: "ambient" },
-      hasSandbox: options.sandbox !== false && (options.sandbox !== undefined || options.env !== undefined),
-      kind: "harness",
-      output: options.output,
-      provider: "codex",
-      requires: [
-        options.auth === undefined
-          ? { name: "Codex", command: "codex", args: ["login", "status"] }
-          : "codex",
-      ],
-      resolve,
-      sandbox: configuredHarnessSandboxProvider<TRuntimeConfig, CALL_OPTIONS>(options.sandbox),
-      workDir: options.workDir as AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS> | undefined,
-    }
-  }
-
-  assertNoUnsupportedOptions(value, claudeCodeDriverKeys, `defineAgent({ driver: { kind: "claude-code" } })`)
-  const options = Object.fromEntries(
-    Object.entries(value).filter(([key]) => key !== "kind" && key !== "capacity"),
-  ) as ClaudeCodeDriverOptions
-  const resolve = once(async () => {
-    const { createClaudeCodeDriver } = await import("../harness/claude-code.ts")
-    return await createClaudeCodeDriver(options) as AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
-  })
   return {
-    capacity,
-    credentials: options.credentials ?? { label: "Claude Code", source: "ambient" },
-    hasSandbox: options.sandbox !== false,
-    kind: "harness",
-    output: options.output,
-    provider: "claude-code",
-    resolve,
+    capacity: normalizeAgentDriverCapacity(value.capacity),
+    env: normalizeProviderEnvironment(value.env),
+    instructions: value.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
+    kind: "provider",
+    model: value.model as string | undefined,
+    output: value.output as AgentOutputDefinition | undefined,
+    permissions: normalizeProviderPermissions(value.permissions),
+    provider,
   }
 }
 
 function normalizeExplicitAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
->(
-  driver: unknown,
-): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
+>(driver: unknown): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   if (typeof driver === "string") {
     if (driver !== "codex" && driver !== "claude-code") {
-      throw new Error(`[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model }, { harness }, or { run } driver.`)
+      throw new Error(`[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model } or { run } driver.`)
     }
-    return normalizeBuiltInAgentDriver(driver, {})
+    return normalizeProviderDriver(driver, {})
   }
   if (!isPlainObject(driver)) {
     throw new TypeError("[vitehub] defineAgent({ driver }) must be a built-in name, tagged built-in configuration, or custom driver object.")
@@ -268,20 +135,15 @@ function normalizeExplicitAgentDriver<
     if (driver.kind !== "codex" && driver.kind !== "claude-code") {
       throw new Error(`[vitehub] Unknown Agent Driver kind "${String(driver.kind)}". Expected "codex" or "claude-code".`)
     }
-    return normalizeBuiltInAgentDriver(driver.kind, driver)
+    return normalizeProviderDriver(driver.kind, driver)
   }
 
-  validateNoHarnessPermissionOption(driver)
   const capacity = normalizeAgentDriverCapacity(driver.capacity)
-  const keys = (["model", "harness", "run"] as const).filter(key => hasOwnDefined(driver, key))
-  if (keys.length !== 1) {
-    throw new Error("[vitehub] defineAgent({ driver }) requires exactly one of driver.model, driver.harness, or driver.run.")
-  }
-
+  const keys = (["model", "run"] as const).filter(key => hasOwnDefined(driver, key))
+  if (keys.length !== 1) throw new Error("[vitehub] defineAgent({ driver }) requires exactly one of driver.model or driver.run.")
   if (keys[0] === "model") {
     assertNoUnsupportedOptions(driver, modelDriverKeys, "defineAgent({ driver: { model } })")
-    if (driver.maxRetries !== undefined
-      && (!Number.isInteger(driver.maxRetries) || (driver.maxRetries as number) < 0)) {
+    if (driver.maxRetries !== undefined && (!Number.isInteger(driver.maxRetries) || (driver.maxRetries as number) < 0)) {
       throw new TypeError("[vitehub] defineAgent({ driver.maxRetries }) must be a non-negative integer.")
     }
     const execution = driver.execution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -292,79 +154,33 @@ function normalizeExplicitAgentDriver<
       capacity,
       execution: driver.maxRetries === undefined
         ? execution
-        : {
-            ...execution,
-            callSettings: {
-              ...execution?.callSettings,
-              maxRetries: driver.maxRetries,
-            },
-          },
+        : { ...execution, callSettings: { ...execution?.callSettings, maxRetries: driver.maxRetries } },
       instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
       kind: "model",
       model: driver.model as AgentModelResolver<TRuntimeConfig>,
       output: driver.output as AgentOutputDefinition | undefined,
     }
   }
-  if (keys[0] === "harness") {
-    assertNoUnsupportedOptions(driver, harnessDriverKeys, "defineAgent({ driver: { harness } })")
-    if (!driver.harness || (typeof driver.harness !== "object" && typeof driver.harness !== "function")) {
-      throw new TypeError("[vitehub] defineAgent({ driver.harness }) must be an AI SDK harness adapter.")
-    }
-    validateHarnessSandboxProviderInput(driver.sandbox)
-    return {
-      capacity,
-      credentials: normalizeHarnessCredentialSource(driver.credentials),
-      harness: driver.harness as AgentHarnessDriverInput,
-      instructions: driver.instructions as AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      kind: "harness",
-      output: driver.output as AgentOutputDefinition | undefined,
-      requires: driver.requires as readonly BoxRequirement[] | undefined,
-      sandbox: driver.sandbox as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      workDir: driver.workDir as AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS> | undefined,
-    }
-  }
 
   assertNoUnsupportedOptions(driver, runDriverKeys, "defineAgent({ driver: { run } })")
-  if (typeof driver.run !== "function") {
-    throw new TypeError("[vitehub] defineAgent({ driver.run }) must be a function.")
-  }
+  if (typeof driver.run !== "function") throw new TypeError("[vitehub] defineAgent({ driver.run }) must be a function.")
   return {
     capacity,
     kind: "run",
     output: driver.output as AgentOutputDefinition | undefined,
     run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
   }
-  }
-
-export async function resolveNormalizedHarnessDriver<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  driver: Extract<NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>, { kind: "harness" }>,
-): Promise<Extract<NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>, { kind: "harness" }>> {
-  return driver.resolve
-    ? { ...driver, ...await driver.resolve(), kind: "harness" }
-    : driver
 }
 
 export function normalizeAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
-): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
+>(options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   const record = options as Record<string, unknown>
-  if (hasOwnDefined(record, "harnessSandbox")) {
-    throw new Error("[vitehub] defineAgent({ harnessSandbox }) is no longer supported. Move the provider to defineAgent({ driver: { harness, sandbox } }); sandbox({ commands }) remains the model-facing command execution Capability.")
-  }
   if (hasOwnDefined(record, "output")) {
     throw new Error("[vitehub] defineAgent({ output }) is no longer supported. Move it to defineAgent({ driver: { output } }).")
   }
-  if (hasOwnDefined(record, "driver")) {
-    return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
-  }
-
-  throw new Error("[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model }, { harness }, or { run } driver.")
+  if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
+  throw new Error("[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model } or { run } driver.")
 }

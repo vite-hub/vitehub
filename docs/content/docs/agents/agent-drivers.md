@@ -1,6 +1,6 @@
 ---
 title: Agent Drivers
-description: Choose model-backed, harness-backed, or application-owned Agent execution.
+description: Choose model-backed, provider-backed, or application-owned Agent execution.
 navigation.order: 30
 navigation.group: Configure
 icon: i-lucide-cpu
@@ -11,10 +11,10 @@ An Agent Driver decides how one invocation runs. Choose the smallest execution s
 | Choose | Use it when |
 | --- | --- |
 | Model-backed | ViteHub should run a model and its Capability-contributed tool loop. |
-| Harness-backed | The Agent should inspect files, run commands, use Skills, or preserve a harness session. |
+| Provider-backed | Codex or Claude Code should own the coding-agent loop, tools, approvals, and session. |
 | Custom run | Application code should own the entire operation. |
 
-Built-in `"codex"` and `"claude-code"` values are harness-backed. Custom Drivers use exactly one of `{ model }`, `{ harness }`, or `{ run }`.
+Built-in `"codex"` and `"claude-code"` values are provider-backed. Application-supplied Drivers use exactly one of `{ model }` or `{ run }`.
 
 ## Use a model-backed Driver
 
@@ -35,24 +35,7 @@ export default defineAgent({
 })
 ```
 
-Model strings run through AI Gateway. ViteHub discovers `AI_GATEWAY_API_KEY` from the process or Cloudflare Server Env. Supply an explicit descriptor when the Definition owns the credential:
-
-```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-
-const apiKey = process.env.SUPPORT_AI_GATEWAY_API_KEY
-if (!apiKey) throw new Error('SUPPORT_AI_GATEWAY_API_KEY is required')
-
-export default defineAgent({
-  driver: {
-    model: { id: 'zai/glm-5v-turbo', apiKey },
-  },
-})
-```
-
-The `model` value may also be a compatible AI SDK model or an invocation-time callback. Keep authorization in Access or Capability policy; use model callbacks and instrumentation for routing and call settings.
-
-### Model options
+Model strings run through AI Gateway. The `model` value may also be a compatible AI SDK model or an invocation-time callback.
 
 | Option | Purpose |
 | --- | --- |
@@ -64,13 +47,9 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 | `execution.instrumentation` | Invocation-scoped model wrapping or call-setting overrides. |
 | `execution.workspaceFallback` | Controls synthesis from Workspace evidence when a run produced tool results but no text. |
 
-## Use a harness-backed Driver
+## Use a provider-backed Driver
 
-A harness wraps a model with its agent loop, tool protocol, sessions, context management, and permission behavior. ViteHub composes that harness with Skills, Workspace context, Capabilities, and an optional Box.
-
-![A model wrapped by a harness, with Skills and explicit Workspace, Box, and Sandbox layers.](/images/tutorials/harness-layers-flat.png)
-
-Use the vendor's matched harness when ViteHub provides an adapter. The built-in Codex and Claude Code Drivers keep their model-specific behavior while ViteHub owns the surrounding runtime contract.
+The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -78,34 +57,29 @@ import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({
   driver: {
     kind: 'codex',
-    credentials: { label: 'local Codex', source: 'ambient' },
     instructions: 'Review the exact pull request head before changing code.',
     model: 'gpt-5.5',
-    reasoningEffort: 'low',
-    workDir: 'repositories/vitehub',
+    permissions: 'ask',
   },
+  workspace: { mode: 'write' },
 })
 ```
 
-The default local harness sandbox is a temporary process workspace, not OS isolation. It does not inherit application secrets by default. Use a [Box](/docs/agents/boxes) when the harness needs a declared Home, checkout, credentials, requirements, or provider-specific execution environment.
+Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
-Do not combine `box` with `driver.sandbox` or `driver.workDir`; the Box owns those concerns. For Claude Code with a Box, set `{ kind: 'claude-code', sandbox: false }` so the Box owns the process environment.
-
-### Custom harness options
-
-Use these fields with the custom `{ harness }` Driver variant. Built-in Codex and Claude Code Drivers expose their own typed option subsets.
+Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
 | Option | Purpose |
 | --- | --- |
-| `harness` | Required only for a custom harness adapter or callback. |
-| `credentials` | Records non-secret credential provenance for inspection. |
-| `instructions` | Supplies invocation-scoped harness instructions. |
-| `requires` | Declares Box requirements; built-in Drivers contribute their own. |
-| `sandbox` | Selects the harness process or session provider when no Box is configured. |
-| `sessionKey` | Reuses harness session identity when supported. |
-| `workDir` | Selects a relative POSIX path inside the harness sandbox. |
+| `kind` | Required tagged provider name: `"codex"` or `"claude-code"`. |
+| `model` | Optional provider model id. |
+| `env` | Environment overrides passed to the local provider process. |
+| `instructions` | Invocation-scoped instructions composed with colocated instructions. |
+| `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"allow-all"`. |
+| `output` | Optional structured Agent output contract. |
+| `capacity` | Optional process-local concurrency and queue limits. |
 
-Harness Drivers receive Capability tools when the harness supports them. They do not receive ambient Capability, Source, or Skill prose. Put durable repository guidance in colocated `instructions.md`, and declare required Workspace paths explicitly.
+Provider Drivers do not accept Agent Boxes, model-specific Provider Tool contributions, Cloudflare Agents, or Deno. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
 
 ## Use a custom run Driver
 
@@ -117,25 +91,12 @@ import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({
   driver: {
     run({ input, invoker }) {
-      return {
-        text: `Accepted ${invoker.id}: ${String(input.prompt ?? '')}`,
-      }
+      return { text: `Accepted ${invoker.id}: ${String(input.prompt ?? '')}` }
     },
   },
 })
 ```
 
-The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Actor as both `actor` and `invoker`. A custom run callback may call a model internally, but ViteHub then treats model execution and usage as application-owned behavior.
+The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Actor as both `actor` and `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
-## Keep the layers separate
-
-| Layer | Responsibility |
-| --- | --- |
-| Model | Generates output and tool-call decisions. |
-| Harness | Runs the model-specific agent loop and session lifecycle. |
-| Skills | Provide reusable procedures and supporting files. |
-| Workspace | Provides scoped files, Sources, rules, and writeback. |
-| Box | Prepares Home, checkout, credentials, and process requirements. |
-| Sandbox | Provides the selected process or session environment; isolation requires an isolation-capable provider. |
-
-Read [Instructions](/docs/agents/instructions) for model-facing behavior, [Workspace context](/docs/agents/workspace-context) for files, and [Boxes](/docs/agents/boxes) for prepared harness environments.
+Read [Instructions](/docs/agents/instructions) for model-facing behavior and [Workspace context](/docs/agents/workspace-context) for files and writeback.

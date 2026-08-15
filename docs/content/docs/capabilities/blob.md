@@ -20,7 +20,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 The Capability contributes `blob_read` for get, head, and list operations.
 When configured with write mode, it also contributes `blob_edit` for putting or deleting objects.
 `blob_edit` can upload inline content, a current input attachment through `attachmentId`, or a Workspace file through `workspacePath`.
-For Harness Agents, `assetPaths` also turns final-answer Markdown references into published delivery artifacts.
+For Provider Agents, `assetPaths` also turns final-answer Markdown references into published delivery artifacts.
 
 ## Configuration
 
@@ -60,7 +60,7 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `blob_read` and, in write mode, `blob_edit`. |
-| Harness-backed | Receives the Capability tools. In write mode, `assetPaths` also publishes current-run files referenced by the final Markdown. |
+| Provider-backed | Receives the Capability tools. In write mode, `assetPaths` also publishes current-run files referenced by the final Markdown. |
 | Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
 
 ## Inspect and verify
@@ -76,13 +76,13 @@ The Capability should fail before exposing tools.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `mode` | `"read" \| "write"` | `"read"` | Adds `blob_edit` when set to `"write"`. |
-| `assetPaths` | `boolean \| string \| string[]` | `false` | Materializes Harness asset paths and publishes current-run files explicitly referenced by final Markdown. `true` uses `screenshots`. |
+| `assetPaths` | `boolean \| string \| string[]` | `false` | Materializes Provider asset paths and publishes current-run files explicitly referenced by final Markdown. `true` uses `screenshots`. |
 | `store` | `string` | default store | Selects a named Blob store when the Blob primitive supports `store()`. |
 | `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `blob_edit`. |
 
-## Harness artifacts
+## Provider artifacts
 
-Declare the directories where a Harness Agent may write public artifacts. The Agent can use its normal filesystem workflow, then reference a generated file in its final answer.
+Declare the directories where a Provider Agent may write public artifacts. The Agent can use its normal filesystem workflow, then reference a generated file in its final answer.
 
 ```ts [server/agents/review.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -103,7 +103,7 @@ export default defineAgent({
 
 If Codex adds `![Preview](artifacts/preview.png)` to its final answer, ViteHub publishes the file through Blob, records it in `AgentRunResult.artifacts`, and rewrites that exact Markdown destination during Channel delivery.
 
-Publication is deliberately bounded. ViteHub accepts only Markdown links or images under `assetPaths`, intersects them with files added or modified by the current Harness Workspace write-back, and ignores bare paths, stale files, removed files, and paths outside the declared roots. `policy` still controls the model-facing `blob_edit` tool; host-owned artifact publication does not require that tool to be enabled.
+Publication is deliberately bounded. ViteHub accepts only Markdown links or images under `assetPaths`, intersects them with files added or modified by the current Provider Workspace write-back, and ignores bare paths, stale files, removed files, and paths outside the declared roots. `policy` still controls the model-facing `blob_edit` tool; host-owned artifact publication does not require that tool to be enabled.
 
 Configure Blob serving or a Blob driver that returns public URLs. When `blob.serve` returns a route-relative URL, Agent delivery resolves it against the invocation request URL.
 

@@ -1,10 +1,10 @@
 # Agent Definitions and Drivers
 
-Use this for Agent Definitions, model or harness Drivers, deterministic custom Drivers, instructions, structured output, hooks, or Evals.
+Use this for Agent Definitions, model or provider Drivers, deterministic custom Drivers, instructions, structured output, hooks, or Evals.
 
 ## Select current pages
 
-For a first deterministic custom Driver and direct invocation, open only [First Agent](https://vitehub.dev/raw/docs/getting-started/first-agent.md). Use [Agent Definitions](https://vitehub.dev/raw/docs/agents/agent-definitions.md) for advanced composition or discovery, [Agent Drivers](https://vitehub.dev/raw/docs/agents/agent-drivers.md) for model/harness details, and [Agent Invocations](https://vitehub.dev/raw/docs/agents/invocations.md) for advanced runtime context. Open [Instructions](https://vitehub.dev/raw/docs/agents/instructions.md) or [Evals](https://vitehub.dev/raw/docs/agents/evals.md) only when that behavior is requested. Do not read the whole set.
+For a first deterministic custom Driver and direct invocation, open only [First Agent](https://vitehub.dev/raw/docs/getting-started/first-agent.md). Use [Agent Definitions](https://vitehub.dev/raw/docs/agents/agent-definitions.md) for advanced composition or discovery, [Agent Drivers](https://vitehub.dev/raw/docs/agents/agent-drivers.md) for model/provider details, and [Agent Invocations](https://vitehub.dev/raw/docs/agents/invocations.md) for advanced runtime context. Open [Instructions](https://vitehub.dev/raw/docs/agents/instructions.md) or [Evals](https://vitehub.dev/raw/docs/agents/evals.md) only when that behavior is requested. Do not read the whole set.
 
 ## Definition shape
 
@@ -16,11 +16,10 @@ instructions model-facing behavior
 workspace     files and Sources available to the invocation
 capabilities  granted tools and authority
 channels      external conversation adapters
-box           execution environment and requirements
 hooks/output  lifecycle and delivery behavior
 ```
 
-Use a deterministic custom `driver.run` for the first offline proof. Add model or harness packages, credentials, executable prerequisites, and sandbox requirements only when the requested outcome needs them.
+Use a deterministic custom `driver.run` for the first offline proof. Add model credentials, provider executable prerequisites, and sandbox requirements only when the requested outcome needs them.
 
 Keep repository-wide guidance in repository files, Agent behavior in Driver Instructions, and reusable runtime Skills in the documented Agent skill surface.
 

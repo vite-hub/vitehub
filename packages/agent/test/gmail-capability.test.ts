@@ -45,10 +45,8 @@ describe("gmail capability", () => {
       mode: "read",
       requires: [
         { primitive: "workspace", workspace: { mode: "write", required: true } },
-        { primitive: "box" },
       ],
     })
-    expect(read.bash).toBeUndefined()
     expect(Object.keys(readRuntime.tools).sort()).toEqual(["gmail_auth", "gmail_search"])
     expect(readWorkspace.sources["skill.gmail"]!.content).toContain("Use `gmail_search`")
     expect(readWorkspace.sources["skill.gmail"]!.content).toContain("authorization codes separately from the required full redirect URL")
@@ -56,12 +54,9 @@ describe("gmail capability", () => {
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("gog")
     expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("shell")
     expect(() => gmail({ mode: "send" as never })).toThrow('must be "read" or "draft"')
-    expect(() => validateAgentCapabilityComposition([read], { hasBox: false, hasWorkspace: true, workspaceMode: "write" }))
-      .toThrow("requires defineAgent({ box })")
+    expect(() => validateAgentCapabilityComposition([read], { hasWorkspace: true, workspaceMode: "write" })).not.toThrow()
     await expect(validateCapabilityRuntimeRequirement(read, { fs: { exists: vi.fn() } } as never, "read"))
       .rejects.toThrow('requires workspace.mode: "write"')
-    expect(() => read.prepare!({ driver: { kind: "harness" } } as never)).not.toThrow()
-    expect(() => read.prepare!({ driver: { kind: "model" } } as never)).toThrow("requires a Harness Agent Driver")
 
     const draft = gmail({ mode: "draft" })
     const draftRuntime = await capabilityTools(draft, () => result('{"accounts":[]}'))
@@ -71,7 +66,6 @@ describe("gmail capability", () => {
     expect(draftWorkspace.sources["skill.gmail"]!.content).toContain("create an unsent draft")
 
     const inspected = createAgentInspectionMetadata(defineAgent({
-      box: { runtime: "trusted-host" },
       capabilities: [draft],
       driver: "codex",
       workspace: { mode: "write" },
@@ -275,7 +269,7 @@ describe("gmail capability", () => {
     expect(calls.some(args => args.includes("--step"))).toBe(false)
   })
 
-  it("closes the Box-backed Workspace Session when a Gmail command fails", async () => {
+  it("closes the Workspace Session when a Gmail command fails", async () => {
     const runtime = await capabilityTools(gmail(), (args) => args[0] === "auth"
       ? result('{"accounts":[{"email":"test@example.com","services":["gmail"],"scopes":["https://www.googleapis.com/auth/gmail.readonly"],"valid":true}]}')
       : result("", 2, "search failed"))

@@ -57,7 +57,7 @@ Disable the command only when another product surface invokes the summary behavi
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the transformed input containing the generated summary. |
-| Harness-backed | Receives the transformed input before harness execution. |
+| Provider-backed | Receives the transformed input before provider execution. |
 | Custom-run-backed | Receives the transformed input and context values before `driver.run`. |
 
 ## Inspect and verify

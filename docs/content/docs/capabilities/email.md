@@ -168,7 +168,7 @@ Do not pass unrestricted model output into a trusted HTML fragment.
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `email_send` after the Email primitive resolves. |
-| Harness-backed | Runtime requirements apply; model-facing Email tools are not passed by default. |
+| Provider-backed | Runtime requirements apply; model-facing Email tools are not passed by default. |
 | Custom-run-backed | Receives the resolved tool set; `driver.run` decides whether and when to call `email_send`. |
 
 ## Inspect and verify

@@ -109,11 +109,11 @@ export default defineAgent({
 })
 ```
 
-Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy is an authorization boundary, so it should depend only on trusted identity and application-owned facts. Actor-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; harness-backed Drivers can receive writable scoped sessions. Without Actor-scoped Access, write authority depends on the Workspace mode, its rules, and the Capabilities exposed to the Driver: model-backed Drivers can receive write tools, and custom Drivers can receive a writable Workspace facade.
+Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy is an authorization boundary, so it should depend only on trusted identity and application-owned facts. Actor-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; provider Drivers receive a writable session limited to the selected paths. Without Actor-scoped Access, write authority depends on the Workspace mode, its rules, and the surfaces exposed to the Driver.
 
-## Use Workspace context with a harness
+## Use Workspace context with a provider
 
-Harness-backed Drivers receive the rendered instruction document in their Workspace session. A Box can also prepare a private Home and process requirements for the harness.
+Provider Drivers receive the rendered instruction document and selected Workspace files in a temporary local working directory. Successful write-mode invocations commit through Workspace rules.
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -121,14 +121,8 @@ import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({
   driver: { kind: 'codex', model: 'gpt-5.5' },
   workspace: { mode: 'write' },
-  box: {
-    runtime: 'trusted-host',
-    requires: ['git', 'pnpm'],
-  },
 })
 ```
-
-Read [Boxes](/docs/agents/boxes) before using `trusted-host`: it provides process setup, not isolation from untrusted code.
 
 ## Keep context explicit
 
@@ -138,6 +132,6 @@ Read [Boxes](/docs/agents/boxes) before using `trusted-host`: it provides proces
 | Model-facing rules | Colocated or Driver Instructions |
 | Read or write tools | Capabilities such as `workspaceShell` |
 | Caller-specific file scope | Access plus a trusted Agent Actor |
-| Harness Home and checkout | A Box |
+| Provider working directory | A write-mode Workspace |
 
 Inspect the resolved Workspace, Sources, and access policy through the [CLI](/docs/development/cli) before relying on them in production.

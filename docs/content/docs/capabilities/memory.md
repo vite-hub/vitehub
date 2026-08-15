@@ -65,7 +65,7 @@ It requires writable Workspace access when the Agent creates, supersedes, or del
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the configured memory tools. |
-| Harness-backed | Receives the configured memory tools through the Harness tool bridge. |
+| Provider-backed | Receives the configured memory tools through the provider MCP bridge. |
 | Custom-run-backed | Receives prepared context and can call store adapters from custom code when the application exposes them. |
 
 ## Inspect and verify

@@ -1,6 +1,5 @@
 import { normalizeWorkspaceSourcesMetadata, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
-  isExecutionAuthority,
   noExecutionAuthority,
   normalizeExecutionAuthority,
   unknownExecutionAuthority,
@@ -26,7 +25,7 @@ import {
   resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
-import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "./internal/agent-driver.ts"
+import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 
@@ -40,7 +39,7 @@ import type {
   AgentInspectionConfigValue,
   AgentInspectionDriverMetadata,
   AgentInspectionFileTreeItem,
-  AgentInspectionHarnessMetadata,
+  AgentInspectionProviderMetadata,
   AgentInspectionMetadata,
   AgentInspectionModelExecutionMetadata,
   AgentInspectionModelMetadata,
@@ -433,19 +432,19 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
   if (capability.id === "workspace-shell") {
     const mode = normalizeMode(capability.mode, "Workspace Shell")
     const configuredCommands = (capability.metadata as { commands?: unknown } | undefined)?.commands
-    if (options.driverKind === "harness" && configuredCommands === undefined) return undefined
+    if (options.driverKind === "provider" && configuredCommands === undefined) return undefined
     const allCommands = configuredCommands === "all"
     const executableCommands = Array.isArray(configuredCommands)
       ? configuredCommands.map(command => `workspace_exec (${command})`)
-      : allCommands ? ["workspace_exec (any Box executable)"] : []
+      : allCommands ? ["workspace_exec (any Workspace Session executable)"] : []
     return {
       category: "workspace",
       commands: [
-        ...(options.driverKind === "harness" ? [] : workspaceShellMetadataCommands(mode, options.sourceRequests)),
+        ...(options.driverKind === "provider" ? [] : workspaceShellMetadataCommands(mode, options.sourceRequests)),
         ...executableCommands,
       ],
       description: allCommands
-        ? `Run workspace ${mode === "write" ? "read and write" : "read"} operations and any executable in the Box.`
+        ? `Run workspace ${mode === "write" ? "read and write" : "read"} operations and any executable in the Workspace Session.`
         : mode === "write"
           ? "Run curated workspace read and write shell operations."
           : "Run curated workspace read shell operations.",
@@ -467,7 +466,6 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
       status: "available",
     }
   }
-  if (options.driverKind === "harness") return undefined
   if (capability.id === "sandbox") {
     return {
       category: "execution",
@@ -502,68 +500,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
-function declaredExecutionAuthority(value: unknown): ExecutionAuthority | undefined {
-  if (!isRecord(value)) return
-  const authority = value.executionAuthority
-  return isExecutionAuthority(authority) ? normalizeExecutionAuthority(authority) : undefined
+function staticDriverExecutionAuthority(driver: { kind: AgentDriverKind }): ExecutionAuthority {
+  if (driver.kind !== "provider") return noExecutionAuthority
+  return normalizeExecutionAuthority({
+    credentials: "ambient",
+    environment: "ambient",
+    filesystem: { access: "read-write", scope: "host" },
+    isolation: "none",
+    network: "unrestricted",
+    processes: "arbitrary",
+  })
 }
 
-function boxFileUsesInvocationCallback(value: unknown): boolean {
-  return isRecord(value) && typeof value.contents === "function"
-}
-
-function boxUsesInvocationCallbacks(value: unknown): boolean {
-  if (!isRecord(value)) return false
-  if (typeof value.cwd === "function") return true
-  if (isRecord(value.checkout) && [value.checkout.ref, value.checkout.remote, value.checkout.sha].some(field => typeof field === "function")) return true
-  if (isRecord(value.env) && Object.values(value.env).some(field => typeof field === "function")) return true
-  if (!isRecord(value.home)) return false
-  if (isRecord(value.home.files) && Object.values(value.home.files).some(boxFileUsesInvocationCallback)) return true
-  if (!isRecord(value.home.state)) return false
-  return Object.values(value.home.state).some(state => isRecord(state)
-    && isRecord(state.seed)
-    && Object.values(state.seed).some(boxFileUsesInvocationCallback))
-}
-
-function staticDriverExecutionAuthority(
-  hasBox: boolean,
-  driver: { kind: AgentDriverKind, sandbox?: unknown },
-): ExecutionAuthority {
-  if (driver.kind !== "harness") return noExecutionAuthority
-  if (hasBox) return unknownExecutionAuthority
-  return declaredExecutionAuthority(driver.sandbox) ?? unknownExecutionAuthority
-}
-
-async function resolvedDriverExecutionAuthority<
+function resolvedDriverExecutionAuthority<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
-  box: AgentSettings<TRuntimeConfig, CALL_OPTIONS>["box"],
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
-  context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
-): Promise<ExecutionAuthority> {
+): ExecutionAuthority {
   if (driver.kind === "model") return noExecutionAuthority
-  if (driver.kind !== "harness") return unknownExecutionAuthority
-  if (box) {
-    if (context.input.options === undefined && boxUsesInvocationCallbacks(box)) return unknownExecutionAuthority
-    const { resolveBox } = await import("@vite-hub/box")
-    const resolvedBox = await resolveBox(box, context, { requires: driver.requires })
-    return resolvedBox.plan.executionAuthority
-  }
-  const provider = typeof driver.sandbox === "function"
-    ? context.input.options === undefined ? undefined : await driver.sandbox(context)
-    : driver.sandbox
-  if (provider !== undefined) {
-    return declaredExecutionAuthority(provider) ?? unknownExecutionAuthority
-  }
-  if (context.runtime === "cloudflare-agents" || context.runtime === "deno") {
-    return noExecutionAuthority
-  }
-  if (context.runtime === "vite" || context.runtime === "vercel") {
-    const { createLocalHarnessSandbox } = await import("./harness/local-sandbox.ts")
-    return createLocalHarnessSandbox({ env: {} }).executionAuthority
-  }
-  return unknownExecutionAuthority
+  return driver.kind === "provider" ? staticDriverExecutionAuthority(driver) : unknownExecutionAuthority
 }
 
 function agentSettings<
@@ -663,26 +619,12 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness?: unknown, provider?: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentInspectionHarnessMetadata | undefined {
-  const harness = isRecord(driver.harness) ? driver.harness : undefined
-  const provider = typeof driver.provider === "string"
-    ? driver.provider
-    : harness ? stringField(harness, ["provider", "name"]) : undefined
-  const sandboxProvider = isRecord(driver.sandbox) ? stringField(driver.sandbox, ["provider", "providerId"]) : undefined
-  const credentials = isRecord(driver.credentials)
-    ? {
-        ...(typeof driver.credentials.label === "string" && driver.credentials.label ? { label: driver.credentials.label } : {}),
-        ...(typeof driver.credentials.source === "string" && driver.credentials.source ? { source: driver.credentials.source } : {}),
-      }
-    : undefined
-  return provider || credentials || sandboxProvider || driver.sessionKey
-    ? {
-        ...(credentials && Object.keys(credentials).length ? { credentials } : {}),
-        ...(provider ? { provider } : {}),
-        ...(sandboxProvider ? { sandboxProvider } : {}),
-        ...(driver.sessionKey ? { sessionKey: true } : {}),
-      }
-    : undefined
+function providerMetadata(driver: { model?: string, permissions?: AgentInspectionProviderMetadata["permissions"], provider: string }): AgentInspectionProviderMetadata {
+  return {
+    ...(driver.model ? { model: driver.model } : {}),
+    ...(driver.permissions ? { permissions: driver.permissions } : {}),
+    provider: driver.provider,
+  }
 }
 
 function staticDriverMetadata<
@@ -700,12 +642,11 @@ function staticDriverMetadata<
       model: modelMetadata(typeof driver.model === "function" ? undefined : driver.model as AgentModelInput, typeof driver.model === "function"),
     }
   }
-  if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver)
+  if (driver.kind === "provider") {
     return {
-      executionAuthority: staticDriverExecutionAuthority(Boolean(settings.box), driver),
-      ...(harness ? { harness } : {}),
-      kind: "harness",
+      executionAuthority: staticDriverExecutionAuthority(driver),
+      kind: "provider",
+      provider: providerMetadata(driver),
     }
   }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
@@ -734,13 +675,11 @@ async function resolvedDriverMetadata<
       model: modelMetadata(model, dynamic),
     }
   }
-  if (driver.kind === "harness") {
-    const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
-    const harness = harnessMetadata(resolvedDriver)
+  if (driver.kind === "provider") {
     return {
-      executionAuthority: await resolvedDriverExecutionAuthority(settings.box, resolvedDriver, context),
-      ...(harness ? { harness } : {}),
-      kind: "harness",
+      executionAuthority: resolvedDriverExecutionAuthority(driver),
+      kind: "provider",
+      provider: providerMetadata(driver),
     }
   }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
@@ -1216,7 +1155,7 @@ function instructionCoverageWarnings(
   return [
     ...sourceCoverageWarnings(coverage, definition),
     ...capabilityCoverageWarnings(coverage, capabilities),
-    ...(driverKind === "harness" ? [] : skillCoverageWarnings(coverage, capabilities)),
+    ...(driverKind === "provider" ? [] : skillCoverageWarnings(coverage, capabilities)),
   ]
 }
 
@@ -1511,7 +1450,6 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
 
   const selection = await resolveMetadataCapabilitySelection(settings as never, resolution)
   validateAgentCapabilityComposition(selection.capabilities, {
-    hasBox: Boolean(settings.box),
     hasWorkspace: false,
   })
   const capabilities = await resolveAgentCapabilities({
@@ -1540,11 +1478,7 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
     const config = staticConfig && {
       driver: {
         ...staticConfig.driver,
-        executionAuthority: await resolvedDriverExecutionAuthority(
-          settings.box,
-          normalizeAgentDriver(settings),
-          context,
-        ),
+        executionAuthority: resolvedDriverExecutionAuthority(normalizeAgentDriver(settings)),
       },
       ...(uiMessageStream ? { uiMessageStream } : {}),
     }
@@ -1599,7 +1533,6 @@ export async function resolveAgentInspectionMetadata<
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const selection = await resolveMetadataCapabilitySelection(workspaceOptions, defaultsOverride)
   validateAgentCapabilityComposition(selection.capabilities, {
-    hasBox: Boolean(workspaceOptions.box),
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })
@@ -1655,7 +1588,6 @@ export async function materializeAgentInspectionSourceMetadata<
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const selection = await resolveMetadataCapabilitySelection(workspaceOptions, options)
   validateAgentCapabilityComposition(selection.capabilities, {
-    hasBox: Boolean(workspaceOptions.box),
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })

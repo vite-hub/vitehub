@@ -20,7 +20,6 @@ import { discoverAgentDefinitions, discoverAgentEvalFiles } from "./discovery.ts
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
-import { readColocatedAgentHome } from "./vite/colocated-agent-home.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 
@@ -62,10 +61,9 @@ const optionalMessageAdapterRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp"]
+const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
 const optionalNetlifyAgentBundleExternals = [
-  "@ai-sdk/harness",
-  "@ai-sdk/harness/*",
+  "@t3tools/provider-runtime",
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
   "@vite-hub/sandbox",
@@ -421,12 +419,11 @@ async function transformScheduleRegistry(
     const agentIdentity = { name: definition.name, ...(definition.workspace ? { workspace: definition.workspace } : {}) }
     const handlerImport = importAnchor ? moduleImportSpecifier(importAnchor, definition.handler) : definition.handler
     const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
-    const colocatedHome = readColocatedAgentHome(definition.handler)
     return [
       `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
       `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
       `  const module = await import(${JSON.stringify(handlerImport)})`,
-      `  return vitehubDefineScheduledAgentTarget(vitehubAgentWithColocatedHome(vitehubWithWorkspaceSourceRoot(vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))}), ${JSON.stringify(colocatedHome)}), { agentIdentity: ${JSON.stringify(agentIdentity)}, capabilities: ${generatedAgentRuntimeCapabilities(runtimeCapabilities, true)} })`,
+      `  return vitehubDefineScheduledAgentTarget(vitehubWithWorkspaceSourceRoot(vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))}), { agentIdentity: ${JSON.stringify(agentIdentity)}, capabilities: ${generatedAgentRuntimeCapabilities(runtimeCapabilities, true)} })`,
       "}",
     ]
   }))).flat()
@@ -437,7 +434,6 @@ async function transformScheduleRegistry(
   )
   return [
     `import { agentWithColocatedInstructions as vitehubAgentWithColocatedInstructions, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { agentWithColocatedHome as vitehubAgentWithColocatedHome } from ${JSON.stringify(subpath(agentImportBase, "runtime/workflow"))}`,
     `import { defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceRuntime.imports,
@@ -1660,13 +1656,12 @@ async function generateAgentDeploymentCatalog(
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
     const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
     const colocatedSkills = readColocatedAgentSkills(definition.handler)
-    const colocatedHome = readColocatedAgentHome(definition.handler)
-    const agentExpression = `agentWithColocatedHome(withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(${moduleName}), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)}), ${JSON.stringify(colocatedHome)})`
+    const agentExpression = `withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(${moduleName}), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
     return {
       agentEntry: `${JSON.stringify(definition.name)}: ${agentExpression}`,
       import: `import * as ${moduleName} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`,
       workspaceEntry: definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)}, ${JSON.stringify(colocatedHome)})`
+        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
         : undefined,
     }
   }))
@@ -1681,7 +1676,6 @@ async function generateAgentDeploymentCatalog(
   return {
     imports: [
       `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
-      `import { agentWithColocatedHome } from ${JSON.stringify(subpath(options.agentImportBase, "runtime/workflow"))}`,
       ...(channelHandlers
         ? [`import { createAgentWebhookRequest, createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
         : []),
@@ -1708,8 +1702,8 @@ async function generateAgentDeploymentCatalog(
       "",
       ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions", typescript),
       "",
-      `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}, colocatedHome${typescript ? ": Parameters<typeof agentWithColocatedHome>[1]" : ""}) {`,
-      "  const agent = agentWithColocatedHome(withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills), colocatedHome)",
+      `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
+      "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
       "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
       "  return [name, async () => ({ ...module, default: agent })]",
       "}",
@@ -2719,7 +2713,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           await cleanupNetlifyAgentProviderOutput(resolved)
         }
         await copyVercelFunctionRuntimePackages({
-          packages: [{ includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true }],
+          packages: [
+            { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
+            { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
+          ],
           rootDir: resolved.root,
         })
       },

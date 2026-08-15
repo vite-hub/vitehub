@@ -481,7 +481,7 @@ function writeToolTextOutput(context: AgentCliContext, output: unknown, duration
 }
 
 function progressTag(phase: string): string {
-  if (phase.startsWith("agent.harness")) return "harness"
+  if (phase.startsWith("agent.provider")) return "provider"
   return phase.startsWith("workspace.") ? "workspace" : "internal"
 }
 

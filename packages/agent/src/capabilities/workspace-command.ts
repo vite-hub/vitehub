@@ -143,13 +143,13 @@ function assertWorkspace(workspace: unknown, message: string): asserts workspace
   }
 }
 
-export async function executeBoxCommand(
+export async function executeWorkspaceCommand(
   workspace: unknown,
   command: string,
   args: string[] = [],
   options: BoxCommandOptions = {},
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
-  assertWorkspace(workspace, "[vitehub] Capability command execution requires a Box-backed Workspace Session.")
+  assertWorkspace(workspace, "[vitehub] Capability command execution requires an execution-capable Workspace Session.")
   const session = await workspace.startSession()
   let result
   try {
@@ -160,7 +160,7 @@ export async function executeBoxCommand(
       timeout: options.timeout,
     })
     if (options.check && result.exitCode !== 0) {
-      throw Object.assign(new Error(`[vitehub] Box command "${command}" exited with code ${result.exitCode}.`), {
+      throw Object.assign(new Error(`[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.`), {
         command,
         exitCode: result.exitCode,
         name: "BoxCommandError",
@@ -177,7 +177,7 @@ export async function executeBoxCommand(
       await session.close()
     }
     catch (closeError) {
-      throw new AggregateError([error, closeError], "[vitehub] Box command failed and session cleanup also failed.")
+      throw new AggregateError([error, closeError], "[vitehub] Workspace command failed and session cleanup also failed.")
     }
     throw error
   }
@@ -200,8 +200,8 @@ export function workspaceCommandTools(
   return {
     [toolName]: defineInternalTool({
       description: options.description || (unrestricted
-        ? "Run any executable in the Box-backed Workspace Session."
-        : `Run one configured command in the Box-backed Workspace Session at the workspace root. Allowed commands: ${summary}.`),
+        ? "Run any executable in the Workspace Session."
+        : `Run one configured command in the Workspace Session at the workspace root. Allowed commands: ${summary}.`),
       inputSchema: {
         additionalProperties: false,
         properties: {
@@ -226,8 +226,8 @@ export function workspaceCommandTools(
         const cwd = normalizeCwd(value.cwd)
         const env = envRecord(value.env)
         const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout ?? defaultWorkspaceCommandTimeout
-        assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires a Box-backed writable Workspace Session.")
-        return await executeBoxCommand(workspace, value.command, args, {
+        assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an execution-capable writable Workspace Session.")
+        return await executeWorkspaceCommand(workspace, value.command, args, {
           ...(mode === "write" ? { commitMessage: options.commitMessage || "workspace shell command" } : {}),
           cwd,
           env,

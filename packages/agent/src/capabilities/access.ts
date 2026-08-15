@@ -314,12 +314,12 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       if (!context.workspace) {
         throw new Error("[vitehub] access({ workspace }) requires an explicit workspace.")
       }
-      if ("diff" in context.workspace && context.driver?.kind !== "harness") {
-        throw new Error("[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for harness Agent Drivers.")
+      if ("diff" in context.workspace && context.driver?.kind !== "provider") {
+        throw new Error("[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for provider Agent Drivers.")
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
-      const sourceResolutionScope = withHarnessWorkspacePaths(scope, workspaceMaterializationPaths(context))
+      const sourceResolutionScope = withProviderWorkspacePaths(scope, workspaceMaterializationPaths(context))
       const sourceResolutionOptions = {
         invocation: {
           context: agentInvocationSourceContext(context.context),
@@ -333,7 +333,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const hasSourceResolvers = context.workspaceDefinition
         ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
         : false
-      const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), workspaceMaterializationPaths(context))
+      const finalScope = withProviderWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), workspaceMaterializationPaths(context))
       const sourceResolution = resolvedDefinition
         ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
             ...sourceResolutionOptions,
@@ -436,7 +436,7 @@ function finalizeResolvedWorkspaceScope(
   }
 }
 
-function withHarnessWorkspacePaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): ResolvedWorkspaceScope {
+function withProviderWorkspacePaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): ResolvedWorkspaceScope {
   if (scope.all || !paths?.length) return scope
   return {
     ...scope,

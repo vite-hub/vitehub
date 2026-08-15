@@ -48,33 +48,6 @@ describe("repositoryHostContext", () => {
     })).rejects.toThrow("materialize paths require the ViteHub Agent plugin")
   })
 
-  it("omits materialization when configured resolvers opt out", async () => {
-    const { repositoryHostContext } = await import("../src/capabilities.ts")
-    const workspaceDefinition = {
-      name: "review",
-      sources: {},
-    }
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        repositoryHostContext({
-          materialize: {
-            path: "PULL_REQUEST.md",
-            template: () => "# Pull request",
-          },
-          target: () => false,
-        } as never),
-      ],
-    }, runtime(), {}, emptyWorkspace() as never, "read", {
-      context: createAgentInvocationContextStore(),
-      driverKind: "harness",
-      workspaceDefinition,
-    })
-
-    expect(resolved.workspaceDefinition).toEqual(workspaceDefinition)
-    expect(resolved.workspaceMaterializationPaths).toEqual(["PULL_REQUEST.md"])
-  })
-
   it("records a data-only async record without workspace context files", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const context = createAgentInvocationContextStore()

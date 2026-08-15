@@ -59,7 +59,7 @@ server/
 
 ## Colocated Agent Skills
 
-An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery, materializes the directory into the Harness Workspace, and also installs it into supported isolated harness profiles such as Codex. Existing files at both destinations remain in place, and files below a `scripts/` directory become executable.
+An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery and materializes the directory into the Provider Workspace. Existing files remain in place, and files below a `scripts/` directory become executable.
 
 ```txt [File tree]
 server/

@@ -68,6 +68,7 @@ beforeAll(async () => {
     "--ignore-scripts",
     "--no-frozen-lockfile",
     "--strict-peer-dependencies",
+    "--config.blockExoticSubdeps=false",
   ], consumerRoot)
 }, 60_000)
 

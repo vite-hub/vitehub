@@ -62,7 +62,7 @@ Use a custom template, variables, or executor when the title must include produc
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Can use the Agent model or an explicit model to generate the title and decorate streams. |
-| Harness-backed | Can decorate compatible output streams when the invocation produces them; model-based title generation still needs a model resolver. |
+| Provider-backed | Can decorate compatible output streams when the invocation produces them; model-based title generation still needs a model resolver. |
 | Custom-run-backed | Can decorate compatible custom output; custom `driver.run` controls the response shape. |
 
 ## Inspect and verify

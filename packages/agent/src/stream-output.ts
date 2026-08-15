@@ -471,7 +471,9 @@ async function writeEventsToUiMessageStream(
         writer.write(normalizeUiMessageStreamChunk(event))
         continue
       }
-      throw error.error || new Error(typeof error.message === "string" ? error.message : "Agent stream failed.")
+      throw error.error instanceof Error
+        ? error.error
+        : new Error(typeof error.error === "string" ? error.error : typeof error.message === "string" ? error.message : "Agent stream failed.")
     }
   }
   if (textStarted) writer.write({ type: "text-end", id: messageId })

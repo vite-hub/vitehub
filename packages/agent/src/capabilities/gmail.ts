@@ -1,6 +1,6 @@
 import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
-import { executeBoxCommand } from "./workspace-command.ts"
+import { executeWorkspaceCommand } from "./workspace-command.ts"
 
 import type {
   AgentCapabilityContext,
@@ -168,7 +168,7 @@ function gmailAuthorizationUrl(value: unknown): string {
 }
 
 async function runGmailCommand(args: string[], context: AgentCapabilityContext): Promise<string> {
-  return (await executeBoxCommand(context.workspace, "gog", args, {
+  return (await executeWorkspaceCommand(context.workspace, "gog", args, {
     abortSignal: context.abortSignal,
     check: true,
     timeout: 60_000,
@@ -355,14 +355,8 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
     id: "gmail",
     metadata: { command: "gog", mode, skillPath, sourceKey },
     mode: mode === "draft" ? "write" : "read",
-    prepare(context) {
-      if (context.driver?.kind !== "harness") {
-        throw new Error("[vitehub] gmail() requires a Harness Agent Driver.")
-      }
-    },
     requires: [
       { primitive: "workspace", workspace: { mode: "write", required: true } },
-      { primitive: "box" },
     ],
     tools: context => ({
       gmail_auth: defineInternalTool<GmailAuthInput>({

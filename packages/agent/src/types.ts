@@ -1,6 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
-import type { Box, BoxDefinition, BoxRequirement } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
@@ -25,7 +24,6 @@ import type {
   WorkspaceRules,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
-import type { LocalHarnessSandboxOptions } from "./harness/local-sandbox.ts"
 import type {
   AgentChannelOptions,
   AgentWebChatChannelOptions,
@@ -665,7 +663,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "harness" | "model" | "run"
+export type AgentDriverKind = "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -767,8 +765,6 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   abortSignal?: AbortSignal
-  box?: Box
-  harnessSandboxProvider?: object
   invocation?: { input: AgentCapabilityInputContext, kind?: "run" | "stream" }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
@@ -788,14 +784,6 @@ export type AgentCapabilityToolResolver<
 > =
   | Record<string, unknown>
   | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<Record<string, unknown> | undefined>)
-
-export type AgentCapabilityBashCommand =
-  | string
-  | {
-      command: string
-      description?: string
-      install?: string
-    }
 
 export interface AgentCapabilityWorkspaceContribution {
   rules?: WorkspaceRules
@@ -898,7 +886,6 @@ export interface AgentCapabilityDefinition<
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 > {
   readonly __vitehubTypeContract?: TTypeContract
-  bash?: readonly AgentCapabilityBashCommand[]
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   cli?: AgentCapabilityCliResolver<TRuntimeConfig, Name>
@@ -1065,133 +1052,29 @@ export interface AgentModelExecutionOptions<
   }
 }
 
-export interface AgentHarnessCredentialSource {
-  label?: string
-  source?: "ambient" | "explicit" | "none" | "unknown" | (string & {})
-}
+export type AgentProviderPermissions = "allow-all" | "allow-edits" | "ask"
 
-export interface CodexAuthOptions {
-  gateway?: {
-    apiKey?: string
-    baseUrl?: string
-  }
-  openai?: {
-    apiKey?: string
-    baseUrl?: string
-    organization?: string
-    project?: string
-  }
-  openaiCompatible?: {
-    apiKey?: string
-    baseUrl?: string
-    modelProviderName?: string
-    queryParamsJson?: string
-  }
-}
-
-export type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
-  | false
-  | LocalHarnessSandboxOptions
-  | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
-
-export interface CodexDriverOptions<CALL_OPTIONS = unknown, TOutput = unknown> {
-  auth?: CodexAuthOptions
+export interface AgentProviderDriverOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TOutput = unknown,
+> {
   capacity?: AgentDriverCapacityOptions
-  credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
-  instructions?: AgentHarnessInstructions<AgentRuntimeConfig, CALL_OPTIONS>
+  instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   output?: AgentOutputDefinition<TOutput>
-  port?: number
-  reasoningEffort?: "low" | "medium" | "high"
-  sandbox?: CodexDriverSandboxOptions<CALL_OPTIONS>
-  startupTimeoutMs?: number
-  webSearch?: boolean
-  workDir?: AgentHarnessWorkDir<AgentRuntimeConfig, CALL_OPTIONS>
+  permissions?: AgentProviderPermissions
 }
 
-export interface ClaudeCodeAuthOptions {
-  anthropic?: {
-    apiKey?: string
-    authToken?: string
-    baseUrl?: string
-  }
-  gateway?: {
-    apiKey?: string
-    baseUrl?: string
-  }
-}
-
-export type ClaudeCodeThinkingConfig =
-  | {
-    display?: "summarized" | "omitted"
-    type: "adaptive" | "enabled"
-  }
-  | {
-    type: "disabled"
-  }
-
-export interface ClaudeCodeDriverOptions<TOutput = unknown> {
-  auth?: ClaudeCodeAuthOptions
-  capacity?: AgentDriverCapacityOptions
-  credentials?: AgentHarnessCredentialSource
-  env?: Record<string, string | undefined>
-  maxTurns?: number
-  model?: string
-  output?: AgentOutputDefinition<TOutput>
-  port?: number
-  sandbox?: false | LocalHarnessSandboxOptions
-  startupTimeoutMs?: number
-  thinking?: ClaudeCodeThinkingConfig
-}
+export type CodexDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
 
 export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   | BuiltInAgentDriverName
-  | ({ kind: "codex" } & CodexDriverOptions<CALL_OPTIONS, TOutput>)
+  | ({ kind: "codex" } & CodexDriverOptions<TOutput>)
   | ({ kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
-
-export type AgentHarnessSessionKey<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TContextValues extends object = AgentInvocationContextValues,
-> =
-  | string
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
-
-export type AgentHarnessInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TContextValues extends object = AgentInvocationContextValues,
-> =
-  | string
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
-
-export type AgentHarnessWorkDir<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TContextValues extends object = AgentInvocationContextValues,
-> =
-  | string
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
-
-export type AgentHarnessDriverInput<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-> =
-  | object
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object>)
-
-export type AgentHarnessSandboxProvider = object
-
-export type AgentHarnessSandboxProviderInput<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TContextValues extends object = AgentInvocationContextValues,
-> =
-  | AgentHarnessSandboxProvider
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<AgentHarnessSandboxProvider | undefined>)
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1201,7 +1084,6 @@ export interface AgentModelDriver<
   capacity?: AgentDriverCapacityOptions
   credentials?: never
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-  harness?: never
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
   maxRetries?: number
@@ -1215,29 +1097,6 @@ export interface AgentModelDriver<
   workDir?: never
 }
 
-export interface AgentHarnessDriver<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TContextValues extends object = AgentInvocationContextValues,
-  TOutput = unknown,
-> {
-  capacity?: AgentDriverCapacityOptions
-  credentials?: AgentHarnessCredentialSource
-  execution?: never
-  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
-  instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  kind?: never
-  model?: never
-  output?: AgentOutputDefinition<TOutput>
-  permissionMode?: never
-  permissions?: never
-  requires?: readonly BoxRequirement[]
-  run?: never
-  sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-}
-
 export interface AgentRunDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1247,7 +1106,6 @@ export interface AgentRunDriver<
   capacity?: AgentDriverCapacityOptions
   credentials?: never
   execution?: never
-  harness?: never
   instructions?: never
   kind?: never
   model?: never
@@ -1267,7 +1125,6 @@ export type AgentDriver<
   TOutput = unknown,
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
-  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   | BuiltInAgentDriver<CALL_OPTIONS, TOutput>
 
@@ -1278,7 +1135,6 @@ export type CustomAgentDriver<
   TOutput = unknown,
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS, TOutput>
-  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput>
 
 export interface AgentDefinitionCliOptions {
@@ -1309,7 +1165,6 @@ type AgentSharedSettings<
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
 > = {
-  box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
@@ -1347,7 +1202,6 @@ export interface AgentDefinition<
   TOutput = unknown,
 > {
   [agentOutputType]?: TOutput
-  box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
@@ -1789,11 +1643,10 @@ export interface AgentInspectionModelExecutionMetadata {
   }
 }
 
-export interface AgentInspectionHarnessMetadata {
-  credentials?: AgentHarnessCredentialSource
+export interface AgentInspectionProviderMetadata {
+  model?: string
+  permissions?: AgentProviderPermissions
   provider?: string
-  sandboxProvider?: string
-  sessionKey?: boolean
 }
 
 export interface AgentInspectionDriverMetadata {
@@ -1803,9 +1656,9 @@ export interface AgentInspectionDriverMetadata {
   }
   readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata
-  harness?: AgentInspectionHarnessMetadata
-  kind: "harness" | "model" | "run" | "unknown"
+  kind: "model" | "provider" | "run" | "unknown"
   model?: AgentInspectionModelMetadata
+  provider?: AgentInspectionProviderMetadata
 }
 
 export interface AgentInspectionConfigMetadata {
@@ -1860,7 +1713,7 @@ export interface AgentUsageCost {
 
 export interface AgentUsageCredentialSource {
   label?: string
-  source?: AgentHarnessCredentialSource["source"]
+  source?: "ambient" | "explicit" | "none" | "unknown" | (string & {})
 }
 
 export interface AgentUsageRecord {
@@ -1897,27 +1750,17 @@ export interface AgentAdapterMetadataContext<
   workspace: ReadonlyWorkspaceFacade<Name>
 }
 
-export interface AgentGlobalSkill {
-  path: string
-  source: WorkspaceSourceInput
-  sourceKey: string
-}
-
 export interface AgentAdapterRunContext<
   TOptions = unknown,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
   actor: AgentActor
-  box?: Box
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
-  globalSkills?: readonly AgentGlobalSkill[]
   hasCapabilityCleanup?: boolean
-  harnessSandboxProvider?: object
-  harnessWorkDir?: string
   input: AgentRunInput<TOptions>
   instructions?: string
   invoker: AgentInvoker
@@ -1935,6 +1778,7 @@ export interface AgentAdapterRunContext<
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>
+  workspaceMaterializationPaths?: readonly string[]
 }
 
 export interface AgentAdapter<

@@ -61,7 +61,7 @@ describe("workspaceShell capability", () => {
     expect(() => workspaceShell({ commands: ["agent-browser\n"] })).toThrow("without whitespace")
   })
 
-  it("runs arbitrary structured commands in the Box-backed Workspace session", async () => {
+  it("runs arbitrary structured commands in the Workspace Session", async () => {
     const capability = workspaceShell({ commands: "all", timeout: 5_000 })
     const boxRuntime = await capabilityTools(capability)
     await expect(boxRuntime.tools.workspace_exec!.execute?.({
@@ -81,6 +81,17 @@ describe("workspaceShell capability", () => {
     await expect(boxRuntime.tools.workspace_exec!.execute?.({ command: "pnpm test" })).rejects.toThrow(
       "without whitespace/control characters",
     )
+  })
+
+  it("gives provider Drivers only explicitly configured commands", async () => {
+    const capability = workspaceShell({ commands: ["git"] })
+    if (typeof capability.tools !== "function") throw new Error("workspaceShell capability must expose a tool resolver")
+    const tools = await capability.tools({
+      driver: { kind: "provider" },
+      workspace: { startSession: vi.fn(), tools: { inspect: () => ({ workspace_read: {} }) } },
+    } as never) as AgentToolSet
+
+    expect(Object.keys(tools)).toEqual(["workspace_exec"])
   })
 
   it("runs only allow-listed commands with structured exec options", async () => {

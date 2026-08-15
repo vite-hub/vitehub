@@ -54,7 +54,7 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives one controlled Git `shell` tool. |
-| Harness-backed | Receives the controlled Git `shell` tool through the Harness tool bridge. |
+| Provider-backed | Receives the controlled Git `shell` tool through the provider MCP bridge. |
 | Custom-run-backed | Can use the Workspace Session directly and may inspect Capability metadata. |
 
 ## Options

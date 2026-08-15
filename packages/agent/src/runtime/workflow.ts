@@ -2,7 +2,6 @@ import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/run
 
 import { createAgentRuntimeContext } from "./context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
-import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/colocated-agent-home.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
@@ -27,10 +26,6 @@ export { workspaceAgentWithSourceRoot }
 
 export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameters<typeof decodeColocatedAgentSkills>[0]): Agent {
   return withColocatedAgentSkills(agent, decodeColocatedAgentSkills(sources))
-}
-
-export function agentWithColocatedHome<Agent>(agent: Agent, files: Parameters<typeof decodeColocatedAgentHome>[0]): Agent {
-  return withColocatedAgentHome(agent, decodeColocatedAgentHome(files))
 }
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {

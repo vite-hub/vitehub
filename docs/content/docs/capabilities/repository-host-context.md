@@ -112,7 +112,7 @@ Target-based context requires a client option or a configured `repository-host` 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Does not receive rendered context automatically. Caller code must render selected values into instructions, input, or another model-facing surface. |
-| Harness-backed | Receives the configured materialized Markdown file in its Agent Workspace. |
+| Provider-backed | Receives the configured materialized Markdown file in its Agent Workspace. |
 | Custom-run-backed | Can read the async record directly through `repositoryHostContext.read(ctx)`. |
 
 ## Options

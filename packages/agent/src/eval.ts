@@ -87,10 +87,7 @@ export interface AgentEvalTestContext<CALL_OPTIONS = never> {
 
 export type AgentEvalTest<CALL_OPTIONS = never> = (context: AgentEvalTestContext<CALL_OPTIONS>) => MaybePromise<void>
 
-interface AgentEvalBaseDefinition<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-> {
+interface AgentEvalBaseDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   agent?: AgentEvalAgent<TRuntimeConfig> | (() => MaybePromise<AgentEvalAgent<TRuntimeConfig>>)
   name?: string
   runtimeConfig?: TRuntimeConfig | (() => MaybePromise<TRuntimeConfig>)
@@ -102,7 +99,7 @@ interface AgentEvalBaseDefinition<
 export type AgentEvalDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
-> = AgentEvalBaseDefinition<TRuntimeConfig, CALL_OPTIONS> & (
+> = AgentEvalBaseDefinition<TRuntimeConfig> & (
   | {
     scenarios: Array<AgentEvalScenario<CALL_OPTIONS>>
     test?: never
@@ -158,17 +155,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function variantModelDriver(
-  variant: AgentEvalVariant,
-  output?: unknown,
-): Record<string, unknown> {
-  return {
-    ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
-    model: variant.model,
-    ...(output !== undefined ? { output } : {}),
-  }
-}
-
 function applyVariantToExplicitDriver(
   driver: unknown,
   variant: AgentEvalVariant,
@@ -182,9 +168,6 @@ function applyVariantToExplicitDriver(
       ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
       ...(variant.model !== undefined ? { model: variant.model as never } : {}),
     }
-  }
-  if ("harness" in driver && variant.model !== undefined) {
-    return variantModelDriver(variant, driver.output)
   }
   throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
 }

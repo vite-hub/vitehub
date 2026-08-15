@@ -7,7 +7,7 @@ icon: i-lucide-bot
 ---
 
 An Agent is a server file that tells ViteHub what to run. Every Agent needs a
-Driver, which can be a function, model, or coding harness such as Codex or Claude
+Driver, which can be a function, model, or coding provider such as Codex or Claude
 Code, among others. You can add Capabilities, Channels, Workspace access, and
 other options later.
 

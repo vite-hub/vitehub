@@ -64,9 +64,10 @@ package remains independently installable and supported.
    Keep any owner package used for an advanced provider, host, test, or direct
    integration path.
 
-Third-party model providers, chat adapters, and harness packages stay explicit
-dependencies. Workflow retains its documented Vercel Functions runtime default,
-while other provider SDKs remain package-owned and explicit.
+ViteHub owns the built-in Codex and Claude Code provider runtime. Third-party
+model providers and chat adapters stay explicit dependencies. Until T3 publishes
+its runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` for
+ViteHub's exact pkg.pr.new runtime pin.
 
 Source loader imports are intentionally breaking. The subpath selects and owns
 the loader's implementation closure, so a custom or GitHub-only consumer does

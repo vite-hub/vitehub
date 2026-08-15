@@ -2,10 +2,9 @@ import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { capabilityInvocationStartSymbol, defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { toAgentUiMessageStreamResponse } from "../http-response.ts"
-import { normalizeAgentDriver, resolveNormalizedHarnessDriver } from "../internal/agent-driver.ts"
+import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { progressSummaryOutputContextKey } from "../internal/agent-output-events.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
-import { quietExpectedAuxiliaryHarnessCancellation } from "../internal/auxiliary-harness.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../internal/channels.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "../internal/stream-result.ts"
 import { getMessageText } from "../messages.ts"
@@ -175,9 +174,7 @@ function progressSummaryAdapterRunContext(
   }
   return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
-    box: context.box,
     context: context.context,
-    harnessSandboxProvider: context.harnessSandboxProvider,
     toolStepReporter: context.runtimeContext.toolStepReporter,
     input: progressSummaryDriverInput(input, prompt),
     invoker: context.invoker,
@@ -229,14 +226,9 @@ async function generateWithDriver(
   }
   const instructions = options.instructions ?? defaultProgressSummaryInstructions
   const runContext = progressSummaryAdapterRunContext(context, input, prompt)
-  if (driver.kind === "harness") {
-    const resolvedDriver = await resolveNormalizedHarnessDriver(driver)
-    const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
-    return await resultText(await createHarnessAgentAdapter({
-      ...resolvedDriver,
-      harness: quietExpectedAuxiliaryHarnessCancellation(resolvedDriver.harness as object),
-      instructions,
-    } as never).generate(runContext as never))
+  if (driver.kind === "provider") {
+    const { createProviderAgentAdapter } = await import("../provider-agent.ts")
+    return await resultText(await createProviderAgentAdapter({ ...driver, instructions }).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   return await resultText(await createAiSdkAdapter({
@@ -598,7 +590,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
         return state
       }
       invocationStarts.set(context.context, () => {
-        if (context.invocation?.kind === "stream" && context.driver?.kind === "harness") getState()
+        if (context.invocation?.kind === "stream" && context.driver?.kind === "provider") getState()
       })
       context.output.render((result) => {
         if (isStreamResult(result)) {

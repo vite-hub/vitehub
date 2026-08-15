@@ -62,7 +62,7 @@ The Capability requires either an explicit model option or an Agent model resolv
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Runs the pre-invocation decision and records the route before model execution. |
-| Harness-backed | Runs the pre-invocation decision before harness execution when a model resolver is available. |
+| Provider-backed | Runs the pre-invocation decision before provider execution when a model resolver is available. |
 | Custom-run-backed | Records the decision before `driver.run`; custom code decides how to use it. |
 
 ## Inspect and verify

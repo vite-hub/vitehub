@@ -2,10 +2,10 @@ import { defineCapability, normalizeMode, workspaceMaterializationPathsSymbol } 
 import { publishWorkspaceArtifacts } from "../../delivery-artifacts.ts"
 import { toAgentRunResult } from "../../agent-output.ts"
 import {
-  clearHarnessWorkspaceDiff,
-  readActiveHarnessWorkspaceFile,
-  readHarnessWorkspaceDiff,
-} from "../../harness-runtime.ts"
+  clearAgentWorkspaceDiff,
+  readActiveAgentWorkspaceFile,
+  readAgentWorkspaceDiff,
+} from "../../agent-workspace-runtime.ts"
 import { cloneWithPropertyDescriptors } from "../../internal/stream-result.ts"
 import { loadAgentWorkflowBlobPrimitive } from "../../internal/workflow-runtime-loaders.ts"
 import { attachmentStringBytes, currentInputAttachments, isAttachmentData, resolveAttachmentData } from "../../messages.ts"
@@ -40,9 +40,9 @@ export function blob(options: BlobCapabilityOptions = {}): AgentCapabilityDefini
     id: "blob",
     mode,
     output(context) {
-      if (context.driver?.kind !== "harness" || !assetPaths.length) return
+      if (context.driver?.kind !== "provider" || !assetPaths.length) return
       context.output.final(
-        async result => await publishReferencedHarnessArtifacts(result, context, assetPaths, options),
+        async result => await publishReferencedAgentArtifacts(result, context, assetPaths, options),
         { order: "last" },
       )
     },
@@ -136,7 +136,7 @@ function assetReferencePath(value: string, roots: readonly string[]): string | u
   }
 }
 
-function referencedHarnessArtifacts(text: string, roots: readonly string[], changedPaths: ReadonlySet<string>) {
+function referencedAgentArtifacts(text: string, roots: readonly string[], changedPaths: ReadonlySet<string>) {
   const artifacts = new Map<string, { alt?: string, path: string, placement: "inline" | "link" }>()
   for (const match of text.matchAll(/(!?)\[([^\]\r\n]*)\]\(\s*<?([^\s)<>]+)>?\s*\)/g)) {
     const path = assetReferencePath(match[3], roots)
@@ -172,14 +172,14 @@ async function artifactRunPathSegment(runId: string | undefined): Promise<string
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
-async function publishReferencedHarnessArtifacts(
+async function publishReferencedAgentArtifacts(
   result: unknown,
   context: Parameters<NonNullable<AgentCapabilityDefinition["output"]>>[0],
   assetPaths: readonly string[],
   options: BlobCapabilityOptions,
 ): Promise<unknown> {
-  const diff = readHarnessWorkspaceDiff(context.context)
-  clearHarnessWorkspaceDiff(context.context)
+  const diff = readAgentWorkspaceDiff(context.context)
+  clearAgentWorkspaceDiff(context.context)
   if (!diff) return result
 
   const runResult = toAgentRunResult(result)
@@ -187,7 +187,7 @@ async function publishReferencedHarnessArtifacts(
   const changedPaths = new Set(diff.entries.flatMap(entry =>
     (entry.type === "added" || entry.type === "modified") && entry.after?.type === "file" ? [entry.path] : [],
   ))
-  const artifacts = referencedHarnessArtifacts(runResult.text, assetPaths, changedPaths)
+  const artifacts = referencedAgentArtifacts(runResult.text, assetPaths, changedPaths)
   if (!artifacts.length) return result
 
   const store = await resolveBlobStore(context, options)
@@ -242,10 +242,10 @@ async function resolveBlobStore(context: AgentCapabilityContext, options: BlobCa
 }
 
 async function readWorkspaceBlobBody(context: AgentCapabilityContext, path: string) {
-  const activeRead = await readActiveHarnessWorkspaceFile(context.context, path)
+  const activeRead = await readActiveAgentWorkspaceFile(context.context, path)
   if (activeRead) {
     if (activeRead.body !== undefined) return activeRead.body
-    throw new Error(`[vitehub] blob_edit workspacePath was not found in the active Harness Workspace Session: "${path}".`)
+    throw new Error(`[vitehub] blob_edit workspacePath was not found in the active Agent Workspace Session: "${path}".`)
   }
   if (!context.fs?.readFile) throw new Error("[vitehub] blob_edit workspacePath requires a Workspace file system.")
   return await context.fs.readFile(path as never, { encoding: "binary" })

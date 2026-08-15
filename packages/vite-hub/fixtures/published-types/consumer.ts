@@ -9,7 +9,6 @@ import type {
 } from "vite-hub/agent"
 import * as agentCloudflare from "vite-hub/agent/cloudflare"
 import * as agentEval from "vite-hub/agent/eval"
-import * as localHarnessSandbox from "vite-hub/agent/harness/local-sandbox"
 import * as agentServer from "vite-hub/agent/server"
 import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import { useAgent, useChat } from "vite-hub/agent/vue"
@@ -31,7 +30,6 @@ import * as workspaceServer from "vite-hub/workspace/server"
 export const appFacingModules = [
   agentCloudflare,
   agentEval,
-  localHarnessSandbox,
   agentServer,
   agentSqliteState,
   authAgent,

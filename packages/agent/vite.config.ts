@@ -1,31 +1,17 @@
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import { defineConfig } from "vite-plus";
-
-const require = createRequire(import.meta.url);
-const harnessCodexRoot = dirname(dirname(require.resolve("@ai-sdk/harness-codex")));
-const codexBridgeAssets = Object.fromEntries(
-  ["index.mjs", "package.json", "pnpm-lock.yaml"].map((name) => [
-    name,
-    readFileSync(join(harnessCodexRoot, "dist", "bridge", name), "utf8"),
-  ]),
-);
 
 export default defineConfig({
   pack: {
-    define: {
-      __VITEHUB_CODEX_BRIDGE_ASSETS__: JSON.stringify(codexBridgeAssets),
-    },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@ai-sdk\/harness/, /^@vite-hub\/internal/, /^eve\/extension$/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^eve\/extension$/],
       neverBundle: [
         "vite",
         "esbuild",
         "#vitehub/agent/registry",
         "#vitehub/env/server",
         "@vercel/nft",
+        "@t3tools/provider-runtime",
         "@vite-hub/rate-limit",
         "@vite-hub/workflow",
         /^@vite-hub\/workflow\//,
@@ -49,7 +35,6 @@ export default defineConfig({
       "src/cli.ts",
       "src/eval.ts",
       "src/eve.ts",
-      "src/harness/local-sandbox.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",
       "src/runtime/empty-registry.ts",

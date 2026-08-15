@@ -195,7 +195,7 @@ Model-backed Drivers can consume inline data, adapter-owned `fetchData`, and HTT
 
 Channel history export archives inline data, size-declared adapter-owned `fetchData`, and Blob data within a 25 MiB total attachment budget and a 35 MiB total response budget. Lazy adapter reads need a trustworthy non-negative `size` within the remaining budget. URL-only attachments remain unavailable references because the Agent server cannot infer an application-owned host trust policy safely. Persist their bytes through the adapter when they must be recoverable. The export stops waiting for each provider history read or adapter-owned read after 30 seconds or when its request is aborted. The Chat SDK history and `fetchData` contracts have no cancellation channel, so their underlying private I/O remains adapter-owned and may settle after the export stops waiting. Attachments that exceed the remaining budget, contain malformed retained data, fail rehydration, omit the size required for a lazy read, or otherwise cannot be read remain in `history.json` as unavailable references. The export fails instead of building an archive above its total response limit.
 
-Harness-backed Drivers keep serializable URL references. Private callback-only attachments need a Capability that consumes them or an explicit persistence contract before crossing the harness boundary.
+Provider-backed Drivers keep serializable URL references. Private callback-only attachments need a Capability that consumes them or an explicit persistence contract before crossing the provider boundary.
 
 ## Keep boundaries clear
 

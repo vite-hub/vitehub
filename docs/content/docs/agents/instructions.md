@@ -6,7 +6,7 @@ navigation.group: Configure
 icon: i-lucide-scroll-text
 ---
 
-Instructions tell a model or harness how to behave. Keep tool schemas with Capabilities; use instructions for durable behavior, source policy, trust boundaries, escalation, and uncertainty handling.
+Instructions tell a model or coding provider how to behave. Keep tool schemas with Capabilities; use instructions for durable behavior, source policy, trust boundaries, escalation, and uncertainty handling.
 
 ## Start with a colocated document
 
@@ -33,7 +33,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub parses instruction Markdown through Comark. A colocated document becomes the default for a model-backed Driver when `driver.instructions` is absent. Harness-backed Drivers receive the rendered document in their Workspace session as `AGENTS.md`, plus `CLAUDE.md` for Claude Code-compatible harnesses.
+ViteHub parses instruction Markdown through Comark. A colocated document becomes the default when `driver.instructions` is absent. Provider Drivers receive the rendered document as `AGENTS.md` for Codex or `CLAUDE.md` for Claude Code.
 
 Use `driver.instructions` for short or invocation-specific text:
 
@@ -139,9 +139,9 @@ ViteHub strips the wrapper directives before model execution and keeps their pro
 
 | Surface | Use it for |
 | --- | --- |
-| Colocated `instructions.md` | Durable repository guidance shared by model and harness-backed execution. |
+| Colocated `instructions.md` | Durable guidance shared by model and provider-backed execution. |
 | Model `driver.instructions` | Model-facing behavior, including invocation-time callbacks and bindings. |
-| Harness `driver.instructions` | Invocation-scoped policy passed to the harness constructor. |
+| Provider `driver.instructions` | Invocation-scoped policy written into the provider working directory. |
 | Custom `driver.run` | Application code reads prepared context directly; ViteHub does not build a model prompt for it. |
 
 Read [Agent Drivers](/docs/agents/agent-drivers) for execution-specific behavior and [Workspace context](/docs/agents/workspace-context) for file visibility.

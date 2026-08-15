@@ -57,7 +57,7 @@ Subagent keys must be lowercase stable identifiers, and generated tool names use
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives one model-facing tool per subagent. |
-| Harness-backed | Receives one tool for each configured subagent through the Harness tool bridge. |
+| Provider-backed | Receives one tool for each configured subagent through the provider MCP bridge. |
 | Custom-run-backed | Can inspect the configured tools and invoke child Agents directly if the custom runner chooses to. |
 
 ## Options

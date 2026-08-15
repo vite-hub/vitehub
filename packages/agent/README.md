@@ -6,11 +6,11 @@
   <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-v7-111827?style=flat-square">
 </p>
 
-`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a coding harness, or application-owned `driver.run` logic.
+`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, or application-owned `driver.run` logic.
 
 Keep the three pieces separate:
 
-- **Agent Driver**: the model, coding harness, or application-owned function that runs the Agent.
+- **Agent Driver**: the model, coding provider, or application-owned function that runs the Agent.
 - **Capabilities**: opt-in abilities such as chat, shell, search, storage, sandbox, and MCP tools.
 - **Workspace**: file-system context the agent can inspect, reason from, and optionally update while doing a task.
 
@@ -24,11 +24,9 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-The built-in `"codex"` driver includes the exact AI SDK harness packages that ViteHub supports. For Claude Code, add its driver package:
+The built-in `"codex"` and `"claude-code"` drivers use ViteHub's pinned T3 provider runtime. The provider runtime starts the corresponding local CLI, so its credentials and executable must be available to the host process.
 
-```sh
-pnpm add @ai-sdk/harness-claude-code
-```
+Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` because the pinned runtime is an exact pkg.pr.new tarball.
 
 ## Minimal API
 
@@ -61,9 +59,9 @@ export default defineAgent({
 });
 ```
 
-## Harness drivers
+## Coding provider drivers
 
-Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver boundary.
+Use `driver: "codex"` or `driver: "claude-code"` for the defaults. A tagged Driver config exposes provider-neutral model, environment, instruction, permission, output, and capacity options.
 
 ```ts
 // server/agents/codex/agent.ts
@@ -75,8 +73,7 @@ export default defineAgent({
     kind: "codex",
     instructions: "Review the exact pull request head before changing code.",
     model: "gpt-5.5",
-    reasoningEffort: "low",
-    workDir: "repositories/vitehub",
+    permissions: "ask",
   },
   workspace: {
     mode: "write",
@@ -87,15 +84,9 @@ export default defineAgent({
 });
 ```
 
-Put Agent-owned Skills under `server/agents/codex/skills/`; discovery materializes them into the Harness Workspace and the isolated Codex profile automatically. Use `skills()` for Workspace-backed or external Source Skills.
+Provider Drivers require a local Node.js host and don't accept `box`; Cloudflare Agents and Deno fail explicitly. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` or `CLAUDE.md`, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread, and normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
 
-Put static Box Home files under `server/agents/codex/home/`; discovery embeds dotfiles and binary files into `box.home.files`. Use `box.home.state` for credentials or other files that must refresh or persist.
-
-Use `driver: "codex"` or `driver: "claude-code"` for the defaults. Use a tagged value such as `{ kind: "claude-code", model, maxTurns }` when configuration is needed. The Claude Code default owns a local harness sandbox; use `{ kind: "claude-code", sandbox: false }` when a Box should own its process environment and working directory.
-
-`driver.harness` is the AI SDK harness adapter instance. Harness drivers use ViteHub's local harness sandbox by default on process-capable hosts and receive a Harness Workspace Session when the Agent has a Workspace. Cloudflare Agents and Deno require an explicit provider. The local sandbox is a tempdir-backed shell convenience, not OS/process isolation; pass a real harness sandbox provider through `driver.sandbox` when isolation matters. Harness sandbox provider setup is Agent Package runtime plumbing; use `driver.sandbox` when an Agent needs a specific harness process or session provider. `driver.workDir` selects a relative directory inside the sandbox default working directory. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`. `driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can be callbacks when one Agent Definition needs invocation-scoped harness setup. ViteHub resolves harness instructions before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the selected instructions for both generated and streamed turns. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. Colocated `skills/` files are merged into the Harness Workspace and supported global profile without replacing existing files. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. `skills()` remains available for Workspace-backed and external Source Skills and does not inject model instructions or Workspace Shell tools. Put repository-wide guidance in Workspace files such as `AGENTS.md`; use `driver.instructions` for invocation-specific harness policy.
-
-Immutable deployments can set `VITEHUB_CODEX_BRIDGE_NODE_MODULES` inside the Codex sandbox to an absolute preinstalled `node_modules` tree containing `@openai/codex-sdk` and `ws`. ViteHub reuses that tree without installing at startup; an invalid or conflicting configured path fails before network access, while an unset variable keeps the pinned pnpm installer.
+`permissions` accepts `"ask"`, `"allow-edits"`, or `"allow-all"`. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider steering and follow-up are unsupported. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills.
 
 ## Driver capacity
 
@@ -117,49 +108,6 @@ export default defineAgent({
 ```
 
 Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent info` expose the configured limits plus the process's current active and pending counts. The scheduler is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
-
-## Boxes
-
-Use a Box when a harness Agent should boot in one project-declared execution environment. A trusted-host Box uses the host's installed tools while materializing a private Home and sanitized process environment:
-
-```ts
-import { defineAgent } from "@vite-hub/agent";
-import { useServerEnv } from "#vitehub/env/server";
-
-export default defineAgent<any, { ref: string; remote: string; sha: string }>({
-  box: {
-    runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/boxes" },
-    checkout: {
-      ref: ({ input }) => input.options?.ref,
-      remote: ({ input }) => input.options?.remote,
-      sha: ({ input }) => input.options?.sha,
-    },
-    env: {
-      GH_TOKEN: () => useServerEnv().githubToken.unseal(),
-    },
-    home: {
-      files: {
-        ".gitconfig": { from: ".vitehub/box/gitconfig" },
-        ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
-      },
-      state: {
-        ".codex": {
-          key: "babysitter/codex",
-          seed: {
-            "auth.json": { contents: () => useServerEnv().codexAuthJson.unseal() },
-          },
-        },
-      },
-    },
-    requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
-  },
-  driver: "codex",
-});
-```
-
-`checkout` fetches one invocation-resolved Git ref, verifies its full SHA, and runs the harness in an isolated detached checkout with normal commit and explicit-push behavior. The Box deletes it on completion or boot failure. Use `cwd` instead for a caller-owned authoritative directory; the two modes are mutually exclusive.
-
-`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists CLI refreshes under an exclusive session lease, and resolves its seed only when state does not exist. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. The `"codex"` driver contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine `box.cwd` or `box.checkout` with Agent Workspace materialization.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
