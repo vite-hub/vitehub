@@ -34,6 +34,14 @@ describe("renderMarkdownTemplate", () => {
       data: { url: "https://prs.onmax.me/recap/2026-07" },
     })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07)")
 
+    await expect(renderMarkdownTemplate("[Open page]({{ page }})", {
+      data: { page: 42 },
+    })).resolves.toBe("[Open page](42)")
+
+    await expect(renderMarkdownTemplate("[Open state]({{ enabled }})", {
+      data: { enabled: true },
+    })).resolves.toBe("[Open state](true)")
+
     await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
       data: { url: "/recap/July 2026_(final)?share=team&from=email#top" },
     })).resolves.toBe("[Open recap](/recap/July%202026_%28final%29?share=team&from=email#top)")
@@ -102,6 +110,20 @@ describe("renderMarkdownTemplate", () => {
       "No recap",
       "::",
     ].join("\n"), { data: { enabled: false } })).resolves.toBe("No recap")
+  })
+
+  it("keeps scalar bindings in other Markdown destinations unchanged", async () => {
+    await expect(renderMarkdownTemplate("[Open item](/items/{{ id }})", {
+      data: { id: "abc" },
+    })).resolves.toBe("\\[Open item\\](/items/abc)")
+
+    await expect(renderMarkdownTemplate("![Preview]({{ url }})", {
+      data: { url: "https://example.com/preview.png" },
+    })).resolves.toBe("!\\[Preview\\](https://example.com/preview.png)")
+
+    await expect(renderMarkdownTemplate("[Open item][item]\n\n[item]: {{ url }}", {
+      data: { url: "https://example.com/item" },
+    })).resolves.toBe("\\[Open item\\][item]\n\n[item]: https://example.com/item")
   })
 
   it("renders Markdown fragments without recursively evaluating template syntax", async () => {
