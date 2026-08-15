@@ -19,6 +19,7 @@ const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const CLAIM_LEASE_MS = 30_000
+const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
 const TERMINAL_RETRY_INTERVAL_MS = 1_000
 const TERMINAL_RETRY_TIMEOUT_MS = 60_000
@@ -397,15 +398,21 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let runningRetry: Promise<void> | undefined
       let terminalRetry: Promise<void> | undefined
       let heartbeat: ReturnType<typeof setInterval> | undefined
+      let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
+        if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout)
         heartbeat = undefined
+        heartbeatTimeout = undefined
       }
       const startHeartbeat = () => {
         if (finished || !ownsRecord || heartbeat !== undefined) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
         const unref = (heartbeat as unknown as { unref?: () => void }).unref
         if (unref) unref.call(heartbeat)
+        heartbeatTimeout = setTimeout(stopHeartbeat, CLAIM_HEARTBEAT_TIMEOUT_MS)
+        const unrefTimeout = (heartbeatTimeout as unknown as { unref?: () => void }).unref
+        if (unrefTimeout) unrefTimeout.call(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
         if (created || creationTimedOut) return created

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, runAgent, runAgentInline } from "../src/index.ts"
+import { bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
@@ -105,6 +106,27 @@ describe("Agent Invocations", () => {
 
     expect(claim).toHaveBeenCalledTimes(claimsAfterFinish)
     expect((await invocations.getByRunId("late-observation"))?.observations.some(entry => entry.name === "late")).toBe(false)
+  })
+
+  it("bounds claim renewal for invocations abandoned before finish", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      const claim = vi.fn(memory.claim)
+      const invocations = defineAgentInvocations({ store: { ...memory, claim } })
+      const journal = await bindAgentInvocations(invocations, runtime("abandoned"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+
+      await vi.advanceTimersByTimeAsync(60 * 60_000 + 30_000)
+      const claimsAfterTimeout = claim.mock.calls.length
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(claim).toHaveBeenCalledTimes(claimsAfterTimeout)
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("terminalizes records created after the store timeout", async () => {
