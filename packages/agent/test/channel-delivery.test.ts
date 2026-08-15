@@ -156,6 +156,37 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   })
 
+  it("reconciles inspection after an event append outlives its record write", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const set = state.set.bind(state)
+    let failRecordWrite = false
+    state.set = async (key, value, ttlMs) => {
+      if (failRecordWrite && key.startsWith("deliveries:source:")) {
+        failRecordWrite = false
+        throw new Error("record unavailable")
+      }
+      await set(key, value, ttlMs)
+    }
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      provider: "github",
+      scope: "webhook:support",
+      sourceId: "partial-terminal",
+    })
+
+    failRecordWrite = true
+    await expect(delivery.event({ type: "completed" })).rejects.toThrow("record unavailable")
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
+    expect(error.mock.calls.map(([entry]) => String(entry)).join("\n")).toContain('"event":"journal.failed"')
+    error.mockRestore()
+    info.mockRestore()
+  })
+
   it("repairs the inspection index after a partially failed open", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()

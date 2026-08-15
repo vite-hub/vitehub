@@ -148,11 +148,14 @@ function publicDelivery(delivery: StoredAgentChannelDelivery): AgentChannelDeliv
   return value
 }
 
-function reduceDeliveryStatus(events: AgentChannelDeliveryEvent[]): { retrySignaled: boolean, status: AgentChannelDeliveryStatus } {
-  return events.reduce<{ retrySignaled: boolean, status: AgentChannelDeliveryStatus }>((current, event) => advanceDeliveryStatus(current.status, current.retrySignaled, event), {
-    retrySignaled: false,
-    status: "received" as AgentChannelDeliveryStatus,
-  })
+function reduceDeliveryStatus(
+  events: AgentChannelDeliveryEvent[],
+  initial: { retrySignaled: boolean, status: AgentChannelDeliveryStatus } = { retrySignaled: false, status: "received" },
+): { retrySignaled: boolean, status: AgentChannelDeliveryStatus } {
+  return events.reduce<{ retrySignaled: boolean, status: AgentChannelDeliveryStatus }>(
+    (current, event) => advanceDeliveryStatus(current.status, current.retrySignaled, event),
+    initial,
+  )
 }
 
 async function acquireDeliveryLock(state: StateAdapter, deliveryId: string) {
@@ -195,9 +198,10 @@ async function appendEvent(state: StateAdapter, delivery: StoredAgentChannelDeli
     try {
       await renew()
       const current = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(delivery.id)) || delivery
-      const reduced = current.journalStatus
+      const events = await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(delivery.id))
+      const reduced = reduceDeliveryStatus(events, current.journalStatus
         ? { retrySignaled: current.journalRetrySignaled || false, status: current.journalStatus }
-        : reduceDeliveryStatus(await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(delivery.id)))
+        : undefined)
       const next = advanceDeliveryStatus(reduced.status, reduced.retrySignaled, event)
       const stored = { ...current, journalRetrySignaled: next.retrySignaled, journalStatus: next.status }
       await renew()
@@ -362,7 +366,7 @@ export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context:
 
 export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get" | "getList">, limit = 100, scopePrefix?: string): Promise<AgentChannelDeliveryInspection[]> {
   const ids = await state.getList<string>(indexKey)
-  const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[], persistedStatus?: AgentChannelDeliveryStatus }> = []
+  const stored: Array<AgentChannelDelivery & { events: AgentChannelDeliveryEvent[], persistedRetrySignaled?: boolean, persistedStatus?: AgentChannelDeliveryStatus }> = []
   const seen = new Set<string>()
   const maximum = Math.max(0, limit)
   for (const id of [...ids].reverse()) {
@@ -374,12 +378,17 @@ export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get"
     stored.push({
       ...publicDelivery(delivery),
       events: await state.getList<AgentChannelDeliveryEvent>(deliveryEventsKey(id)),
+      persistedRetrySignaled: delivery.journalRetrySignaled,
       persistedStatus: delivery.journalStatus,
     })
   }
   return stored.map((delivery) => {
-    const { persistedStatus, ...inspection } = delivery
-    if (persistedStatus) return { ...inspection, status: persistedStatus }
-    return { ...inspection, status: reduceDeliveryStatus(delivery.events).status }
+    const { persistedRetrySignaled, persistedStatus, ...inspection } = delivery
+    return {
+      ...inspection,
+      status: reduceDeliveryStatus(delivery.events, persistedStatus
+        ? { retrySignaled: persistedRetrySignaled || false, status: persistedStatus }
+        : undefined).status,
+    }
   })
 }
