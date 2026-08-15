@@ -1,4 +1,4 @@
-import { readdir, rm } from "node:fs/promises"
+import { readFile, readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 
@@ -7,6 +7,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-template/internal/vite"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { Plugin } from "vite"
@@ -225,6 +226,21 @@ function renderEmailTemplateTypes(names: string[]): string {
   ].join("\n")).join("\n\n") + (names.length ? "\n" : "")
 }
 
+async function collectEmailTemplateDependencies(files: string[]): Promise<Set<string>> {
+  const dependencies = new Set(files)
+  const visit = async (file: string) => {
+    const template = await readFile(file, "utf8")
+    for (const specifier of extractMarkdownTemplateImportSpecifiers(template)) {
+      const dependency = resolve(dirname(file), specifier)
+      if (dependencies.has(dependency)) continue
+      dependencies.add(dependency)
+      await visit(dependency)
+    }
+  }
+  for (const file of files) await visit(file)
+  return dependencies
+}
+
 async function materializeEmailTemplates(templatesRoot: string, outputRoot: string, rootDir: string): Promise<void> {
   await rm(outputRoot, { force: true, recursive: true })
   for (const file of await listEmailTemplates(templatesRoot)) {
@@ -258,6 +274,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let materializedRoot = resolve(process.cwd(), ".vitehub", "email", "templates")
   let projectRoot = process.cwd()
   let materialized = false
+  let watchFiles = new Set<string>()
 
   const prepareTypes = async (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => {
     const nextTemplatesRoot = resolve(options.serverDirs?.[0] ?? resolve(options.projectRoot, "server"), "emails")
@@ -265,10 +282,12 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     projectRoot = options.projectRoot
     templatesRoot = nextTemplatesRoot
     materializedRoot = resolve(options.projectRoot, ".vitehub", "email", "templates")
-    const names = (await listEmailTemplates(templatesRoot)).map(file => templateName(templatesRoot, file))
+    const files = await listEmailTemplates(templatesRoot)
+    const names = files.map(file => templateName(templatesRoot, file))
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
     if (options.materialize) {
       await materializeEmailTemplates(templatesRoot, materializedRoot, options.projectRoot)
+      watchFiles = await collectEmailTemplateDependencies(files)
       materialized = true
     }
   }
@@ -328,18 +347,31 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     },
     async buildStart() {
       await prepareTypesOnce()
-      for (const file of await listEmailTemplates(templatesRoot)) this.addWatchFile(file)
+      for (const file of watchFiles) this.addWatchFile(file)
     },
     configureServer(server) {
       server.watcher.add(templatesRoot)
-      const refreshForFile = async (file: string) => {
-        if (!isInside(templatesRoot, file)) return
-        await prepareTypes({ materialize: cloudflare || vercel, projectRoot, serverDirs })
+      server.watcher.add([...watchFiles])
+      let refreshPending = false
+      let refreshPromise: Promise<void> | undefined
+      const refresh = async () => {
+        do {
+          refreshPending = false
+          await prepareTypes({ materialize: cloudflare || vercel, projectRoot, serverDirs })
+          server.watcher.add([...watchFiles])
+        } while (refreshPending)
         server.ws.send({ type: "full-reload" })
       }
-      server.watcher.on("add", file => void refreshForFile(file).catch(error => server.config.logger.error(String(error))))
-      server.watcher.on("change", file => void refreshForFile(file).catch(error => server.config.logger.error(String(error))))
-      server.watcher.on("unlink", file => void refreshForFile(file).catch(error => server.config.logger.error(String(error))))
+      const refreshForFile = (file: string) => {
+        if (!isInside(templatesRoot, file) && !watchFiles.has(file)) return
+        refreshPending = true
+        refreshPromise ??= refresh().catch(error => server.config.logger.error(String(error))).finally(() => {
+          refreshPromise = undefined
+        })
+      }
+      server.watcher.on("add", refreshForFile)
+      server.watcher.on("change", refreshForFile)
+      server.watcher.on("unlink", refreshForFile)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return

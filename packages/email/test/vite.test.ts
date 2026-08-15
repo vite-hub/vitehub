@@ -168,6 +168,42 @@ describe("hubEmail", () => {
       .toContain("Hello {{name}}")
   })
 
+  it("serializes development refreshes and watches imported templates", async () => {
+    const root = await createTempProject()
+    const templatesRoot = join(root, "server", "emails")
+    const sharedTemplate = join(root, "server", "shared", "footer.md")
+    await mkdir(templatesRoot, { recursive: true })
+    await mkdir(join(root, "server", "shared"), { recursive: true })
+    await writeFile(join(templatesRoot, "monthly-recap.md"), "Hello\n@../shared/footer.md")
+    await writeFile(sharedTemplate, "First footer")
+    const plugin = hubEmail({
+      driver: "unemail/driver/resend",
+      hosting: "vercel",
+    } as Parameters<typeof hubEmail>[0])
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+    config({ root })
+    await resolvePlugin(plugin, root)
+
+    const handlers = new Map<string, (file: string) => void>()
+    const send = vi.fn()
+    ;(plugin.configureServer as unknown as (server: Record<string, unknown>) => void)({
+      config: { logger: { error: vi.fn() } },
+      watcher: {
+        add: vi.fn(),
+        on: (event: string, handler: (file: string) => void) => handlers.set(event, handler),
+      },
+      ws: { send },
+    })
+
+    await writeFile(sharedTemplate, "Updated footer")
+    handlers.get("change")?.(sharedTemplate)
+    handlers.get("change")?.(sharedTemplate)
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .toContain("Updated footer")
+  })
+
   it("uses the development Nitro preset instead of the deployment target", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({
