@@ -227,6 +227,7 @@ export async function runAgentWorkflowDefinition<
   if (channelDelivery) runtimeContext = withAgentChannelDelivery(runtimeContext, channelDelivery)
 
   try {
+    if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
     const result = await portableWorkflowResult(await runAgentInline(
       agent,
       runtimeContext,

@@ -8,6 +8,7 @@ const maximumDeliveries = 10_000
 const indexKey = "deliveries:index"
 const indexLockKey = "deliveries:index:lock"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
+const indexUpdateTails = new WeakMap<StateAdapter, Promise<void>>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 
 export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
@@ -114,18 +115,39 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
   )
 }
 
-async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
-  let lock = await state.acquireLock(indexLockKey, 5_000)
+async function updateDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
+  const lockTtlMs = 5_000
+  let lock = await state.acquireLock(indexLockKey, lockTtlMs)
   while (!lock) {
     await new Promise(resolve => setTimeout(resolve, 1))
-    lock = await state.acquireLock(indexLockKey, 5_000)
+    lock = await state.acquireLock(indexLockKey, lockTtlMs)
   }
+  const indexLock = lock
+  let extension = Promise.resolve(true)
+  const heartbeat = setInterval(() => {
+    extension = extension.then(async owned => owned && await state.extendLock(indexLock, lockTtlMs)).catch(() => false)
+  }, 1_000)
   try {
     const ids = await state.get<string[]>(indexKey) || []
+    if (!await state.extendLock(indexLock, lockTtlMs)) throw new Error("[vitehub] Agent Channel delivery index update lost its lock.")
     await state.set(indexKey, [...ids.filter(id => id !== deliveryId), deliveryId].slice(-maximumDeliveries), retentionMs)
   }
   finally {
-    await state.releaseLock(lock)
+    clearInterval(heartbeat)
+    await extension
+    await state.releaseLock(indexLock)
+  }
+}
+
+async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
+  const previous = indexUpdateTails.get(state) || Promise.resolve()
+  const update = previous.catch(() => undefined).then(async () => await updateDeliveryIndex(state, deliveryId))
+  indexUpdateTails.set(state, update)
+  try {
+    await update
+  }
+  finally {
+    if (indexUpdateTails.get(state) === update) indexUpdateTails.delete(state)
   }
 }
 
@@ -292,7 +314,7 @@ export async function readAgentChannelDeliveries(state: Pick<StateAdapter, "get"
         return current
       }
       if (current === "completed" || current === "failed" || current === "rejected") {
-        if (!reopened || (event.type !== "accepted" && event.type !== "retrying" && event.type !== "invocation.started")) return current
+        if ((!reopened && event.type !== "invocation.started") || (event.type !== "accepted" && event.type !== "retrying" && event.type !== "invocation.started")) return current
         reopened = false
       }
       if (event.type === "invocation.started") return "running"

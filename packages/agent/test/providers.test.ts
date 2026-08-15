@@ -6403,7 +6403,7 @@ describe("server helpers", () => {
       expect(responses.map(response => response.status)).toEqual([200, 200, 200, 200])
       expect(enqueue).toHaveBeenCalledTimes(4)
       expect(enqueue.mock.calls.every(([delivery]) => delivery.invocation === undefined)).toBe(true)
-      expect(enqueue.mock.calls.map(([delivery]) => delivery.concurrencyKey)).toEqual([
+      expect(enqueue.mock.calls.map(([delivery]) => delivery.concurrencyKey).sort()).toEqual([
         "review:reviews%3Apriority:pr%3A1",
         "review:reviews%3Apriority:pr%3A2",
         "review:reviews%3Apriority:pr%3A3",
@@ -7366,6 +7366,9 @@ describe("server helpers", () => {
       expect(run).toHaveBeenCalledTimes(3)
       const duplicate = await handler(request(), "github", { agentName: "review", webhookState: state })
       await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
+      await expect(handler.deliveries(request(), "github", { agentName: "review", webhookState: state })).resolves.toEqual([
+        expect.objectContaining({ sourceId: "delivery-terminal", status: "failed" }),
+      ])
     }
     finally {
       await stop()
@@ -7593,7 +7596,8 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-lost-lease-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const extendLock = vi.fn(async () => false)
+    const extendLock = vi.fn(async (lock: { threadId: string }, ttlMs: number) =>
+      lock.threadId.endsWith("deliveries:index:lock") ? await state.extendLock(lock as never, ttlMs) : false)
     const losingState = new Proxy(state, {
       get(target, property) {
         if (property === "extendLock") return extendLock
@@ -7655,7 +7659,7 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(500)
       await Promise.all(waitUntilTasks.splice(0))
 
-      expect(extendLock).toHaveBeenCalledOnce()
+      expect(extendLock.mock.calls.filter(([lock]) => !lock.threadId.endsWith("deliveries:index:lock"))).toHaveLength(1)
       expect(abortSignal?.aborted).toBe(true)
 
       const rerun = await handler(request("delivery-2"), "github", options)

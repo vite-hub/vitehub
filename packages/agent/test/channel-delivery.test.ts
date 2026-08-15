@@ -38,6 +38,7 @@ function stateAdapter(): StateAdapter {
       const list = [...(lists.get(key) || []), value]
       lists.set(key, options?.maxLength ? list.slice(-options.maxLength) : list)
     },
+    extendLock: async (lock: Lock) => locks.has(lock.threadId),
     get: async (key: string) => (values.get(key) as never) ?? null,
     getList: async (key: string) => [...(lists.get(key) || [])] as never,
     releaseLock: async (lock: Lock) => void locks.delete(lock.threadId),
@@ -213,6 +214,21 @@ describe("Agent Channel delivery journal", () => {
     const retry = await openAgentChannelDelivery(state, input)
     await retry.event({ type: "accepted" })
     await retry.event({ type: "completed" })
+
+    await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
+      expect.objectContaining({ status: "completed" }),
+    ])
+    info.mockRestore()
+  })
+
+  it("lets a new Workflow attempt replace a transient terminal failure", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "telegram", scope: "chat:support", sourceId: "workflow-retry" })
+    await delivery.event({ type: "invocation.started" })
+    await delivery.event({ type: "failed" })
+    await delivery.event({ type: "invocation.started" })
+    await delivery.event({ type: "completed" })
 
     await expect(readAgentChannelDeliveries(state)).resolves.toEqual([
       expect.objectContaining({ status: "completed" }),

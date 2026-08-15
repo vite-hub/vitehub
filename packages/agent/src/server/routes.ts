@@ -1260,6 +1260,11 @@ async function executeQueuedWebhookDelivery(
     rejectActiveCompletion?.(error)
     if (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts) {
       if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+        if (channelDelivery) await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", {
+          attempt: delivery.attempts + 1,
+          error: channelDeliveryError(error),
+          runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId,
+        })
         console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed after ${maxWebhookQueueAttempts} attempts and will not be retried.`, error)
       }
       return
