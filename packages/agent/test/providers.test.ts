@@ -12351,7 +12351,7 @@ describe("server helpers", () => {
           date: 1781092800,
           from: { id: 123, username: "maxi" },
           message_id: 20,
-          photo: [{ file_id: "photo-1", file_name: "meal.jpg" }],
+          photo: [{ file_id: "photo-1", file_name: "meal.jpg", file_size: 3 }],
         },
         update_id: 20,
       }),

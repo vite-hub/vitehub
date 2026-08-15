@@ -3856,20 +3856,60 @@ async function fetchChannelHistoryAttachmentBytes(url: string, maxBytes: number,
   return bytes
 }
 
+async function boundedChannelHistoryAttachmentData(fetchData: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
+  return await new Promise((resolve, reject) => {
+    const abort = () => settle(reject, signal.reason)
+    const timeout = setTimeout(() => settle(reject, new DOMException("Attachment read timed out.", "TimeoutError")), 30_000)
+    const settle = (callback: (value: unknown) => void, value: unknown) => {
+      clearTimeout(timeout)
+      signal.removeEventListener("abort", abort)
+      callback(value)
+    }
+    if (signal.aborted) {
+      settle(reject, signal.reason)
+      return
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    Promise.resolve().then(fetchData).then(
+      value => settle(resolve, value),
+      error => settle(reject, error),
+    )
+  })
+}
+
 async function channelHistoryAttachment(
   attachment: Attachment,
   adapter: Adapter,
   budget: { remaining: number },
   signal: AbortSignal,
 ): Promise<Record<string, unknown>> {
+  const unavailable = (resolved: Attachment = attachment) => objectWithoutUndefined({
+    fetchMetadata: resolved.fetchMetadata,
+    height: resolved.height,
+    mimeType: resolved.mimeType,
+    name: resolved.name,
+    size: resolved.size,
+    type: resolved.type,
+    unavailable: true,
+    url: resolved.url,
+    width: resolved.width,
+  })
+  if (budget.remaining <= 0) return unavailable()
   const rehydrate = (adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }).rehydrateAttachment
-  const resolved = rehydrate && !attachment.fetchData ? rehydrate.call(adapter, attachment) : attachment
+  let resolved = attachment
+  try {
+    if (rehydrate && !attachment.fetchData) resolved = rehydrate.call(adapter, attachment)
+  }
+  catch {
+    return unavailable()
+  }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = typeof resolved.size === "number" && resolved.size > maxBytes ? undefined : resolved.data
   if (data instanceof Blob) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
-  if (!data && resolved.fetchData && !(typeof resolved.size === "number" && resolved.size > maxBytes)) {
+  const boundedLazySize = typeof resolved.size === "number" && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
+  if (!data && resolved.fetchData && boundedLazySize) {
     try {
-      data = await resolved.fetchData()
+      data = await boundedChannelHistoryAttachmentData(() => resolved.fetchData!(), signal)
     }
     catch {}
   }
