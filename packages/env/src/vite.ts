@@ -200,6 +200,10 @@ async function prepareEnvGeneratedTypes(
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
+    ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
+    ...(packageRoot && packageRoot !== root
+      ? legacyEnvAmbientTypesPaths(packageRoot).map(path => rm(path, { force: true }))
+      : []),
   ])
 }
 
@@ -370,9 +374,9 @@ function createPublicTypeEntries(publicConfig: Record<string, unknown>): Record<
 function createPreparedPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"]): Record<string, string> {
   return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => [
     key,
-    declaration.type
+    `${declaration.type
       ?? (isDefaultStringEnvVariable(declaration) ? "string" : undefined)
-      ?? (declaration.default === null ? "null" : typeof declaration.default === "undefined" ? "unknown" : typeof declaration.default),
+      ?? (declaration.default === null ? "null" : typeof declaration.default === "undefined" ? "unknown" : typeof declaration.default)}${!declaration.required && typeof declaration.default === "undefined" ? " | undefined" : ""}`,
   ]))
 }
 

@@ -456,7 +456,10 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("materializes Email templates before Cloudflare Workflow preparation", async () => {
-    const prepareTypes = vi.fn().mockResolvedValue(["monthly-recap", "monthly-recap/detail"])
+    const prepareTypes = vi.fn().mockResolvedValue({
+      "monthly-recap": "/tmp/vitehub-nuxt/.vitehub/email/templates/monthly-recap.mjs",
+      "monthly-recap/detail": "/tmp/vitehub-nuxt/.vitehub/email/templates/monthly-recap%2Fdetail.mjs",
+    })
     mocks.vitehub.mockReturnValue([{
       api: { prepareTypes },
       name: "@vite-hub/email/vite",
@@ -472,9 +475,9 @@ describe("ViteHub Nuxt integration", () => {
     })
     const emailTemplates = "/tmp/vitehub-nuxt/.vitehub/email/templates"
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap"])
-      .toBe(`${emailTemplates}/monthly-recap/index.mjs`)
+      .toBe(`${emailTemplates}/monthly-recap.mjs`)
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap/detail"])
-      .toBe(`${emailTemplates}/monthly-recap/detail/index.mjs`)
+      .toBe(`${emailTemplates}/monthly-recap%2Fdetail.mjs`)
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
     expect(((nuxt.options as typeof nuxt.options & { nitro: { alias: Record<string, string> } }).nitro).alias["#vitehub/emails"]).toBe(emailTemplates)
   })
@@ -583,10 +586,12 @@ describe("ViteHub Nuxt integration", () => {
     ])
     const { nuxt } = createNuxt()
     const githubToken = { source: "GITHUB_TOKEN" }
+    const appName = { source: "PUBLIC_APP_NAME" }
+    ;(nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }).env = { public: { appName } }
 
     await viteHubNuxtModule({ env: { server: { githubToken } }, preset: "node" } as never, nuxt)
 
-    expect(prepareEnvTypes).toHaveBeenCalledWith({ server: { githubToken } }, "/tmp/vitehub-nuxt")
+    expect(prepareEnvTypes).toHaveBeenCalledWith({ public: { appName }, server: { githubToken } }, "/tmp/vitehub-nuxt")
     expect(steps).toEqual(["env", "types"])
   })
 

@@ -29,12 +29,15 @@ describe("Vite plugin", () => {
   it("prepares generated types without running a Vite build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-prepare-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "prepare-types" }), "utf8")
+    await mkdir(join(root, ".vitehub", "env"), { recursive: true })
+    await writeFile(join(root, ".vitehub", "env", "vite.d.ts"), "stale declarations\n", "utf8")
     const plugin = hubEnv()
 
     await plugin.api.prepareTypes({
       public: {
         appName: env({ mode: "build" }),
         debug: env({ mode: "build", schema: booleanSchema(), type: "boolean" }),
+        optionalLabel: env({ mode: "build", optional: true }),
       },
       server: {
         githubToken: env({ secret: true }),
@@ -44,9 +47,11 @@ describe("Vite plugin", () => {
     const types = await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")
     expect(types).toContain("\"appName\": string")
     expect(types).toContain("\"debug\": boolean")
+    expect(types).toContain("\"optionalLabel\": string | undefined")
     expect(types).toContain("\"githubToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export interface PublicEnv")
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export interface ServerEnv")
+    await expect(readFile(join(root, ".vitehub", "env", "vite.d.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {

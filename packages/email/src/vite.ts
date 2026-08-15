@@ -36,7 +36,7 @@ export interface EmailVitePluginOptions {
 
 export interface EmailVitePluginAPI {
   getDefinition: () => GeneratedEmailDefinition | undefined
-  prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<string[]>
+  prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>>
 }
 
 export type EmailVitePlugin = Plugin & { api: EmailVitePluginAPI }
@@ -246,7 +246,7 @@ async function materializeEmailTemplates(templatesRoot: string, outputRoot: stri
   await rm(backupRoot, { force: true, recursive: true })
   await mkdir(stagingRoot, { recursive: true })
   for (const file of await listEmailTemplates(templatesRoot)) {
-    const target = resolve(stagingRoot, templateName(templatesRoot, file), "index.mjs")
+    const target = resolve(stagingRoot, `${encodeURIComponent(templateName(templatesRoot, file))}.mjs`)
     const entry = `${target}.entry.mjs`
     await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
@@ -317,7 +317,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       }
       materialized = true
     }
-    return names
+    return Object.fromEntries(names.map(name => [name, resolve(materializedRoot, `${encodeURIComponent(name)}.mjs`)]))
   }
   const prepareTypesOnce = async () => {
     await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && !materialized, projectRoot, serverDirs })

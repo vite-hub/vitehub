@@ -275,6 +275,21 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(viteRoot)
+  nuxt.options.vite ??= {}
+  const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
+    [VITEHUB_GENERATED_ROOT]?: string
+    [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_SERVER_DIRS]?: string[]
+  }
+  if (envConfig && Object.values(envConfig).some(Boolean)) {
+    const existingEnv = viteConfig.env ?? {}
+    viteConfig.env = {
+      ...existingEnv,
+      ...(envConfig.define ? { define: mergeEnvDeclarationNamespaces(existingEnv.define, envConfig.define) } : {}),
+      ...(envConfig.public ? { public: mergeEnvDeclarationNamespaces(existingEnv.public, envConfig.public) } : {}),
+      ...(envConfig.server ? { server: mergeEnvDeclarationNamespaces(existingEnv.server, envConfig.server) } : {}),
+    }
+  }
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
     ? {
         ...options,
@@ -336,35 +351,20 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (envPlugin) {
     for (const plugin of replayPlugins) deploymentOutputEnvPluginHandler(plugin)?.(envPlugin)
   }
-  if (options.env !== false) await envPlugin?.api?.prepareTypes?.(envConfig, viteRoot)
+  if (options.env !== false) await envPlugin?.api?.prepareTypes?.(viteConfig.env, viteRoot)
   const emailPlugin = installedPlugins.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
-    api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<string[]> }
+    api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>> }
   } | undefined
-  const emailTemplateNames: string[] = await emailPlugin?.api?.prepareTypes?.({
+  const emailTemplatePaths = await emailPlugin?.api?.prepareTypes?.({
     materialize: true,
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
-  }) ?? []
+  }) ?? {}
   const typesPlugin = installedPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
     api?: { prepareTypes?: (root: string) => Promise<void> }
   } | undefined
   await typesPlugin?.api?.prepareTypes?.(projectRoot)
 
-  nuxt.options.vite ??= {}
-  const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
-    [VITEHUB_GENERATED_ROOT]?: string
-    [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
-    [VITEHUB_SERVER_DIRS]?: string[]
-  }
-  if (envConfig && Object.values(envConfig).some(Boolean)) {
-    const existingEnv = viteConfig.env ?? {}
-    viteConfig.env = {
-      ...existingEnv,
-      ...(envConfig.define ? { define: mergeEnvDeclarationNamespaces(existingEnv.define, envConfig.define) } : {}),
-      ...(envConfig.public ? { public: mergeEnvDeclarationNamespaces(existingEnv.public, envConfig.public) } : {}),
-      ...(envConfig.server ? { server: mergeEnvDeclarationNamespaces(existingEnv.server, envConfig.server) } : {}),
-    }
-  }
   viteConfig.define = {
     ...viteConfig.define,
     __VITEHUB_APP_BASE_URL__: JSON.stringify(nuxt.options.app?.baseURL || "/"),
@@ -390,9 +390,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const generatedAliases = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
-    ...Object.fromEntries(emailTemplateNames.map(name => [
+    ...Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [
       `#vitehub/emails/${name}`,
-      join(projectRoot, ".vitehub/email/templates", name, "index.mjs"),
+      path,
     ])),
     ...(emailPlugin
       ? { "#vitehub/emails": join(projectRoot, ".vitehub/email/templates") }
