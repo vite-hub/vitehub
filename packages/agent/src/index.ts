@@ -96,7 +96,6 @@ import {
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
   traceAgentStreamEvent,
-  traceAgentStreamEvents,
 } from "./trace.ts"
 import { runObservedAgentHook } from "./hooks.ts"
 import {
@@ -2390,7 +2389,16 @@ function maybeTraceAgentStream<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(stream: AsyncIterable<StreamEvent>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AsyncIterable<StreamEvent> {
-  return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
+  if (!context.runtimeContext.traceLog) return stream
+  const toolNames = new Map<string, string>()
+  const toolActivities = new Map(Object.entries(context.tools || {}).flatMap(([name, tool]) => tool.activity ? [[name, tool.activity]] : []))
+  const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  return (async function* () {
+    for await (const event of stream) {
+      await traceAgentStreamEvent(toTraceContext(context), toAgentStreamEvent(event, toolNames, textPhases, toolActivities) || event)
+      yield event
+    }
+  })()
 }
 
 function withEagerStreamUsageExtensions<

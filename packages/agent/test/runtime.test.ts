@@ -1068,12 +1068,21 @@ describe("agent message protocol", () => {
   })
 
   it("exports product actions as execute_tool spans with ViteHub rendering semantics", async () => {
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "repository-host",
+        tools: {
+          repository_host_write: {
+            activity: { kind: "action", name: "repository-host.write" },
+            name: "repository_host_write",
+          },
+        },
+      })],
       driver: { run: () => (async function* () {
-          yield { activity: { kind: "action", name: "repository-host.write" }, id: "action-1", name: "repository_host_write", type: "tool-call" }
-          yield { activity: { kind: "action", name: "repository-host.write" }, id: "action-1", name: "repository_host_write", type: "tool-result" }
+          yield { id: "action-1", name: "repository_host_write", type: "tool-call" }
+          yield { id: "action-1", name: "repository_host_write", type: "tool-result" }
           yield { type: "finish" }
         })() },
     })
