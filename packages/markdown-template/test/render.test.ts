@@ -68,6 +68,8 @@ describe("renderMarkdownTemplate", () => {
       "javascript:alert(1)",
       "data:text/html,<script>alert(1)</script>",
       "https://example.com/first\n[Injected](https://evil.test)",
+      " https://example.com/recap",
+      "https://example.com/recap ",
       "https://example.com/\uD800",
       "https://example.com/a\\b",
       "https://example.com/?x=&#x29;*Injected*",
