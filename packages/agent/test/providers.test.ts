@@ -12439,8 +12439,7 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })).resolves.toMatchObject({ status: 200 })
     await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledTimes(2))
-    const archivedPdf = new Uint8Array(8 * 1024 * 1024 + 1).fill(4)
-    const fetchAttachment = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(archivedPdf))
+    const fetchAttachment = vi.spyOn(globalThis, "fetch")
 
     const connectsBeforeHistory = connect.mock.calls.length
     const response = await handler(new Request(webhookUrl, {
@@ -12453,14 +12452,14 @@ describe("server helpers", () => {
       method: "POST",
     }), "telegram", { state })
     expect(response.status).toBe(200)
-    const archive = await response.json() as { messages: Array<{ attachments: Array<{ data: string }>, id: string }> }
+    const archive = await response.json() as { messages: Array<{ attachments: Array<{ data?: string, unavailable?: boolean }>, id: string }> }
     expect(archive).toMatchObject({
       messages: expect.arrayContaining([expect.objectContaining({
         attachments: expect.arrayContaining([expect.objectContaining({ data: Buffer.from([1, 2, 3]).toString("base64"), name: "meal.jpg", type: "image" })]),
         id: "20",
         threadId: "telegram:456",
       }), expect.objectContaining({
-        attachments: expect.arrayContaining([expect.objectContaining({ data: expect.any(String), name: "receipt.pdf", type: "file" })]),
+        attachments: expect.arrayContaining([expect.objectContaining({ name: "receipt.pdf", type: "file", unavailable: true, url: "https://cdn.example.com/receipt.pdf" })]),
         id: "21",
         threadId: "telegram:456",
       })]),
@@ -12468,29 +12467,7 @@ describe("server helpers", () => {
       schemaVersion: 1,
       threadId: "telegram:456",
     })
-    const pdf = archive.messages.find(message => message.id === "21")!.attachments[0]!
-    expect(Buffer.from(pdf.data, "base64")).toHaveLength(archivedPdf.byteLength)
-    expect(fetchAttachment).toHaveBeenCalledWith(new URL("https://cdn.example.com/receipt.pdf"), {
-      redirect: "error",
-      signal: expect.any(AbortSignal),
-    })
-    const cancelOversizedBody = vi.fn()
-    fetchAttachment.mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelOversizedBody }), {
-      headers: { "content-length": String(25 * 1024 * 1024) },
-    }))
-    const oversizedResponse = await handler(new Request(webhookUrl, {
-      body: JSON.stringify({ threadId: "telegram:456" }),
-      headers: {
-        "content-type": "application/json",
-        "x-test-secret": "history-secret",
-        "x-vitehub-channel-history": "1",
-      },
-      method: "POST",
-    }), "telegram", { state })
-    expect(oversizedResponse.status).toBe(200)
-    const oversizedArchive = await oversizedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
-    expect(oversizedArchive.messages.find(message => message.id === "21")!.attachments[0]).toMatchObject({ unavailable: true })
-    expect(cancelOversizedBody).toHaveBeenCalledOnce()
+    expect(fetchAttachment).not.toHaveBeenCalled()
     let finishLateRead!: (value: Buffer) => void
     attachmentFetchData.mockImplementationOnce(() => new Promise(resolve => { finishLateRead = resolve }))
     const abortController = new AbortController()
@@ -12504,7 +12481,7 @@ describe("server helpers", () => {
       method: "POST",
       signal: abortController.signal,
     }), "telegram", { state })
-    await vi.waitFor(() => expect(attachmentFetchData).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() => expect(attachmentFetchData).toHaveBeenCalledTimes(2))
     abortController.abort(new Error("client stopped waiting"))
     const abortedResponse = await abortedHistory
     expect(abortedResponse.status).toBe(200)
@@ -12526,6 +12503,32 @@ describe("server helpers", () => {
     expect(malformedArchive.messages.find(message => message.id === "20")!.attachments[0]).toMatchObject({ unavailable: true })
     const chatThread = (adapter._chatInstance()! as unknown as { thread: (id: string) => { allMessages: AsyncIterable<Message> } }).thread("telegram:456")
     const threadPrototype = Object.getPrototypeOf(chatThread) as { allMessages: AsyncIterable<Message> }
+    const oversizedHistory = vi.spyOn(threadPrototype, "allMessages", "get").mockReturnValue({
+      [Symbol.asyncIterator]: async function* () {
+        yield new Message({
+          attachments: [],
+          author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+          formatted: { children: [], type: "root" },
+          id: "oversized",
+          metadata: { dateSent: new Date("2026-08-15T00:00:00.000Z"), edited: false },
+          raw: {},
+          text: "x".repeat(35 * 1024 * 1024),
+          threadId: "telegram:456",
+        })
+      },
+    })
+    const oversizedResponse = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(oversizedResponse.status).toBe(400)
+    await expect(oversizedResponse.json()).resolves.toMatchObject({ message: "Channel history archive exceeds the 35 MiB response limit." })
+    oversizedHistory.mockRestore()
     const closeFailedHistory = vi.fn(async () => ({ done: true as const, value: undefined }))
     const failedHistory = vi.spyOn(threadPrototype, "allMessages", "get").mockReturnValue({
       [Symbol.asyncIterator]: () => ({

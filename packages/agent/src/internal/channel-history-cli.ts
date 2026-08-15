@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path"
 
 import { deployedChannelWebhookUrl, loadChannelTargets, type LoadedChannelTarget } from "./channel-sync-cli.ts"
 import { agentChannelHistoryHeader } from "./channel-history.ts"
+import { agentChannelSyncProviderHeader } from "./channel-sync.ts"
 
 interface ChannelHistoryCliContext {
   cwd: string
@@ -84,6 +85,23 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   })
 }
 
+async function verifyHistoryDeployment(url: string, provider: string, fetchImpl: typeof fetch): Promise<void> {
+  let response: Response
+  try {
+    response = await fetchImpl(url, {
+      method: "HEAD",
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+    })
+  }
+  catch {
+    throw new Error("Channel history deployment preflight request failed.")
+  }
+  if (!response.ok || response.headers.get(agentChannelSyncProviderHeader) !== provider) {
+    throw new Error(`Channel history deployment preflight failed; expected ${agentChannelSyncProviderHeader}: ${provider}.`)
+  }
+}
+
 function safeAttachmentName(name: unknown, mimeType: unknown, index: number): string {
   const fallbackExtension = typeof mimeType === "string" ? ({
     "image/gif": ".gif",
@@ -148,7 +166,9 @@ export async function runAgentChannelHistoryCli(
     )
     const stagingDir = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}-`))
     try {
-      const response = await (options.fetch || globalThis.fetch)(url, {
+      const fetchImpl = options.fetch || globalThis.fetch
+      await verifyHistoryDeployment(url, target.provider, fetchImpl)
+      const response = await fetchImpl(url, {
         body,
         headers: historyHeaders(target, body),
         method: "POST",

@@ -193,6 +193,10 @@ describe("agent CLI", () => {
     const stderr = stream()
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://example.com/api/_vitehub/agents/calories/webhooks/telegram")
+      if (init?.method === "HEAD") {
+        expect(new Headers(init.headers).has("x-test-secret")).toBe(false)
+        return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+      }
       const headers = new Headers(init?.headers)
       expect(headers.get("x-vitehub-channel-history")).toBe("1")
       expect(headers.get("x-test-secret")).toBe("webhook-secret")
@@ -265,7 +269,9 @@ describe("agent CLI", () => {
         stderr: stream(),
         stdout: stream(),
       }, {
-        fetch: async () => Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" }),
+        fetch: async (_input, init) => init?.method === "HEAD"
+          ? new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+          : Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" }),
         loadTargets,
       })
 
@@ -379,7 +385,8 @@ describe("agent CLI", () => {
       let started = 0
       let release!: () => void
       const bothStarted = new Promise<void>((resolve) => { release = resolve })
-      const concurrentFetch = (marker: string) => async () => {
+      const concurrentFetch = (marker: string) => async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
         started += 1
         if (started === 2) release()
         await bothStarted
@@ -997,6 +1004,10 @@ describe("agent CLI", () => {
       ].join("\n"), "utf8")
 
       const historyFetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "HEAD") {
+          expect(new Headers(init.headers).has("x-telegram-bot-api-secret-token")).toBe(false)
+          return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+        }
         expect(new Headers(init?.headers).get("x-telegram-bot-api-secret-token")).toBe("stage-webhook-token")
         return Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" })
       })
@@ -1015,7 +1026,7 @@ describe("agent CLI", () => {
       }, { fetch: historyFetch as never })
       expect(historyStderr.output()).toBe("")
       expect(historyExitCode).toBe(0)
-      expect(historyFetch).toHaveBeenCalledOnce()
+      expect(historyFetch).toHaveBeenCalledTimes(2)
       expect(process.env.TELEGRAM_BOT_TOKEN).toBe("context-bot-token")
       expect(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN).toBeUndefined()
     }

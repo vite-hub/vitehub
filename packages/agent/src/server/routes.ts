@@ -3805,6 +3805,7 @@ function historyBytesToBase64(data: Uint8Array): string {
 }
 
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
+const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   const bytes = value instanceof Blob
@@ -3813,47 +3814,6 @@ function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
       ? new Uint8Array(value)
       : value instanceof Uint8Array ? value : undefined
   return bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
-}
-
-async function fetchChannelHistoryAttachmentBytes(url: string, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | undefined> {
-  const parsed = new URL(url)
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password) return
-  const response = await fetch(parsed, {
-    redirect: "error",
-    signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
-  })
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined)
-    return
-  }
-  const contentLengthHeader = response.headers.get("content-length")
-  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
-  if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength > maxBytes) {
-    await response.body?.cancel().catch(() => undefined)
-    return
-  }
-  if (!response.body) return channelHistoryAttachmentBytes(await response.arrayBuffer())
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let byteLength = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
-    byteLength += chunk.byteLength
-    if (byteLength > maxBytes) {
-      await reader.cancel().catch(() => undefined)
-      return
-    }
-    chunks.push(chunk)
-  }
-  const bytes = new Uint8Array(byteLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
 }
 
 async function boundedChannelHistoryOperation(operation: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
@@ -3949,12 +3909,6 @@ async function channelHistoryAttachment(
     }
     catch {}
   }
-  if (!data && resolved.url) {
-    try {
-      data = await fetchChannelHistoryAttachmentBytes(resolved.url, maxBytes, signal)
-    }
-    catch {}
-  }
   let bytes: Uint8Array | undefined
   try {
     if (typeof data === "string") {
@@ -3979,6 +3933,40 @@ async function channelHistoryAttachment(
     url: boundedBytes ? undefined : resolved.url,
     width: resolved.width,
   })
+}
+
+function boundedJsonByteLength(value: unknown, maxBytes: number, seen = new Set<object>()): number | undefined {
+  if (value === null) return 4
+  if (typeof value === "boolean") return value ? 4 : 5
+  if (typeof value === "number") return Number.isFinite(value) ? String(value).length : 4
+  if (typeof value === "string") {
+    let bytes = 2
+    for (let index = 0; index < value.length;) {
+      const codePoint = value.codePointAt(index)!
+      bytes += codePoint === 0x22 || codePoint === 0x5c
+        ? 2
+        : codePoint <= 0x1f
+          ? 6
+          : codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+      if (bytes > maxBytes) return
+      index += codePoint > 0xffff ? 2 : 1
+    }
+    return bytes
+  }
+  if (typeof value !== "object" || seen.has(value)) return
+  seen.add(value)
+  let bytes = Array.isArray(value) ? 2 : 2
+  const entries = Array.isArray(value) ? value.map((item, index) => [String(index), item] as const) : Object.entries(value)
+  for (let index = 0; index < entries.length; index++) {
+    const [key, item] = entries[index]!
+    const itemBytes = boundedJsonByteLength(item, maxBytes - bytes, seen)
+    if (itemBytes === undefined) return
+    bytes += itemBytes + (index ? 1 : 0)
+    if (!Array.isArray(value)) bytes += key.length + 3
+    if (bytes > maxBytes) return
+  }
+  seen.delete(value)
+  return bytes
 }
 
 async function channelHistoryMessage(
@@ -4031,6 +4019,7 @@ async function createChannelHistoryResponse(
   const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options, undefined, state)
   const messages: Record<string, unknown>[] = []
   const attachmentBudget = { remaining: channelHistoryAttachmentMaxBytes }
+  let archiveBytes = 0
   let completed = false
   let iterator: AsyncIterator<ChatSdkMessage> | undefined
   try {
@@ -4045,7 +4034,11 @@ async function createChannelHistoryResponse(
         break
       }
       const message = result.value
-      messages.push(await channelHistoryMessage(message, adapter, attachmentBudget, request.signal))
+      const archivedMessage = await channelHistoryMessage(message, adapter, attachmentBudget, request.signal)
+      const messageBytes = boundedJsonByteLength(archivedMessage, channelHistoryArchiveMaxBytes - archiveBytes)
+      if (messageBytes === undefined) throw new Error("Channel history archive exceeds the 35 MiB response limit.")
+      archiveBytes += messageBytes
+      messages.push(archivedMessage)
       if (request.signal.aborted) break
     }
   }
