@@ -54,7 +54,7 @@ Before editing, map every requested behavior to:
 | Behavior | Package owner | Source file | Runtime path | Authority or persistence | Proof |
 | --- | --- | --- | --- | --- | --- |
 
-Then implement the smallest coherent set: manifest and lockfile, framework integration, discovered Definition where needed, application or orchestration entrypoint, and proof surface. Keep application authority in application code; grant an Agent access only through visible Capabilities, Workspace rules, Sources, Channels, or Box configuration.
+Then implement the smallest coherent set: manifest and lockfile, framework integration, discovered Definition where needed, application or orchestration entrypoint, and proof surface. Keep application authority in application code; grant an Agent access only through visible Capabilities, Workspace rules, Sources, or Channels.
 
 Building is complete when every requested behavior has an implemented row and no placeholder, unused integration, implicit authority, or unowned persistence remains.
 

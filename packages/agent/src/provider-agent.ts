@@ -408,6 +408,12 @@ function providerDataEvent(event: ProviderRuntimeEvent): StreamEvent {
   return { data: { kind: event.type, value: event.payload }, type: "data-agent-event" }
 }
 
+const providerDataItemTypes = new Set(["user_message", "assistant_message", "reasoning", "plan", "review_entered", "review_exited", "context_compaction", "error", "unknown"])
+
+function isProviderToolItem(itemId: string | undefined, itemType: string): itemId is string {
+  return Boolean(itemId) && !providerDataItemTypes.has(itemType)
+}
+
 function providerEvent(event: ProviderRuntimeEvent): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
@@ -417,11 +423,11 @@ function providerEvent(event: ProviderRuntimeEvent): StreamEvent[] {
       }
       return [{ data: { kind: "content", value: event.payload.delta }, type: "data-agent-event" }]
     case "item.started":
-      return event.itemId && !["user_message", "assistant_message", "reasoning", "plan", "review_entered", "review_exited", "context_compaction", "error", "unknown"].includes(event.payload.itemType)
+      return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{ id: event.itemId, input: event.payload.data, name: event.payload.title || event.payload.itemType, type: "tool-call" }]
         : [providerDataEvent(event)]
     case "item.completed":
-      return event.itemId && !["user_message", "assistant_message", "reasoning", "plan", "review_entered", "review_exited", "context_compaction", "error", "unknown"].includes(event.payload.itemType)
+      return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{
             error: event.payload.status === "failed" ? event.payload.detail || "Provider tool failed." : undefined,
             id: event.itemId,
