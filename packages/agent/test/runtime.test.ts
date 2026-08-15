@@ -12002,7 +12002,7 @@ describe("agent message protocol", () => {
       }
     })
 
-    it("keeps ambiguous accepted Workflow starts recoverable", async () => {
+    it("keeps ambiguous accepted OpenWorkflow starts recoverable", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
@@ -12011,12 +12011,12 @@ describe("agent message protocol", () => {
       let providerRunId = ""
       const failure = Object.assign(new Error("provider acknowledgement lost"), {
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-        details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
+        details: { acknowledgement: "unknown", operation: "run", provider: "openworkflow" },
       })
       setAgentWorkflowRuntimeLoaders({
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -12042,9 +12042,8 @@ describe("agent message protocol", () => {
           waitUntil: vi.fn(),
         }, {})).rejects.toBe(failure)
 
-        expect(providerRunId).toMatch(/^vitehub-invalid-/)
+        expect(providerRunId).toBe("accepted/workflow")
         await expect(invocations.getByRunId("accepted/workflow")).resolves.toMatchObject({ status: "pending" })
-        await expect(invocations.getByRunId(providerRunId)).resolves.toBeUndefined()
         const record = await invocations.getByRunId("accepted/workflow")
         expect(record && await store.claim(record.id, "accepted-worker", 30_000)).toBe(true)
       }
@@ -12448,6 +12447,67 @@ describe("agent message protocol", () => {
         })
       }
       finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("keeps terminal journal retries inside the recovery Workflow", async () => {
+      vi.useFakeTimers()
+      const { defineAgent } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const memory = createMemoryAgentInvocationStore()
+      let rejectTerminalUpdate = true
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            if (input.status === "completed" && rejectTerminalUpdate) {
+              rejectTerminalUpdate = false
+              throw new Error("store unavailable")
+            }
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      setAgentWorkflowRuntimeLoaders({
+        state: () => import("@vite-hub/workflow/runtime/state"),
+        workflow: async () => ({ getWorkflowRun: async () => ({
+          id: "target-run",
+          provider: "cloudflare" as const,
+          status: "completed" as const,
+        }) }) as never,
+      })
+      try {
+        let completed = false
+        const recovery = runAgentWorkflowDefinition(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations,
+          name: "recovering-agent",
+        }), {
+          id: "recovery-run",
+          name: "recovering-agent",
+          payload: { invocationRecovery: {
+            agentName: "recovering-agent",
+            runId: "target-run",
+            sourceRunId: "source-run",
+            workflowName: "recovering-agent",
+          } },
+          provider: "cloudflare",
+        }, vi.fn()).then(() => { completed = true })
+
+        await vi.waitFor(() => expect(rejectTerminalUpdate).toBe(false))
+        expect(completed).toBe(false)
+        await vi.advanceTimersByTimeAsync(1_000)
+        await recovery
+        await expect(invocations.getByRunId("source-run", "recovering-agent")).resolves.toMatchObject({ status: "completed" })
+      }
+      finally {
+        vi.useRealTimers()
         setAgentWorkflowRuntimeLoaders({
           state: () => import("@vite-hub/workflow/runtime/state"),
           workflow: () => import("@vite-hub/workflow"),

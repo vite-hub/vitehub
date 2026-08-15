@@ -1969,6 +1969,27 @@ describe("workflow runtime", () => {
     expect(createBatch).toHaveBeenCalledOnce()
   })
 
+  it("keeps an acknowledged Cloudflare start queued when status inspection is unavailable", async () => {
+    const status = vi.fn(async () => { throw new Error("status unavailable") })
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: {
+        createBatch: async () => [{ id: "accepted-run", status }],
+        get: vi.fn(),
+      } } } } },
+    })
+
+    await expect(runWorkflow("welcome", {}, { id: "accepted-run" })).resolves.toMatchObject({
+      id: "accepted-run",
+      provider: "cloudflare",
+      status: "queued",
+    })
+    expect(status).not.toHaveBeenCalled()
+  })
+
   it("omits unsafe workflow names and caller run IDs from public errors", async () => {
     const unsafeName = "https://provider.example/private?token=provider-secret"
     setWorkflowRuntimeConfig({ provider: "vercel" })
@@ -2135,6 +2156,30 @@ describe("workflow runtime", () => {
     })
     expect(createBatch).toHaveBeenCalledTimes(2)
     expect(get).toHaveBeenCalledWith("welcome-1")
+  })
+
+  it("preserves a lost Cloudflare acknowledgement when the retry is rejected", async () => {
+    const lostAcknowledgement = new Error("connection closed")
+    const retryFailure = Object.assign(new Error("already exists"), { status: 409 })
+    const createBatch = vi.fn()
+      .mockRejectedValueOnce(lostAcknowledgement)
+      .mockRejectedValueOnce(retryFailure)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName("welcome")]: { createBatch, get: vi.fn() },
+      } } } },
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}, { id: "welcome-1" }), lostAcknowledgement, {
+      acknowledgement: "unknown",
+      operation: "create",
+      provider: "cloudflare",
+    })
+    expect(createBatch).toHaveBeenCalledTimes(2)
   })
 
   it("treats terminated Cloudflare workflow runs as failed", async () => {

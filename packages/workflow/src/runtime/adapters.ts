@@ -66,6 +66,13 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
 }
 
+function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const details = (error as { details?: unknown }).details
+  return Boolean(details && typeof details === "object"
+    && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
+}
+
 function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
     cancel: () => unsupportedOperation("cloudflare", "cancellation"),
@@ -94,7 +101,15 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           async () => (await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id),
           { acknowledgementUnknown: (_error, status) => status === undefined },
         )
-        const creation = start().catch(() => start())
+        const creation = start().catch(async (firstError) => {
+          try {
+            return await start()
+          }
+          catch (retryError) {
+            if (hasUnknownWorkflowAcknowledgement(firstError)) throw firstError
+            throw retryError
+          }
+        })
         const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined
         if (waitUntil) {
           waitUntil(creation)
@@ -102,7 +117,6 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
         const instance = await creation
         return {
           id: instance.id,
-          metadata: await runWorkflowProviderOperation("cloudflare", "status", () => instance.status()),
           payload,
           provider: "cloudflare",
           status: "queued",

@@ -799,9 +799,11 @@ function isAmbiguousWorkflowStartFailure(error: unknown): boolean {
   const details = (error as { details?: unknown }).details
   return (error as { code?: unknown }).code === "WORKFLOW_PROVIDER_OPERATION_FAILED"
     && Boolean(details && typeof details === "object"
-      && (details as { provider?: unknown }).provider === "cloudflare"
-      && (details as { operation?: unknown }).operation === "create"
-      && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
+      && (details as { acknowledgement?: unknown }).acknowledgement === "unknown"
+      && (((details as { provider?: unknown }).provider === "cloudflare"
+        && (details as { operation?: unknown }).operation === "create")
+      || ((details as { provider?: unknown }).provider === "openworkflow"
+        && (details as { operation?: unknown }).operation === "run")))
 }
 
 async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {

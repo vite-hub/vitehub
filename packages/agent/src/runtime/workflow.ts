@@ -6,6 +6,7 @@ import { decodeColocatedAgentHome, withColocatedAgentHome } from "../internal/co
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { agentInvocationRunId } from "../invocation-context.ts"
+import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
@@ -84,6 +85,7 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
       const run = await getWorkflowRun(recovery.workflowName, recovery.runId)
       if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
         await journal.finish(run.status, run.status === "failed" ? run.metadata : undefined)
+        await Promise.all(agentInvocationRecoveryTasks(runtimeContext))
         return
       }
     }
