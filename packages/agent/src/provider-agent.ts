@@ -51,6 +51,7 @@ import type {
 
 export interface ProviderAgentAdapterOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   env?: Record<string, string | undefined>
+  execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   permissions?: AgentProviderPermissions
@@ -112,6 +113,7 @@ async function waitForProviderOperation<T>(
   signal: AbortSignal | undefined,
   disposeLateResult?: (value: T) => void | Promise<void>,
   observeLateCleanup?: (cleanup: Promise<void>) => void,
+  disposeLateError?: () => void | Promise<void>,
 ): Promise<T> {
   signal?.throwIfAborted()
   if (!signal) return await operation
@@ -126,7 +128,7 @@ async function waitForProviderOperation<T>(
   }
   catch (error) {
     if (signal.aborted && disposeLateResult) {
-      const cleanup = operation.then(disposeLateResult, () => undefined)
+      const cleanup = operation.then(disposeLateResult, disposeLateError)
       observeLateCleanup?.(cleanup)
       void cleanup.catch(() => undefined)
     }
@@ -134,6 +136,19 @@ async function waitForProviderOperation<T>(
   }
   finally {
     signal.removeEventListener("abort", abort)
+  }
+}
+
+async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key: string): Promise<() => void> {
+  const previous = locks.get(key) || Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => release = resolve)
+  const tail = previous.then(() => current)
+  locks.set(key, tail)
+  await previous
+  return () => {
+    release()
+    if (locks.get(key) === tail) locks.delete(key)
   }
 }
 
@@ -387,33 +402,70 @@ function attachmentId(threadId: string): string {
   return `${prefix}-${crypto.randomUUID()}`
 }
 
-async function attachmentBytes(part: AttachmentPart): Promise<Uint8Array> {
-  const data = await resolveAttachmentData(part)
-  if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data or fetchData().`)
-  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer())
-  if (data instanceof ArrayBuffer) return new Uint8Array(data)
-  if (data instanceof Uint8Array) return data
-  return attachmentStringBytes(data, part.mediaType)
+const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
+
+async function boundedResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  if (!response.ok) throw new Error(`[vitehub] Provider attachment download failed with HTTP ${response.status}.`)
+  const length = Number(response.headers.get("content-length"))
+  if (Number.isFinite(length) && length > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (!response.body) return new Uint8Array()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for await (const chunk of response.body) {
+    size += chunk.byteLength
+    if (size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+    chunks.push(chunk)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
 }
 
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId) {
+async function attachmentBytes(part: AttachmentPart, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array> {
+  if (typeof part.size === "number" && part.size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  const data = await resolveAttachmentData(part)
+  if (data === undefined && part.url) {
+    const url = new URL(part.url)
+    if (url.protocol !== "https:") throw new TypeError("[vitehub] Provider attachment URLs must use HTTPS.")
+    return await boundedResponseBytes(await fetch(url, { signal }), maxBytes)
+  }
+  if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data, fetchData(), or an HTTPS url.`)
+  const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
+  if (declaredSize !== undefined && declaredSize > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (typeof data === "string" && data.length > maxBytes * 2) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  const bytes = data instanceof Blob
+    ? new Uint8Array(await data.arrayBuffer())
+    : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : attachmentStringBytes(data, part.mediaType)
+  if (bytes.byteLength > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  return bytes
+}
+
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number) {
   const parts = currentInputAttachments(context.messages, context.runtime.run?.messageId)
   if (!parts.length) return
+  let remaining = maxBytes
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
-  return await Promise.all(parts.map(async (part) => {
+  const attachments = []
+  for (const part of parts) {
     if (part.type !== "image") throw new TypeError("[vitehub] Provider Agent Drivers currently support image attachments only.")
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
-    const bytes = await attachmentBytes(part)
+    const bytes = await attachmentBytes(part, remaining, context.input.abortSignal)
+    remaining -= bytes.byteLength
     await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
-    return {
+    attachments.push({
       id,
       mimeType: part.mediaType,
       name: part.name || basename(`${id}${extension}`),
       sizeBytes: bytes.byteLength,
       type: "image" as const,
-    }
-  }))
+    })
+  }
+  return attachments
 }
 
 function approvalDecision(approved: boolean): ProviderApprovalDecision {
@@ -546,6 +598,7 @@ function isTerminalEvent(event: ProviderRuntimeEvent, turnId: TurnId): boolean {
 async function* runProvider(
   options: ProviderAgentAdapterOptions,
   resumeCursors: Map<string, unknown>,
+  sessionLocks: Map<string, Promise<void>>,
   context: AgentAdapterRunContext,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
@@ -560,6 +613,12 @@ async function* runProvider(
     : context.input.abortSignal || timeoutSignal
   context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
   effectiveSignal?.throwIfAborted()
+  const sessionKey = context.runtime.run?.threadId
+  const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey) : undefined
+  if (effectiveSignal?.aborted) {
+    releaseSessionLock?.()
+    effectiveSignal.throwIfAborted()
+  }
   const root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
@@ -576,6 +635,20 @@ async function* runProvider(
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     observeLateCleanup(cleanup)
+  }
+  const finalizeDeferredRuntime = async (sessionThreadId?: ThreadId, turnId?: TurnId) => {
+    try {
+      if (sessionThreadId && turnId) await runtime!.interruptTurn(sessionThreadId, turnId).catch(() => undefined)
+      if (sessionThreadId) await runtime!.stopSession(sessionThreadId)
+    }
+    finally {
+      try {
+        await runtime!.close()
+      }
+      finally {
+        await rm(root, { force: true, recursive: true })
+      }
+    }
   }
   try {
     effectiveSignal?.throwIfAborted()
@@ -612,7 +685,6 @@ async function* runProvider(
     if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
-    const sessionKey = context.runtime.run?.threadId || context.runtime.run?.runId
     const threadId = (sessionKey || crypto.randomUUID()) as ThreadId
     const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
@@ -623,43 +695,19 @@ async function* runProvider(
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
       threadId,
-    }), effectiveSignal, async session => {
-      try {
-        await runtime!.stopSession(session.threadId)
-      }
-      finally {
-        try {
-          await runtime!.close()
-        }
-        finally {
-          await rm(root, { force: true, recursive: true })
-        }
-      }
-    }, deferRuntimeCleanup)
+    }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (sessionKey && session.resumeCursor !== undefined) resumeCursors.set(sessionKey, session.resumeCursor)
     const prompt = providerPrompt(context.messages, resumed, context.prompt)
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt or user message.")
     effectiveSignal?.throwIfAborted()
-    const attachments = await waitForProviderOperation(prepareAttachments(runtime, context, threadId), effectiveSignal)
+    const attachments = await waitForProviderOperation(prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes), effectiveSignal)
     effectiveSignal?.throwIfAborted()
     const turn = await waitForProviderOperation(
       runtime.sendTurn({ attachments, input: prompt, threadId }),
       effectiveSignal,
-      async lateTurn => {
-        try {
-          await runtime!.interruptTurn(threadId, lateTurn.turnId).catch(() => undefined)
-          await runtime!.stopSession(threadId)
-        }
-        finally {
-          try {
-            await runtime!.close()
-          }
-          finally {
-            await rm(root, { force: true, recursive: true })
-          }
-        }
-      },
+      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
       deferRuntimeCleanup,
+      () => finalizeDeferredRuntime(threadId),
     )
     if (sessionKey && turn.resumeCursor !== undefined) resumeCursors.set(sessionKey, turn.resumeCursor)
     const activeRuntime = runtime
@@ -745,6 +793,7 @@ async function* runProvider(
         cleanupErrors.push(error)
       }
     }
+    releaseSessionLock?.()
     if (cleanupErrors.length) {
       throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
     }
@@ -769,8 +818,9 @@ export function createProviderAgentAdapter<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const resumeCursors = new Map<string, unknown>()
+  const sessionLocks = new Map<string, Promise<void>>()
   return {
-    generate: context => generateProvider(runProvider(options, resumeCursors, context)),
+    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context)),
     async metadata(context) {
       const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
       const instructions = await Promise.all(parts.map(part => typeof part === "function" ? part(context) : part))
@@ -779,6 +829,6 @@ export function createProviderAgentAdapter<
       }
     },
     name: options.provider,
-    stream: context => streamAgentOutputToEvents(runProvider(options, resumeCursors, context)),
+    stream: context => streamAgentOutputToEvents(runProvider(options, resumeCursors, sessionLocks, context)),
   }
 }

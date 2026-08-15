@@ -1178,6 +1178,7 @@ function defineBaseAgent<
       : driver.kind === "provider"
         ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS>({
             env: driver.env,
+            execution: driver.execution,
             instructions: driver.instructions,
             model: driver.model,
             permissions: driver.permissions,

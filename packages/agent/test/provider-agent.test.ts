@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises"
+import { access, rm } from "node:fs/promises"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -168,6 +168,59 @@ describe("Provider Agent Driver", () => {
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
+  })
+
+  it("serializes concurrent invocations of the same provider thread", async () => {
+    const threadId = "thread-concurrent"
+    let releaseFirst!: () => void
+    const first = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => new Promise<void>(resolve => releaseFirst = resolve),
+      turnResumeCursor: "first-cursor",
+    })
+    const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    const firstResult = adapter.generate(context(threadId) as never)
+    await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+    const secondResult = adapter.generate(context(threadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(second.startSession).not.toHaveBeenCalled()
+    releaseFirst()
+
+    await expect(Promise.all([firstResult, secondResult])).resolves.toHaveLength(2)
+    expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "first-cursor" }))
+  })
+
+  it("bounds provider attachments before resolving lazy data", async () => {
+    const threadId = "thread-attachment-limit"
+    runtime(threadId, [])
+    const fetchData = vi.fn(async () => new Uint8Array())
+    const adapter = createProviderAgentAdapter({ execution: { attachments: { maxBytes: 10 } }, provider: "codex" })
+
+    await expect(adapter.generate(context(threadId, {
+      messages: [{ parts: [{ text: "inspect", type: "text" }, { fetchData, mediaType: "image/png", size: 11, type: "image" }], role: "user" }],
+    }) as never)).rejects.toThrow("exceeds maxBytes")
+
+    expect(fetchData).not.toHaveBeenCalled()
+  })
+
+  it("materializes HTTPS-only image attachments for the provider", async () => {
+    const threadId = "thread-attachment-url"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { headers: { "content-length": "3" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await adapter.generate(context(threadId, {
+      messages: [{ parts: [{ text: "inspect", type: "text" }, { mediaType: "image/png", type: "image", url: "https://assets.example/image.png" }], role: "user" }],
+    }) as never)
+
+    expect(fetchMock).toHaveBeenCalledWith(new URL("https://assets.example/image.png"), { signal: undefined })
+    expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.objectContaining({ mimeType: "image/png", sizeBytes: 3, type: "image" })],
+    }))
+    vi.unstubAllGlobals()
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
   it("does not replay historical approval and input responses on a resumed turn", async () => {
@@ -515,6 +568,30 @@ describe("Provider Agent Driver", () => {
     finishStartup()
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     expect(provider.stopSession).toHaveBeenCalledWith(threadId)
+    expect(waitUntil).toHaveBeenCalledOnce()
+  })
+
+  it("closes a provider runtime when startup rejects after timeout", async () => {
+    const threadId = "thread-late-start-rejection"
+    let rejectStartup!: (error: Error) => void
+    const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>((_resolve, reject) => rejectStartup = reject) })
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise.catch(() => undefined))
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const result = adapter.generate(context(threadId, {
+      input: { prompt: "hello", timeout: 50 },
+      runtime: {
+        memo: (_key: string, create: () => unknown) => create(),
+        run: { runId: `run-${threadId}`, threadId },
+        runtime: "vite",
+        runtimeConfig: {},
+        waitUntil,
+      },
+    }) as never)
+
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    rejectStartup(new Error("late startup failed"))
+    await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+    expect(provider.stopSession).not.toHaveBeenCalled()
     expect(waitUntil).toHaveBeenCalledOnce()
   })
 

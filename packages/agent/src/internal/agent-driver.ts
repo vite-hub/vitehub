@@ -2,6 +2,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 
 import type {
   AgentAdapterInstructions,
+  AgentAttachmentExecutionOptions,
   AgentDriverCapacityOptions,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
@@ -27,6 +28,7 @@ export type NormalizedAgentDriver<
   }
   | {
     env?: Record<string, string | undefined>
+    execution?: { attachments?: AgentAttachmentExecutionOptions }
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "provider"
     model?: string
@@ -79,7 +81,7 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "env", "instructions", "kind", "model", "output", "permissions"])
+const providerDriverKeys = new Set(["capacity", "env", "execution", "instructions", "kind", "model", "output", "permissions"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 
 function normalizeProviderEnvironment(value: unknown): Record<string, string | undefined> | undefined {
@@ -106,9 +108,15 @@ function normalizeProviderDriver<
   if (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) {
     throw new TypeError("[vitehub] defineAgent({ driver.model }) must be a non-empty string.")
   }
+  const execution = value.execution as { attachments?: AgentAttachmentExecutionOptions } | undefined
+  const maxBytes = execution?.attachments?.maxBytes
+  if (maxBytes !== undefined && (!Number.isFinite(maxBytes) || maxBytes <= 0)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.execution.attachments.maxBytes }) must be a positive finite number.")
+  }
   return {
     capacity: normalizeAgentDriverCapacity(value.capacity),
     env: normalizeProviderEnvironment(value.env),
+    execution,
     instructions: value.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
     kind: "provider",
     model: value.model as string | undefined,

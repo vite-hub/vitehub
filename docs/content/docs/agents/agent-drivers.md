@@ -74,6 +74,7 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `kind` | Required tagged provider name: `"codex"` or `"claude-code"`. |
 | `model` | Optional provider model id. |
 | `env` | Explicit environment values passed to the local provider process. ViteHub otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. |
+| `execution.attachments.maxBytes` | Optional positive per-invocation image attachment budget; defaults to 25 MiB. Inline, lazy, and HTTPS-only images share the budget. |
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"allow-all"`. |
 | `output` | Optional structured Agent output contract. |

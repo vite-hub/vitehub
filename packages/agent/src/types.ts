@@ -1060,6 +1060,9 @@ export interface AgentProviderDriverOptions<
 > {
   capacity?: AgentDriverCapacityOptions
   env?: Record<string, string | undefined>
+  execution?: {
+    attachments?: AgentAttachmentExecutionOptions
+  }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   output?: AgentOutputDefinition<TOutput>
