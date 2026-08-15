@@ -897,14 +897,14 @@ async function runAgentAsWorkflow<
     : undefined
   const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
     if (!hasAgentDefinition(agent)) return false
-    const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
-    const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
-      agent,
-      agentWorkflowRecoveryName(handle.name),
-      Boolean(context.agentIdentity),
-      true,
-    )
     try {
+      const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
+      const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
+        agent,
+        agentWorkflowRecoveryName(handle.name),
+        Boolean(context.agentIdentity),
+        true,
+      )
       await deferAgentWorkflowRecovery(recoveryHandle, {
         invocationRecovery: {
           ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),

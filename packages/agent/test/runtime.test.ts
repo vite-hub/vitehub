@@ -10474,6 +10474,38 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("preserves accepted Workflow starts when recovery setup fails", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+      const accepted = { id: "accepted-run", provider: "cloudflare" as const, status: "queued" as const }
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          registerInlineWorkflowDefinition: () => { throw new Error("recovery registration failed") },
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        workflow: async () => ({ createWorkflow: () => ({ run: async () => accepted }) }) as never,
+      })
+      try {
+        const result = await runAgent(defineAgent({
+          driver: { run: () => "unreachable" },
+          invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }),
+          runtime: workflow("accepted-recovery-setup"),
+        }), { memo: vi.fn(), runtime: "cloudflare-agents", waitUntil: vi.fn() }, {})
+
+        expect(result).toBe(accepted)
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
     it("terminalizes deterministic wrapped Workflow start failures", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
