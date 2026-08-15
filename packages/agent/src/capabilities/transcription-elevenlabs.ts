@@ -141,6 +141,7 @@ function errorCode(status: number): import("./transcription.ts").TranscriptionEr
   if (status === 401 || status === 403) return "TRANSCRIPTION_AUTHENTICATION_FAILED"
   if (status === 402) return "TRANSCRIPTION_QUOTA_EXCEEDED"
   if (status === 429) return "TRANSCRIPTION_RATE_LIMITED"
+  if (status === 408 || status === 409) return "TRANSCRIPTION_PROVIDER_FAILED"
   if (status >= 400 && status < 500) return "TRANSCRIPTION_INVALID_REQUEST"
   return "TRANSCRIPTION_PROVIDER_FAILED"
 }

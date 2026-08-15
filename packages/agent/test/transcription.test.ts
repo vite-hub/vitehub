@@ -453,14 +453,18 @@ describe("agent transcription", () => {
     }
   })
 
-  it("normalizes exhausted transcription quota errors", async () => {
+  it.each([
+    [402, false, "TRANSCRIPTION_QUOTA_EXCEEDED", "[vitehub] Transcription provider quota is exhausted."],
+    [408, true, "TRANSCRIPTION_PROVIDER_FAILED", "[vitehub] Transcription provider failed."],
+    [409, true, "TRANSCRIPTION_PROVIDER_FAILED", "[vitehub] Transcription provider failed."],
+  ] as const)("normalizes retry-exhausted HTTP %s transcription errors", async (status, isRetryable, code, message) => {
     const { APICallError, LoadAPIKeyError, RetryError } = await import("ai")
     const providerError = new APICallError({
-      isRetryable: false,
-      message: "You have no credits remaining.",
+      isRetryable,
+      message: "Private provider failure.",
       requestBodyValues: {},
       responseBody: "private billing details",
-      statusCode: 402,
+      statusCode: status,
       url: "https://provider.example/audio/transcriptions",
     })
     const retryError = new RetryError({
@@ -488,8 +492,8 @@ describe("agent transcription", () => {
 
       expect(error).toMatchObject({
         cause: retryError,
-        code: "TRANSCRIPTION_QUOTA_EXCEEDED",
-        message: "[vitehub] Transcription provider quota is exhausted.",
+        code,
+        message,
       })
       expect(JSON.stringify(error)).not.toContain("private billing details")
       expect(context.messages.at(-1)?.parts).toHaveLength(1)

@@ -299,11 +299,13 @@ function normalizeAiSdkTranscriptionError(aiSdk: typeof import("ai"), cause: unk
       ? "TRANSCRIPTION_QUOTA_EXCEEDED"
       : status === 429
         ? "TRANSCRIPTION_RATE_LIMITED"
-        : status !== undefined && status >= 400 && status < 500
-          ? "TRANSCRIPTION_INVALID_REQUEST"
-          : status === undefined
-            ? "TRANSCRIPTION_NETWORK_FAILED"
-            : "TRANSCRIPTION_PROVIDER_FAILED"
+        : status === undefined
+          ? "TRANSCRIPTION_NETWORK_FAILED"
+          : providerError.isRetryable
+            ? "TRANSCRIPTION_PROVIDER_FAILED"
+            : status >= 400 && status < 500
+              ? "TRANSCRIPTION_INVALID_REQUEST"
+              : "TRANSCRIPTION_PROVIDER_FAILED"
   return transcriptionError(code, { cause, status })
 }
 
