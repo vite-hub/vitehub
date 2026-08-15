@@ -1,3 +1,4 @@
+import { characterEntitiesLegacy } from "character-entities-legacy"
 import { renderMarkdown } from "comark/render"
 
 import { evaluateCondition, templatePathValue } from "./condition.ts"
@@ -35,6 +36,7 @@ const templatePathSource = String.raw`[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*`
 const templatePathPattern = new RegExp(`^${templatePathSource}$`)
 const tripleBindingPattern = new RegExp(String.raw`\{\{\{\s*(${templatePathSource})\s*\}\}\}`, "g")
 const tagBindingPattern = new RegExp(String.raw`(?<!\{)\{\{(?!\{)\s*(${templatePathSource})\s*\}\}(?!\})`, "g")
+const legacyHtmlReferences = new Set(characterEntitiesLegacy)
 
 interface TemplatePreparation {
   prepare: (value: string) => Promise<string>
@@ -141,7 +143,9 @@ function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
 
 async function safeLinkDestination(path: string, data: Record<string, unknown>): Promise<string> {
   const value = scalarValue(path, data)
-  const hasHtmlReferencePrefix = /&(?:#(?:\d+|x[\dA-F]+)|[A-Za-z][A-Za-z\d]+(?=[^=A-Za-z\d]|$))/i.test(value)
+  const hasHtmlReferencePrefix = /&#(?:\d+|x[\dA-F]+)/i.test(value)
+    || [...value.matchAll(/&([A-Za-z][A-Za-z\d]*)(?=[^=A-Za-z\d]|$)/g)]
+      .some(match => legacyHtmlReferences.has(match[1]!))
   if (hasHtmlReferencePrefix || /^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
     const codePoint = character.codePointAt(0)!
     return codePoint < 32 || codePoint === 127
