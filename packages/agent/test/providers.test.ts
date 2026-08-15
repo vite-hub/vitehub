@@ -2439,10 +2439,13 @@ describe("server helpers", () => {
         60_000,
       )
       expect(run.mock.calls[0]?.[0].input.context?.["vitehub.eve.approvedTools"]).toEqual(["github__createOrUpdateFile"])
+      const selectedChatSessionId = run.mock.calls[0]?.[0].input.context?.["chat.sessionId"]
+      expect(selectedChatSessionId).toMatch(/^http:support:portal-thread:chat-session:session-1:manual:/)
 
       const continued = await handler(request("approval-1", "user-1", "session-1", true, false), { agentName: "support", state })
       expect(continued.status).toBe(200)
       await expect(continued.text()).resolves.toContain("approved")
+      expect(run.mock.calls[1]?.[0].input.context?.["chat.sessionId"]).toBe(selectedChatSessionId)
 
       const expiredHistorical = await handler(request("expired-approval", "user-1", "session-1", true), { agentName: "support", state })
       const expiredBody = await expiredHistorical.text()
@@ -2452,6 +2455,7 @@ describe("server helpers", () => {
       expect(freshSession.status).toBe(200)
       await expect(freshSession.text()).resolves.toContain("fresh")
       expect(run.mock.calls[3]?.[0].input.context?.["vitehub.eve.approvedTools"]).toBeUndefined()
+      expect(run.mock.calls[3]?.[0].input.context?.["chat.sessionId"]).not.toBe(selectedChatSessionId)
 
       const replayed = await handler(request("approval-1"), { agentName: "support", state })
       expect(replayed.status).toBe(400)

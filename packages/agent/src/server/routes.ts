@@ -4650,6 +4650,15 @@ export function createChannelChatRouteHandler(
         ? `${sessionId}:chat-session:${selectedSessionId}`
         : sessionId
       if (approvalSessionId) {
+        triggerInput = {
+          ...triggerInput,
+          context: {
+            ...triggerInput.context,
+            "chat.sessionId": approvalSessionId,
+          },
+        }
+      }
+      if (approvalSessionId) {
         const persistApprovedTools = invoker.kind !== "anonymous"
         if (!persistApprovedTools && triggerInput.messages.some(message => message.parts?.some(part => uiApprovalPart(part)?.record.state === "approval-responded"))) {
           throw createRouteBodyError("Agent chat approval responses require an authenticated invoker.")

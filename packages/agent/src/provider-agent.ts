@@ -632,7 +632,12 @@ async function* runProvider(
     : context.input.abortSignal || timeoutSignal
   context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
   effectiveSignal?.throwIfAborted()
-  const sessionKey = context.runtime.run?.threadId
+  const transportSessionId = context.runtime.run?.threadId
+  const chatSessionId = context.context.get<string>("chat.sessionId")
+  const sessionId = chatSessionId || transportSessionId
+  const sessionKey = sessionId
+    ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.id, sessionId])
+    : undefined
   const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
   try {
@@ -656,6 +661,8 @@ async function* runProvider(
   let generatedInstructionFileExisted = false
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
+  let workspaceCleanupDeferred = false
+  let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
   let releaseWorkspaceCleanup: (() => void) | undefined
   const workspaceCleanup = new Promise<void>((resolve) => {
@@ -667,6 +674,11 @@ async function* runProvider(
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
+    observeLateCleanup(cleanup)
+  }
+  const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
+    workspaceCleanupDeferred = true
+    deferredWorkspaceCleanup = cleanup
     observeLateCleanup(cleanup)
   }
   const finalizeDeferredRuntime = async (sessionThreadId?: ThreadId, turnId?: TurnId) => {
@@ -689,8 +701,16 @@ async function* runProvider(
     workspaceSession = await waitForProviderOperation(
       prepareWorkspace(context, root),
       effectiveSignal,
-      async lateSession => await lateSession?.close(),
-      observeLateCleanup,
+      async (lateSession) => {
+        try {
+          await lateSession?.close()
+        }
+        finally {
+          await rm(root, { force: true, recursive: true })
+        }
+      },
+      deferWorkspaceSessionCleanup,
+      async () => await rm(root, { force: true, recursive: true }),
     )
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
@@ -741,7 +761,7 @@ async function* runProvider(
     if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
-    const threadId = (sessionKey || crypto.randomUUID()) as ThreadId
+    const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
     const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
@@ -858,7 +878,7 @@ async function* runProvider(
       cleanupErrors.push(error)
     }
     releaseWorkspaceCleanup?.()
-    if (!runtimeCleanupDeferred) {
+    if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
       try {
         await rm(root, { force: true, recursive: true })
       }
@@ -866,7 +886,8 @@ async function* runProvider(
         cleanupErrors.push(error)
       }
     }
-    if (deferredRuntimeCleanup) void deferredRuntimeCleanup.then(releaseSessionLock, releaseSessionLock)
+    const deferredCleanup = deferredRuntimeCleanup || deferredWorkspaceCleanup
+    if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
     if (cleanupErrors.length) {
       throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")

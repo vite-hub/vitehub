@@ -171,6 +171,27 @@ describe("Provider Agent Driver", () => {
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
   })
 
+  it("partitions provider cursors by the resolved Chat Session", async () => {
+    const threadId = "thread-chat-sessions"
+    const first = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "session-a-cursor" })
+    const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "session-b-cursor" })
+    const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const sessionContext = (sessionId: string) => {
+      const value = context(threadId)
+      value.context.set("chat.sessionId", `${threadId}:chat-session:${sessionId}`)
+      return value
+    }
+
+    await adapter.generate(sessionContext("a") as never)
+    await adapter.generate(sessionContext("b") as never)
+    await adapter.generate(sessionContext("a") as never)
+
+    expect(first.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(resumed.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "session-a-cursor" }))
+  })
+
   it("serializes concurrent invocations of the same provider thread", async () => {
     const threadId = "thread-concurrent"
     let releaseFirst!: () => void
@@ -408,28 +429,33 @@ describe("Provider Agent Driver", () => {
   })
 
   it("keeps a one-shot host alive until process-group escalation settles", async () => {
-    const pidFile = `/tmp/vitehub-provider-descendant-${crypto.randomUUID()}`
+    const heartbeatFile = `/tmp/vitehub-provider-descendant-${crypto.randomUUID()}`
     const script = `
-      import { readFileSync } from 'node:fs'
+      import { existsSync, readFileSync } from 'node:fs'
+      import { setTimeout as delay } from 'node:timers/promises'
       import { localWorkspaceHost } from './src/provider-agent.ts'
       const controller = new AbortController()
-      localWorkspaceHost().exec(process.execPath, ['-e', "const{spawn}=require('node:child_process');const{writeFileSync}=require('node:fs');const child=spawn(process.execPath,['-e',\\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\\"],{stdio:'ignore'});writeFileSync(process.argv[1],String(child.pid));process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)", process.env.PID_FILE], { signal: controller.signal })
-        .then(() => { throw new Error('expected abort') }, () => {
-          const pid = Number(readFileSync(process.env.PID_FILE, 'utf8'))
-          try { process.kill(pid, 0); throw new Error('descendant survived') }
-          catch (error) { if (error.code !== 'ESRCH') throw error }
+      localWorkspaceHost().exec(process.execPath, ['-e', "const{spawn}=require('node:child_process');spawn(process.execPath,['-e',\\"const{writeFileSync}=require('node:fs');process.on('SIGTERM',()=>{});setInterval(()=>writeFileSync(process.argv[1],String(Date.now())),20)\\",process.argv[1]],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)", process.env.HEARTBEAT_FILE], { signal: controller.signal })
+        .then(() => { throw new Error('expected abort') }, async () => {
+          const stoppedAt = readFileSync(process.env.HEARTBEAT_FILE, 'utf8')
+          await delay(100)
+          if (readFileSync(process.env.HEARTBEAT_FILE, 'utf8') !== stoppedAt) throw new Error('descendant survived')
           console.log('settled')
         })
-      setTimeout(() => controller.abort(), 50)
+      const ready = setInterval(() => {
+        if (!existsSync(process.env.HEARTBEAT_FILE)) return
+        clearInterval(ready)
+        controller.abort()
+      }, 5)
     `
     const result = spawnSync(process.execPath, ["--experimental-transform-types", "--no-warnings", "--input-type=module", "-e", script], {
       cwd: new URL("..", import.meta.url),
       encoding: "utf8",
-      env: { ...process.env, PID_FILE: pidFile },
+      env: { ...process.env, HEARTBEAT_FILE: heartbeatFile },
       timeout: 3_000,
     })
 
-    await rm(pidFile, { force: true })
+    await rm(heartbeatFile, { force: true })
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout.trim()).toBe("settled")
   })
@@ -703,6 +729,50 @@ describe("Provider Agent Driver", () => {
     expect(provider.startSession).toHaveBeenCalledOnce()
     expect(provider.sendTurn).not.toHaveBeenCalled()
     expect(provider.close).not.toHaveBeenCalled()
+  })
+
+  it("retains thread ownership until late Workspace preparation closes", async () => {
+    const threadId = "thread-late-workspace"
+    let finishPreparation!: (session: Record<string, unknown>) => void
+    let finishClose!: () => void
+    let lateRoot = ""
+    const close = vi.fn(() => new Promise<void>(resolve => finishClose = resolve))
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        lateRoot = options.target
+        await mkdir(lateRoot, { recursive: true })
+        await writeFile(`${lateRoot}/late`, "owned")
+        return await new Promise<Record<string, unknown>>(resolve => finishPreparation = resolve)
+      }),
+      tools: {},
+    }
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const first = adapter.generate(context(threadId, {
+      input: { prompt: "hello", timeout: 50 },
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+
+    await expect(first).rejects.toMatchObject({ name: "TimeoutError" })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const second = adapter.generate(context(threadId) as never)
+    finishPreparation({
+      close,
+      commit: async () => undefined,
+      diff: async () => ({ entries: [] }),
+      exec: async () => ({ code: 0, stderr: "", stdout: "" }),
+      readFile: async () => new Uint8Array(),
+    })
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+    await expect(access(`${lateRoot}/late`)).resolves.toBeUndefined()
+    expect(provider.startSession).not.toHaveBeenCalled()
+    finishClose()
+
+    await expect(second).resolves.toBeDefined()
+    await expect(access(lateRoot)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(provider.startSession).toHaveBeenCalledOnce()
   })
 
   it("stops provider startup that settles after timeout before closing its runtime", async () => {
