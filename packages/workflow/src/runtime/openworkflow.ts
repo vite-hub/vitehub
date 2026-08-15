@@ -272,12 +272,14 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
-  return await runWorkflowProviderOperation("openworkflow", "run", async () => {
+  const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
     const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
-    const handle = await start().catch((error) => {
+    return await start().catch((error) => {
       if (!options.id) throw error
       return start()
     })
+  }, { acknowledgementUnknown: () => true })
+  return await runWorkflowProviderOperation("openworkflow", "run", async () => {
     return {
       id: handle.workflowRun.id,
       metadata: {

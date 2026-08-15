@@ -757,8 +757,14 @@ async function getAgentWorkflowHandle<
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
 
   const { createWorkflow } = await loadAgentWorkflowModule()
-  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
+  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, loadWorkflowDefinition, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
   const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  if (registered) {
+    const definition = await loadWorkflowDefinition(name)
+    if (Boolean(definition?.internalAgentInvocationRecovery) !== recovery) {
+      throw new Error(`Workflow name ${JSON.stringify(name)} conflicts with an Agent invocation recovery Workflow.`)
+    }
+  }
   if (!registered && recovery) {
     registerInlineWorkflowDefinition(name, {
       internalAgentInvocationRecovery: true,
@@ -916,7 +922,7 @@ async function runAgentAsWorkflow<
   // Vercel's native Workflow owns durable suspension, but arbitrary Agent Definitions cannot
   // be compiled into that deterministic bundle. Its journal begins in the Agent worker instead.
   let invocationJournal: AgentInvocationJournal<TRuntimeConfig> | undefined
-  if (hasAgentDefinition(agent) && run.provider !== "vercel") {
+  if (hasAgentDefinition(agent) && agent.invocations && run.provider !== "vercel") {
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
       const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id

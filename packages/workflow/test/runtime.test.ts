@@ -1085,6 +1085,7 @@ describe("workflow runtime", () => {
     })
 
     await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      acknowledgement: "unknown",
       operation: "run",
       provider: "openworkflow",
     })
