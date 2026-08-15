@@ -6601,6 +6601,74 @@ describe("server helpers", () => {
     }
   })
 
+  it.each([
+    ["running", "queued"],
+    ["failed", "failed"],
+    ["unknown", "failed"],
+  ] as const)("records an immediate %s Workflow webhook result as %s custody", async (workflowStatus, deliveryStatus) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), `vitehub-webhook-workflow-${workflowStatus}-`))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    const deliveryId = `delivery-workflow-${workflowStatus}`
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: workflowStatus },
+                webhook: { deliveryId },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: {
+        run: () => ({
+          id: `workflow-${workflowStatus}`,
+          provider: "vercel",
+          status: workflowStatus,
+        }) as never,
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": deliveryId,
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    const options = {
+      agentName: "review",
+      webhookState: state,
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      const response = await handler(request(), "github", options)
+
+      expect(response.status).toBe(200)
+      await Promise.allSettled(waitUntilTasks)
+      await vi.waitFor(async () => {
+        const delivery = (await handler.deliveries(request(), "github", options)).find(item => item.sourceId === deliveryId)
+        expect(delivery?.status).toBe(deliveryStatus)
+        expect(delivery?.events.some(event => event.type === "completed")).toBe(false)
+      })
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("replaces request abort signals before persisting webhook invocations", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")

@@ -4744,16 +4744,16 @@ export function createChannelWebhookRouteHandler(
                       }
                     : {}),
                 } as never)
-                if (!isWorkflowRun(result) || (result.status !== "queued" && result.status !== "running")) {
+                if (!isWorkflowRun(result) || result.status === "completed") {
                   await runContext.flushWaitUntil?.()
                 }
-                else {
+                else if (result.status === "queued" || result.status === "running") {
                   durableHandoff = true
                   await recordChannelDeliveryEvidence(channelDelivery, { type: "queued", runId: invocation.run?.runId })
                   detachAgentChannelDelivery(channelDelivery)
                 }
-                if (isWorkflowRun(result) && result.status === "failed") {
-                  throw new Error(typeof result.metadata === "string" ? result.metadata : "Agent Workflow failed.")
+                else {
+                  throw new Error(typeof result.metadata === "string" ? result.metadata : `Agent Workflow returned ${result.status}.`)
                 }
               }
               finally {
