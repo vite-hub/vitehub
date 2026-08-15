@@ -354,11 +354,14 @@ function journalTraceLog(
   return {
     async append(event: TraceEvent) {
       const entry = await traceLog.append(event)
-      const safeEntry = {
-        ...await createTraceEventLog().append(entry),
-        sequence: nextSequence(),
+      try {
+        const safeEntry = {
+          ...await createTraceEventLog().append(entry),
+          sequence: nextSequence(),
+        }
+        void observe(safeEntry)
       }
-      void observe(safeEntry)
+      catch {}
       return entry
     },
     entries: () => traceLog.entries(),
@@ -473,7 +476,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         return updated
       }
       const observe = (observation: TraceEventLogEntry) => write(async () => {
-        if (observationCount >= MAX_OBSERVATIONS || !await renew()) return
+        if (finished || observationCount >= MAX_OBSERVATIONS || !await renew()) return
         const timestamp = normalizedTimestamp(observation.timestamp)
         const persistedObservation = boundedObservation({
           ...observation,

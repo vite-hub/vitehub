@@ -65,6 +65,48 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
   }, 5_000)
 
+  it("does not let malformed custom trace entries fail Agent execution", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const traceLog = {
+      append: vi.fn(async (event: Record<string, unknown>) => ({ ...event, timestamp: new Date(Number.NaN) })),
+      entries: () => [],
+    }
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({ name: "malformed", type: "run" })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
+    await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it("does not reacquire journal ownership for observations appended after finish", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const claim = vi.fn(memory.claim)
+    const invocations = defineAgentInvocations({ store: { ...memory, claim } })
+    let appendTrace: ((event: { name: string, type: "run" }) => unknown) | undefined
+    const agent = defineAgent({
+      driver: { run(context) {
+        appendTrace = context.traceLog?.append.bind(context.traceLog)
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime("late-observation"), {})).resolves.toBe("done")
+    const claimsAfterFinish = claim.mock.calls.length
+    await appendTrace?.({ name: "late", type: "run" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(claim).toHaveBeenCalledTimes(claimsAfterFinish)
+    expect((await invocations.getByRunId("late-observation"))?.observations.some(entry => entry.name === "late")).toBe(false)
+  })
+
   it("terminalizes records created after the store timeout", async () => {
     const memory = createMemoryAgentInvocationStore()
     let releaseCreate!: () => void
