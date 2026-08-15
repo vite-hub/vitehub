@@ -16,6 +16,7 @@ import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
+import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
 function event(type: string, threadId: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return { payload, threadId, type, ...extra }
@@ -72,7 +73,7 @@ function context(threadId: string, overrides: Record<string, unknown> = {}) {
       toJSON: () => Object.fromEntries(values),
     },
     input: { prompt: "hello" },
-    invoker: { id: "invoker" },
+    invoker: { id: "invoker", kind: "user" },
     messages: [],
     prompt: "hello",
     runtime: {
@@ -191,6 +192,19 @@ describe("Provider Agent Driver", () => {
     expect(first.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
     expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
     expect(resumed.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "session-a-cursor" }))
+  })
+
+  it("partitions provider cursors by invoker kind", async () => {
+    const threadId = "thread-invoker-kind"
+    const first = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "user-cursor" })
+    const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await adapter.generate(context(threadId, { invoker: { id: "shared", kind: "user" } }) as never)
+    await adapter.generate(context(threadId, { invoker: { id: "shared", kind: "service" } }) as never)
+
+    expect(first.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
   })
 
   it("serializes concurrent invocations of the same provider thread", async () => {
@@ -411,6 +425,35 @@ describe("Provider Agent Driver", () => {
       },
     }) as never)).resolves.toMatchObject({ text: "" })
     expect(execute).toHaveBeenCalledWith({ query: "vitehub" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
+  })
+
+  it("publishes Capability approval requests raised through MCP", async () => {
+    runtime("thread-tool-approval", [event("turn.completed", "thread-tool-approval", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        await client.callTool({ arguments: { recipient: "team@example.com" }, name: "email_send" })
+        await client.close()
+      },
+    })
+    const tools = applyAgentToolPolicies({
+      email_send: {
+        execute: vi.fn(async () => "sent"),
+        name: "email_send",
+        policy: "require-approval" as const,
+      },
+    })!
+
+    const events = await collect(createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-approval", { tools }) as never)) as Array<Record<string, unknown>>
+
+    expect(events).toContainEqual(expect.objectContaining({
+      input: { recipient: "team@example.com" },
+      name: "email_send",
+      type: "approval-request",
+    }))
   })
 
   it("force-closes an aborted Workspace process tree before settling execution", async () => {

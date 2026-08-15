@@ -9,7 +9,7 @@ describe("chat message trigger input", () => {
       { id: "approval-response", metadata: { sessionId: "chat" }, parts: [], role: "assistant" as const },
     ]
 
-    expect(resolveChatSessionId(messages.slice(0, 1), true, { action: "new", id: "chat" })).toBe("chat")
+    expect(resolveChatSessionId(messages.slice(0, 1), true, { action: "new", id: "chat" })).toBe("chat:manual:message-new")
     expect(resolveChatSessionId(messages, true, { id: "chat" })).toBe("chat")
   })
 
@@ -107,6 +107,15 @@ describe("chat message trigger input", () => {
     expect(resolveChatSessionId([message("m1")], sessions)).toBe("conversation-a")
     expect(resolveChatSessionId([message("m1"), message("m2")], sessions)).toBe("conversation-a")
     expect(resolveChatSessionId([message("m2"), message("m3")], sessions)).toBe("conversation-a")
+  })
+
+  it("rotates stable host session ids at explicit and idle boundaries", () => {
+    const message = (id: string, createdAt: string) => ({ id, createdAt, metadata: { sessionId: "conversation-a" }, parts: [], role: "user" as const })
+    const messages = [message("m1", "2026-01-01T00:00:00Z"), message("m2", "2026-01-01T00:02:00Z")]
+
+    expect(resolveChatSessionId(messages, true, { action: "new", id: "conversation-a" })).toBe("conversation-a:manual:m2")
+    expect(resolveChatSessionId(messages, { idleTimeoutMs: 60_000, strategy: "idle-timeout" })).toBe("conversation-a:idle:m2")
+    expect(resolveChatSessionId(messages, { idleTimeoutMs: 60_000, strategy: "hybrid" })).toBe("conversation-a:idle:m2")
   })
 
   it("derives trigger history from explicit thread history", () => {

@@ -273,18 +273,19 @@ export function resolveChatSessionId(
   const manualId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, options.metadataKey)
   // A host-supplied Chat Session id is the durable boundary. History windows
   // are allowed to slide, so their first loaded message cannot refine this id.
-  if (manualId) return manualId
+  if (manualId && triggerSession?.action !== "new" && strategy === "manual") return manualId
   if (strategy === "manual") {
     const first = selectManualSession(messages, options, triggerSession)[0]
     const boundary = first?.id || uiMessageTime(first || {})?.toString()
-    return boundary ? `manual:${boundary}` : undefined
+    return boundary ? `${manualId ? `${manualId}:` : ""}manual:${boundary}` : manualId
   }
   const selected = strategy === "idle-timeout"
     ? selectIdleSession(messages, options)
     : selectIdleSession(selectManualSession(messages, options, triggerSession), options)
   const first = selected[0]
   const boundary = first?.id || uiMessageTime(first || {})?.toString()
-  return boundary ? `idle:${boundary}` : undefined
+  if (manualId && selected.length === messages.length) return manualId
+  return boundary ? `${manualId ? `${manualId}:` : ""}idle:${boundary}` : manualId
 }
 
 export function resolveChatSessionBaseId(

@@ -5,7 +5,7 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, join } from "node:path"
 
-import { normalizeExecutionAuthority } from "@vite-hub/runtime"
+import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -189,7 +189,7 @@ function toolResult(value: unknown) {
   return { content: [{ text, type: "text" as const }] }
 }
 
-async function startToolServer(tools: AgentToolSet, abortSignal: AbortSignal | undefined) {
+async function startToolServer(tools: AgentToolSet, abortSignal: AbortSignal | undefined, emit: (event: StreamEvent) => void) {
   const [{ Server: McpServer }, { StreamableHTTPServerTransport }, { CallToolRequestSchema, ListToolsRequestSchema }] = await Promise.all([
     import("@modelcontextprotocol/sdk/server/index.js"),
     import("@modelcontextprotocol/sdk/server/streamableHttp.js"),
@@ -212,6 +212,19 @@ async function startToolServer(tools: AgentToolSet, abortSignal: AbortSignal | u
       return toolResult(await tool.execute(input, { abortSignal: AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])]) }))
     }
     catch (error) {
+      const shape = getViteHubErrorShape(error)
+      const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && typeof error.cause === "object"
+        ? error.cause as { capability?: unknown, id?: unknown, input?: unknown, reason?: unknown }
+        : undefined
+      if (approvalRequest && typeof approvalRequest.id === "string") {
+        emit({
+          id: approvalRequest.id,
+          input: approvalRequest.input,
+          name: typeof approvalRequest.capability === "string" ? approvalRequest.capability : request.params.name,
+          reason: typeof approvalRequest.reason === "string" ? approvalRequest.reason : undefined,
+          type: "approval-request",
+        })
+      }
       return { content: [{ text: error instanceof Error ? error.message : String(error), type: "text" }], isError: true }
     }
   })
@@ -636,7 +649,7 @@ async function* runProvider(
   const chatSessionId = context.context.get<string>("chat.sessionId")
   const sessionId = chatSessionId || transportSessionId
   const sessionKey = sessionId
-    ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.id, sessionId])
+    ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.kind, context.invoker.id, sessionId])
     : undefined
   const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
@@ -651,6 +664,17 @@ async function* runProvider(
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
+  const pendingToolEvents: StreamEvent[] = []
+  let notifyToolEvent: (() => void) | undefined
+  const emitToolEvent = (event: StreamEvent) => {
+    pendingToolEvents.push(event)
+    notifyToolEvent?.()
+    notifyToolEvent = undefined
+  }
+  const nextToolEvent = async () => {
+    if (!pendingToolEvents.length) await new Promise<void>(resolve => notifyToolEvent = resolve)
+    return pendingToolEvents.shift()!
+  }
   let caught: unknown
   let completed = false
   let abort: (() => void) | undefined
@@ -765,7 +789,7 @@ async function* runProvider(
       observeLateCleanup,
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal)
+    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
@@ -826,7 +850,20 @@ async function* runProvider(
       })
     }
     for (;;) {
-      const current = await Promise.race([nextEvent, aborted])
+      if (pendingToolEvents.length) {
+        yield pendingToolEvents.shift()!
+        continue
+      }
+      const raced = await Promise.race([
+        nextEvent.then(result => ({ provider: result })),
+        nextToolEvent().then(event => ({ tool: event })),
+        aborted,
+      ])
+      if ("tool" in raced) {
+        yield raced.tool
+        continue
+      }
+      const current = raced.provider
       if (current.done) throw new Error("[vitehub] Provider Agent Driver event stream ended before the turn completed.")
       nextEvent = events.next()
       if (current.value.threadId && current.value.threadId !== threadId) continue
