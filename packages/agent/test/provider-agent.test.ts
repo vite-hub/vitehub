@@ -459,9 +459,15 @@ describe("Provider Agent Driver", () => {
       name: "email_send",
       type: "approval-request",
     }))
-    await expect(sendAgentInvocationInput("run-thread-tool-approval", {
-      messages: [{ id: "approval", parts: [{ approved: true, id: (approval.value as { id: string }).id, type: "approval-decision" }], role: "user" }],
-    }, { mode: "respond" })).resolves.toBe("accepted")
+    const approvalId = (approval.value as { id: string }).id
+    await expect(Promise.all([
+      sendAgentInvocationInput("run-thread-tool-approval", {
+        messages: [{ id: "approval", parts: [{ approved: true, id: approvalId, type: "approval-decision" }], role: "user" }],
+      }, { mode: "respond" }),
+      sendAgentInvocationInput("run-thread-tool-approval", {
+        messages: [{ id: "duplicate", parts: [{ approved: false, id: approvalId, type: "approval-decision" }], role: "user" }],
+      }, { mode: "respond" }),
+    ])).resolves.toEqual(["accepted", "unsupported"])
     await expect(toolCall).resolves.toMatchObject({ content: [{ text: "null", type: "text" }] })
     expect(reportToolStep).toHaveBeenCalledWith(expect.objectContaining({ toolResults: [expect.objectContaining({ output: null })] }))
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })

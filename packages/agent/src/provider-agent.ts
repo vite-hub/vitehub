@@ -233,6 +233,7 @@ async function startToolServer(
         const approved = await new Promise<boolean>((resolve) => {
           abortApproval = () => resolve(false)
           approvals.set(approvalRequest.id as string, (approved) => {
+            approvals.delete(approvalRequest.id as string)
             if (executionSignal.aborted) {
               resolve(false)
               return false
