@@ -139,6 +139,31 @@ describe("Agent telemetry", () => {
     expect(JSON.stringify(exported.spans)).not.toContain("secret prompt")
   })
 
+  it("exports separate spans when invocations reuse a host trace and log", async () => {
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn()
+    const traceLog = createTraceEventLog()
+    const runtime = {
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      trace: { id: "host-trace" },
+      traceLog,
+      waitUntil(task: PromiseLike<unknown>) { tasks.push(Promise.resolve(task)) },
+    }
+    const agent = defineAgent({ telemetry, driver: { run: () => "ok" } })
+
+    await runAgent(agent, runtime, {})
+    await runAgent(agent, runtime, {})
+    await Promise.all(tasks)
+
+    expect(telemetry).toHaveBeenCalledTimes(2)
+    const [first, second] = telemetry.mock.calls.map(call => call[0].spans[0])
+    expect(first.attributes["agent.invocation.id"]).not.toBe(second.attributes["agent.invocation.id"])
+    expect(first.spanId).not.toBe(second.spanId)
+    expect(first.attributes["vitehub.trace.id"]).toBe("host-trace")
+    expect(second.attributes["vitehub.trace.id"]).toBe("host-trace")
+  })
+
   it("exports Capability setup failures without replacing the original error", async () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()

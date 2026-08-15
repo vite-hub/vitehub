@@ -208,7 +208,7 @@ export async function runAgentWorkflowDefinition<
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
     runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
     waitUntil(promise: Promise<unknown>) {
-      backgroundTasks.push(Promise.resolve(promise))
+      backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
     },
   } as never)
 

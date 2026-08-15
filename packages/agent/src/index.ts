@@ -89,6 +89,7 @@ import {
   withJsonCompatibleToolOutputs,
 } from "./tool-runtime.ts"
 import {
+  agentInvocationTraceIdContextKey,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentInvocationFinish,
@@ -1784,6 +1785,7 @@ type AgentInvocationContext<
   startTask?: Promise<void>
   telemetry?: AgentTelemetry<TRuntimeConfig>
   telemetryAgent: { name?: string, version?: string }
+  telemetryInvocationId: string
   instructions?: string
   startedAt: number
   actor: AgentInvoker
@@ -1931,11 +1933,13 @@ function scheduleAgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig>(
   telemetry: AgentTelemetry<TRuntimeConfig> | undefined,
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   agent: { name?: string, version?: string },
+  invocationId: string,
 ): void {
   if (!telemetry || !runtime.traceLog) return
   const task = Promise.resolve()
     .then(async () => {
-      const runs = deriveTraceRuns(runtime.traceLog!.entries())
+      const events = runtime.traceLog!.entries().filter(event => event.attributes?.["agent.invocation.id"] === invocationId)
+      const runs = deriveTraceRuns(events)
       const id = runtime.run?.runId || runtime.trace?.id
       const run = (id ? runs.find(candidate => candidate.id === id) : undefined) || (runs.length === 1 ? runs[0] : undefined)
       if (!run || run.status === "running") return
@@ -1978,6 +1982,8 @@ async function createAgentInvocationContext<
       }
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   const invocationContext = createAgentInvocationContextStore(input.context)
+  const telemetryInvocationId = createTraceId()
+  invocationContext.set(agentInvocationTraceIdContextKey, telemetryInvocationId, { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
@@ -2178,6 +2184,7 @@ async function createAgentInvocationContext<
       startedAt,
       telemetry: definition?.telemetry,
       telemetryAgent: { name: definition?.name, version: definition?.version },
+      telemetryInvocationId,
       tools,
       workspace: activeWorkspace,
       workspaceAutoCommit,
@@ -2216,7 +2223,7 @@ async function createAgentInvocationContext<
       run: context.run,
       runtime: runtimeContext,
     }, error)
-    scheduleAgentTelemetry(definition?.telemetry, runtimeContext, { name: definition?.name, version: definition?.version })
+    scheduleAgentTelemetry(definition?.telemetry, runtimeContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
   }
 }
@@ -2246,6 +2253,7 @@ type InvocationRunContext<
   startedAt: number
   telemetry?: AgentTelemetry<TRuntimeConfig>
   telemetryAgent: { name?: string, version?: string }
+  telemetryInvocationId: string
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
@@ -3010,7 +3018,7 @@ async function finishAgentInvocation<
     throw finishError
   }
   finally {
-    scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent)
+    scheduleAgentTelemetry(context.telemetry, context.runtimeContext, context.telemetryAgent, context.telemetryInvocationId)
   }
 }
 

@@ -12218,6 +12218,41 @@ describe("agent message protocol", () => {
       else await expect(workflow).resolves.toBe("ok")
     })
 
+    it("observes Workflow background failures while the invocation is pending", async () => {
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      let rejectTask!: (error: Error) => void
+      let releaseRun!: () => void
+      let markRegistered!: () => void
+      const task = new Promise<void>((_resolve, reject) => { rejectTask = reject })
+      const run = new Promise<void>(resolve => { releaseRun = resolve })
+      const registered = new Promise<void>(resolve => { markRegistered = resolve })
+      const unhandled = vi.fn()
+      process.on("unhandledRejection", unhandled)
+
+      try {
+        const workflow = runAgentWorkflowDefinition({} as never, {
+          id: "background-rejection",
+          name: "background-rejection",
+          payload: {},
+          provider: "vercel",
+        }, async (_agent, context) => {
+          context.waitUntil(task)
+          markRegistered()
+          await run
+          return "ok"
+        })
+        await registered
+        rejectTask(new Error("background failed"))
+        await new Promise(resolve => setImmediate(resolve))
+        expect(unhandled).not.toHaveBeenCalled()
+        releaseRun()
+        await expect(workflow).resolves.toBe("ok")
+      }
+      finally {
+        process.off("unhandledRejection", unhandled)
+      }
+    })
+
     it("rejects sparse arrays whose custom properties mask missing indices", async () => {
       const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
       const result = Array(1) as unknown[] & { note?: string }

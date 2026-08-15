@@ -448,10 +448,10 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
     }
 
     const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = sorted.some(isTraceRunError)
+    const status: TraceRunStatus = sorted.some(event => event.name === "agent.stream.error" || event.name === "run.error")
       ? "failed"
       : terminal
-        ? "completed"
+        ? isTraceRunError(terminal) ? "failed" : "completed"
         : "running"
     const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
@@ -472,6 +472,10 @@ function traceRunTraceId(run: TraceRunView): string {
 
 function traceRunParentId(run: TraceRunView): string | undefined {
   return firstString(...run.events.map(event => event.trace?.parentId))
+}
+
+function traceRunSpanId(run: TraceRunView): string {
+  return firstString(...run.events.map(event => event.attributes?.["agent.invocation.id"]), run.id) || run.id
 }
 
 function isOpenTelemetryId(value: string, length: number): boolean {
@@ -503,7 +507,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
     const rawParentSpanId = traceRunParentId(run)
     const rawTraceId = traceRunTraceId(run)
     const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
-    const spanId = openTelemetryId(run.id, 16)
+    const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
     const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
     const errorMessage = firstString(...run.events.slice().reverse().map(event => event.attributes?.["error.message"]))

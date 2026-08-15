@@ -571,4 +571,14 @@ describe("@vite-hub/runtime", () => {
     expect(span?.attributes?.details).toEqual({ nested: { "content.omitted": ["prompt"], safe: true } })
     expect(JSON.stringify(span)).not.toContain("secret prompt")
   })
+
+  it("uses the terminal invocation outcome after a recovered error", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", trace: { id: "trace-1" }, type: "run" })
+    await log.append({ attributes: { "error.message": "best-effort start failed" }, name: "agent.invocation.error", trace: { id: "trace-1" }, type: "error" })
+    await log.append({ name: "agent.invocation.finish", trace: { id: "trace-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())[0]?.status).toBe("completed")
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]?.status).toEqual({ code: "OK" })
+  })
 })
