@@ -135,6 +135,9 @@ import type {
   AgentChannelDeliveryFinishEffectContext,
   AgentDefinition,
   AgentDriver,
+  BuiltInAgentDriver,
+  ClaudeCodeDriverOptions,
+  CodexDriverOptions,
   AgentDriverContribution,
   AgentDriverKind,
   CustomAgentDriver,
@@ -1607,6 +1610,18 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
         : readonly ValidateStaticAgentCapability<TCapabilities[number]>[]
       : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
     : TCapabilities
+
+export function codexDriver<CALL_OPTIONS = unknown, TOutput = unknown>(
+  options: CodexDriverOptions<TOutput> = {},
+): Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "codex" }> {
+  return { ...options, kind: "codex" } as Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "codex" }>
+}
+
+export function claudeCodeDriver<CALL_OPTIONS = unknown, TOutput = unknown>(
+  options: ClaudeCodeDriverOptions<TOutput> = {},
+): Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "claude-code" }> {
+  return { ...options, kind: "claude-code" } as Extract<BuiltInAgentDriver<CALL_OPTIONS, TOutput>, { kind: "claude-code" }>
+}
 
 export interface DefineAgent {
   <

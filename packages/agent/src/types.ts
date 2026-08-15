@@ -1100,10 +1100,16 @@ export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOpti
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
 
+declare const agentDriverCallOptions: unique symbol
+
+type AgentDriverCallOptions<CALL_OPTIONS> = {
+  readonly [agentDriverCallOptions]?: (options: CALL_OPTIONS) => CALL_OPTIONS
+}
+
 export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   | BuiltInAgentDriverName
-  | ({ kind: "codex" } & CodexDriverOptions<TOutput>)
-  | ({ kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
+  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "codex" } & CodexDriverOptions<TOutput>)
+  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
