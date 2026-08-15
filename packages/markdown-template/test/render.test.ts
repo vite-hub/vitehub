@@ -64,6 +64,7 @@ describe("renderMarkdownTemplate", () => {
       "https://example.com/?x=&#x29;*Injected*",
       "https://example.com/?a=1&amp;b=2",
       "http://[::1]/recap",
+      "//[::1]/recap",
     ]) {
       await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url } }))
         .rejects.toThrow("must resolve to a safe destination")
