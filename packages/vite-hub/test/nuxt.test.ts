@@ -638,6 +638,8 @@ describe("ViteHub Nuxt integration", () => {
       imports: { imports: Array<{ from: string, name: string }> }
     }).imports.imports).toEqual([
       { from: "vite-hub/agent/vue", name: "useAgent" },
+      { from: "vite-hub/agent/vue", name: "useAgentInvocation" },
+      { from: "vite-hub/agent/vue", name: "useAgentInvocations" },
       { from: "vite-hub/agent/vue", name: "useChat" },
     ])
   })
