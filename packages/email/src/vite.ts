@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 
@@ -239,14 +239,32 @@ async function collectEmailTemplateDependencies(files: string[], dependencies: S
   for (const file of files) await visit(file)
 }
 
-async function materializeEmailTemplates(templatesRoot: string, outputRoot: string, rootDir: string): Promise<void> {
+interface EmailTemplate {
+  file: string
+  name: string
+}
+
+async function discoverEmailTemplates(templatesRoots: string[]): Promise<EmailTemplate[]> {
+  const templates = new Map<string, string>()
+  for (const root of templatesRoots) {
+    for (const file of await listEmailTemplates(root)) {
+      const name = templateName(root, file)
+      const existing = templates.get(name)
+      if (existing) throw new TypeError(`[vitehub] Duplicate Email template ${JSON.stringify(name)} in ${JSON.stringify(existing)} and ${JSON.stringify(file)}.`)
+      templates.set(name, file)
+    }
+  }
+  return [...templates].map(([name, file]) => ({ file, name }))
+}
+
+async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot: string, rootDir: string): Promise<void> {
   const stagingRoot = `${outputRoot}.staging`
   const backupRoot = `${outputRoot}.backup`
   await rm(stagingRoot, { force: true, recursive: true })
   await rm(backupRoot, { force: true, recursive: true })
   await mkdir(stagingRoot, { recursive: true })
-  for (const file of await listEmailTemplates(templatesRoot)) {
-    const target = resolve(stagingRoot, `${encodeURIComponent(templateName(templatesRoot, file))}.mjs`)
+  for (const { file, name } of templates) {
+    const target = resolve(stagingRoot, `${encodeURIComponent(name)}.mjs`)
     const entry = `${target}.entry.mjs`
     await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
@@ -288,7 +306,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   const cloudflareEmail = configured.driver === "unemail/driver/cloudflare-email"
   let definition: GeneratedEmailDefinition | undefined
   let serverDirs: string[] | undefined
-  let templatesRoot = resolve(process.cwd(), "server", "emails")
+  let templatesRoots = [resolve(process.cwd(), "server", "emails")]
   let materializedRoot = resolve(process.cwd(), ".vitehub", "email", "templates")
   let projectRoot = process.cwd()
   let buildStarted = false
@@ -298,26 +316,29 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
 
   const prepareTypes = async (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => {
     if (options.materialize) materializationRequested = true
-    const nextTemplatesRoot = resolve(options.serverDirs?.[0] ?? resolve(options.projectRoot, "server"), "emails")
-    if (nextTemplatesRoot !== templatesRoot || options.projectRoot !== projectRoot) materialized = false
+    const nextTemplatesRoots = (options.serverDirs ?? [resolve(options.projectRoot, "server")]).map(directory => resolve(directory, "emails"))
+    if (nextTemplatesRoots.join("\0") !== templatesRoots.join("\0") || options.projectRoot !== projectRoot) materialized = false
     projectRoot = options.projectRoot
-    templatesRoot = nextTemplatesRoot
+    templatesRoots = nextTemplatesRoots
     materializedRoot = resolve(options.projectRoot, ".vitehub", "email", "templates")
-    const files = await listEmailTemplates(templatesRoot)
-    const names = files.map(file => templateName(templatesRoot, file))
+    const templates = await discoverEmailTemplates(templatesRoots)
+    const files = templates.map(template => template.file)
+    const names = templates.map(template => template.name)
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
     if (options.materialize) {
       const nextWatchFiles = new Set(files)
       try {
         await collectEmailTemplateDependencies(files, nextWatchFiles)
-        await materializeEmailTemplates(templatesRoot, materializedRoot, options.projectRoot)
+        await materializeEmailTemplates(templates, materializedRoot, options.projectRoot)
       }
       finally {
         watchFiles = nextWatchFiles
       }
       materialized = true
     }
-    return Object.fromEntries(names.map(name => [name, resolve(materializedRoot, `${encodeURIComponent(name)}.mjs`)]))
+    return Object.fromEntries(names
+      .toSorted((left, right) => right.length - left.length || left.localeCompare(right))
+      .map(name => [name, resolve(materializedRoot, `${encodeURIComponent(name)}.mjs`)]))
   }
   const prepareTypesOnce = async () => {
     await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && !materialized, projectRoot, serverDirs })
@@ -330,29 +351,34 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       getDefinition: () => definition,
       prepareTypes,
     },
-    config(config) {
+    async config(config) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const hosting = getHostingProvider(resolveHosting(internalOptions, config as Record<string, unknown>))
       cloudflare = hosting === "cloudflare"
       vercel = hosting === "vercel"
       const nextProjectRoot = resolveViteHubProjectRoot(config.root ?? process.cwd())
-      const nextTemplatesRoot = resolve(serverDirs?.[0] ?? resolve(nextProjectRoot, "server"), "emails")
-      if (nextProjectRoot !== projectRoot || nextTemplatesRoot !== templatesRoot) materialized = false
+      const nextTemplatesRoots = (serverDirs ?? [resolve(nextProjectRoot, "server")]).map(directory => resolve(directory, "emails"))
+      if (nextProjectRoot !== projectRoot || nextTemplatesRoots.join("\0") !== templatesRoots.join("\0")) materialized = false
       projectRoot = nextProjectRoot
-      templatesRoot = nextTemplatesRoot
+      templatesRoots = nextTemplatesRoots
       materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
       if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
+      const emailTemplatePaths = cloudflare || vercel
+        ? await prepareTypes({ materialize: true, projectRoot, serverDirs })
+        : {}
       return {
-        ...(cloudflare || vercel ? { resolve: { alias: { "#vitehub/emails": materializedRoot } } } : {}),
+        ...(cloudflare || vercel
+          ? { resolve: { alias: Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [`${emailTemplatePrefix}${name}`, path])) } }
+          : {}),
         ssr: { noExternal: mergeNoExternal(config.ssr?.noExternal) },
       }
     },
     async configResolved(config) {
       const nextProjectRoot = resolveViteHubProjectRoot(config.root)
-      const nextTemplatesRoot = resolve(serverDirs?.[0] ?? resolve(nextProjectRoot, "server"), "emails")
-      if (nextProjectRoot !== projectRoot || nextTemplatesRoot !== templatesRoot) materialized = false
+      const nextTemplatesRoots = (serverDirs ?? [resolve(nextProjectRoot, "server")]).map(directory => resolve(directory, "emails"))
+      if (nextProjectRoot !== projectRoot || nextTemplatesRoots.join("\0") !== templatesRoots.join("\0")) materialized = false
       projectRoot = nextProjectRoot
-      templatesRoot = nextTemplatesRoot
+      templatesRoots = nextTemplatesRoots
       await prepareTypesOnce()
       definition = {
         ...configured,
@@ -376,11 +402,11 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     async buildStart() {
       await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && (buildStarted || !materialized), projectRoot, serverDirs })
       buildStarted = true
-      this.addWatchFile(templatesRoot)
+      for (const templatesRoot of templatesRoots) this.addWatchFile(templatesRoot)
       for (const file of watchFiles) this.addWatchFile(file)
     },
     configureServer(server) {
-      server.watcher.add(templatesRoot)
+      server.watcher.add(templatesRoots)
       server.watcher.add([...watchFiles])
       let refreshPending = false
       let refreshPromise: Promise<void> | undefined
@@ -403,7 +429,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         if (refreshed) server.ws.send({ type: "full-reload" })
       }
       const refreshForFile = (file: string) => {
-        if (!isInside(templatesRoot, file) && !watchFiles.has(file)) return
+        if (!templatesRoots.some(root => isInside(root, file)) && !watchFiles.has(file)) return
         refreshPending = true
         refreshPromise ??= refresh().finally(() => {
           refreshPromise = undefined
@@ -422,7 +448,17 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     resolveId(id) {
       if (id === EMAIL_DEFINITION_ID) return resolvedEmailDefinitionId
       const name = emailTemplateName(id)
-      if (name) return `/@fs/${resolve(templatesRoot, `${name}.md`)}?markdown-template`
+      if (name) return (async () => {
+        for (const templatesRoot of templatesRoots) {
+          const file = resolve(templatesRoot, `${name}.md`)
+          try {
+            if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+          }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+          }
+        }
+      })()
     },
     load(id) {
       if (id === resolvedEmailDefinitionId && definition) {

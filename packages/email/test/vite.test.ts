@@ -77,13 +77,13 @@ describe("hubEmail", () => {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
     })
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
 
     const cloudflareConfig = { nitro: {
       cloudflare: { wrangler: { compatibility_flags: ["custom"] } },
       preset: "cloudflare-module",
     } }
-    expect(config(cloudflareConfig)).not.toHaveProperty("nitro")
+    expect(await config(cloudflareConfig)).not.toHaveProperty("nitro")
     expect(cloudflareConfig).toMatchObject({
       nitro: {
         cloudflare: { nodeCompat: true, wrangler: { compatibility_flags: ["custom"] } },
@@ -100,10 +100,10 @@ describe("hubEmail", () => {
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({ driver: "unemail/driver/cloudflare-email" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
     const cloudflareConfig = { nitro: { preset: "cloudflare-module" } }
 
-    config(cloudflareConfig)
+    await config(cloudflareConfig)
     expect(cloudflareConfig).toMatchObject({
       nitro: {
         cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } },
@@ -130,7 +130,7 @@ describe("hubEmail", () => {
 
     await resolvePlugin(plugin, root)
 
-    expect((plugin.resolveId as (id: string) => string)("#vitehub/emails/monthly-recap"))
+    expect(await (plugin.resolveId as (id: string) => Promise<string>)("#vitehub/emails/monthly-recap"))
       .toBe(`/@fs/${template}?markdown-template`)
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
       'declare module "#vitehub/emails/monthly-recap/index.mjs/detail" {',
@@ -173,10 +173,10 @@ describe("hubEmail", () => {
       driver: "unemail/driver/cloudflare-email",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
 
-    expect(config({ root })).toMatchObject({
-      resolve: { alias: { "#vitehub/emails": join(root, ".vitehub", "email", "templates") } },
+    expect(await config({ root })).toMatchObject({
+      resolve: { alias: { "#vitehub/emails/monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs") } },
     })
     await resolvePlugin(plugin, root)
 
@@ -192,6 +192,56 @@ describe("hubEmail", () => {
       .toContain("Updated template")
   })
 
+  it("resolves nested standalone host templates through exact aliases", async () => {
+    const root = await createTempProject()
+    const template = join(root, "server", "emails", "monthly", "detail.md")
+    await mkdir(join(root, "server", "emails", "monthly"), { recursive: true })
+    await writeFile(template, "Nested detail")
+    const server = await createServer({
+      appType: "custom",
+      configFile: false,
+      plugins: [hubEmail({ driver: "unemail/driver/resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])],
+      root,
+      server: { middlewareMode: true },
+    })
+    try {
+      expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
+        .toBe(join(root, ".vitehub", "email", "templates", "monthly%2Fdetail.mjs"))
+    }
+    finally {
+      await server.close()
+    }
+  })
+
+  it("discovers every configured Email server directory", async () => {
+    const root = await createTempProject()
+    const firstServerDir = join(root, "layers", "first", "server")
+    const secondServerDir = join(root, "layers", "second", "server")
+    await mkdir(join(firstServerDir, "emails"), { recursive: true })
+    await mkdir(join(secondServerDir, "emails", "first"), { recursive: true })
+    await writeFile(join(firstServerDir, "emails", "first.md"), "First")
+    await writeFile(join(secondServerDir, "emails", "first", "second.md"), "Second")
+    const plugin = hubEmail({ driver: "unemail/driver/resend" })
+    await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root, serverDirs: [firstServerDir, secondServerDir] })).resolves.toEqual({
+      "first/second": join(root, ".vitehub", "email", "templates", "first%2Fsecond.mjs"),
+      first: join(root, ".vitehub", "email", "templates", "first.mjs"),
+    })
+  })
+
+  it("discovers an Email-only project root above an app Vite root", async () => {
+    const root = await createTempProject()
+    const appRoot = join(root, "app")
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await mkdir(appRoot)
+    await writeFile(join(appRoot, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, "server", "emails", "welcome.md"), "Welcome")
+    const plugin = hubEmail({ driver: "unemail/driver/resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
+    await expect(config({ root: appRoot })).resolves.toMatchObject({
+      resolve: { alias: { "#vitehub/emails/welcome": join(root, ".vitehub", "email", "templates", "welcome.mjs") } },
+    })
+  })
+
   it("serializes development refreshes and watches imported templates", async () => {
     const root = await createTempProject()
     const templatesRoot = join(root, "server", "emails")
@@ -204,8 +254,8 @@ describe("hubEmail", () => {
       driver: "unemail/driver/resend",
       hosting: "vercel",
     } as Parameters<typeof hubEmail>[0])
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
-    config({ root })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
+    await config({ root })
     await resolvePlugin(plugin, root)
 
     const handlers = new Map<string, (file: string) => void>()
@@ -257,9 +307,9 @@ describe("hubEmail", () => {
       driver: "unemail/driver/resend",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<Record<string, unknown>>
 
-    expect(config({ nitro: { preset: "node-server" } })).not.toHaveProperty("nitro")
+    expect(await config({ nitro: { preset: "node-server" } })).not.toHaveProperty("nitro")
     await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
     await resolvePlugin(plugin, root)
 
@@ -339,13 +389,13 @@ describe("hubEmail", () => {
     })).toThrow("email.options.apiKey cannot have a default")
   })
 
-  it("marks the package as noExternal for server environments", () => {
+  it("marks the package as noExternal for server environments", async () => {
     const plugin = hubEmail({ driver: "unemail/driver/resend" })
-    const config = plugin.config as (config: { ssr?: { noExternal?: string[] } }) => unknown
+    const config = plugin.config as (config: { ssr?: { noExternal?: string[] } }) => Promise<unknown>
     const configEnvironment = plugin.configEnvironment as (name: string, config: { consumer?: string; resolve?: { noExternal?: string[] } }) => unknown
 
-    expect(config({})).toEqual({ ssr: { noExternal: ["@vite-hub/email"] } })
-    expect(config({ ssr: { noExternal: ["existing"] } })).toEqual({
+    expect(await config({})).toEqual({ ssr: { noExternal: ["@vite-hub/email"] } })
+    expect(await config({ ssr: { noExternal: ["existing"] } })).toEqual({
       ssr: { noExternal: ["existing", "@vite-hub/email"] },
     })
     expect(configEnvironment("client", {})).toBeUndefined()
