@@ -190,7 +190,8 @@ async function startToolServer(
   tools: AgentToolSet,
   abortSignal: AbortSignal | undefined,
   emit: (event: StreamEvent) => void,
-  approvals: Map<string, (approved: boolean) => void>,
+  approvals: Map<string, (approved: boolean) => boolean>,
+  capabilityApprovalIds: Set<string>,
 ) {
   const [{ Server: McpServer }, { StreamableHTTPServerTransport }, { CallToolRequestSchema, ListToolsRequestSchema }] = await Promise.all([
     import("@modelcontextprotocol/sdk/server/index.js"),
@@ -220,6 +221,7 @@ async function startToolServer(
         ? error.cause as { capability?: unknown, id?: unknown, input?: unknown, reason?: unknown }
         : undefined
       if (approvalRequest && typeof approvalRequest.id === "string") {
+        capabilityApprovalIds.add(approvalRequest.id)
         emit({
           id: approvalRequest.id,
           input: approvalRequest.input,
@@ -230,7 +232,15 @@ async function startToolServer(
         let abortApproval: (() => void) | undefined
         const approved = await new Promise<boolean>((resolve) => {
           abortApproval = () => resolve(false)
-          approvals.set(approvalRequest.id as string, resolve)
+          approvals.set(approvalRequest.id as string, (approved) => {
+            approvals.delete(approvalRequest.id as string)
+            if (executionSignal.aborted) {
+              resolve(false)
+              return false
+            }
+            resolve(approved)
+            return true
+          })
           executionSignal.addEventListener("abort", abortApproval, { once: true })
           if (executionSignal.aborted) abortApproval()
         }).finally(() => {
@@ -544,14 +554,18 @@ function approvalDecision(approved: boolean): ProviderApprovalDecision {
   return approved ? "accept" : "decline"
 }
 
-async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, messages: Message[], approvals: Map<string, (approved: boolean) => void>): Promise<boolean> {
+async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, messages: Message[], approvals: Map<string, (approved: boolean) => boolean>, capabilityApprovalIds: Set<string>): Promise<boolean> {
   let responded = false
   for (const part of latestUserMessages(messages).flatMap(message => message.parts)) {
     if (part.type === "approval-decision") {
-      responded = true
       const resolveApproval = approvals.get(part.id)
-      if (resolveApproval) resolveApproval(part.approved)
-      else await runtime.respondToRequest(threadId, part.id as never, approvalDecision(part.approved))
+      if (resolveApproval) {
+        responded = resolveApproval(part.approved) || responded
+      }
+      else if (!capabilityApprovalIds.has(part.id)) {
+        responded = true
+        await runtime.respondToRequest(threadId, part.id as never, approvalDecision(part.approved))
+      }
     }
     if (part.type === "data-agent-input" && part.data && typeof part.data === "object") {
       const data = part.data as { answers?: unknown, requestId?: unknown }
@@ -730,7 +744,8 @@ async function* runProvider(
   let runtime: ProviderRuntime | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
-  const capabilityApprovals = new Map<string, (approved: boolean) => void>()
+  const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
+  const capabilityApprovalIds = new Set<string>()
   let notifyToolEvent: (() => void) | undefined
   const emitToolEvent = (event: StreamEvent) => {
     pendingToolEvents.push(event)
@@ -867,7 +882,7 @@ async function* runProvider(
       finalizeLateRuntimeCreation,
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals)
+    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
@@ -900,7 +915,7 @@ async function* runProvider(
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
             const messages = input.messages || (typeof input.message === "object" ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
-            return await respondToInput(activeRuntime, threadId, messages, capabilityApprovals) ? "accepted" : "unsupported"
+            return await respondToInput(activeRuntime, threadId, messages, capabilityApprovals, capabilityApprovalIds) ? "accepted" : "unsupported"
           }
           catch {
             return "unavailable"
@@ -948,6 +963,9 @@ async function* runProvider(
       const normalized = providerEvent(current.value, context.tools)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)
+      if (current.value.type === "session.exited") {
+        caught = new Error(`[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}`)
+      }
       if (current.value.turnId === turn.turnId && current.value.type === "turn.aborted") {
         caught = effectiveSignal?.aborted
           ? effectiveSignal.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError")
