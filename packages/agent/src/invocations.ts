@@ -558,7 +558,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             return true
           }
           if (await finishOnce() || terminalRetry) return
-          terminalRetry = (async () => {
+          const retry = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && Date.now() < deadline) {
               await new Promise<void>((resolve) => {
@@ -573,8 +573,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
               ownsRecord = false
             }
-          })()
-          registerAgentInvocationRecovery(context, terminalRetry)
+          })().finally(() => {
+            if (!finished && terminalRetry === retry) terminalRetry = undefined
+          })
+          terminalRetry = retry
+          registerAgentInvocationRecovery(context, retry)
         },
         async running() {
           if (finished) return

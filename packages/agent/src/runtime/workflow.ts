@@ -73,7 +73,9 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
   recovery: NonNullable<AgentWorkflowInvocationPayload["invocationRecovery"]>,
 ): Promise<void> {
   if (!agent || typeof agent !== "object" || !("invocations" in agent)) return
-  const journal = await bindAgentInvocations(agent.invocations, {
+  const invocations = agent.invocations
+  if (!invocations) return
+  const journal = await bindAgentInvocations(invocations, {
     ...runtimeContext,
     run: { ...runtimeContext.run, runId: recovery.sourceRunId },
   }, { agentName: recovery.agentName, deferClaim: true, terminalTakeover: true })
@@ -86,7 +88,8 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
       if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
         await journal.finish(run.status, run.status === "failed" ? run.metadata : undefined)
         await Promise.all(agentInvocationRecoveryTasks(runtimeContext))
-        return
+        const record = await invocations.getByRunId(recovery.sourceRunId, recovery.agentName)
+        if (record?.status === run.status) return
       }
     }
     catch {}

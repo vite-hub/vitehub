@@ -865,7 +865,8 @@ async function runAgentAsWorkflow<
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
+  const workflowName = resolveAgentWorkflowName(agent, binding, context)
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
@@ -902,6 +903,31 @@ async function runAgentAsWorkflow<
       ? await portableAgentWorkflowRunId(context.run.runId)
       : context.run.runId
     : undefined
+  const deferRecovery = async (runId: string, sourceRunId: string): Promise<boolean> => {
+    if (!hasAgentDefinition(agent)) return false
+    const recoveryId = await portableAgentWorkflowRunId(`${runId}-invocation-recovery`)
+    const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
+      agent,
+      agentWorkflowRecoveryName(handle.name),
+      Boolean(context.agentIdentity),
+      true,
+    )
+    try {
+      await deferAgentWorkflowRecovery(recoveryHandle, {
+        invocationRecovery: {
+          ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
+          runId,
+          sourceRunId,
+          workflowName,
+        },
+        ...(context.trace ? { trace: context.trace } : {}),
+      }, { id: recoveryId })
+      return true
+    }
+    catch {
+      return false
+    }
+  }
   let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   try {
     run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
@@ -920,6 +946,9 @@ async function runAgentAsWorkflow<
         run: { ...context.run, runId: failedRunId },
       }, { agentName: agent.name, deferClaim: ambiguous, terminalTakeover: true })
       if (!ambiguous) await invocationJournal?.finish("failed", error)
+      else if (workflowConfig && workflowConfig.provider === "cloudflare" && workflowRunId) {
+        await deferRecovery(workflowRunId, failedRunId)
+      }
     }
     throw error
   }
@@ -930,27 +959,7 @@ async function runAgentAsWorkflow<
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
       const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id
-      const recoveryId = await portableAgentWorkflowRunId(`${run.id}-invocation-recovery`)
-      const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
-        agent,
-        agentWorkflowRecoveryName(handle.name),
-        Boolean(context.agentIdentity),
-        true,
-      )
-      try {
-        await deferAgentWorkflowRecovery(recoveryHandle, {
-          invocationRecovery: {
-            ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
-            runId: run.id,
-            sourceRunId,
-            workflowName: handle.name,
-          },
-          ...(context.trace ? { trace: context.trace } : {}),
-        }, { id: recoveryId })
-      }
-      catch {
-        return { handle, run }
-      }
+      if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
     }
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
