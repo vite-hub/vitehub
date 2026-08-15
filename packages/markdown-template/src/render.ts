@@ -141,7 +141,7 @@ function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
 
 async function safeLinkDestination(path: string, data: Record<string, unknown>): Promise<string> {
   const value = scalarValue(path, data)
-  if (/^(?:[a-z][a-z\d+.-]*:)?\/\/(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
+  if (/^(?:[a-z][a-z\d+.-]*:)?\/{2,}(?:[^/?#]*@)?\[/i.test(value) || [...value].some((character) => {
     const codePoint = character.codePointAt(0)!
     return codePoint < 32 || codePoint === 127
   })) {
