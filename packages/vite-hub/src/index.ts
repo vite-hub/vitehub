@@ -575,13 +575,16 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.agent) {
     const agentOptions = options.agent === true ? {} : options.agent
+    const configuredAgentState = agentOptions.providers?.state
     plugins.push(hubAgent({
       ...agentOptions,
       ...(plan.preset === "cloudflare"
         ? {
             providers: {
               ...agentOptions.providers,
-              state: { provider: "cloudflare", ...agentOptions.providers?.state },
+              state: configuredAgentState?.url
+                ? configuredAgentState
+                : { provider: "cloudflare", ...configuredAgentState },
             },
           }
         : {}),

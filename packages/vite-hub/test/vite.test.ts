@@ -352,6 +352,14 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
     }))
+
+    vitehub({
+      agent: { providers: { state: { url: "libsql://state.example.test" } } },
+      preset: "cloudflare",
+    })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      providers: { state: { url: "libsql://state.example.test" } },
+    }))
   })
 
   it("resolves only package-owned imports from generated modules", async () => {
