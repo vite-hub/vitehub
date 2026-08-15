@@ -1000,7 +1000,9 @@ async function executeQueuedWebhookDelivery(
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
   if (delivery.attempts >= maxWebhookQueueAttempts) {
-    await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
+    if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" exhausted ${maxWebhookQueueAttempts} execution leases and will not be retried.`)
+    }
     return
   }
   let resolveActiveCompletion: (() => void) | undefined
