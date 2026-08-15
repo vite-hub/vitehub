@@ -671,6 +671,7 @@ function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease" | "steer
 }
 
 const defaultWebhookQueueRetryMs = 1_000
+const maxWebhookQueueAttempts = 3
 
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
@@ -812,7 +813,7 @@ async function steerQueuedWebhookDelivery(
           await state.set(claimKey, "steering")
         }
         catch {
-          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
           await state.delete(claimKey).catch(() => undefined)
           return { queued: true, response: await fallback(true) }
         }
@@ -829,7 +830,7 @@ async function steerQueuedWebhookDelivery(
         catch {}
         if (steeringLeaseLost || sendLockLost) {
           stopDeliveryHeartbeat()
-          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+          await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
           await state.delete(claimKey)
           return { queued: false, response: Response.json({ accepted: false, busy: true, ok: true }, { status: 503 }) }
         }
@@ -855,7 +856,7 @@ async function steerQueuedWebhookDelivery(
           return { queued: false, response: Response.json({ accepted: true, ok: true, steered: true }) }
         }
         stopDeliveryHeartbeat()
-        await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now())
+        await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
         await state.set(claimKey, "queued")
         return { queued: true, response: await fallback(true) }
       }
@@ -998,6 +999,12 @@ async function executeQueuedWebhookDelivery(
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
+  if (delivery.attempts >= maxWebhookQueueAttempts) {
+    if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" exhausted ${maxWebhookQueueAttempts} execution leases and will not be retried.`)
+    }
+    return
+  }
   let resolveActiveCompletion: (() => void) | undefined
   let rejectActiveCompletion: ((reason?: unknown) => void) | undefined
   const request = requestFromPersistedWebhook(delivery)
@@ -1016,7 +1023,6 @@ async function executeQueuedWebhookDelivery(
     ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
   })
   const stopForLifecycle = () => {
-    stopHeartbeat()
     ownershipAbort.abort(lifecycleSignal.reason)
   }
   if (lifecycleSignal.aborted) stopForLifecycle()
@@ -1104,11 +1110,17 @@ async function executeQueuedWebhookDelivery(
   }
   catch (error) {
     rejectActiveCompletion?.(error)
+    if (!lifecycleSignal.aborted && delivery.attempts + 1 >= maxWebhookQueueAttempts) {
+      if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+        console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed after ${maxWebhookQueueAttempts} attempts and will not be retried.`, error)
+      }
+      return
+    }
     const retryDelay = lifecycleSignal.aborted
       ? 0
       : Math.min(60_000, defaultWebhookQueueRetryMs * 2 ** Math.min(delivery.attempts, 6))
     const retryAt = Date.now() + retryDelay
-    if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt)) {
+    if (await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: !lifecycleSignal.aborted })) {
       if (lifecycleSignal.aborted) return retryAt
       console.error(`[vitehub] Queued webhook delivery "${delivery.deliveryId}" failed and will be retried.`, error)
       return retryAt
@@ -4054,7 +4066,7 @@ export function createChannelWebhookRouteHandler(
           break
         }
         if (queueStopped) {
-          await queue.state.retryWebhookDelivery(queue.scope, delivery.deliveryId, delivery.leaseToken, Date.now()).catch(() => undefined)
+          await queue.state.retryWebhookDelivery(queue.scope, delivery.deliveryId, delivery.leaseToken, Date.now(), { incrementAttempts: false }).catch(() => undefined)
           break
         }
         const controller = new AbortController()

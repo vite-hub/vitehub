@@ -182,7 +182,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const now = Date.now()
       const candidates = await execute(
         tx,
-        `SELECT candidate.delivery_id, candidate.value, candidate.concurrency_group,
+        `SELECT candidate.delivery_id, candidate.value, candidate.status, candidate.concurrency_group,
             candidate.concurrency_key, candidate.concurrency_limit, candidate.lease_ttl_ms, candidate.attempts
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
@@ -209,7 +209,8 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         const claimed = await execute(
           tx,
           `UPDATE ${this.tables.webhookQueue}
-            SET status = 'running', lease_token = ?, lease_expires_at = ?
+            SET attempts = attempts + CASE WHEN status IN ('running', 'steering') THEN 1 ELSE 0 END,
+              status = 'running', lease_token = ?, lease_expires_at = ?
             WHERE scope = ? AND delivery_id = ?
               AND (status = 'queued' OR (status IN ('running', 'steering') AND lease_expires_at <= ?))
             RETURNING value`,
@@ -218,7 +219,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         if (claimed.length === 0 || typeof candidate.value !== "string") continue
         return {
           ...JSON.parse(candidate.value) as AgentWebhookQueueDelivery,
-          attempts: numberValue(candidate.attempts),
+          attempts: numberValue(candidate.attempts) + (candidate.status === "queued" ? 0 : 1),
           leaseExpiresAt: now + leaseTtlMs,
           leaseToken,
         }
@@ -447,17 +448,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
-  async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number): Promise<boolean> {
+  async retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean> {
     const retried = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
       return await execute(
         this.driver,
         `UPDATE ${this.tables.webhookQueue}
-        SET status = 'queued', available_at = ?, attempts = attempts + 1,
+        SET status = 'queued', available_at = ?, attempts = attempts + ?,
           lease_token = NULL, lease_expires_at = NULL
         WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
         RETURNING delivery_id`,
-        [availableAt, scope, deliveryId, leaseToken],
+        [availableAt, options?.incrementAttempts === false ? 0 : 1, scope, deliveryId, leaseToken],
       )
     })
     return retried.length > 0

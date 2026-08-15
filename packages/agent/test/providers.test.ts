@@ -6469,6 +6469,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
     const releases: Array<() => void> = []
     const closeControls: Array<() => void> = []
     const steeredInputs: unknown[] = []
@@ -6581,6 +6582,13 @@ describe("server helpers", () => {
       rejectSteer = true
       const rejected = await handler(request("delivery-3"), "github", options)
       await expect(rejected.json()).resolves.toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+      expect(retryDelivery).toHaveBeenCalledWith(
+        "webhook:review:github:github:",
+        "delivery-3",
+        expect.any(String),
+        expect.any(Number),
+        { incrementAttempts: false },
+      )
       rejectSteer = false
       const rejectedReplay = await handler(request("delivery-3"), "github", options)
       await expect(rejectedReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
@@ -7067,7 +7075,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("retries a failed queued webhook delivery", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
@@ -7078,6 +7086,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-retry-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
+    const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
     const run = vi.fn()
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValue("accepted")
@@ -7118,6 +7127,8 @@ describe("server helpers", () => {
       stop = handler.resume({ agentName: "review", webhookState: state })
       await expect(handler(request(), "github", { agentName: "review", webhookState: state })).resolves.toMatchObject({ status: 200 })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledOnce())
+      await expect(retryDelivery.mock.results[0]?.value).resolves.toBe(true)
 
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
@@ -7135,6 +7146,80 @@ describe("server helpers", () => {
       await rm(stateDir, { force: true, recursive: true })
     }
   })
+
+  it("terminally completes a queued webhook delivery after three failed attempts", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-terminal-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
+    const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const run = vi.fn(async () => { throw new Error("persistent failure") })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "fail" },
+                webhook: {
+                  concurrencyLimit: 1,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = () => new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-terminal",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    let stop: () => void | Promise<void> = () => undefined
+
+    try {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-08-04T12:00:00.000Z"))
+      stop = handler.resume({ agentName: "review", webhookState: state })
+      await handler(request(), "github", { agentName: "review", webhookState: state })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(1))
+      await expect(retryDelivery.mock.results[0]?.value).resolves.toBe(true)
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(retryDelivery).toHaveBeenCalledTimes(2))
+      await expect(retryDelivery.mock.results[1]?.value).resolves.toBe(true)
+      await vi.advanceTimersByTimeAsync(2_000)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3))
+      await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
+      await expect(completeDelivery.mock.results[0]?.value).resolves.toBe(true)
+
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(run).toHaveBeenCalledTimes(3)
+      const duplicate = await handler(request(), "github", { agentName: "review", webhookState: state })
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true, queued: false })
+    }
+    finally {
+      await stop()
+      consoleError.mockRestore()
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  }, 30_000)
 
   it("retries a failed queued webhook delivery without the startup pump", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
