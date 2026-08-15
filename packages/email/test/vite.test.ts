@@ -151,6 +151,23 @@ describe("hubEmail", () => {
       .toThrow("Invalid Email template")
   })
 
+  it("materializes templates before Cloudflare builds", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
+    const plugin = hubEmail({
+      driver: "unemail/driver/cloudflare-email",
+      hosting: "cloudflare-module",
+    } as Parameters<typeof hubEmail>[0])
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Record<string, unknown>
+
+    config({ root })
+    await resolvePlugin(plugin, root)
+
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .toContain("Hello {{name}}")
+  })
+
   it("uses the development Nitro preset instead of the deployment target", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({

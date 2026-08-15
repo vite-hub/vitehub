@@ -273,7 +273,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     }
   }
   const prepareTypesOnce = async () => {
-    await prepareTypes({ materialize: vercel && !materialized, projectRoot, serverDirs })
+    await prepareTypes({ materialize: (cloudflare || vercel) && !materialized, projectRoot, serverDirs })
   }
 
   return {
@@ -334,7 +334,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       server.watcher.add(templatesRoot)
       const refreshForFile = async (file: string) => {
         if (!isInside(templatesRoot, file)) return
-        await prepareTypes({ materialize: vercel, projectRoot, serverDirs })
+        await prepareTypes({ materialize: cloudflare || vercel, projectRoot, serverDirs })
         server.ws.send({ type: "full-reload" })
       }
       server.watcher.on("add", file => void refreshForFile(file).catch(error => server.config.logger.error(String(error))))

@@ -451,6 +451,23 @@ describe("ViteHub Nuxt integration", () => {
     expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
   })
 
+  it("materializes Email templates before Cloudflare Workflow preparation", async () => {
+    const prepareTypes = vi.fn()
+    mocks.vitehub.mockReturnValue([{
+      api: { prepareTypes },
+      name: "@vite-hub/email/vite",
+    }])
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({ email: true, preset: "cloudflare" }, nuxt)
+
+    expect(prepareTypes).toHaveBeenCalledWith({
+      materialize: true,
+      projectRoot: "/tmp/vitehub-nuxt",
+      serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+    })
+  })
+
   it("includes generated types from a configured Env project root", async () => {
     const { nuxt } = createNuxt()
 

@@ -335,7 +335,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     api?: { prepareTypes?: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<void> }
   } | undefined
   await emailPlugin?.api?.prepareTypes?.({
-    materialize: options.preset === "vercel",
+    materialize: options.preset === "cloudflare" || options.preset === "vercel",
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   })
