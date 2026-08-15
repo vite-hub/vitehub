@@ -164,6 +164,8 @@ export interface WorkflowDefinitionOptions<TPayload = unknown, TResult = unknown
 }
 
 export interface WorkflowDefinition<TPayload = unknown, TResult = unknown> {
+  /** @internal Identifies provider-generated Agent invocation recovery definitions. */
+  internalAgentInvocationRecovery?: true
   handler: WorkflowHandler<TPayload, TResult>
   options?: WorkflowDefinitionOptions<TPayload, TResult>
 }

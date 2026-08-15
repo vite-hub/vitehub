@@ -1953,6 +1953,21 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("honors custom bindings for user Workflows with recovery-like names", async () => {
+    const name = "vitehub-agent-invocation-recovery-user-defined"
+    const createBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      [name]: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: { createBatch, get: vi.fn() } } } } },
+    })
+
+    await expect(runWorkflow(name, {}, { id: "custom-run" })).resolves.toMatchObject({ id: "custom-run" })
+    expect(createBatch).toHaveBeenCalledOnce()
+  })
+
   it("omits unsafe workflow names and caller run IDs from public errors", async () => {
     const unsafeName = "https://provider.example/private?token=provider-secret"
     setWorkflowRuntimeConfig({ provider: "vercel" })

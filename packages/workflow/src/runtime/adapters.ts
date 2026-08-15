@@ -42,8 +42,8 @@ function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel"
   })
 }
 
-function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string) {
-  const bindingName = name.startsWith("vitehub-agent-invocation-recovery-")
+function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string, definition?: { internalAgentInvocationRecovery?: true }) {
+  const bindingName = definition?.internalAgentInvocationRecovery
     ? getCloudflareWorkflowBindingName(name)
     : binding || getCloudflareWorkflowBindingName(name)
   return getCloudflareEnv(event)?.[bindingName] as CloudflareWorkflowBinding | undefined
@@ -70,7 +70,8 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
   return {
     cancel: () => unsupportedOperation("cloudflare", "cancellation"),
     async get({ event, id, name }) {
-      const binding = resolveCloudflareBinding(event, config.binding, name)
+      const definition = await loadWorkflowDefinition(name)
+      const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
@@ -85,7 +86,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       return await inlineAdapter(config).get({ event, id, name })
     },
     async run({ definition, event, id, name, options, payload }) {
-      const binding = resolveCloudflareBinding(event, config.binding, name)
+      const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         const start = () => runWorkflowProviderOperation(
           "cloudflare",

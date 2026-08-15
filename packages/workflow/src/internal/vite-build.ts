@@ -450,7 +450,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
     `    const agent = agentWithColocatedHome(agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))}), ${JSON.stringify(readAgentHome(definition.handler))})`,
-    `    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", options: { rootStep: false }" : ""} }`,
+    `    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true, options: { rootStep: false }" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
     "  },",
@@ -663,6 +663,14 @@ async function writeProviderEntries(
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir, serverDirs })
+  const definitionNames = new Set(definitions.map(definition => definition.name))
+  for (const definition of definitions) {
+    if (definition.source !== "agent-workflow") continue
+    const recoveryName = `vitehub-agent-invocation-recovery-${definition.name}`
+    if (definitionNames.has(recoveryName)) {
+      throw new Error(`Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.`)
+    }
+  }
   const providerDefinitions = definitions.flatMap(definition => definition.source === "agent-workflow"
     ? [definition, {
         ...definition,

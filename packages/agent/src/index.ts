@@ -761,6 +761,7 @@ async function getAgentWorkflowHandle<
   const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
   if (!registered && recovery) {
     registerInlineWorkflowDefinition(name, {
+      internalAgentInvocationRecovery: true,
       handler: async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
