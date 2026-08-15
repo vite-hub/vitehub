@@ -159,10 +159,17 @@ function applyVariantToExplicitDriver(
   driver: unknown,
   variant: AgentEvalVariant,
 ): Record<string, unknown> {
+  if (driver === "codex" || driver === "claude-code") {
+    return {
+      kind: driver,
+      ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
+      ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+    }
+  }
   if (!isRecord(driver)) {
     throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
   }
-  if ("model" in driver) {
+  if ("model" in driver || driver.kind === "codex" || driver.kind === "claude-code") {
     return {
       ...driver,
       ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
