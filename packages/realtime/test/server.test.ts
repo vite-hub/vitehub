@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
+import type { JSONContent } from "@tiptap/core"
 import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
@@ -1049,6 +1051,22 @@ describe("tiptap-markdown documents", () => {
     expect(normalized).toContain("![Diagram](https://example.com/diagram.png)")
     expect(normalized).toContain("| One  | Two")
     expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
+  })
+
+  it("round-trips YAML frontmatter without turning it into document headings", () => {
+    const markdown = `---\nname: docs\ndescription: Shared editing\ndisabled: true\n---\n\n# Shared page`
+    const normalized = yDocToMarkdown(markdownToYDoc(markdown))
+
+    expect(normalized).toBe(markdown)
+    expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
+  })
+
+  it("recognizes frontmatter only as the first document block", () => {
+    const leading = yDocToProsemirrorJSON(markdownToYDoc("---\r\nname: docs\r\n---\r\n\r\n# Page"), "default")
+    const later = yDocToProsemirrorJSON(markdownToYDoc("# Page\n\n---\nname: section\n---"), "default")
+
+    expect(leading.content?.map((node: JSONContent) => node.type)).toEqual(["frontmatter", "heading"])
+    expect(later.content?.map((node: JSONContent) => node.type)).not.toContain("frontmatter")
   })
 
   it("conditionally writes the live document for a Workspace checkpoint", async () => {

@@ -13,6 +13,7 @@ import type { MaybeRefOrGetter } from "vue"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeCheckpoint, RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
+import { Frontmatter } from "./frontmatter.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, isRetryableRealtimeCheckpointCode, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
 
@@ -193,6 +194,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           StarterKit.configure({ undoRedo: false }),
           Image,
           TableKit,
+          Frontmatter,
           Markdown,
           markRaw(Collaboration.configure({ fragment: markRaw(document.value.getXmlFragment("default")) })),
         ]
