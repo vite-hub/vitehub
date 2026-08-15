@@ -320,12 +320,13 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
 async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error?: unknown) {
   if (!session) return
   try {
-    if (error || !context.workspaceDefinition) return
+    if (error || !context.workspaceDefinition || context.workspaceMode !== "write") return
     const diff = await session.diff()
-    setAgentWorkspaceDiff(context.context, diff)
     const definition = workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
     const commit = resolveWorkspaceAutoCommit(definition, diff)
-    if (commit) await session.commit({ message: commit.message || "provider-workspace-session" })
+    if (!commit) return
+    await session.commit({ message: commit.message || "provider-workspace-session" })
+    setAgentWorkspaceDiff(context.context, diff)
   }
   finally {
     await session.close()

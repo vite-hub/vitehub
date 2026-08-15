@@ -1779,6 +1779,7 @@ export interface AgentAdapterRunContext<
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>
   workspaceMaterializationPaths?: readonly string[]
+  workspaceMode?: AgentCapabilityMode
 }
 
 export interface AgentAdapter<

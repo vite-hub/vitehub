@@ -11,6 +11,7 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 
 import { createProviderAgentAdapter } from "../src/provider-agent.ts"
 import { defineAgent } from "../src/index.ts"
+import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 
@@ -290,6 +291,7 @@ describe("Provider Agent Driver", () => {
       workspaceAutoCommit: true,
       workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
       workspaceMaterializationPaths: ["skills/review"],
+      workspaceMode: "write",
     }) as never)
 
     expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ paths: undefined, target: expect.any(String) }))
@@ -312,6 +314,7 @@ describe("Provider Agent Driver", () => {
       workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
       workspaceAutoCommit: true,
       workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
+      workspaceMode: "write",
     }) as never)
 
     for await (const item of stream as AsyncIterable<{ type?: string }>) {
@@ -319,6 +322,57 @@ describe("Provider Agent Driver", () => {
     }
 
     expect(session.commit).toHaveBeenCalledWith({ message: "chore: save provider work" })
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("does not write back a read-only Workspace", async () => {
+    const threadId = "thread-workspace-read"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [{ path: "result.md", type: "modified" }] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const runContext = context(threadId, {
+      workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
+      workspaceAutoCommit: true,
+      workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
+      workspaceMode: "read",
+    })
+
+    await adapter.generate(runContext as never)
+
+    expect(session.diff).not.toHaveBeenCalled()
+    expect(session.commit).not.toHaveBeenCalled()
+    expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("does not publish a Workspace diff without a successful commit", async () => {
+    const threadId = "thread-workspace-uncommitted"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [{ path: "result.md", type: "modified" }] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const runContext = context(threadId, {
+      workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    })
+
+    await adapter.generate(runContext as never)
+
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.commit).not.toHaveBeenCalled()
+    expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
     expect(session.close).toHaveBeenCalledOnce()
   })
 
