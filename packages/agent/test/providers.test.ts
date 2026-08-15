@@ -12412,8 +12412,25 @@ describe("server helpers", () => {
     const pdf = archive.messages.find(message => message.id === "21")!.attachments[0]!
     expect(Buffer.from(pdf.data, "base64")).toHaveLength(archivedPdf.byteLength)
     expect(fetchAttachment).toHaveBeenCalledWith(new URL("https://cdn.example.com/receipt.pdf"), { redirect: "error" })
+    const cancelOversizedBody = vi.fn()
+    fetchAttachment.mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelOversizedBody }), {
+      headers: { "content-length": String(25 * 1024 * 1024 + 1) },
+    }))
+    const oversizedResponse = await handler(new Request(webhookUrl, {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: {
+        "content-type": "application/json",
+        "x-test-secret": "history-secret",
+        "x-vitehub-channel-history": "1",
+      },
+      method: "POST",
+    }), "telegram", { state })
+    expect(oversizedResponse.status).toBe(200)
+    const oversizedArchive = await oversizedResponse.json() as { messages: Array<{ attachments: Array<{ unavailable?: boolean }>, id: string }> }
+    expect(oversizedArchive.messages.find(message => message.id === "21")!.attachments[0]).toMatchObject({ unavailable: true })
+    expect(cancelOversizedBody).toHaveBeenCalledOnce()
     fetchAttachment.mockRestore()
-    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 1)
+    expect(connect).toHaveBeenCalledTimes(connectsBeforeHistory + 2)
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
   })

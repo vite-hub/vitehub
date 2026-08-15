@@ -3819,10 +3819,16 @@ async function fetchChannelHistoryAttachmentBytes(url: string): Promise<Uint8Arr
   const parsed = new URL(url)
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) return
   const response = await fetch(parsed, { redirect: "error" })
-  if (!response.ok) return
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    return
+  }
   const contentLengthHeader = response.headers.get("content-length")
   const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
-  if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength > channelHistoryAttachmentMaxBytes) return
+  if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength > channelHistoryAttachmentMaxBytes) {
+    await response.body?.cancel().catch(() => undefined)
+    return
+  }
   if (!response.body) return channelHistoryAttachmentBytes(await response.arrayBuffer())
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
