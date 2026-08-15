@@ -22,6 +22,7 @@ import type {
   AgentRuntimeContext,
   AgentRuntimeName,
 } from "../types.ts"
+import { agentTelemetryTask } from "../internal/telemetry-task.ts"
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
 import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 
@@ -239,8 +240,10 @@ export async function runAgentWorkflowDefinition<
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
+  const backgroundTasks: Promise<unknown>[] = []
   const waitUntil = (promise: Promise<unknown>): void => {
-    void Promise.resolve(promise).catch(() => {})
+    if (agentTelemetryTask in promise) backgroundTasks.push(Promise.resolve(promise))
+    else void Promise.resolve(promise).catch(() => {})
   }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare"
@@ -303,6 +306,9 @@ export async function runAgentWorkflowDefinition<
       await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "failed", runId }).catch(() => undefined)
     }
     throw error
+  }
+  finally {
+    await Promise.allSettled(backgroundTasks)
   }
 }
 

@@ -14,7 +14,7 @@ describe("Agent telemetry", () => {
     const telemetry = otlpHttpJson({
       endpoint: "https://console.example/v1/traces",
       headers: { authorization: "Bearer token" },
-      resource: { "deployment.environment.name": "production" },
+      resource: { "deployment.environment.name": "production", "vitehub.build.number": 1e21 },
     })
     const runtime = {
       memo: vi.fn(),
@@ -48,6 +48,7 @@ describe("Agent telemetry", () => {
     expect(new Headers(request?.headers).get("content-type")).toBe("application/json")
     expect(resource).toMatchObject({
       "deployment.environment.name": { stringValue: "production" },
+      "vitehub.build.number": { doubleValue: 1e21 },
       "service.name": { stringValue: "support" },
       "service.version": { stringValue: "1.0.0" },
       "vitehub.runtime.name": { stringValue: "vercel" },
@@ -88,7 +89,10 @@ describe("Agent telemetry", () => {
       driver: {
         async run(context) {
           await context.traceLog?.append({
-            attributes: { prompt: "secret prompt" },
+            attributes: {
+              details: Object.assign(Object.create(null), { prompt: "nested secret" }),
+              prompt: "secret prompt",
+            },
             name: "application.content",
             type: "run",
           })
@@ -122,6 +126,7 @@ describe("Agent telemetry", () => {
       }],
     })
     expect(JSON.stringify(exported.spans)).not.toContain("secret prompt")
+    expect(JSON.stringify(exported.spans)).not.toContain("nested secret")
   })
 
   it("exports Capability setup failures without replacing the original error", async () => {
@@ -243,6 +248,34 @@ describe("Agent telemetry", () => {
     await Promise.all(tasks)
 
     expect(error).toHaveBeenCalledWith("[vitehub] Agent telemetry export failed.")
+    error.mockRestore()
+  })
+
+  it("does not let cyclic trace preprocessing change Agent output", async () => {
+    const tasks: Promise<unknown>[] = []
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const cyclic: Record<string, unknown> = { safe: true }
+    cyclic.self = cyclic
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      telemetry: vi.fn(),
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({ attributes: { details: cyclic }, name: "cyclic", type: "run" })
+          return "ok"
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-cyclic" },
+      runtime: "unknown",
+      traceLog,
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})).resolves.toBe("ok")
+    await Promise.all(tasks)
+    expect(error).not.toHaveBeenCalled()
     error.mockRestore()
   })
 

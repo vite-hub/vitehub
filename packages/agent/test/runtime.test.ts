@@ -11088,6 +11088,33 @@ describe("agent message protocol", () => {
       background.resolve()
     })
 
+    it("retains telemetry work through Workflow completion", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+      const telemetry = deferred<void>()
+      const telemetryStarted = deferred<void>()
+      let completed = false
+      const agent = defineAgent({
+        telemetry: () => {
+          telemetryStarted.resolve()
+          return telemetry.promise
+        },
+        driver: { run: () => "done" },
+      })
+
+      const result = runAgentWorkflowDefinition(agent, {
+        id: "telemetry-source-run",
+        name: "telemetry-source-run",
+        payload: { run: { runId: "telemetry-source-run" } },
+        provider: "vercel",
+      }, runAgent as never).finally(() => { completed = true })
+
+      await telemetryStarted.promise
+      expect(completed).toBe(false)
+      telemetry.resolve()
+      await expect(result).resolves.toBe("done")
+    })
+
     it("releases settled Workflow recovery tasks", async () => {
       const { agentInvocationRecoveryTasks, registerAgentInvocationRecovery } = await import("../src/internal/invocation-recovery.ts")
       const recovery = deferred<void>()
