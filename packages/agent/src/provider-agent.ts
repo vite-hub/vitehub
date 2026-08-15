@@ -78,10 +78,6 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
   ask: "approval-required",
 }
 
-function cleanEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries({ ...process.env, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
-}
-
 const providerHostEnvironmentKeys = [
   "APPDATA",
   "ComSpec",
@@ -213,9 +209,10 @@ async function startToolServer(
   mcp.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const tool = tools[request.params.name]
     if (!tool?.execute) return { content: [{ text: `Unknown Agent tool: ${request.params.name}`, type: "text" }], isError: true }
+    const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
     try {
       const input = await validateToolInput(tool, request.params.arguments || {})
-      return toolResult(await tool.execute(input, { abortSignal: AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])]) }))
+      return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
     }
     catch (error) {
       const shape = getViteHubErrorShape(error)
@@ -230,15 +227,25 @@ async function startToolServer(
           reason: typeof approvalRequest.reason === "string" ? approvalRequest.reason : undefined,
           type: "approval-request",
         })
+        let abortApproval: (() => void) | undefined
         const approved = await new Promise<boolean>((resolve) => {
+          abortApproval = () => resolve(false)
           approvals.set(approvalRequest.id as string, resolve)
-          abortSignal?.addEventListener("abort", () => resolve(false), { once: true })
-        }).finally(() => approvals.delete(approvalRequest.id as string))
+          executionSignal.addEventListener("abort", abortApproval, { once: true })
+          if (executionSignal.aborted) abortApproval()
+        }).finally(() => {
+          executionSignal.removeEventListener("abort", abortApproval!)
+          approvals.delete(approvalRequest.id as string)
+        })
         if (approved) {
+          // Let an MCP cancellation already in transit settle before turning
+          // the user's approval into a side effect.
+          await new Promise<void>(resolve => setImmediate(resolve))
+          executionSignal.throwIfAborted()
           const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
           if (approve) {
             approve(approvalRequest.input)
-            return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])]) }))
+            return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: executionSignal }))
           }
         }
       }
@@ -325,7 +332,7 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
           cwd,
           detached: true,
           env: {
-            ...cleanEnvironment(options.env as Record<string, string> | undefined),
+            ...providerEnvironment(options.env as Record<string, string> | undefined),
             INIT_CWD: cwd,
             OLDPWD: cwd,
             PWD: cwd,

@@ -467,6 +467,37 @@ describe("Provider Agent Driver", () => {
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
   })
 
+  it("does not execute approved Capability calls after the MCP request is canceled", async () => {
+    let toolCall!: Promise<unknown>
+    const controller = new AbortController()
+    const execute = vi.fn(async () => undefined)
+    const policy = vi.fn(() => "require-approval" as const)
+    runtime("thread-tool-cancel", [event("turn.completed", "thread-tool-cancel", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        toolCall = client.callTool({ arguments: { recipient: "team@example.com" }, name: "email_send" }, undefined, { signal: controller.signal }).finally(() => client.close())
+        await vi.waitFor(() => expect(policy).toHaveBeenCalledOnce())
+        controller.abort()
+        await expect(toolCall).rejects.toThrow(/AbortError/)
+        await new Promise(resolve => setTimeout(resolve, 20))
+      },
+    })
+    const tools = applyAgentToolPolicies({ email_send: { execute, name: "email_send", policy } })!
+    const output = createProviderAgentAdapter({ provider: "codex" }).stream!(context("thread-tool-cancel", { tools }) as never) as AsyncIterable<unknown>
+    const stream = output[Symbol.asyncIterator]()
+    const approval = await stream.next()
+
+    await expect(sendAgentInvocationInput("run-thread-tool-cancel", {
+      messages: [{ id: "approval", parts: [{ approved: true, id: (approval.value as { id: string }).id, type: "approval-decision" }], role: "user" }],
+    }, { mode: "respond" })).resolves.toBe("accepted")
+    await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("force-closes an aborted Workspace process tree before settling execution", async () => {
     const threadId = "thread-workspace-child-close"
     let host: { exec: (command: string, args: string[], options: { signal: AbortSignal }) => Promise<unknown> } | undefined
@@ -526,6 +557,22 @@ describe("Provider Agent Driver", () => {
     })
 
     expect(JSON.parse(result.stdout)).toEqual({ INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd, cwd })
+  })
+
+  it("filters ambient secrets from Workspace command environments", async () => {
+    const previousSecret = process.env.VITEHUB_PROVIDER_HOST_SECRET
+    process.env.VITEHUB_PROVIDER_HOST_SECRET = "host-secret"
+    try {
+      const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ explicit: process.env.EXPLICIT_VALUE, secret: process.env.VITEHUB_PROVIDER_HOST_SECRET }))"], {
+        env: { EXPLICIT_VALUE: "selected" },
+      })
+
+      expect(JSON.parse(result.stdout)).toEqual({ explicit: "selected" })
+    }
+    finally {
+      if (previousSecret === undefined) delete process.env.VITEHUB_PROVIDER_HOST_SECRET
+      else process.env.VITEHUB_PROVIDER_HOST_SECRET = previousSecret
+    }
   })
 
   it("keeps a one-shot host alive until process-group escalation settles", async () => {
