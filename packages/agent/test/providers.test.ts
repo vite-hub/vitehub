@@ -7379,6 +7379,7 @@ describe("server helpers", () => {
         typeof message === "string" && message.includes('"event":"retry.scheduled"') && message.includes('"providerDeliveryId":"delivery-retry"'),
       )).toHaveLength(1))
 
+      await vi.advanceTimersByTimeAsync(0)
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(completeDelivery).toHaveBeenCalledOnce())
