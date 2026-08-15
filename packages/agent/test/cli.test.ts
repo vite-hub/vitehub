@@ -242,6 +242,41 @@ describe("agent CLI", () => {
     }
   })
 
+  it("selects a webhook registration for Channel history", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-webhook-"))
+    const loadTargets = vi.fn(async () => [{
+      agent: "calories",
+      channel: "telegram",
+      mode: "webhook" as const,
+      provider: "telegram",
+      registration: { id: "secondary", secretHeader: "x-test-secret", secretToken: "webhook-secret" },
+    }])
+    try {
+      const exitCode = await runAgentChannelHistoryCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+        "--output", "export",
+        "--thread", "telegram:123",
+        "--webhook", "secondary",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir: "/repo",
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: async () => Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" }),
+        loadTargets,
+      })
+
+      expect(exitCode).toBe(0)
+      expect(loadTargets).toHaveBeenCalledWith(expect.objectContaining({ registration: "secondary" }))
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("publishes Channel history atomically and preserves existing output", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-lifecycle-"))
     const stdout = stream()

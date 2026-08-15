@@ -28,6 +28,7 @@ interface ChannelSyncLoadInput {
   agent?: string
   channel?: string
   env: NodeJS.ProcessEnv
+  registration?: string
   resolveDefaultThread?: boolean
   rootDir: string
   stage: string
@@ -241,16 +242,22 @@ async function channelRegistration(
   channelId: string,
   channel: AgentChannelDefinition,
   context: unknown,
+  registrationId?: string,
 ): Promise<LoadedChannelSyncTarget["registration"]> {
   const webhooks = channel.webhooks
   if (webhooks === false) return
   if (Array.isArray(webhooks)) {
-    if (webhooks.length !== 1) {
+    const matching = registrationId
+      ? webhooks.filter(registration => (registration.id || channelId) === registrationId)
+      : webhooks
+    if (matching.length !== 1) {
       throw new TypeError(
-        `Channel ${channelId} must declare exactly one webhook registration.`,
+        registrationId
+          ? `Channel ${channelId} has no unique webhook registration named ${registrationId}.`
+          : `Channel ${channelId} must declare exactly one webhook registration or select one with --webhook.`,
       )
     }
-    const registration = webhooks[0]!
+    const registration = matching[0]!
     const secretToken = await resolvedChannelValue(registration.secretToken, context)
     return {
       id: registration.id || channelId,
@@ -353,7 +360,7 @@ async function loadChannelTargetsExclusive(
             : undefined,
           mode: sync?.mode || "webhook",
           provider,
-          registration: await channelRegistration(channelId, channel, context),
+          registration: await channelRegistration(channelId, channel, context, input.registration),
           ...(sync ? { sync } : {}),
         })
       }
