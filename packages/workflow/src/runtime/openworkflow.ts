@@ -272,10 +272,11 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   const runtime = await getOpenWorkflowRuntime(config)
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
   return await runWorkflowProviderOperation("openworkflow", "run", async () => {
-    const handle = await workflow.run(
-      payload,
-      options.id ? { idempotencyKey: options.id } : undefined,
-    )
+    const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
+    const handle = await start().catch((error) => {
+      if (!options.id) throw error
+      return start()
+    })
     return {
       id: handle.workflowRun.id,
       metadata: {

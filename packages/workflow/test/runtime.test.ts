@@ -1070,6 +1070,37 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("recovers OpenWorkflow runs after a lost creation acknowledgement", async () => {
+    const run = vi.fn()
+      .mockRejectedValueOnce(new Error("creation acknowledgement lost"))
+      .mockResolvedValueOnce({ workflowRun: { id: "accepted-run", status: "pending" } })
+    class RecoveringOpenWorkflow {
+      defineWorkflow() {
+        return { run }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RecoveringOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expect(runWorkflow("welcome", {}, { id: "source-run" })).resolves.toMatchObject({
+      id: "accepted-run",
+      metadata: { idempotencyKey: "source-run" },
+      provider: "openworkflow",
+      status: "queued",
+    })
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenNthCalledWith(2, {}, { idempotencyKey: "source-run" })
+  })
+
   it("narrows malformed OpenWorkflow run results at the public boundary", async () => {
     const cause = new Error("provider-secret:run-result")
     class MalformedOpenWorkflow {
