@@ -8,6 +8,8 @@ export {
   setAgentChannelDeliveryWorkflowStateResolver,
 } from "./routes.ts"
 export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
+export { createAgentWebhookRequest } from "../internal/webhook-request.ts"
+export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 

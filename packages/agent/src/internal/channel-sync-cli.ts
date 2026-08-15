@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverAgentDefinitions } from "../discovery.ts"
+import { getAgentChannelHistoryDefinition } from "./channel-history.ts"
 import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
 
@@ -27,20 +28,29 @@ interface ChannelSyncLoadInput {
   agent?: string
   channel?: string
   env: NodeJS.ProcessEnv
+  registration?: string
+  resolveDefaultThread?: boolean
   rootDir: string
   stage: string
 }
 
-export interface LoadedChannelSyncTarget {
+export interface LoadedChannelTarget {
   agent: string
   channel: string
+  defaultThreadId?: string
   mode: "disabled" | "webhook"
   provider: string
   registration?: {
     id: string
     path?: string
+    secretHeader?: string
+    secretToken?: false | string
+    signature?: string
     url?: string
   }
+}
+
+export interface LoadedChannelSyncTarget extends LoadedChannelTarget {
   sync: AgentChannelSyncProvider
 }
 
@@ -193,7 +203,7 @@ function replaceRouteParams(route: string, agent: string, webhook: string): stri
 }
 
 function desiredWebhookUrl(
-  target: LoadedChannelSyncTarget,
+  target: LoadedChannelTarget,
   origin: string,
   webhookRoute: false | string,
 ): string | undefined {
@@ -213,33 +223,56 @@ function desiredWebhookUrl(
   return url.toString()
 }
 
-function channelRegistration(
+export function deployedChannelWebhookUrl(target: LoadedChannelTarget, origin: string): string | undefined {
+  return desiredWebhookUrl(target, origin, defaultWebhookRoute)
+}
+
+async function resolvedChannelValue(value: unknown, context: unknown): Promise<unknown> {
+  const resolved = typeof value === "function"
+    ? await value(context)
+    : value && typeof value === "object" && "resolve" in value && typeof value.resolve === "function"
+      ? await value.resolve(context)
+      : value
+  return resolved && typeof resolved === "object" && "unseal" in resolved && typeof resolved.unseal === "function"
+    ? resolved.unseal()
+    : resolved
+}
+
+export async function channelRegistration(
   channelId: string,
   channel: AgentChannelDefinition,
-): LoadedChannelSyncTarget["registration"] {
+  context: unknown,
+  registrationId?: string,
+  allowMissing = false,
+): Promise<LoadedChannelSyncTarget["registration"]> {
   const webhooks = channel.webhooks
   if (webhooks === false) return
-  if (Array.isArray(webhooks)) {
-    if (webhooks.length !== 1) {
-      throw new TypeError(
-        `Telegram Channel ${channelId} must declare exactly one webhook registration.`,
-      )
-    }
-    const registration = webhooks[0]!
-    return {
-      id: registration.id || channelId,
-      ...(registration.path ? { path: registration.path } : {}),
-      ...(registration.url ? { url: registration.url } : {}),
-    }
+  const authored = webhooks === true || webhooks === undefined ? [{}] : Array.isArray(webhooks) ? webhooks : [webhooks]
+  const registrations = authored.map((registration, index) => ({
+    ...registration,
+    id: registration.id || (authored.length > 1 ? `${channelId}-${index + 1}` : channelId),
+  }))
+  const matching = registrationId
+    ? registrations.filter(registration => registration.id === registrationId)
+    : registrations
+  if (registrationId && matching.length === 0 && allowMissing) return
+  if (matching.length !== 1) {
+    throw new TypeError(
+      registrationId
+        ? `Channel ${channelId} has no unique webhook registration named ${registrationId}.`
+        : `Channel ${channelId} must declare exactly one webhook registration or select one with --webhook.`,
+    )
   }
-  if (webhooks && webhooks !== true) {
-    return {
-      id: webhooks.id || channelId,
-      ...(webhooks.path ? { path: webhooks.path } : {}),
-      ...(webhooks.url ? { url: webhooks.url } : {}),
-    }
+  const registration = matching[0]!
+  const secretToken = await resolvedChannelValue(registration.secretToken, context)
+  return {
+    id: registration.id,
+    ...(registration.path ? { path: registration.path } : {}),
+    ...(registration.secretHeader ? { secretHeader: registration.secretHeader } : {}),
+    ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
+    ...(registration.signature ? { signature: registration.signature } : {}),
+    ...(registration.url ? { url: registration.url } : {}),
   }
-  return { id: channelId }
 }
 
 function uniqueAgentDefinitions(
@@ -264,9 +297,10 @@ function uniqueAgentDefinitions(
   return [...unique.values()]
 }
 
-async function loadChannelSyncTargetsExclusive(
+async function loadChannelTargetsExclusive(
   input: ChannelSyncLoadInput,
-): Promise<LoadedChannelSyncTarget[]> {
+  syncOnly: boolean,
+): Promise<Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }>> {
   const { createServer, loadEnv } = await import("vite")
   let server: Awaited<ReturnType<typeof createServer>> | undefined
   const previousEnvironment = new Map(
@@ -293,7 +327,7 @@ async function loadChannelSyncTargetsExclusive(
       if (value === undefined) continue
       process.env[key] = value
     }
-    const targets: LoadedChannelSyncTarget[] = []
+    const targets: Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }> = []
     const stageRoot = server.config.root
     const stageServerDirs = (server.config as typeof server.config & {
       [VITEHUB_SERVER_DIRS]?: string[]
@@ -307,16 +341,22 @@ async function loadChannelSyncTargetsExclusive(
       for (const [channelId, channel] of Object.entries(loaded.agent.channels)) {
         if (input.channel && channelId !== input.channel) continue
         const syncDefinition = getAgentChannelSyncDefinition(channel)
-        if (!syncDefinition) continue
-        const sync = await syncDefinition.resolve(context, channel)
-        if (!sync) continue
+        const sync = syncOnly && syncDefinition ? await syncDefinition.resolve(context, channel) : undefined
+        if (syncOnly && !sync) continue
+        if (!sync && (channel.messages === false || channel.adapter === undefined || channel.webhooks === undefined || channel.webhooks === false || (Array.isArray(channel.webhooks) && channel.webhooks.length === 0))) continue
+        const provider = syncDefinition?.provider || channel.kind
+        const registration = await channelRegistration(channelId, channel, context, input.registration, true)
+        if (input.registration && !registration) continue
         targets.push({
           agent: loaded.identity.name,
           channel: channelId,
-          mode: sync.mode,
-          provider: syncDefinition.provider,
-          registration: channelRegistration(channelId, channel),
-          sync,
+          defaultThreadId: !syncOnly && input.resolveDefaultThread !== false
+            ? await getAgentChannelHistoryDefinition(channel)?.resolveDefaultThreadId?.(context, channel)
+            : undefined,
+          mode: sync?.mode || "webhook",
+          provider,
+          registration,
+          ...(sync ? { sync } : {}),
         })
       }
     }
@@ -337,9 +377,10 @@ async function loadChannelSyncTargetsExclusive(
 
 let channelSyncTargetLoadQueue: Promise<void> = Promise.resolve()
 
-async function loadChannelSyncTargets(
+async function loadQueuedChannelTargets(
   input: ChannelSyncLoadInput,
-): Promise<LoadedChannelSyncTarget[]> {
+  syncOnly: boolean,
+): Promise<Array<LoadedChannelTarget & { sync?: AgentChannelSyncProvider }>> {
   const previous = channelSyncTargetLoadQueue
   let release!: () => void
   channelSyncTargetLoadQueue = new Promise<void>((resolve) => {
@@ -347,11 +388,21 @@ async function loadChannelSyncTargets(
   })
   await previous
   try {
-    return await loadChannelSyncTargetsExclusive(input)
+    return await loadChannelTargetsExclusive(input, syncOnly)
   }
   finally {
     release()
   }
+}
+
+async function loadChannelSyncTargets(
+  input: ChannelSyncLoadInput,
+): Promise<LoadedChannelSyncTarget[]> {
+  return await loadQueuedChannelTargets(input, true) as LoadedChannelSyncTarget[]
+}
+
+export async function loadChannelTargets(input: ChannelSyncLoadInput): Promise<LoadedChannelTarget[]> {
+  return await loadQueuedChannelTargets(input, false)
 }
 
 async function verifyDeployedWebhook(

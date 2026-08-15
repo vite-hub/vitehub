@@ -44,6 +44,7 @@ import type {
 } from "./types.ts"
 import { defineMessageChannelInstructions } from "./internal/channels.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
+import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import type { PullRequestContextValue } from "./capabilities/repository-host-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
@@ -2095,8 +2096,19 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       ? false
       : telegramWebhookDefaults(webhookOptions),
   }), "Write the final response for Telegram. Match the language of the user's latest message. Prefer short paragraphs or bullets and keep the answer concise. Do not use Markdown tables; express rows as bullets because Telegram fallback delivery exposes table syntax. Avoid decorative emoji, redundant restatement, and generic follow-up questions. Follow the Agent's own instructions when they require a different format.")
-  if (options.adapter) return channel
-  return withAgentChannelSyncDefinition<TRuntimeConfig>(channel, {
+  const historyChannel = withAgentChannelHistoryDefinition<TRuntimeConfig>(channel, {
+    async resolveDefaultThreadId(context, resolvedChannel) {
+      const allowedUserIds = options.allowedUserIds === undefined
+        ? undefined
+        : await resolveRuntimeValue(options.allowedUserIds, context)
+      if (allowedUserIds?.length !== 1) return
+      const adapter = await resolveRuntimeValue(resolvedChannel.adapter, context)
+      if (!adapter?.openDM) return
+      return await adapter.openDM(String(allowedUserIds[0]!))
+    },
+  })
+  if (options.adapter) return historyChannel
+  return withAgentChannelSyncDefinition<TRuntimeConfig>(historyChannel, {
     provider: "telegram",
     async resolve(context, resolvedChannel) {
       if (resolvedChannel.adapter !== channel.adapter) return

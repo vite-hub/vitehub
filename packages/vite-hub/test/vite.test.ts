@@ -339,6 +339,30 @@ describe("vitehub", () => {
     }))
   })
 
+  it("preserves runtime-aware Agent State selection for Cloudflare builds", () => {
+    vitehub({ agent: true, preset: "cloudflare" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      providers: expect.anything(),
+    }))
+
+    vitehub({
+      agent: { providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } },
+      preset: "cloudflare",
+    })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+    }))
+
+    vitehub({
+      agent: { providers: { state: { url: "libsql://state.example.test" } } },
+      preset: "cloudflare",
+    })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      providers: { state: { url: "libsql://state.example.test" } },
+    }))
+
+  })
+
   it("resolves only package-owned imports from generated modules", async () => {
     const resolveId = dependencyResolver()
 

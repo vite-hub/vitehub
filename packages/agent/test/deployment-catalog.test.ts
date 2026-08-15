@@ -52,6 +52,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "    webhook,",
       "  })",
       "}",
+      "export const createAgentWebhookRequest = input => new Request(input.url, input)",
       "export const hasChannelChatRoute = () => true",
       "export const createChannelChatRouteHandler = agent => async (_request, options) => handle('chat', agent, undefined, options)",
       "export const createChannelWebhookRouteHandler = agent => async (_request, webhook, options) => handle('webhook', agent, webhook, options)",
