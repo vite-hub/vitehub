@@ -38,7 +38,10 @@ describe("frontmatter HTML", () => {
     const parsed = DOMParser.fromSchema(source.schema).parse(parsedDocument.body)
     expect(parsed.toJSON()).toEqual({
       type: "doc",
-      content: [{ type: "frontmatter", attrs: { value } }],
+      content: [
+        { type: "frontmatter", attrs: { value } },
+        { type: "paragraph" },
+      ],
     })
 
     source.destroy()

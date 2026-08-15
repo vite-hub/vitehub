@@ -73,6 +73,9 @@ describe("useRealtimeTiptap", () => {
     editor.commands.insertContentAt(0, { type: "paragraph", content: [{ type: "text", text: "Before" }] })
     expect(editor.getJSON().content?.map(node => node.type)).toEqual(["frontmatter", "heading"])
 
+    editor.commands.deleteRange({ from: 1, to: editor.state.doc.content.size })
+    expect(editor.getJSON().content?.map(node => node.type)).toEqual(["frontmatter", "paragraph"])
+
     editor.destroy()
     scope.stop()
   })

@@ -7,7 +7,7 @@ import { Marked } from "marked"
 
 import { Frontmatter } from "./frontmatter.ts"
 
-const RealtimeDocument = Document.extend({ content: "frontmatter? block*" })
+const RealtimeDocument = Document.extend({ content: "frontmatter? block+" })
 
 export function createRealtimeEditorExtensions() {
   return [
