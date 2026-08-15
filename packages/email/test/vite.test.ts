@@ -137,6 +137,8 @@ describe("hubEmail", () => {
       "}",
       "",
     ].join("\n"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap"), "utf8"))
+      .toContain("Hello {{name}}")
     expect(() => (plugin.resolveId as (id: string) => string)("#vitehub/emails/../secret"))
       .toThrow("Invalid Email template")
   })

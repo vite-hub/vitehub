@@ -253,8 +253,10 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
 
   const prepareTypes = async (options: { projectRoot: string, serverDirs?: string[] }) => {
     templatesRoot = resolve(options.serverDirs?.[0] ?? resolve(options.projectRoot, "server"), "emails")
+    materializedRoot = resolve(options.projectRoot, ".vitehub", "email", "templates")
     const names = (await listEmailTemplates(templatesRoot)).map(file => templateName(templatesRoot, file))
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
+    await materializeEmailTemplates(templatesRoot, materializedRoot, options.projectRoot)
   }
 
   return {
@@ -281,9 +283,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     async configResolved(config) {
       const projectRoot = resolveViteHubProjectRoot(config.root)
       templatesRoot = resolve(serverDirs?.[0] ?? resolve(projectRoot, "server"), "emails")
-      materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
       await prepareTypes({ projectRoot, serverDirs })
-      if (vercel) await materializeEmailTemplates(templatesRoot, materializedRoot, config.root)
       definition = {
         ...configured,
         handler: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs"),
