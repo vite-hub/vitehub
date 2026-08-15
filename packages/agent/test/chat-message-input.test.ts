@@ -72,6 +72,31 @@ describe("chat message trigger input", () => {
     expect(result.hookArgs.message.text).toBe("session b")
   })
 
+  it("publishes the resolved Chat Session boundary for shared trigger callers", () => {
+    const first = createChatMessageTriggerInput({ sessions: true }, {
+      messages: [{ id: "message-a", metadata: { sessionId: "a" }, parts: [], role: "user" }],
+      run: { runId: "run-1", threadId: "thread-1" },
+      session: { id: "a" },
+    })
+    const continued = createChatMessageTriggerInput({ sessions: true }, {
+      messages: [
+        { id: "message-a", metadata: { sessionId: "a" }, parts: [], role: "user" },
+        { id: "message-a-2", metadata: { sessionId: "a" }, parts: [], role: "user" },
+      ],
+      run: { runId: "run-2", threadId: "thread-1" },
+      session: { id: "a" },
+    })
+    const fresh = createChatMessageTriggerInput({ sessions: true }, {
+      messages: [{ id: "message-b", metadata: { sessionId: "b" }, parts: [], role: "user" }],
+      run: { runId: "run-3", threadId: "thread-1" },
+      session: { id: "b" },
+    })
+
+    expect(first.input.context?.["chat.sessionId"]).toBe("thread-1:chat-session:a:manual:message-a")
+    expect(continued.input.context?.["chat.sessionId"]).toBe(first.input.context?.["chat.sessionId"])
+    expect(fresh.input.context?.["chat.sessionId"]).not.toBe(first.input.context?.["chat.sessionId"])
+  })
+
   it("derives trigger history from explicit thread history", () => {
     const result = createChatMessageTriggerInput({
       threadHistory: { maxMessages: 2 },

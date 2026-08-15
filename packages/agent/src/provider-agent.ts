@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, join } from "node:path"
@@ -658,9 +658,14 @@ async function* runProvider(
   let generatedInstructionFile: string | undefined
   let originalGeneratedInstructions: Uint8Array | undefined
   let originalGeneratedInstructionLink: string | undefined
+  let originalGeneratedInstructionMode: number | undefined
   let generatedInstructionFileExisted = false
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
+  let releaseDeferredRuntimeStopped: (() => void) | undefined
+  const deferredRuntimeStopped = new Promise<void>((resolve) => {
+    releaseDeferredRuntimeStopped = resolve
+  })
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -691,6 +696,7 @@ async function* runProvider(
         await runtime!.close()
       }
       finally {
+        releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
         await rm(root, { force: true, recursive: true })
       }
@@ -746,6 +752,7 @@ async function* runProvider(
       }
       else {
         originalGeneratedInstructions = await readFile(instructionPath).catch(() => undefined)
+        originalGeneratedInstructionMode = instructionEntry?.mode
       }
       await writeFile(instructionPath, instructions)
     }
@@ -854,30 +861,37 @@ async function* runProvider(
     for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
       if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
     }
-    if (generatedInstructionFile) {
+    const finalizeWorkspace = async () => {
       try {
-        const path = join(root, generatedInstructionFile)
-        if (originalGeneratedInstructionLink !== undefined) {
-          await rm(path, { force: true, recursive: true })
-          await symlink(originalGeneratedInstructionLink, path)
+        if (generatedInstructionFile) {
+          const path = join(root, generatedInstructionFile)
+          if (originalGeneratedInstructionLink !== undefined) {
+            await rm(path, { force: true, recursive: true })
+            await symlink(originalGeneratedInstructionLink, path)
+          }
+          else if (generatedInstructionFileExisted) {
+            await rm(path, { force: true, recursive: true })
+            await writeFile(path, originalGeneratedInstructions!)
+            if (originalGeneratedInstructionMode !== undefined) await chmod(path, originalGeneratedInstructionMode)
+          }
+          else await rm(path, { force: true, recursive: true })
         }
-        else if (generatedInstructionFileExisted) {
-          await rm(path, { force: true, recursive: true })
-          await writeFile(path, originalGeneratedInstructions!)
-        }
-        else await rm(path, { force: true, recursive: true })
       }
       catch (error) {
         cleanupErrors.push(error)
       }
+      try {
+        await closeWorkspace(context, workspaceSession, caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")))
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      finally {
+        releaseWorkspaceCleanup?.()
+      }
     }
-    try {
-      await closeWorkspace(context, workspaceSession, caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")))
-    }
-    catch (error) {
-      cleanupErrors.push(error)
-    }
-    releaseWorkspaceCleanup?.()
+    if (runtimeCleanupDeferred) void deferredRuntimeStopped.then(finalizeWorkspace)
+    else await finalizeWorkspace()
     if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
       try {
         await rm(root, { force: true, recursive: true })

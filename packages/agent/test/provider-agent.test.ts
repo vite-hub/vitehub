@@ -1,4 +1,4 @@
-import { access, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 
 import { describe, expect, it, vi } from "vitest"
@@ -512,6 +512,37 @@ describe("Provider Agent Driver", () => {
     }) as never)
   })
 
+  it("restores the executable mode of a generated instruction entry", async () => {
+    const threadId = "thread-executable-instructions"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let root = ""
+    const session = {
+      close: vi.fn(async () => {
+        expect((await lstat(`${root}/AGENTS.md`)).mode & 0o777).toBe(0o755)
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await writeFile(`${root}/AGENTS.md`, "workspace instructions")
+        await chmod(`${root}/AGENTS.md`, 0o755)
+        return session
+      }),
+      tools: {},
+    }
+
+    await createProviderAgentAdapter({ instructions: "generated instructions", provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+  })
+
   it("writes successful workspace sessions back before cleanup", async () => {
     const threadId = "thread-workspace"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -798,6 +829,33 @@ describe("Provider Agent Driver", () => {
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     expect(provider.stopSession).toHaveBeenCalledWith(threadId)
     expect(waitUntil).toHaveBeenCalledOnce()
+  })
+
+  it("stops deferred provider work before closing the Workspace", async () => {
+    const threadId = "thread-late-start-workspace"
+    let finishStartup!: () => void
+    const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const result = adapter.generate(context(threadId, {
+      input: { prompt: "hello", timeout: 50 },
+      workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
+      workspaceDefinition: { mode: "write", name: "docs" },
+    }) as never)
+
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    expect(session.close).not.toHaveBeenCalled()
+    finishStartup()
+    await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(session.close).toHaveBeenCalledOnce())
+    expect(provider.stopSession).toHaveBeenCalledWith(threadId)
+    expect(provider.close.mock.invocationCallOrder[0]).toBeLessThan(session.close.mock.invocationCallOrder[0]!)
   })
 
   it("closes a provider runtime when startup rejects after timeout", async () => {
