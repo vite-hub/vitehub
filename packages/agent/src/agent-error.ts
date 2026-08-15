@@ -98,6 +98,13 @@ export type AgentPublicErrorCode =
   | "LLM_GATE_REJECTED"
   | "RATE_LIMIT_REJECTED"
   | "RATE_LIMIT_UNAVAILABLE"
+  | "TRANSCRIPTION_AUTHENTICATION_FAILED"
+  | "TRANSCRIPTION_INVALID_PAYLOAD"
+  | "TRANSCRIPTION_INVALID_REQUEST"
+  | "TRANSCRIPTION_NETWORK_FAILED"
+  | "TRANSCRIPTION_PROVIDER_FAILED"
+  | "TRANSCRIPTION_QUOTA_EXCEEDED"
+  | "TRANSCRIPTION_RATE_LIMITED"
 
 export interface AgentPublicErrorDetails {
   capability?: string
@@ -167,6 +174,27 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
         ...publicError("APPROVAL_REQUIRED", "Capability approval is required.", publicDetails(error)),
         ...(requestId ? { requestId } : {}),
       }
+    }
+    if (viteHubError?.code === "TRANSCRIPTION_AUTHENTICATION_FAILED") {
+      return publicError(viteHubError.code, "Audio transcription is unavailable because its provider credentials were rejected.")
+    }
+    if (viteHubError?.code === "TRANSCRIPTION_QUOTA_EXCEEDED") {
+      return publicError(viteHubError.code, "Audio transcription is unavailable because its provider quota is exhausted.")
+    }
+    if (viteHubError?.code === "TRANSCRIPTION_RATE_LIMITED") {
+      return publicError(viteHubError.code, "Audio transcription is temporarily rate limited. Try again later.")
+    }
+    if (viteHubError?.code === "TRANSCRIPTION_INVALID_REQUEST") {
+      return publicError(viteHubError.code, "The audio could not be transcribed because the provider rejected it.")
+    }
+    if (viteHubError?.code === "TRANSCRIPTION_INVALID_PAYLOAD") {
+      return publicError(viteHubError.code, "Audio transcription failed because the provider returned an invalid response.")
+    }
+    if (viteHubError?.code === "TRANSCRIPTION_NETWORK_FAILED") {
+      return publicError(viteHubError.code, "Audio transcription is temporarily unavailable because the provider could not be reached.")
+    }
+    if (viteHubError?.code === "TRANSCRIPTION_PROVIDER_FAILED") {
+      return publicError(viteHubError.code, "Audio transcription is temporarily unavailable. Try again later.")
     }
   }
   catch {}

@@ -8,6 +8,7 @@ const transcriptionErrorMessages = {
   TRANSCRIPTION_INVALID_REQUEST: "[vitehub] Transcription request is invalid.",
   TRANSCRIPTION_NETWORK_FAILED: "[vitehub] Transcription provider request failed.",
   TRANSCRIPTION_PROVIDER_FAILED: "[vitehub] Transcription provider failed.",
+  TRANSCRIPTION_QUOTA_EXCEEDED: "[vitehub] Transcription provider quota is exhausted.",
   TRANSCRIPTION_RATE_LIMITED: "[vitehub] Transcription provider rate limit exceeded.",
 } as const
 

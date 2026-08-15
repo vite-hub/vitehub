@@ -453,6 +453,56 @@ describe("agent transcription", () => {
     }
   })
 
+  it.each([
+    [402, false, "TRANSCRIPTION_QUOTA_EXCEEDED", "[vitehub] Transcription provider quota is exhausted."],
+    [408, true, "TRANSCRIPTION_PROVIDER_FAILED", "[vitehub] Transcription provider failed."],
+    [409, true, "TRANSCRIPTION_PROVIDER_FAILED", "[vitehub] Transcription provider failed."],
+  ] as const)("normalizes retry-exhausted HTTP %s transcription errors", async (status, isRetryable, code, message) => {
+    const { APICallError, LoadAPIKeyError, RetryError } = await import("ai")
+    const providerError = new APICallError({
+      isRetryable,
+      message: "Private provider failure.",
+      requestBodyValues: {},
+      responseBody: "private billing details",
+      statusCode: status,
+      url: "https://provider.example/audio/transcriptions",
+    })
+    const retryError = new RetryError({
+      errors: [providerError],
+      message: "Failed after 3 attempts.",
+      reason: "maxRetriesExceeded",
+    })
+    vi.doMock("ai", () => ({
+      APICallError,
+      LoadAPIKeyError,
+      RetryError,
+      createDownload: vi.fn(() => vi.fn()),
+      transcribe: vi.fn(async () => { throw retryError }),
+    }))
+    try {
+      const capability = transcribe({ model: "mock-transcription-model" })
+      const context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: new Uint8Array([1, 2, 3]), mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+
+      const error = await Promise.resolve(capability.input?.(context.context as never)).catch((error: unknown) => error)
+
+      expect(error).toMatchObject({
+        cause: retryError,
+        code,
+        message,
+      })
+      expect(JSON.stringify(error)).not.toContain("private billing details")
+      expect(context.messages.at(-1)?.parts).toHaveLength(1)
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("resolves transcription options lazily", async () => {
     const execute = vi.fn(async () => "lazy transcript")
     const createOptions = vi.fn(() => ({ execute }))
