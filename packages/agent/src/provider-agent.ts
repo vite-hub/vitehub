@@ -3,7 +3,7 @@ import { once } from "node:events"
 import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
-import { basename, dirname, extname, join } from "node:path"
+import { basename, dirname, extname, join, resolve } from "node:path"
 
 import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
@@ -315,15 +315,21 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       },
     },
     async exec(command, args = [], options = {}) {
+      const cwd = resolve(options.cwd || process.cwd())
       const timeoutSignal = options.timeout ? AbortSignal.timeout(options.timeout) : undefined
       const signal = options.signal && timeoutSignal
         ? AbortSignal.any([options.signal, timeoutSignal])
         : options.signal || timeoutSignal
       return await new Promise((resolve, reject) => {
         const child = spawn(command, [...args], {
-          cwd: options.cwd,
+          cwd,
           detached: true,
-          env: cleanEnvironment(options.env as Record<string, string> | undefined),
+          env: {
+            ...cleanEnvironment(options.env as Record<string, string> | undefined),
+            INIT_CWD: cwd,
+            OLDPWD: cwd,
+            PWD: cwd,
+          },
           signal,
         })
         let stdout = ""

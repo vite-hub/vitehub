@@ -518,6 +518,16 @@ describe("Provider Agent Driver", () => {
     await rm(heartbeatFile, { force: true })
   })
 
+  it("binds Workspace command directory variables to the active root", async () => {
+    const cwd = new URL("fixtures/workspace-source-root", import.meta.url).pathname
+    const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ INIT_CWD: process.env.INIT_CWD, OLDPWD: process.env.OLDPWD, PWD: process.env.PWD, cwd: process.cwd() }))"], {
+      cwd,
+      env: { INIT_CWD: "/host/init", OLDPWD: "/host/old", PWD: "/host/current" },
+    })
+
+    expect(JSON.parse(result.stdout)).toEqual({ INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd, cwd })
+  })
+
   it("keeps a one-shot host alive until process-group escalation settles", async () => {
     const heartbeatFile = `/tmp/vitehub-provider-descendant-${crypto.randomUUID()}`
     const script = `
