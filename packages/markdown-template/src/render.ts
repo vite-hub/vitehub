@@ -20,6 +20,8 @@ interface RenderState {
   data: Record<string, unknown>
   fragmentToken: string
   fragments: Array<{ path: string }>
+  linkToken: string
+  links: Array<{ path: string }>
   validateConditionPath?: (path: string) => boolean
 }
 
@@ -74,17 +76,86 @@ export async function renderMarkdownTemplateInternal(
       }, preparation)
     : shorthand
   validateConditionalDirectives(await directiveValidationSource(imported))
+  const normalizedLinks = await normalizeLinkBindings(imported)
   const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${crypto.randomUUID().replaceAll("-", "")}`
-  const normalized = await normalizeTripleBindings(imported, fragmentToken, preparation.runtime)
+  const normalized = await normalizeTripleBindings(normalizedLinks.template, fragmentToken, preparation.runtime)
   const tree = await parseTemplateMarkdown(normalized.template, true)
   const nodes = await composeNodes(tree.nodes, {
     data,
     fragmentToken,
     fragments: normalized.fragments,
+    linkToken: normalizedLinks.token,
+    links: normalizedLinks.links,
     validateConditionPath: options.validateConditionPath,
   })
   const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: preparation.runtime.components }))
   return restoreTemplateTokens(restoreTemplateTags(rendered, preparation.tagTokens, data), preparation.protectedTokens)
+}
+
+async function normalizeLinkBindings(template: string): Promise<{
+  links: RenderState["links"]
+  template: string
+  token: string
+}> {
+  const token = `VITEHUBMARKDOWNTEMPLATELINK${crypto.randomUUID().replaceAll("-", "")}`
+  const candidates: Array<{ binding: string, path: string }> = []
+  const prepared = template.replace(tagBindingPattern, (binding, path: string, offset: number, source: string) => {
+    if (!/\]\(\s*$/.test(source.slice(0, offset)) || !/^\s*\)/.test(source.slice(offset + binding.length))) {
+      return binding
+    }
+    const index = candidates.push({ binding, path }) - 1
+    return `${token}${index}END`
+  })
+  if (!candidates.length) return { links: [], template, token }
+
+  const tree = await parseTemplateMarkdown(prepared)
+  const linked = linkBindingIndices(tree.nodes, token)
+  let rendered = prepared
+  for (let index = 0; index < candidates.length; index++) {
+    const candidate = candidates[index]!
+    if (!linked.has(index)) rendered = rendered.replace(`${token}${index}END`, candidate.binding)
+  }
+  return { links: candidates, template: rendered, token }
+}
+
+function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
+  const found = new Set<number>()
+  for (const node of nodes) {
+    if (!isElement(node)) continue
+    if (node[0] === "a" && typeof node[1].href === "string") {
+      const match = node[1].href.match(new RegExp(`^${token}(\\d+)END$`))
+      if (match) found.add(Number(match[1]))
+    }
+    for (const index of linkBindingIndices(node.slice(2) as ComarkNode[], token)) found.add(index)
+  }
+  return found
+}
+
+async function safeLinkDestination(path: string, data: Record<string, unknown>): Promise<string> {
+  const value = scalarValue(path, data)
+  if ([...value].some((character) => {
+    const codePoint = character.codePointAt(0)!
+    return codePoint < 32 || codePoint === 127
+  })) {
+    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+  }
+  let encoded: string
+  try {
+    encoded = encodeURI(value)
+      .replace(/%25([\dA-F]{2})/gi, "%$1")
+      .replace(/[()]/g, character => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`)
+  }
+  catch {
+    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+  }
+
+  const tree = await parseTemplateMarkdown(`[link](<${encoded}>)`)
+  const paragraph = tree.nodes[0]
+  const link = isElement(paragraph) && paragraph[0] === "p" ? paragraph[2] : undefined
+  if (!link || !isElement(link) || link[0] !== "a" || typeof link[1].href !== "string") {
+    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+  }
+  return link[1].href
 }
 
 function assertTemplate(template: string): void {
@@ -315,12 +386,23 @@ async function composeNode(
   if (tag === "binding") return [renderBinding(attrs, state.data)]
   if (tag === "code") return [node]
   if (tag === "p") return await composeParagraph(attrs, children, state)
-  return [[tag, attrs, ...(await composeNodes(
+  const composedAttrs = tag === "a" ? await composeLinkAttributes(attrs, state) : attrs
+  return [[tag, composedAttrs, ...(await composeNodes(
     children,
     state,
     tag,
     inlineFragments,
   ))] as ComarkElement]
+}
+
+async function composeLinkAttributes(
+  attrs: Record<string, unknown>,
+  state: RenderState,
+): Promise<Record<string, unknown>> {
+  if (typeof attrs.href !== "string") return attrs
+  const match = attrs.href.match(new RegExp(`^${state.linkToken}(\\d+)END$`))
+  const link = match ? state.links[Number(match[1])] : undefined
+  return link ? { ...attrs, href: await safeLinkDestination(link.path, state.data) } : attrs
 }
 
 async function composeParagraph(

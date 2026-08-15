@@ -31,4 +31,13 @@ describe("renderEmailMarkdown", () => {
       text: "Hello\n\nRegards, **ViteHub**",
     })
   })
+
+  it("renders a scalar Markdown link destination as one anchor", async () => {
+    await expect(renderEmailMarkdown("[Open and share your visual recap]({{ url }})", {
+      data: { url: "https://prs.onmax.me/recap/2026-07" },
+    })).resolves.toEqual({
+      html: "<p><a href=\"https://prs.onmax.me/recap/2026-07\">Open and share your visual recap</a></p>",
+      text: "[Open and share your visual recap](https://prs.onmax.me/recap/2026-07)",
+    })
+  })
 })

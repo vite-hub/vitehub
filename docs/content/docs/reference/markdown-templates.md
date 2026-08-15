@@ -113,7 +113,7 @@ Title: Refine navigation
 
 | Syntax | Purpose | Behavior |
 | --- | --- | --- |
-| `{{ path.to.value }}` | Scalar binding | Accepts a string, number, or boolean and escapes Markdown syntax in the value. Missing paths and non-scalar values fail rendering. |
+| `{{ path.to.value }}` | Scalar binding | Accepts a string, number, or boolean and escapes Markdown syntax in the value. A scalar may occupy a complete inline link destination, such as `[Open]({{ url }})`; unsafe destinations fail rendering. Missing paths and non-scalar values fail rendering. |
 | `{{{ path.to.markdown }}}` | Markdown fragment | Inserts trusted Markdown without evaluating bindings, conditions, or imports inside the fragment again. Block Markdown is rejected when the binding appears in an inline position. |
 | `::if{condition}` | Conditional section | Selects an `if`, `else-if`, or `else` branch. Conditions support data paths, literals, `!`, equality and inequality (`===`, `!==`, `==`, and `!=` use strict semantics), `&&`, <code>&#124;&#124;</code>, and parentheses. |
 | `@./relative.md` | Template import | Calls `resolveImport` for a relative file. Absolute paths, URLs, and globs are rejected. |

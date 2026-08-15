@@ -29,6 +29,49 @@ describe("renderMarkdownTemplate", () => {
     ].join("\n"))
   })
 
+  it("renders scalar bindings as complete Markdown link destinations", async () => {
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://prs.onmax.me/recap/2026-07" },
+    })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "/recap/July 2026_(final)?share=team&from=email#top" },
+    })).resolves.toBe("[Open recap](/recap/July%202026_%28final%29?share=team&from=email#top)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/recap/July%202026?signature=a%2Fb%3D" },
+    })).resolves.toBe("[Open recap](https://example.com/recap/July%202026?signature=a%2Fb%3D)")
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", {
+      data: { url: "https://example.com/a) [Injected](https://evil.test?q=\"x\"" },
+    })).resolves.toBe("[Open recap](https://example.com/a%29%20%5BInjected%5D%28https://evil.test?q=%22x%22)")
+  })
+
+  it("rejects unsafe Markdown link destinations", async () => {
+    for (const url of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "https://example.com/first\n[Injected](https://evil.test)",
+      "https://example.com/\uD800",
+    ]) {
+      await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url } }))
+        .rejects.toThrow("must resolve to a safe destination")
+    }
+
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})"))
+      .rejects.toThrow("binding \"{{ url }}\" is not defined")
+    await expect(renderMarkdownTemplate("[Open recap]({{ url }})", { data: { url: {} } }))
+      .rejects.toThrow("must resolve to a scalar value")
+
+    await expect(renderMarkdownTemplate([
+      "::if{enabled}",
+      "[Open recap]({{ missing }})",
+      "::else",
+      "No recap",
+      "::",
+    ].join("\n"), { data: { enabled: false } })).resolves.toBe("No recap")
+  })
+
   it("renders Markdown fragments without recursively evaluating template syntax", async () => {
     const template = [
       "# Review",
