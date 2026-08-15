@@ -37,6 +37,8 @@ const templatePathPattern = new RegExp(`^${templatePathSource}$`)
 const tripleBindingPattern = new RegExp(String.raw`\{\{\{\s*(${templatePathSource})\s*\}\}\}`, "g")
 const tagBindingPattern = new RegExp(String.raw`(?<!\{)\{\{(?!\{)\s*(${templatePathSource})\s*\}\}(?!\})`, "g")
 const legacyHtmlReferences = new Set(characterEntitiesLegacy)
+const closesLinkDestinationPattern = /(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
+const closesEnclosedLinkDestinationPattern = /\s*>(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
 
 interface TemplatePreparation {
   prepare: (value: string) => Promise<string>
@@ -102,14 +104,13 @@ async function normalizeLinkBindings(template: string): Promise<{
   const token = `VITEHUBMARKDOWNTEMPLATELINK${crypto.randomUUID().replaceAll("-", "")}`
   const candidates: Array<{ binding: string, path: string }> = []
   const prepared = template.replace(tagBindingPattern, (binding, path: string, offset: number, source: string) => {
-    const prefix = source.slice(0, offset)
-    const suffix = source.slice(offset + binding.length)
-    const closesDestination = /^\s*\)/.test(suffix)
-      || /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\)/.test(suffix)
-    const closesEnclosedDestination = /^\s*>\s*\)/.test(suffix)
-      || /^\s*>\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\)/.test(suffix)
-    const completeDestination = /\]\(\s*$/.test(prefix) && closesDestination
-    const completeEnclosedDestination = /\]\(\s*<\s*$/.test(prefix) && closesEnclosedDestination
+    const suffixOffset = offset + binding.length
+    closesLinkDestinationPattern.lastIndex = suffixOffset
+    closesEnclosedLinkDestinationPattern.lastIndex = suffixOffset
+    const completeDestination = hasLinkDestinationPrefix(source, offset, false)
+      && closesLinkDestinationPattern.test(source)
+    const completeEnclosedDestination = hasLinkDestinationPrefix(source, offset, true)
+      && closesEnclosedLinkDestinationPattern.test(source)
     if (!completeDestination && !completeEnclosedDestination) {
       return binding
     }
@@ -126,6 +127,17 @@ async function normalizeLinkBindings(template: string): Promise<{
     if (!linked.has(index)) rendered = rendered.replace(`${token}${index}END`, candidate.binding)
   }
   return { links: candidates, template: rendered, token }
+}
+
+function hasLinkDestinationPrefix(source: string, offset: number, enclosed: boolean): boolean {
+  let cursor = offset
+  while (cursor > 0 && /\s/.test(source[cursor - 1]!)) cursor--
+  if (enclosed) {
+    if (source[cursor - 1] !== "<") return false
+    cursor--
+    while (cursor > 0 && /\s/.test(source[cursor - 1]!)) cursor--
+  }
+  return source[cursor - 2] === "]" && source[cursor - 1] === "("
 }
 
 function linkBindingIndices(nodes: ComarkNode[], token: string): Set<number> {
