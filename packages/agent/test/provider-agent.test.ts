@@ -191,6 +191,23 @@ describe("Provider Agent Driver", () => {
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "first-cursor" }))
   })
 
+  it("aborts while waiting for the same provider thread", async () => {
+    const threadId = "thread-concurrent-abort"
+    let releaseFirst!: () => void
+    const first = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: () => new Promise<void>(resolve => releaseFirst = resolve),
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const firstResult = adapter.generate(context(threadId) as never)
+    await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
+    const runtimeCount = createProviderRuntime.mock.calls.length
+
+    await expect(adapter.generate(context(threadId, { input: { prompt: "queued", timeout: 10 } }) as never)).rejects.toThrow()
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
+    releaseFirst()
+    await expect(firstResult).resolves.toBeDefined()
+  })
+
   it("bounds provider attachments before resolving lazy data", async () => {
     const threadId = "thread-attachment-limit"
     runtime(threadId, [])
@@ -215,12 +232,29 @@ describe("Provider Agent Driver", () => {
       messages: [{ parts: [{ text: "inspect", type: "text" }, { mediaType: "image/png", type: "image", url: "https://assets.example/image.png" }], role: "user" }],
     }) as never)
 
-    expect(fetchMock).toHaveBeenCalledWith(new URL("https://assets.example/image.png"), { signal: undefined })
+    expect(fetchMock).toHaveBeenCalledWith(new URL("https://assets.example/image.png"), { redirect: "error", signal: undefined })
     expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
       attachments: [expect.objectContaining({ mimeType: "image/png", sizeBytes: 3, type: "image" })],
     }))
     vi.unstubAllGlobals()
     await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
+  it("does not follow provider attachment redirects", async () => {
+    const threadId = "thread-attachment-redirect"
+    runtime(threadId, [])
+    const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => {
+      expect(init?.redirect).toBe("error")
+      throw new TypeError("fetch failed: redirect mode is set to error")
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await expect(adapter.generate(context(threadId, {
+      messages: [{ parts: [{ text: "inspect", type: "text" }, { mediaType: "image/png", type: "image", url: "https://assets.example/redirect" }], role: "user" }],
+    }) as never)).rejects.toThrow("redirect mode is set to error")
+
+    vi.unstubAllGlobals()
   })
 
   it("does not replay historical approval and input responses on a resumed turn", async () => {

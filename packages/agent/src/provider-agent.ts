@@ -139,17 +139,24 @@ async function waitForProviderOperation<T>(
   }
 }
 
-async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key: string): Promise<() => void> {
+async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key: string, signal?: AbortSignal): Promise<() => void> {
   const previous = locks.get(key) || Promise.resolve()
   let release!: () => void
   const current = new Promise<void>(resolve => release = resolve)
   const tail = previous.then(() => current)
   locks.set(key, tail)
-  await previous
-  return () => {
+  const releaseLock = () => {
     release()
     if (locks.get(key) === tail) locks.delete(key)
   }
+  try {
+    await waitForProviderOperation(previous, signal)
+  }
+  catch (error) {
+    void previous.then(releaseLock)
+    throw error
+  }
+  return releaseLock
 }
 
 const emptyToolInputSchema = { additionalProperties: false, properties: {}, type: "object" } as const
@@ -431,7 +438,7 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number, signal?: 
   if (data === undefined && part.url) {
     const url = new URL(part.url)
     if (url.protocol !== "https:") throw new TypeError("[vitehub] Provider attachment URLs must use HTTPS.")
-    return await boundedResponseBytes(await fetch(url, { signal }), maxBytes)
+    return await boundedResponseBytes(await fetch(url, { redirect: "error", signal }), maxBytes)
   }
   if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data, fetchData(), or an HTTPS url.`)
   const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
@@ -614,12 +621,16 @@ async function* runProvider(
   context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
   effectiveSignal?.throwIfAborted()
   const sessionKey = context.runtime.run?.threadId
-  const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey) : undefined
-  if (effectiveSignal?.aborted) {
-    releaseSessionLock?.()
-    effectiveSignal.throwIfAborted()
+  const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
+  let root: string
+  try {
+    effectiveSignal?.throwIfAborted()
+    root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
   }
-  const root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
+  catch (error) {
+    releaseSessionLock?.()
+    throw error
+  }
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
