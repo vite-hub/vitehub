@@ -9452,13 +9452,13 @@ describe("server helpers", () => {
       const firstResponse = handler(await serialRequest(91_010, "A"), "telegram", { agentName: "support" })
       await firstStartedPromise
       await expect(handler(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
-      await expect(handler(await serialRequest(91_010, "A"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
-      const ignoredRequest = new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-        body: JSON.stringify({ update_id: 92_014 }),
+      const ignoredRequest = (updateId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({ update_id: updateId }),
         headers: { "content-type": "application/json" },
         method: "POST",
       })
-      await expect(handler(ignoredRequest, "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(ignoredRequest(92_010), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(ignoredRequest(92_014), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       const queuedDeliveries = await handler.deliveries(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })
       expect(queuedDeliveries.find(delivery => delivery.sourceId === "92011")?.status).toBe("queued")
       expect(queuedDeliveries.find(delivery => delivery.sourceId === "92010")?.status).not.toBe("completed")
