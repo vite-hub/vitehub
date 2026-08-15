@@ -453,6 +453,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (!await ensureCreated()) return false
         const claim = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, force))
         ownsRecord = claim === true
+        if (ownsRecord && finished) {
+          await boundedStoreOperation(() => store.release(recordId, claimId))
+          ownsRecord = false
+          stopHeartbeat()
+          return false
+        }
         if (ownsRecord) startHeartbeat()
         else stopHeartbeat()
         return ownsRecord

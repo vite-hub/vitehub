@@ -159,6 +159,35 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("releases a heartbeat claim completed after terminalization", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseClaim: (() => void) | undefined
+      const claim = vi.fn(async (...args: Parameters<typeof memory.claim>) => {
+        if (claim.mock.calls.length === 3) {
+          await new Promise<void>((resolve) => { releaseClaim = resolve })
+        }
+        return memory.claim(...args)
+      })
+      const invocations = defineAgentInvocations({ store: { ...memory, claim } })
+      const journal = await bindAgentInvocations(invocations, runtime("terminal-heartbeat"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      await journal.finish("completed")
+      releaseClaim?.()
+      await vi.advanceTimersByTimeAsync(0)
+
+      const record = await invocations.getByRunId("terminal-heartbeat")
+      expect(record && await memory.claim(record.id, "post-terminal", 30_000)).toBe(true)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("does not queue terminal writes behind stalled observations", async () => {
     vi.useFakeTimers()
     try {

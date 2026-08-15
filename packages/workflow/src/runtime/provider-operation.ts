@@ -28,7 +28,7 @@ export function isWorkflowBoundaryError(error: unknown): boolean {
   }
 }
 
-function getProviderStatus(error: unknown): number | undefined {
+export function getWorkflowProviderStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined
 
   try {
@@ -58,7 +58,7 @@ export async function runWorkflowProviderOperation<T>(
   catch (error) {
     if (isWorkflowBoundaryError(error)) throw error
 
-    const status = getProviderStatus(error)
+    const status = getWorkflowProviderStatus(error)
     const acknowledgement = options.acknowledgementUnknown?.(error, status) === true ? "unknown" : undefined
     throw createWorkflowError({
       cause: error,

@@ -1117,6 +1117,36 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("preserves a lost OpenWorkflow acknowledgement across a definite retry rejection", async () => {
+    const first = new Error("creation acknowledgement lost")
+    const retry = Object.assign(new Error("provider-secret:conflict"), { status: 409 })
+    const run = vi.fn().mockRejectedValueOnce(first).mockRejectedValueOnce(retry)
+    class RejectingOpenWorkflow {
+      defineWorkflow() {
+        return { run }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}, { id: "source-run" }), retry, {
+      acknowledgement: "unknown",
+      operation: "run",
+      provider: "openworkflow",
+      status: 409,
+    })
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
   it("recovers OpenWorkflow runs after a lost creation acknowledgement", async () => {
     const run = vi.fn()
       .mockRejectedValueOnce(new Error("creation acknowledgement lost"))
