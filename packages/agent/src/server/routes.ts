@@ -582,13 +582,12 @@ function requestHeaders(request: Request): Record<string, string> {
   return Object.fromEntries(request.headers.entries())
 }
 
-async function webhookDeliverySourceId(request: Request, provider: string, payload: unknown): Promise<string> {
+function webhookDeliverySourceId(request: Request, provider: string, payload: unknown): string {
   const header = request.headers.get("x-github-delivery") || request.headers.get("x-vitehub-delivery-id") || request.headers.get("idempotency-key")
   if (header) return header
   const source = agentChannelDeliverySourceId(provider, payload)
   if (source) return source
-  const fingerprint = await agentChannelDeliveryPayloadFingerprint(payload)
-  return fingerprint ? `payload:${fingerprint}` : randomToken()
+  return randomToken()
 }
 
 function channelDeliveryError(error: unknown): string {
@@ -4789,7 +4788,7 @@ export function createChannelWebhookRouteHandler(
           const response = toHttpErrorResponse(error)
           if (response?.status === 401 || response?.status === 403) return response
           const channelDelivery = await resolveChannelDelivery()
-          await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
+          if (!channelDelivery.duplicate) await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           if (response) return response
           throw error
         }

@@ -6040,7 +6040,7 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
-  it("keeps raw webhook retries on one payload-correlated delivery timeline", async () => {
+  it("keeps identical id-less raw webhooks as distinct admissions", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-raw-webhook-delivery-"))
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const { defineAgent } = await import("../src/index.ts")
@@ -6074,12 +6074,10 @@ describe("server helpers", () => {
       await handler(request(), "", options)
       const deliveries = await handler.deliveries(request(), "", options)
 
-      expect(deliveries).toHaveLength(1)
-      expect(deliveries[0]).toMatchObject({
-        provider: "github",
-        sourceId: expect.stringMatching(/^payload:/),
-      })
-      expect(deliveries[0]?.events.filter(event => event.type === "duplicate")).toHaveLength(1)
+      expect(deliveries).toHaveLength(2)
+      expect(deliveries.every(delivery => delivery.provider === "github")).toBe(true)
+      expect(new Set(deliveries.map(delivery => delivery.sourceId))).toHaveLength(2)
+      expect(deliveries.flatMap(delivery => delivery.events).filter(event => event.type === "duplicate")).toHaveLength(0)
     }
     finally {
       info.mockRestore()
