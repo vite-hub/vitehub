@@ -336,6 +336,7 @@ describe("Agent Invocations", () => {
   it("persists startedAt before a fast terminal transition", async () => {
     const memory = createMemoryAgentInvocationStore()
     let runningFailures = 1
+    const recoveryTasks: Array<Promise<unknown>> = []
     const invocations = defineAgentInvocations({
       store: {
         ...memory,
@@ -347,11 +348,17 @@ describe("Agent Invocations", () => {
     })
     const agent = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
 
-    await expect(runAgent(agent, runtime("fast-running-recovery"), {})).resolves.toBe("done")
-    await expect(invocations.getByRunId("fast-running-recovery")).resolves.toMatchObject({
+    await expect(runAgent(agent, {
+      ...runtime("fast-running-recovery"),
+      waitUntil: promise => recoveryTasks.push(promise),
+    }, {})).resolves.toBe("done")
+    await Promise.all(recoveryTasks)
+    const record = await invocations.getByRunId("fast-running-recovery")
+    expect(record).toMatchObject({
       startedAt: expect.any(String),
       status: "completed",
     })
+    expect(record && await memory.claim(record.id, "post-terminal", 30_000)).toBe(true)
   })
 
   it("normalizes limits while preserving opaque custom-store cursors", async () => {

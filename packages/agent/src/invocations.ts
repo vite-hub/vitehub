@@ -546,6 +546,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 const unref = (timer as unknown as { unref?: () => void }).unref
                 if (unref) unref.call(timer)
               })
+              if (finished) return
               if (await markRunning()) return
             }
           })()
