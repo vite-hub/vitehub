@@ -1,7 +1,7 @@
 export type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
 
 export interface CloudflareWorkflowBinding<TPayload = unknown> {
-  create: (options?: { id?: string, params?: TPayload }) => Promise<CloudflareWorkflowInstance>
+  createBatch: (batch: Array<{ id: string, params?: TPayload }>) => Promise<CloudflareWorkflowInstance[]>
   get: (id: string) => Promise<CloudflareWorkflowInstance>
 }
 
@@ -124,6 +124,7 @@ export interface WorkflowProviderStep {
     options: WorkflowStepOptions,
     run: () => TResult | Promise<TResult>,
   ) => Promise<TResult>
+  sleep?: (name: string, duration: string) => Promise<void>
 }
 
 export type WorkflowStepRunner<TSteps extends Record<string, WorkflowStepFunction> = Record<string, WorkflowStepFunction>> = {
@@ -196,6 +197,6 @@ export interface DiscoveredWorkflowDefinition {
   agentIdentity?: string
   handler: string
   name: string
-  source?: "agent-workflow" | "inline" | "server-workflows" | "vite-suffix"
+  source?: "agent-workflow" | "agent-workflow-recovery" | "inline" | "server-workflows" | "vite-suffix"
   steps?: string[]
 }

@@ -196,6 +196,7 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
         ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
       }, run)
     },
+    sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
   }
 }
 

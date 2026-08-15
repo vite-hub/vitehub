@@ -38,6 +38,57 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-store")).resolves.toBeUndefined()
   }, 10_000)
 
+  it("does not block trace appends on stalled observation writes", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        update: (id, input, claimId) => input.observation
+          ? new Promise(() => {})
+          : memory.update(id, input, claimId),
+      },
+    })
+    let appendDuration = Number.POSITIVE_INFINITY
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const startedAt = Date.now()
+        await context.traceLog?.append({ name: "custom", type: "run" })
+        appendDuration = Date.now() - startedAt
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime("stalled-observation"), {})).resolves.toBe("done")
+    expect(appendDuration).toBeLessThan(500)
+    await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
+  }, 5_000)
+
+  it("terminalizes records created after the store timeout", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let releaseCreate!: () => void
+    const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
+    const invocations = defineAgentInvocations({
+      store: {
+        ...memory,
+        async create(input) {
+          await createGate
+          return memory.create(input)
+        },
+      },
+    })
+    const run = vi.fn(() => "done")
+    const invocation = runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("late-create"), {})
+
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 2_000 })
+    releaseCreate()
+    await expect(invocation).resolves.toBe("done")
+    await vi.waitFor(async () => {
+      await expect(invocations.getByRunId("late-create")).resolves.toMatchObject({ status: "completed" })
+    }, { timeout: 2_500 })
+  }, 5_000)
+
   it("records safe lifecycle observations while keeping list rows bounded", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     let runtimeTraceId: string | undefined

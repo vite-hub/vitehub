@@ -637,7 +637,13 @@ type AgentDefinitionWithBaseResolve<
 }
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   capabilities?: Record<string, false>
-  input: AgentRunInput<CALL_OPTIONS>
+  input?: AgentRunInput<CALL_OPTIONS>
+  invocationRecovery?: {
+    agentName?: string
+    runId: string
+    sourceRunId: string
+    workflowName: string
+  }
   requestUrl?: string
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
@@ -713,6 +719,10 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
 
+function agentWorkflowRecoveryName(name: string): string {
+  return `vitehub-agent-invocation-recovery-${name}`
+}
+
 async function getAgentWorkflowHandle<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -721,6 +731,7 @@ async function getAgentWorkflowHandle<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   name: string,
   reuseRegistry: boolean,
+  recovery = false,
 ): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>> {
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
   const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
@@ -728,8 +739,18 @@ async function getAgentWorkflowHandle<
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
 
   const { createWorkflow } = await loadAgentWorkflowModule()
-  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await loadAgentWorkflowRuntimeStateModule()
-  const handle = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
+  const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  if (!registered && recovery) {
+    registerInlineWorkflowDefinition(name, {
+      handler: async (workflowContext) => {
+        const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
+        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
+      },
+      options: { rootStep: false },
+    })
+  }
+  const handle = registered || recovery
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name)
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
@@ -879,6 +900,31 @@ async function runAgentAsWorkflow<
       run: { ...context.run, runId: !options.fresh && context.run?.runId ? context.run.runId : run.id },
     }, { agentName: agent.name, deferClaim: true, terminalTakeover: true })
     : undefined
+  if (invocationJournal) {
+    const snapshot = agentInvocationSnapshotFromWorkflow(run)
+    if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+      await invocationJournal.finish(snapshot.status, snapshot.error)
+    }
+    else {
+      const sourceRunId = !options.fresh && context.run?.runId ? context.run.runId : run.id
+      const recoveryId = await portableAgentWorkflowRunId(`${run.id}-invocation-recovery`)
+      const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
+        agent,
+        agentWorkflowRecoveryName(handle.name),
+        Boolean(context.agentIdentity),
+        true,
+      )
+      context.waitUntil(recoveryHandle.defer({
+        invocationRecovery: {
+          ...(agent.name || context.agentIdentity?.name ? { agentName: agent.name || context.agentIdentity?.name } : {}),
+          runId: run.id,
+          sourceRunId,
+          workflowName: handle.name,
+        },
+        ...(context.trace ? { trace: context.trace } : {}),
+      }, run.provider === "vercel" ? {} : { id: recoveryId }).then(() => undefined, () => undefined))
+    }
+  }
   return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
 }
 
@@ -4164,27 +4210,6 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
   }
 }
 
-async function reconcileQueuedWorkflowJournal<CALL_OPTIONS, TOutput>(
-  started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
-): Promise<void> {
-  if (!started.invocationJournal) return
-  const deadline = Date.now() + 60_000
-  let run = started.run
-  while ((run.status === "queued" || run.status === "running" || run.status === "unknown") && Date.now() < deadline) {
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 1_000)
-      const unref = (timer as unknown as { unref?: () => void }).unref
-      if (unref) unref.call(timer)
-    })
-    try { run = await started.handle.getRun(run.id) as AgentWorkflowRun<TOutput> }
-    catch { continue }
-  }
-  const snapshot = agentInvocationSnapshotFromWorkflow(run)
-  if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
-    await started.invocationJournal.finish(snapshot.status, snapshot.error)
-  }
-}
-
 function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable" {
   return typeof error === "object"
     && error !== null
@@ -4267,7 +4292,6 @@ export async function startAgentInvocation<
     { fresh: true },
   )
   if (workflow) {
-    if (workflow.invocationJournal) context.waitUntil(reconcileQueuedWorkflowJournal(workflow))
     return createWorkflowAgentInvocationController(workflow, input.abortSignal)
   }
   return createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
@@ -4285,7 +4309,6 @@ export async function runAgent<
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflow) {
-    if (workflow.invocationJournal) context.waitUntil(reconcileQueuedWorkflowJournal(workflow))
     return workflow.run
   }
   if (input.context?.[requireAgentWorkflowContextKey] === true) {

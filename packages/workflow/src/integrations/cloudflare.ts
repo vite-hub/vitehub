@@ -53,12 +53,13 @@ export function createCloudflareWorkflowBindings(
   if (!definitions.length) {
     return undefined
   }
-  if (definitions.length > 1 && options && (options.binding || options.name)) {
+  const configurable = definitions.filter(definition => definition.source !== "agent-workflow-recovery")
+  if (configurable.length > 1 && options && (options.binding || options.name)) {
     throw new TypeError("Cloudflare workflow binding and name overrides are only supported when one workflow is discovered.")
   }
   return definitions.map(definition => ({
-    binding: definitions.length === 1 && options ? options.binding || getCloudflareWorkflowBindingName(definition.name) : getCloudflareWorkflowBindingName(definition.name),
+    binding: configurable.length === 1 && configurable[0] === definition && options ? options.binding || getCloudflareWorkflowBindingName(definition.name) : getCloudflareWorkflowBindingName(definition.name),
     class_name: getCloudflareWorkflowClassName(definition.name),
-    name: definitions.length === 1 && options ? options.name || getCloudflareWorkflowName(definition.name) : getCloudflareWorkflowName(definition.name),
+    name: configurable.length === 1 && configurable[0] === definition && options ? options.name || getCloudflareWorkflowName(definition.name) : getCloudflareWorkflowName(definition.name),
   }))
 }

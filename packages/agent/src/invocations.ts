@@ -135,8 +135,6 @@ async function boundedStoreOperation<T>(operation: () => MaybePromise<T>): Promi
       Promise.resolve().then(operation),
       new Promise<typeof storeOperationTimedOut>((resolve) => {
         timer = setTimeout(() => resolve(storeOperationTimedOut), STORE_OPERATION_TIMEOUT_MS)
-        const unref = (timer as unknown as { unref?: () => void }).unref
-        if (unref) unref.call(timer)
       }),
     ])
   }
@@ -360,7 +358,7 @@ function journalTraceLog(
         ...await createTraceEventLog().append(entry),
         sequence: ++sequence,
       }
-      await observe(safeEntry)
+      void observe(safeEntry)
       return entry
     },
     entries: () => traceLog.entries(),
@@ -387,7 +385,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let ownsRecord = false
       let observationCount = 0
       let created = false
-      let creationDisabled = false
+      let creationTimedOut = false
+      let creationTask: Promise<AgentInvocationStoreCreateResult | undefined> | undefined
       let runningPersisted = false
       let runningRequested = false
       let createInput: AgentInvocationStoreCreateInput
@@ -405,13 +404,29 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (unref) unref.call(heartbeat)
       }
       const ensureCreated = async (): Promise<boolean> => {
-        if (created || creationDisabled) return created
-        const result = await boundedStoreOperation(() => store.create(createInput))
-        if (result === storeOperationTimedOut) creationDisabled = true
-        else if (result) {
-          observationCount = result.record.observations.length
-          created = true
+        if (created || creationTimedOut) return created
+        if (!creationTask) {
+          const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
+            if (result) {
+              observationCount = result.record.observations.length
+              created = true
+            }
+            else if (creationTask === task) {
+              creationTask = undefined
+              creationTimedOut = false
+            }
+            return result
+          }, () => {
+            if (creationTask === task) {
+              creationTask = undefined
+              creationTimedOut = false
+            }
+            return undefined
+          })
+          creationTask = task
         }
+        const result = await boundedStoreOperation(() => creationTask!)
+        if (result === storeOperationTimedOut) creationTimedOut = true
         return created
       }
       const renew = async (force = false): Promise<boolean> => {

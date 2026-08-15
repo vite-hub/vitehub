@@ -43,9 +43,9 @@ describe("Workflow provider operation errors", () => {
 
   it("only carries explicit acknowledgement uncertainty across the provider boundary", async () => {
     const ambiguous = await runWorkflowProviderOperation("cloudflare", "create", async () => {
-      throw Object.assign(new Error("connection closed"), { acknowledgementUnknown: true })
+      throw new Error("connection closed")
     }, {
-      acknowledgementUnknown: error => (error as { acknowledgementUnknown?: unknown }).acknowledgementUnknown === true,
+      acknowledgementUnknown: () => true,
     }).catch(error => error)
     const deterministic = await runWorkflowProviderOperation("cloudflare", "create", async () => {
       throw new Error("instance already exists")

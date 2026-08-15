@@ -450,7 +450,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
     `    const agent = agentWithColocatedHome(agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))}), ${JSON.stringify(readAgentHome(definition.handler))})`,
-    `    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline) }`,
+    `    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", options: { rootStep: false }" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
     "  },",
@@ -458,7 +458,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
 }
 
 function renderWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
-  if (definition.source === "agent-workflow") {
+  if (definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery") {
     return renderAgentWorkflowRegistryEntry(registryFile, definition)
   }
 
@@ -507,7 +507,7 @@ function createWorkflowRegistryContents(
   const agentImportBase = importBases.agent ?? "@vite-hub/agent"
   const workflowImportBase = importBases.workflow ?? workflowPackageName
   const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
-  const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow")
+  const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
   const workspaceDependencyRuntimeImports = importBases.workspace ? importBases.workspaceDependencies : undefined
@@ -663,11 +663,18 @@ async function writeProviderEntries(
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir, serverDirs })
-  const providerDefinitions = definitions
+  const providerDefinitions = definitions.flatMap(definition => definition.source === "agent-workflow"
+    ? [definition, {
+        ...definition,
+        agentIdentity: definition.agentIdentity || definition.name,
+        name: `vitehub-agent-invocation-recovery-${definition.name}`,
+        source: "agent-workflow-recovery" as const,
+      }]
+    : [definition])
   const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(rootDir) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
-  const registryContents = createWorkflowRegistryContents(registryFile, definitions, importBases)
+  const registryContents = createWorkflowRegistryContents(registryFile, providerDefinitions, importBases)
   await writeFile(registryFile, transformRegistry ? await transformRegistry(registryContents, registryFile) : registryContents, "utf8")
 
   const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }

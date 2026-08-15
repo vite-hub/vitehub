@@ -48,6 +48,7 @@ function wrapCloudflareWorkflowStep(
         }
       })
     },
+    ...(step.sleep ? { sleep: step.sleep.bind(step) } : {}),
   }
 }
 

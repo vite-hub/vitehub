@@ -43,7 +43,9 @@ function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel"
 }
 
 function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string) {
-  const bindingName = binding || getCloudflareWorkflowBindingName(name)
+  const bindingName = name.startsWith("vitehub-agent-invocation-recovery-")
+    ? getCloudflareWorkflowBindingName(name)
+    : binding || getCloudflareWorkflowBindingName(name)
   return getCloudflareEnv(event)?.[bindingName] as CloudflareWorkflowBinding | undefined
 }
 
@@ -85,24 +87,18 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async run({ definition, event, id, name, options, payload }) {
       const binding = resolveCloudflareBinding(event, config.binding, name)
       if (binding) {
-        const start = runWorkflowProviderOperation(
+        const start = () => runWorkflowProviderOperation(
           "cloudflare",
           "create",
-          () => binding.create({ id, params: payload }),
-          {
-            acknowledgementUnknown: error => Boolean(
-              error
-              && typeof error === "object"
-              && "acknowledgementUnknown" in error
-              && (error as { acknowledgementUnknown?: unknown }).acknowledgementUnknown === true,
-            ),
-          },
+          async () => (await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id),
+          { acknowledgementUnknown: () => true },
         )
+        const creation = start().catch(() => start())
         const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined
         if (waitUntil) {
-          waitUntil(start)
+          waitUntil(creation)
         }
-        const instance = await start
+        const instance = await creation
         return {
           id: instance.id,
           metadata: await runWorkflowProviderOperation("cloudflare", "status", () => instance.status()),

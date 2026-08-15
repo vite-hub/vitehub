@@ -19,6 +19,7 @@ vi.mock("@vite-hub/workflow/runtime/state", () => ({
   getInlineWorkflowDefinitions: vi.fn(() => new Map()),
   getWorkflowRuntimeConfig: vi.fn(() => undefined),
   getWorkflowRuntimeRegistry: vi.fn(() => undefined),
+  registerInlineWorkflowDefinition: vi.fn(),
   runWithWorkflowRuntimeEvent: vi.fn((_event, callback) => callback()),
 }))
 
