@@ -643,7 +643,14 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
 }
 
 function providerDataEvent(event: ProviderRuntimeEvent): StreamEvent {
-  return { data: { kind: event.type, value: event.payload }, type: "data-agent-event" }
+  const payload = event.payload as Record<string, unknown>
+  const id = event.itemId
+    || (typeof payload.toolUseId === "string" ? payload.toolUseId : undefined)
+    || (typeof payload.taskId === "string" ? payload.taskId : undefined)
+    || event.requestId
+    || event.turnId
+    || event.eventId
+  return { data: { kind: event.type, value: event.payload }, id, type: "data-agent-event" }
 }
 
 const providerDataItemTypes = new Set(["user_message", "assistant_message", "reasoning", "plan", "review_entered", "review_exited", "context_compaction", "error", "unknown"])
@@ -727,9 +734,9 @@ function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): Strea
     case "turn.aborted":
       return [{ error: `Provider turn aborted${event.payload.reason ? `: ${event.payload.reason}` : "."}`, type: "error" }]
     case "turn.plan.updated":
-      return [{ data: event.payload, type: "data-agent-plan" }]
+      return [{ data: event.payload, id: event.turnId ? `plan:${event.turnId}` : undefined, type: "data-agent-plan" }]
     case "turn.diff.updated":
-      return [{ data: event.payload, type: "data-agent-diff" }]
+      return [{ data: event.payload, id: event.turnId ? `change:${event.turnId}` : undefined, type: "data-agent-diff" }]
     case "item.updated":
     case "tool.progress":
     case "tool.summary":

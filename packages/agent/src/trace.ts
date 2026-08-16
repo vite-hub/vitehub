@@ -128,6 +128,67 @@ function streamTitle(event: StreamEvent): string | undefined {
     : undefined
 }
 
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
+  if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
+  if (event.type === "data-agent-plan") {
+    return {
+      attributes: {
+        "step.id": event.id,
+        "vitehub.activity.body": event.data,
+        "vitehub.activity.kind": "plan",
+      },
+      name: "agent.plan.updated",
+      type: "run",
+    }
+  }
+  if (event.type === "data-agent-diff") {
+    const data = record(event.data)
+    return {
+      attributes: {
+        "step.id": event.id,
+        "vitehub.activity.body": data?.unifiedDiff ?? event.data,
+        "vitehub.activity.kind": "change",
+      },
+      name: "agent.change.updated",
+      type: "run",
+    }
+  }
+  if (event.type !== "data-agent-event") return
+  const data = record(event.data)
+  const kind = typeof data?.kind === "string" ? data.kind : undefined
+  const value = record(data?.value)
+  if (kind === "tool.progress" || kind === "tool.summary") {
+    return {
+      attributes: {
+        "step.id": event.id,
+        "tool.id": event.id,
+        "tool.name": value?.toolName,
+        "tool.output": value?.summary ?? data?.value,
+        "vitehub.activity.body": value?.summary,
+        "vitehub.activity.kind": "tool",
+      },
+      name: kind === "tool.progress" ? "agent.tool.progress" : "agent.tool.summary",
+      type: "run",
+    }
+  }
+  if (kind?.startsWith("task.")) {
+    return {
+      attributes: {
+        "step.id": event.id,
+        "vitehub.activity.body": data?.value,
+        "vitehub.activity.kind": "activity",
+        "vitehub.activity.name": kind,
+      },
+      name: `agent.${kind}`,
+      type: "run",
+    }
+  }
+}
+
 export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   event: TraceEvent,
@@ -212,6 +273,11 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
       name: "agent.title.recorded",
       type: "run",
     })
+    return
+  }
+  const dataEvent = dataTraceEvent(streamEvent)
+  if (dataEvent) {
+    await traceAgentEvent(context, dataEvent)
     return
   }
   const names = {
