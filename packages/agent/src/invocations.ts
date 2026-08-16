@@ -197,18 +197,19 @@ function normalizedTimestamp(value: Date | string): string {
 }
 
 function boundedObservationValue(value: unknown, depth = 0, maxStringLength = MAX_METADATA_STRING_LENGTH): unknown {
+  if (value === undefined) return undefined
   if (typeof value === "string") return value.slice(0, maxStringLength)
   if (value === null || typeof value === "boolean") return value
   if (typeof value === "number") return Number.isFinite(value) ? value : null
   if (typeof value === "bigint") return boundedString(String(value))
   if (depth >= MAX_OBSERVATION_DEPTH) return "[truncated]"
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).map(item => boundedObservationValue(item, depth + 1, maxStringLength))
+    return value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).map(item => item === undefined ? null : boundedObservationValue(item, depth + 1, maxStringLength))
   }
   if (!value || typeof value !== "object") return boundedString(String(value))
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
     .slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)
-    .map(([key, child]) => [boundedString(key), boundedObservationValue(child, depth + 1, maxStringLength)]))
+    .flatMap(([key, child]) => child === undefined ? [] : [[boundedString(key), boundedObservationValue(child, depth + 1, maxStringLength)]]))
 }
 
 function observationContentAttribute(key: string): boolean {
@@ -228,7 +229,7 @@ function boundedObservation(observation: TraceEventLogEntry): TraceEventLogEntry
   const attributes = observation.attributes
     ? Object.fromEntries(Object.entries(observation.attributes)
         .slice(0, MAX_OBSERVATION_ATTRIBUTES)
-        .map(([key, value]) => [boundedString(key), boundedObservationValue(value, 0, observationContentAttribute(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]))
+        .flatMap(([key, value]) => value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, 0, observationContentAttribute(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH)]]))
     : undefined
   return {
     ...observation,

@@ -298,6 +298,7 @@ describe("Agent Invocations", () => {
     expect(metadata?.observations[0]?.attributes).not.toHaveProperty("input.prompt")
     expect(metadata?.observations.at(-1)?.attributes).not.toHaveProperty("result.text")
     expect(stored?.observations[0]?.attributes?.["input.prompt"]).toBe("private prompt")
+    expect(stored?.observations[0]?.attributes).not.toHaveProperty("input.messages")
     expect(stored?.observations.at(-1)?.attributes?.["result.text"]).toBe("Reply to private prompt")
   })
 
